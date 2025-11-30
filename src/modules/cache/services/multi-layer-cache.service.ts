@@ -20,8 +20,7 @@ export class MultiLayerCacheService {
   private readonly l3Ttl: number;
 
   constructor(
-    @Inject(CACHE_MANAGER) private readonly l1Cache: Cache, // MemoryCache
-    @Inject(CACHE_MANAGER) private readonly l2Cache: Cache, // Redis (same instance, different keys)
+    @Inject(CACHE_MANAGER) private readonly cache: Cache, // Shared cache instance (Redis)
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
   ) {
@@ -51,9 +50,11 @@ export class MultiLayerCacheService {
     const l3Key = `l3:${key}`;
 
     // Try L1 (MemoryCache) - fastest
+    // Note: For now, we use Redis for both L1 and L2 with different TTLs
+    // In a true multi-layer setup, L1 would be in-memory, but we're using Redis for both
     if (!options?.skipL1) {
       try {
-        const l1Value = await this.l1Cache.get<T>(l1Key);
+        const l1Value = await this.cache.get<T>(l1Key);
         if (l1Value !== undefined && l1Value !== null) {
           this.logger.debug(`Cache hit L1: ${key}`);
           return l1Value;
@@ -66,11 +67,11 @@ export class MultiLayerCacheService {
     // Try L2 (Redis) - fast
     if (!options?.skipL2) {
       try {
-        const l2Value = await this.l2Cache.get<T>(l2Key);
+        const l2Value = await this.cache.get<T>(l2Key);
         if (l2Value !== undefined && l2Value !== null) {
           this.logger.debug(`Cache hit L2: ${key}`);
           // Promote to L1
-          await this.l1Cache.set(
+          await this.cache.set(
             l1Key,
             l2Value,
             options?.l1Ttl || this.l1Ttl,
@@ -89,12 +90,12 @@ export class MultiLayerCacheService {
         if (l3Value !== undefined && l3Value !== null) {
           this.logger.debug(`Cache hit L3: ${key}`);
           // Promote to L2 and L1
-          await this.l2Cache.set(
+          await this.cache.set(
             l2Key,
             l3Value,
             options?.l2Ttl || this.l2Ttl,
           );
-          await this.l1Cache.set(
+          await this.cache.set(
             l1Key,
             l3Value,
             options?.l1Ttl || this.l1Ttl,
@@ -112,8 +113,8 @@ export class MultiLayerCacheService {
 
     // Store in all layers
     await Promise.all([
-      this.l1Cache.set(l1Key, value, options?.l1Ttl || this.l1Ttl),
-      this.l2Cache.set(l2Key, value, options?.l2Ttl || this.l2Ttl),
+      this.cache.set(l1Key, value, options?.l1Ttl || this.l1Ttl),
+      this.cache.set(l2Key, value, options?.l2Ttl || this.l2Ttl),
       this.setL3(l3Key, value, options?.l3Ttl || this.l3Ttl),
     ]);
 
@@ -137,8 +138,8 @@ export class MultiLayerCacheService {
     const l3Key = `l3:${key}`;
 
     await Promise.all([
-      this.l1Cache.set(l1Key, value, options?.l1Ttl || this.l1Ttl),
-      this.l2Cache.set(l2Key, value, options?.l2Ttl || this.l2Ttl),
+      this.cache.set(l1Key, value, options?.l1Ttl || this.l1Ttl),
+      this.cache.set(l2Key, value, options?.l2Ttl || this.l2Ttl),
       this.setL3(l3Key, value, options?.l3Ttl || this.l3Ttl),
     ]);
   }
@@ -152,8 +153,8 @@ export class MultiLayerCacheService {
     const l3Key = `l3:${key}`;
 
     await Promise.all([
-      this.l1Cache.del(l1Key).catch(() => {}),
-      this.l2Cache.del(l2Key).catch(() => {}),
+      this.cache.del(l1Key).catch(() => {}),
+      this.cache.del(l2Key).catch(() => {}),
       this.deleteL3(l3Key).catch(() => {}),
     ]);
   }
