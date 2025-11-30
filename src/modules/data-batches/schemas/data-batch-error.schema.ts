@@ -3,7 +3,7 @@ import { Document } from 'mongoose';
 
 @Schema({ collection: 'DataBatchErrors', timestamps: true })
 export class DataBatchError extends Document {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   batchId: string;
 
   @Prop({ type: [String], default: [] })

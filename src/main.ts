@@ -77,11 +77,17 @@ async function bootstrap() {
     customCss: '.swagger-ui .topbar { display: none }',
   });
 
+  // Redirect root path to Swagger docs
+  app.getHttpAdapter().get('/', (req: any, res: any) => {
+    res.redirect('/api-docs');
+  });
+
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
 
   logger.log(`🚀 Application is running on: http://localhost:${port}`, 'Bootstrap');
   logger.log(`📚 API Documentation: http://localhost:${port}/api-docs`, 'Bootstrap');
+  logger.log(`🔗 Root URL redirects to: http://localhost:${port}/api-docs`, 'Bootstrap');
 }
 
 bootstrap();

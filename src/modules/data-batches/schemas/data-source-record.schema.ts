@@ -3,7 +3,7 @@ import { Document } from 'mongoose';
 
 @Schema({ collection: 'DataSourceRecords', timestamps: true })
 export class DataSourceRecord extends Document {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   batchId: string;
 
   @Prop({ type: Object, required: true })
