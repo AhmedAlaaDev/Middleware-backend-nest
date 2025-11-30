@@ -1,8 +1,8 @@
 import { IEntryProcessor, RawDataModel, DynDataModel } from '../../interfaces/entry-processor.interface';
-import { EntryProcessorTypes } from '../../../../data-batches/schemas/data-batch.schema';
-import { D365FODataService } from '../../../../d365fo/services/d365fo-data.service';
-import { MasterDataService } from '../../../../master-data/services/master-data.service';
-import { PrismaService } from '../../../../database/services/prisma.service';
+import { EntryProcessorTypes } from '../../../data-batches/schemas/data-batch.schema';
+import { D365FODataService } from '../../../d365fo/services/d365fo-data.service';
+import { MasterDataService } from '../../../master-data/services/master-data.service';
+import { PrismaService } from '../../../database/services/prisma.service';
 import { AccountDimensionsModel } from '../../models/account-dimensions.model';
 import { AccountReceivableFileModel } from '../../models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '../../models/dyn-account-receivable-line.dto';
@@ -48,60 +48,60 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     if (!dimensionString || !dimensionString.trim()) {
       return {
-        mainAccount: null,
-        costCenter: null,
-        activityName: null,
-        businessUnit: null,
-        location: null,
-        customer: null,
-        subCustomer: null,
-        vendor: null,
-        subVendor: null,
-        chargeType: null,
-        salesMan: null,
-        coordinatorMan: null,
+        mainAccount: undefined,
+        costCenter: undefined,
+        activityName: undefined,
+        businessUnit: undefined,
+        location: undefined,
+        customer: undefined,
+        subCustomer: undefined,
+        vendor: undefined,
+        subVendor: undefined,
+        chargeType: undefined,
+        salesMan: undefined,
+        coordinatorMan: undefined,
         freightType: 'Payable',
-        truckerType: null,
-        truckNumber: null,
-        direction: null,
-        worker: null,
-        fixedAsset: null,
-        lease: null,
+        truckerType: undefined,
+        truckNumber: undefined,
+        direction: undefined,
+        worker: undefined,
+        fixedAsset: undefined,
+        lease: undefined,
       };
     }
 
     const parts = dimensionString.split('|');
 
     return {
-      mainAccount: parts.length > 0 ? capitalizeFirst(parts[0])?.trim() : null,
-      costCenter: parts.length > 1 ? capitalizeFirst(parts[1])?.trim() : null,
-      activityName: parts.length > 2 ? capitalizeFirst(parts[2])?.trim() : null,
-      businessUnit: parts.length > 3 ? capitalizeFirst(parts[3])?.trim() : null,
+      mainAccount: parts.length > 0 ? capitalizeFirst(parts[0])?.trim() : undefined,
+      costCenter: parts.length > 1 ? capitalizeFirst(parts[1])?.trim() : undefined,
+      activityName: parts.length > 2 ? capitalizeFirst(parts[2])?.trim() : undefined,
+      businessUnit: parts.length > 3 ? capitalizeFirst(parts[3])?.trim() : undefined,
       location:
         parts.length > 4
           ? parts[4].toLowerCase().includes('cai')
             ? '002'
             : parts[4].trim()
-          : null,
-      customer: parts.length > 5 ? capitalizeFirst(parts[5])?.trim() : null,
-      subCustomer: parts.length > 6 ? capitalizeFirst(parts[6])?.trim() : null,
-      vendor: parts.length > 7 ? capitalizeFirst(parts[7])?.trim() : null,
-      subVendor: parts.length > 8 ? capitalizeFirst(parts[8])?.trim() : null,
-      chargeType: parts.length > 9 ? capitalizeFirst(parts[9])?.trim() : null,
-      salesMan: parts.length > 10 ? capitalizeFirst(parts[10])?.trim() : null,
+          : undefined,
+      customer: parts.length > 5 ? capitalizeFirst(parts[5])?.trim() : undefined,
+      subCustomer: parts.length > 6 ? capitalizeFirst(parts[6])?.trim() : undefined,
+      vendor: parts.length > 7 ? capitalizeFirst(parts[7])?.trim() : undefined,
+      subVendor: parts.length > 8 ? capitalizeFirst(parts[8])?.trim() : undefined,
+      chargeType: parts.length > 9 ? capitalizeFirst(parts[9])?.trim() : undefined,
+      salesMan: parts.length > 10 ? capitalizeFirst(parts[10])?.trim() : undefined,
       coordinatorMan:
-        parts.length > 11 ? capitalizeFirst(parts[11])?.trim() : null,
+        parts.length > 11 ? capitalizeFirst(parts[11])?.trim() : undefined,
       freightType:
         parts.length > 12 && capitalizeFirst(parts[12])?.trim()
           ? capitalizeFirst(parts[12])?.trim() || 'Payable'
           : 'Payable',
       truckerType:
-        parts.length > 13 ? capitalizeFirst(parts[13])?.trim() : null,
-      truckNumber: parts.length > 14 ? capitalizeFirst(parts[14])?.trim() : null,
-      direction: parts.length > 15 ? capitalizeFirst(parts[15])?.trim() : null,
-      worker: parts.length > 16 ? capitalizeFirst(parts[16])?.trim() : null,
-      fixedAsset: parts.length > 17 ? capitalizeFirst(parts[17])?.trim() : null,
-      lease: parts.length > 18 ? capitalizeFirst(parts[18])?.trim() : null,
+        parts.length > 13 ? capitalizeFirst(parts[13])?.trim() : undefined,
+      truckNumber: parts.length > 14 ? capitalizeFirst(parts[14])?.trim() : undefined,
+      direction: parts.length > 15 ? capitalizeFirst(parts[15])?.trim() : undefined,
+      worker: parts.length > 16 ? capitalizeFirst(parts[16])?.trim() : undefined,
+      fixedAsset: parts.length > 17 ? capitalizeFirst(parts[17])?.trim() : undefined,
+      lease: parts.length > 18 ? capitalizeFirst(parts[18])?.trim() : undefined,
     };
   }
 
@@ -174,7 +174,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
     line.lineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
     line.dueDate = custLine.DUEDATE;
-    line.cashDiscountCode = null;
+    line.cashDiscountCode = undefined;
     line.cashDiscountDate = custLine.CASHDISCOUNTDATE;
     line.customerReference = custLine.getFormattedInvoiceNumber();
     line.eInvoiceIsLineSpecific = 'No';

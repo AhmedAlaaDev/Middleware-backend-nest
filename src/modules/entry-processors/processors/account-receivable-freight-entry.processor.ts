@@ -100,13 +100,13 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
           );
 
           // Apply account mapping if needed
-          const matchingAccount = accounts.find((a) =>
+          const matchingAccount = accounts.find((a: any) =>
             a.customerAccount
               ?.toLowerCase()
               .includes(accountDimensions.customer?.toLowerCase() || ''),
           );
           if (matchingAccount && accountDimensions.subCustomer) {
-            const mappingAccount = accounts.find((a) =>
+            const mappingAccount = accounts.find((a: any) =>
               a.customerAccount
                 ?.toLowerCase()
                 .includes(accountDimensions.subCustomer?.toLowerCase() || ''),
@@ -120,7 +120,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
             accountDimensions,
           );
 
-          const billingCode = billingCodes.find((bc) =>
+          const billingCode = billingCodes.find((bc: any) =>
             bc.BillingCode?.toLowerCase().includes(
               accountDimensions.chargeType?.toLowerCase() || '',
             ),
@@ -176,7 +176,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     for (const arLine of arData) {
       this.validateMainAccount(
         arLine,
-        accounts.map((a) => ({ accountNumber: a.accountNumber })),
+        accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
       );
       this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
       this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
