@@ -4,6 +4,8 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import compression from 'compression';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -11,8 +13,13 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { WinstonLoggerService } from './common/logger/winston-logger.service';
 
 async function bootstrap() {
+  // Read HTTPS config from environment before creating app
+  const enableHttps = process.env.HTTPS_ENABLED === 'true';
+  const httpsOptions = enableHttps ? await getHttpsOptions() : null;
+  
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
+    httpsOptions: httpsOptions || undefined,
   });
 
   const configService = app.get(ConfigService);
@@ -83,11 +90,31 @@ async function bootstrap() {
   });
 
   const port = configService.get<number>('PORT', 3000);
+  const protocol = httpsOptions ? 'https' : 'http';
   await app.listen(port);
 
-  logger.log(`🚀 Application is running on: http://localhost:${port}`, 'Bootstrap');
-  logger.log(`📚 API Documentation: http://localhost:${port}/api-docs`, 'Bootstrap');
-  logger.log(`🔗 Root URL redirects to: http://localhost:${port}/api-docs`, 'Bootstrap');
+  logger.log(`🚀 Application is running on: ${protocol}://localhost:${port}`, 'Bootstrap');
+  logger.log(`📚 API Documentation: ${protocol}://localhost:${port}/api-docs`, 'Bootstrap');
+  logger.log(`🔗 Root URL redirects to: ${protocol}://localhost:${port}/api-docs`, 'Bootstrap');
+}
+
+async function getHttpsOptions(): Promise<{ key: Buffer; cert: Buffer } | null> {
+  const keyPath = process.env.HTTPS_KEY_PATH || 'certs/key.pem';
+  const certPath = process.env.HTTPS_CERT_PATH || 'certs/cert.pem';
+
+  try {
+    const key = fs.readFileSync(path.resolve(keyPath));
+    const cert = fs.readFileSync(path.resolve(certPath));
+    
+    return { key, cert };
+  } catch (error) {
+    console.warn('⚠️  HTTPS certificates not found. Falling back to HTTP.');
+    console.warn(`   Key path: ${keyPath}`);
+    console.warn(`   Cert path: ${certPath}`);
+    console.warn('   Set HTTPS_ENABLED=false or provide valid certificate paths.');
+    console.warn('   Run: .\scripts\generate-ssl-cert.ps1 to generate self-signed certificates.');
+    return null;
+  }
 }
 
 bootstrap();

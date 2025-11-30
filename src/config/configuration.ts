@@ -97,6 +97,13 @@ export const configuration = () => ({
     maxRedirects: parseInt(process.env.HTTP_MAX_REDIRECTS || '5', 10),
   },
 
+  // HTTPS Configuration
+  https: {
+    enabled: process.env.HTTPS_ENABLED === 'true',
+    keyPath: process.env.HTTPS_KEY_PATH || 'certs/key.pem',
+    certPath: process.env.HTTPS_CERT_PATH || 'certs/cert.pem',
+  },
+
   // Logging
   logging: {
     level: process.env.LOG_LEVEL || 'info',

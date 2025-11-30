@@ -46,3 +46,10 @@ lerna-debug.log*
 *.tmp
 *.temp
 
+# SSL Certificates (development only)
+/certs
+*.pem
+*.key
+*.crt
+*.csr
+
