@@ -239,6 +239,39 @@ export class MasterDataService implements OnModuleInit {
   }
 
   /**
+   * Get all main accounts across all charts (cached)
+   */
+  async getAllMainAccounts(): Promise<MainAccount[]> {
+    return this.cache.get(
+      'master-data:main-accounts:all',
+      async () => {
+        const accounts = await this.prisma.mainAccount.findMany();
+
+        return accounts.map((a: any) => ({
+          id: a.id,
+          chartNumber: a.chartNumber,
+          accountNumber: a.accountNumber,
+        }));
+      },
+      {
+        l1Ttl: 300000,
+        l2Ttl: 1800000,
+        l3Ttl: 7200000,
+      },
+    );
+  }
+
+  /**
+   * Get financial dimension values as string array by dimension key (cached)
+   */
+  async getFinancialDimensionValues(
+    financialKey: string,
+  ): Promise<string[]> {
+    const dimensionValues = await this.getDimensionValues(financialKey);
+    return dimensionValues.map((dv) => dv.value);
+  }
+
+  /**
    * Invalidate cache for master data
    */
   async invalidateCache(): Promise<void> {

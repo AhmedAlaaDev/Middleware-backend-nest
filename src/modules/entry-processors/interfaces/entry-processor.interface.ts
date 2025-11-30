@@ -10,6 +10,7 @@ export interface DynDataModel {
   dimensionModel?: any;
   sourceIds: string[];
   getErrors(): string[];
+  addError(property: string, message: string): void;
   [key: string]: any;
 }
 

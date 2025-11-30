@@ -1,12 +1,20 @@
 import { IEntryProcessor, RawDataModel, DynDataModel } from '../../interfaces/entry-processor.interface';
-import { EntryProcessorTypes } from '../../../data-batches/schemas/data-batch.schema';
-import { D365FODataService } from '../../../d365fo/services/d365fo-data.service';
-import { MasterDataService } from '../../../master-data/services/master-data.service';
-import { PrismaService } from '../../../database/services/prisma.service';
+import { EntryProcessorTypes } from '../../../../data-batches/schemas/data-batch.schema';
+import { D365FODataService } from '../../../../d365fo/services/d365fo-data.service';
+import { MasterDataService } from '../../../../master-data/services/master-data.service';
+import { PrismaService } from '../../../../database/services/prisma.service';
+import { AccountDimensionsModel } from '../../models/account-dimensions.model';
+import { AccountReceivableFileModel } from '../../models/account-receivable-file.model';
+import { DynAccountReceivableLineDto } from '../../models/dyn-account-receivable-line.dto';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
   abstract readonly requiredDimensions: string[];
+
+  protected billingClassifications: Map<
+    string,
+    Array<{ BillingCode: string }>
+  > = new Map();
 
   constructor(
     protected readonly d365FODataService: D365FODataService,
@@ -31,7 +39,546 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     company: string,
   ): Promise<void>;
 
-  abstract parseToDimensions(dimensionString: string): any;
-  abstract convertToStringDimensions(dimensionsModel: any): string;
-}
+  parseToDimensions(dimensionString: string): AccountDimensionsModel {
+    const capitalizeFirst = (input: string | null | undefined): string => {
+      if (!input) return input || '';
+      const lower = input.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    };
 
+    if (!dimensionString || !dimensionString.trim()) {
+      return {
+        mainAccount: null,
+        costCenter: null,
+        activityName: null,
+        businessUnit: null,
+        location: null,
+        customer: null,
+        subCustomer: null,
+        vendor: null,
+        subVendor: null,
+        chargeType: null,
+        salesMan: null,
+        coordinatorMan: null,
+        freightType: 'Payable',
+        truckerType: null,
+        truckNumber: null,
+        direction: null,
+        worker: null,
+        fixedAsset: null,
+        lease: null,
+      };
+    }
+
+    const parts = dimensionString.split('|');
+
+    return {
+      mainAccount: parts.length > 0 ? capitalizeFirst(parts[0])?.trim() : null,
+      costCenter: parts.length > 1 ? capitalizeFirst(parts[1])?.trim() : null,
+      activityName: parts.length > 2 ? capitalizeFirst(parts[2])?.trim() : null,
+      businessUnit: parts.length > 3 ? capitalizeFirst(parts[3])?.trim() : null,
+      location:
+        parts.length > 4
+          ? parts[4].toLowerCase().includes('cai')
+            ? '002'
+            : parts[4].trim()
+          : null,
+      customer: parts.length > 5 ? capitalizeFirst(parts[5])?.trim() : null,
+      subCustomer: parts.length > 6 ? capitalizeFirst(parts[6])?.trim() : null,
+      vendor: parts.length > 7 ? capitalizeFirst(parts[7])?.trim() : null,
+      subVendor: parts.length > 8 ? capitalizeFirst(parts[8])?.trim() : null,
+      chargeType: parts.length > 9 ? capitalizeFirst(parts[9])?.trim() : null,
+      salesMan: parts.length > 10 ? capitalizeFirst(parts[10])?.trim() : null,
+      coordinatorMan:
+        parts.length > 11 ? capitalizeFirst(parts[11])?.trim() : null,
+      freightType:
+        parts.length > 12 && capitalizeFirst(parts[12])?.trim()
+          ? capitalizeFirst(parts[12])?.trim() || 'Payable'
+          : 'Payable',
+      truckerType:
+        parts.length > 13 ? capitalizeFirst(parts[13])?.trim() : null,
+      truckNumber: parts.length > 14 ? capitalizeFirst(parts[14])?.trim() : null,
+      direction: parts.length > 15 ? capitalizeFirst(parts[15])?.trim() : null,
+      worker: parts.length > 16 ? capitalizeFirst(parts[16])?.trim() : null,
+      fixedAsset: parts.length > 17 ? capitalizeFirst(parts[17])?.trim() : null,
+      lease: parts.length > 18 ? capitalizeFirst(parts[18])?.trim() : null,
+    };
+  }
+
+  convertToStringDimensions(dimensionsModel: AccountDimensionsModel | null): string {
+    if (!dimensionsModel) {
+      return '';
+    }
+
+    const parts = [
+      dimensionsModel.mainAccount,
+      dimensionsModel.costCenter,
+      dimensionsModel.activityName,
+      dimensionsModel.businessUnit,
+      dimensionsModel.location === '002' ? 'cai' : dimensionsModel.location,
+      dimensionsModel.customer,
+      dimensionsModel.subCustomer,
+      dimensionsModel.vendor,
+      dimensionsModel.subVendor,
+      dimensionsModel.chargeType,
+      dimensionsModel.salesMan,
+      dimensionsModel.coordinatorMan,
+      dimensionsModel.freightType || 'Payable',
+      dimensionsModel.truckerType,
+      dimensionsModel.truckNumber,
+      dimensionsModel.direction,
+      dimensionsModel.worker,
+      dimensionsModel.fixedAsset,
+      dimensionsModel.lease,
+    ];
+
+    return parts.map((p) => (p?.trim() || '')).join('|');
+  }
+
+  protected prepareAccountReceivableLine(
+    lineNumber: number,
+    dimensions: AccountDimensionsModel,
+    custLine: AccountReceivableFileModel,
+    ledgerLine: AccountReceivableFileModel,
+    billingCode: { BillingCode: string } | null,
+    billingClassId: string,
+  ): DynAccountReceivableLineDto {
+    const termsOfPaymentDays =
+      custLine.DUEDATE && custLine.TRANSDATE
+        ? Math.ceil(
+            (custLine.DUEDATE.getTime() - custLine.TRANSDATE.getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
+        : 0;
+
+    const line = new DynAccountReceivableLineDto();
+    line.sourceIds = [custLine.UniqueId.toString()];
+    line.uniqueId = custLine.UniqueId;
+    line.customId = custLine.UniqueId;
+    line.lineNumber = lineNumber;
+    line.freeTextNumber = custLine.getFormattedInvoiceNumber();
+    line.documentDate = custLine.TRANSDATE;
+    line.customerAccount = dimensions.subCustomer || '';
+    line.headerDefaultDimensionDisplayValue =
+      custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
+    line.headerFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
+    line.invoiceTxt = dimensions.chargeType || '';
+    line.description = custLine.TEXT || '';
+    line.quantity = 1;
+    line.unitPrice = ledgerLine.CREDITAMOUNT;
+    line.amountCur = ledgerLine.CREDITAMOUNT;
+    line.currencyCode = ledgerLine.CURRENCYCODE || '';
+    line.salesTaxGroup = ledgerLine.getTaxGroup();
+    line.salesTaxItemGroup = ledgerLine.getTaxGroupItem();
+    line.defaultDimensionDisplayValue =
+      custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
+    line.lineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
+    line.dueDate = custLine.DUEDATE;
+    line.cashDiscountCode = null;
+    line.cashDiscountDate = custLine.CASHDISCOUNTDATE;
+    line.customerReference = custLine.getFormattedInvoiceNumber();
+    line.eInvoiceIsLineSpecific = 'No';
+    line.inclTax = 'Yes';
+    line.invoiceAccount = dimensions.customer || '';
+    line.invoiceDate = custLine.TRANSDATE;
+    line.ledgerDimensionDisplayValue = dimensions.mainAccount || '';
+    line.overrideSalesTax = 'No';
+    line.postingProfile = 'Cust-PP';
+    line.termsOfPayment = `${termsOfPaymentDays} Days`;
+    line.dimensionModel = dimensions;
+    line.billingClassification = billingClassId;
+
+    if (billingCode) {
+      line.billingCode = billingCode.BillingCode;
+    } else {
+      line.addError(
+        'BillingCode',
+        `Could not found a billing code related to this charge type ${dimensions.chargeType}`,
+      );
+    }
+
+    return line;
+  }
+
+  protected validateMainAccount(
+    ar: DynDataModel,
+    accounts: Array<{ accountNumber: string }>,
+  ): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (!dimensionsModel?.mainAccount) {
+      ar.addError('MainAccount', 'Main Account is required');
+      return;
+    }
+    if (
+      !accounts.some((a) =>
+        a.accountNumber
+          .toLowerCase()
+          .includes(dimensionsModel.mainAccount?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'MainAccount',
+        `The main account ${dimensionsModel.mainAccount} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateCustomerDimension(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.customer ||
+      dimensionsModel.customer === '000' ||
+      dimensionsModel.customer.toLowerCase() === '000'
+    ) {
+      ar.addError('CustomerDimensions', 'Customer is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.customer?.trim().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'CustomerDimensions',
+        `The dimension ${dimensionsModel.customer} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateSubCustomerDimension(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.subCustomer ||
+      dimensionsModel.subCustomer === '000' ||
+      dimensionsModel.subCustomer.toLowerCase() === '000'
+    ) {
+      ar.addError('SubCustomerDimensions', 'SubCustomer is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d
+          .toLowerCase()
+          .includes(dimensionsModel.subCustomer?.trimEnd().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'SubCustomerDimensions',
+        `The dimension ${dimensionsModel.subCustomer} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateChargeTypeDimension(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.chargeType ||
+      dimensionsModel.chargeType === '000' ||
+      dimensionsModel.chargeType.toLowerCase() === '000'
+    ) {
+      ar.addError('ChargeTypeDimensions', 'ChargeType is required');
+      return;
+    }
+    const normalizedChargeType = dimensionsModel.chargeType?.toLowerCase() || '';
+    if (
+      !dimensions.some((d) => {
+        const normalizedDim = d
+          .toLowerCase()
+          .replace('-of', '')
+          .replace('-or', '');
+        return normalizedDim === normalizedChargeType;
+      })
+    ) {
+      ar.addError(
+        'ChargeTypeDimensions',
+        `The dimension ${dimensionsModel.chargeType} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateActivityName(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.activityName ||
+      dimensionsModel.activityName === '000' ||
+      dimensionsModel.activityName.toLowerCase() === '000'
+    ) {
+      ar.addError('ActivityNameDimensions', 'ActivityName is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d
+          .toLowerCase()
+          .includes(dimensionsModel.activityName?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'ActivityNameDimensions',
+        `The dimension ${dimensionsModel.activityName} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateCostCenter(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.costCenter ||
+      dimensionsModel.costCenter === '000' ||
+      dimensionsModel.costCenter.toLowerCase() === '000'
+    ) {
+      ar.addError('CostCenterDimensions', 'CostCenter is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.costCenter?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'CostCenterDimensions',
+        `The dimension ${dimensionsModel.costCenter} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateBusinessUnit(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.businessUnit ||
+      dimensionsModel.businessUnit === '000' ||
+      dimensionsModel.businessUnit.toLowerCase() === '000'
+    ) {
+      ar.addError('BusinessUnitDimensions', 'BusinessUnit is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.businessUnit?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'BusinessUnitDimensions',
+        `The dimension ${dimensionsModel.businessUnit} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateLocation(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.location ||
+      dimensionsModel.location === '000' ||
+      dimensionsModel.location.toLowerCase() === '000'
+    ) {
+      ar.addError('LocationDimensions', 'Location is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.location?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'LocationDimensions',
+        `The dimension ${dimensionsModel.location} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateFreightType(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.freightType ||
+      dimensionsModel.freightType === '000' ||
+      dimensionsModel.freightType.toLowerCase() === '000'
+    ) {
+      ar.addError('FreightTypeDimensions', 'FreightType is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.freightType?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'FreightTypeDimensions',
+        `The dimension ${dimensionsModel.freightType} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateSalesMan(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.salesMan ||
+      dimensionsModel.salesMan === '000' ||
+      dimensionsModel.salesMan.toLowerCase() === '000'
+    ) {
+      ar.addError('SalesManDimensions', 'SalesMan is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.salesMan?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'SalesManDimensions',
+        `The dimension ${dimensionsModel.salesMan} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateTruckerType(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.truckerType ||
+      dimensionsModel.truckerType === '000' ||
+      dimensionsModel.truckerType.toLowerCase() === '000'
+    ) {
+      ar.addError('TruckerTypeDimensions', 'TruckerType is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.truckerType?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'TruckerTypeDimensions',
+        `The dimension ${dimensionsModel.truckerType} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateTruckNumber(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.truckNumber ||
+      dimensionsModel.truckNumber === '000' ||
+      dimensionsModel.truckNumber.toLowerCase() === '000'
+    ) {
+      ar.addError('TruckNumberDimensions', 'TruckNumber is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.truckNumber?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'TruckNumberDimensions',
+        `The dimension ${dimensionsModel.truckNumber} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateDirection(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.direction ||
+      dimensionsModel.direction === '000' ||
+      dimensionsModel.direction.toLowerCase() === '000'
+    ) {
+      ar.addError('DirectionDimensions', 'Direction is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.direction?.toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'DirectionDimensions',
+        `The dimension ${dimensionsModel.direction} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateCoordinatorMan(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.coordinatorMan ||
+      dimensionsModel.coordinatorMan === '000' ||
+      dimensionsModel.coordinatorMan.toLowerCase() === '000'
+    ) {
+      ar.addError('CoordinatorManDimensions', 'CoordinatorMan is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d
+          .toLowerCase()
+          .includes(dimensionsModel.coordinatorMan?.trim().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'CoordinatorManDimensions',
+        `The dimension ${dimensionsModel.coordinatorMan} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateVendor(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.vendor ||
+      dimensionsModel.vendor === '000' ||
+      dimensionsModel.vendor.toLowerCase() === '000'
+    ) {
+      ar.addError('VendorDimensions', 'Vendor is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.vendor?.trim().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'VendorDimensions',
+        `The dimension ${dimensionsModel.vendor} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateSubVendor(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (
+      !dimensionsModel?.subVendor ||
+      dimensionsModel.subVendor === '000' ||
+      dimensionsModel.subVendor.toLowerCase() === '000'
+    ) {
+      ar.addError('SubVendorDimensions', 'SubVendor is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.subVendor?.trim().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'SubVendorDimensions',
+        `The dimension ${dimensionsModel.subVendor} does not exist in the system.`,
+      );
+    }
+  }
+
+  protected validateWorker(ar: DynDataModel, dimensions: string[]): void {
+    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    if (!dimensionsModel?.worker) {
+      ar.addError('WorkerDimensions', 'Worker is required');
+      return;
+    }
+    if (
+      !dimensions.some((d) =>
+        d.toLowerCase().includes(dimensionsModel.worker?.trim().toLowerCase() || ''),
+      )
+    ) {
+      ar.addError(
+        'WorkerDimensions',
+        `The dimension ${dimensionsModel.worker} does not exist in the system.`,
+      );
+    }
+  }
+}
