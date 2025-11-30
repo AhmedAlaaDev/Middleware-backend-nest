@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mg_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: sp3awi
+      POSTGRES_DB: MGD365FOMiddlewareDB
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mg_network
+
+  mongodb:
+    image: mongo:6
+    container_name: mg_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - mg_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mg_redis
+    restart: always
+    command: ["redis-server", "--requirepass", ""]
+    ports:
+      - "6379:6379"
+    networks:
+      - mg_network
+
+volumes:
+  postgres_data:
+  mongo_data:
+
+networks:
+  mg_network:

@@ -1,9 +1,19 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@/generated/prisma/client';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
+
 import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(PrismaService.name);
 
   constructor(private readonly configService: ConfigService) {
@@ -37,17 +47,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       databaseUrl = `postgresql://${username}:${encodedPassword}@${host}:${port}/${database}?schema=public`;
     }
 
+    const adapter = new PrismaPg({ connectionString: databaseUrl });
+
     super({
-      datasources: {
-        db: {
-          url: databaseUrl,
-        },
-      },
-      log:
-        configService.get<boolean>('DATABASE_LOGGING', false) ||
-        configService.get<boolean>('database.logging', false)
-          ? ['query', 'info', 'warn', 'error']
-          : ['error'],
+      adapter,
     });
   }
 
@@ -69,8 +72,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   /**
    * Helper method to execute raw SQL queries when needed
    */
-  async executeRaw<T = unknown>(query: string, ...params: unknown[]): Promise<T> {
+  async executeRaw<T = unknown>(
+    query: string,
+    ...params: unknown[]
+  ): Promise<T> {
     return this.$queryRawUnsafe(query, ...params) as Promise<T>;
   }
 }
-

@@ -1,23 +1,27 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat    = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Cache entries table for L3 cache
 model CacheEntry {
-  id         String   @id @default(uuid())
-  key        String   @unique
-  value      String   @db.Text
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   @db.Text
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([expiresAt])
   @@map("cache_entries")
@@ -39,11 +43,11 @@ model AppSetting {
 
 // Chart of Accounts
 model ChartOfAccount {
-  id          String       @id @default(uuid())
-  chartNumber String       @unique @map("chart_number")
+  id          String        @id @default(uuid())
+  chartNumber String        @unique @map("chart_number")
   accounts    MainAccount[]
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
 
   @@map("chart_of_accounts")
 }
@@ -64,24 +68,24 @@ model MainAccount {
 
 // Financial Dimensions
 model FinancialDimension {
-  id              String                   @id @default(uuid())
-  financialKey    String                   @unique @map("financial_key")
+  id              String                    @id @default(uuid())
+  financialKey    String                    @unique @map("financial_key")
   dimensionValues FinancialDimensionValue[]
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
 
   @@map("financial_dimensions")
 }
 
 // Financial Dimension Values
 model FinancialDimensionValue {
-  id                   String              @id @default(uuid())
+  id                    String             @id @default(uuid())
   financialDimensionKey String             @map("financial_dimension_key")
-  value                String
-  description          String?
-  dimension            FinancialDimension  @relation(fields: [financialDimensionKey], references: [financialKey], onDelete: Cascade)
-  createdAt            DateTime            @default(now()) @map("created_at")
-  updatedAt            DateTime            @updatedAt @map("updated_at")
+  value                 String
+  description           String?
+  dimension             FinancialDimension @relation(fields: [financialDimensionKey], references: [financialKey], onDelete: Cascade)
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
 
   @@unique([financialDimensionKey, value])
   @@index([financialDimensionKey])
@@ -90,13 +94,13 @@ model FinancialDimensionValue {
 
 // Account Customer Invoice Mappings
 model AccountCustomerInvoiceMapping {
-  id             String  @id @default(uuid())
-  name           String
-  customerAccount String @map("customer_account")
-  invoiceAccount String  @map("invoice_account")
-  serviceType    Int     @map("service_type") // ServiceTypes enum
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid())
+  name            String
+  customerAccount String   @map("customer_account")
+  invoiceAccount  String   @map("invoice_account")
+  serviceType     Int      @map("service_type") // ServiceTypes enum
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@index([serviceType])
   @@map("account_customer_invoice_mappings")
@@ -104,12 +108,12 @@ model AccountCustomerInvoiceMapping {
 
 // Ledger Entry Batch Counter
 model LedgerEntryBatchCounter {
-  id                String   @id @default(uuid())
-  companyId         String   @unique @map("company_id")
-  lastBatchNumber   BigInt   @default(0) @map("last_batch_number")
-  companyBatchPrefix String  @map("company_batch_prefix")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  companyId          String   @unique @map("company_id")
+  lastBatchNumber    BigInt   @default(0) @map("last_batch_number")
+  companyBatchPrefix String   @map("company_batch_prefix")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("ledger_entry_batch_counters")
 }
@@ -128,4 +132,3 @@ model LedgerVoucherCounter {
   @@index([companyId])
   @@map("ledger_voucher_counters")
 }
-

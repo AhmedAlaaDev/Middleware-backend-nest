@@ -2,14 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CacheModule } from '@nestjs/cache-manager';
-import { ThrottlerModule, ThrottlerGuard, ThrottlerModuleOptions } from '@nestjs/throttler';
+import {
+  ThrottlerModule,
+  ThrottlerGuard,
+  ThrottlerModuleOptions,
+} from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TerminusModule } from '@nestjs/terminus';
 import { BullModule } from '@nestjs/bull';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { redisStore } from 'cache-manager-redis-yet';
-import * as redis from 'redis';
 import { configuration } from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './modules/database/database.module';
@@ -45,7 +48,10 @@ import { RedisClientOptions } from 'redis';
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/d365fomiddleware'),
+        uri: configService.get<string>(
+          'MONGODB_URI',
+          'mongodb://localhost:27017/d365fomiddleware'
+        ),
         maxPoolSize: configService.get<number>('MONGODB_MAX_POOL_SIZE', 10),
       }),
       inject: [ConfigService],
@@ -79,8 +85,12 @@ import { RedisClientOptions } from 'redis';
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
-        const ttl = configService.get<number>('throttle.ttl') || configService.get<number>('THROTTLE_TTL', 60);
-        const limit = configService.get<number>('throttle.limit') || configService.get<number>('THROTTLE_LIMIT', 100);
+        const ttl =
+          configService.get<number>('throttle.ttl') ||
+          configService.get<number>('THROTTLE_TTL', 60);
+        const limit =
+          configService.get<number>('throttle.limit') ||
+          configService.get<number>('THROTTLE_LIMIT', 100);
         return {
           throttlers: [{ ttl, limit }],
         } as ThrottlerModuleOptions;
@@ -105,7 +115,10 @@ import { RedisClientOptions } from 'redis';
           },
           removeOnComplete: {
             age: configService.get<number>('bull.removeOnCompleteAge', 3600), // 1 hour
-            count: configService.get<number>('bull.removeOnCompleteCount', 1000),
+            count: configService.get<number>(
+              'bull.removeOnCompleteCount',
+              1000
+            ),
           },
           removeOnFail: {
             age: configService.get<number>('bull.removeOnFailAge', 86400), // 24 hours
@@ -146,4 +159,3 @@ import { RedisClientOptions } from 'redis';
   ],
 })
 export class AppModule {}
-

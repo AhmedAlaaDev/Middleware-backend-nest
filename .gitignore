@@ -53,3 +53,5 @@ lerna-debug.log*
 *.crt
 *.csr
 
+
+/generated/prisma
