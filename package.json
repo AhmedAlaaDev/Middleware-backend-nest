@@ -91,7 +91,7 @@
     "@types/uuid": "^9.0.7",
     "@types/lodash": "^4.14.202",
     "@types/compression": "^1.7.5",
-    "@types/opossum": "^5.0.0",
+    "@types/opossum": "^8.1.9",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
     "eslint": "^8.56.0",

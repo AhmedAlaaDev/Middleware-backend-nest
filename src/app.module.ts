@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CacheModule } from '@nestjs/cache-manager';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TerminusModule } from '@nestjs/terminus';
@@ -78,10 +78,13 @@ import { RedisClientOptions } from 'redis';
     // Rate Limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        ttl: configService.get<number>('THROTTLE_TTL', 60),
-        limit: configService.get<number>('THROTTLE_LIMIT', 100),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const ttl = configService.get<number>('throttle.ttl') || configService.get<number>('THROTTLE_TTL', 60);
+        const limit = configService.get<number>('throttle.limit') || configService.get<number>('THROTTLE_LIMIT', 100);
+        return {
+          throttlers: [{ ttl, limit }],
+        } as ThrottlerModuleOptions;
+      },
       inject: [ConfigService],
     }),
 
