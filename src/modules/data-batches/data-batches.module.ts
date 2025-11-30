@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BullModule } from '@nestjs/bull';
 import { DataBatchService } from './services/data-batch.service';
 import { DataBatchController } from './controllers/data-batch.controller';
 import {
@@ -50,6 +51,9 @@ const QueryHandlers = [
       { name: DataEnhancedRecord.name, schema: DataEnhancedRecordSchema },
       { name: DataBatchError.name, schema: DataBatchErrorSchema },
     ]),
+    BullModule.registerQueue({
+      name: 'd365fo-posting',
+    }),
     EntryProcessorsModule,
   ],
   controllers: [DataBatchController],
