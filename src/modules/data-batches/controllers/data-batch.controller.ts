@@ -19,8 +19,8 @@ import {
 } from '@nestjs/swagger';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiV1Controller } from '../../../common/decorators/api-controller.decorator';
-import { OperationResultDto } from '../../common/dto/operation-result.dto';
-import { PaginatedResultDto } from '../../common/dto/paginated-result.dto';
+import { OperationResultDto } from '../../../common/dto/operation-result.dto';
+import { PaginatedResultDto } from '../../../common/dto/paginated-result.dto';
 import { GetDataBatchListQuery } from '../queries/get-data-batch-list.query';
 import { GetBatchErrorListQuery } from '../queries/get-batch-error-list.query';
 import { PostBatchInDFOCommand } from '../commands/post-batch-indfo.command';

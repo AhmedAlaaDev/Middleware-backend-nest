@@ -70,7 +70,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * Helper method to execute raw SQL queries when needed
    */
   async executeRaw<T = unknown>(query: string, ...params: unknown[]): Promise<T> {
-    return this.$queryRawUnsafe<T>(query, ...params);
+    return this.$queryRawUnsafe(query, ...params) as Promise<T>;
   }
 }
 

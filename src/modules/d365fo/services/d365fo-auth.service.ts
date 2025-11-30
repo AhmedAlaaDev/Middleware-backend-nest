@@ -44,15 +44,18 @@ export class D365FOAuthService {
   async getAccessToken(): Promise<string> {
     const cacheKey = 'd365fo:access-token';
 
+    // Request token first to get expiry time
+    const token = await this.requestAccessToken();
+    const ttl = (token.expires_in - 300) * 1000; // Cache until 5 min before expiry
+
     return this.cache.get(
       cacheKey,
       async () => {
-        const token = await this.requestAccessToken();
         return token.access_token;
       },
       {
-        l1Ttl: (token.expires_in - 300) * 1000, // Cache until 5 min before expiry
-        l2Ttl: (token.expires_in - 300) * 1000,
+        l1Ttl: ttl,
+        l2Ttl: ttl,
         skipL3: true, // Don't cache tokens in L3 (database)
       },
     );

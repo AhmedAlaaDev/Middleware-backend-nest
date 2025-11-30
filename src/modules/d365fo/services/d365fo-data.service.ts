@@ -4,8 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { D365FOAuthService } from './d365fo-auth.service';
 import { MultiLayerCacheService } from '../../cache/services/multi-layer-cache.service';
-import { CircuitBreakerService } from '../../common/resilience/circuit-breaker.service';
-import { RetryService } from '../../common/resilience/retry.service';
+import { CircuitBreakerService } from '../../../common/resilience/circuit-breaker.service';
+import { RetryService } from '../../../common/resilience/retry.service';
 import { AxiosError } from 'axios';
 
 @Injectable()
@@ -40,6 +40,15 @@ export class D365FODataService {
     });
 
     // Create circuit breaker for D365FO API calls
+    const circuitBreakerTimeout = this.configService.get<number>(
+      'resilience.circuitBreaker.timeout',
+      30000,
+    );
+    const circuitBreakerResetTimeout = this.configService.get<number>(
+      'resilience.circuitBreaker.resetTimeout',
+      30000,
+    );
+
     this.circuitBreaker = this.circuitBreakerService.createCircuitBreaker(
       'd365fo-api',
       async (url: string, config?: any) => {
@@ -56,9 +65,12 @@ export class D365FODataService {
         return response.data;
       },
       {
-        timeout: 30000,
-        errorThresholdPercentage: 50,
-        resetTimeout: 30000,
+        timeout: circuitBreakerTimeout,
+        errorThresholdPercentage: this.configService.get<number>(
+          'resilience.circuitBreaker.errorThresholdPercentage',
+          50,
+        ) || 50,
+        resetTimeout: circuitBreakerResetTimeout,
       },
     );
   }
@@ -73,14 +85,17 @@ export class D365FODataService {
     const cacheKey = `d365fo:${endpoint}`;
 
     if (useCache) {
+      const l1Ttl = this.configService.get<number>('cache.l1Ttl', 300) * 1000;
+      const l2Ttl = this.configService.get<number>('cache.l2Ttl', 1800) * 1000;
+
       return this.cache.get(
         cacheKey,
         async () => {
           return this.executeRequest<T>(endpoint);
         },
         {
-          l1Ttl: 300000, // 5 minutes
-          l2Ttl: 1800000, // 30 minutes
+          l1Ttl,
+          l2Ttl,
           skipL3: true, // Don't cache external API data in L3
         },
       );

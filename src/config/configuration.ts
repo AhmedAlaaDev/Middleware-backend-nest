@@ -71,15 +71,30 @@ export const configuration = () => ({
       failureThreshold: parseInt(process.env.CIRCUIT_BREAKER_FAILURE_THRESHOLD || '5', 10),
       timeout: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT || '30000', 10),
       resetTimeout: parseInt(process.env.CIRCUIT_BREAKER_RESET_TIMEOUT || '30000', 10),
+      errorThresholdPercentage: parseInt(process.env.CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE || '50', 10),
     },
     retry: {
       maxRetries: parseInt(process.env.RETRY_MAX_RETRIES || '3', 10),
       delay: parseInt(process.env.RETRY_DELAY || '1000', 10),
-      backoffMultiplier: parseFloat(process.env.RETRY_BACKOFF_MULTIPLIER || '2', 10),
+      backoffMultiplier: parseFloat(process.env.RETRY_BACKOFF_MULTIPLIER || '2'),
     },
     timeout: {
       requestTimeout: parseInt(process.env.REQUEST_TIMEOUT || '30000', 10),
     },
+  },
+
+  // Background Jobs (Bull)
+  bull: {
+    jobAttempts: parseInt(process.env.BULL_JOB_ATTEMPTS || '3', 10),
+    jobBackoffDelay: parseInt(process.env.BULL_JOB_BACKOFF_DELAY || '2000', 10),
+    removeOnCompleteAge: parseInt(process.env.BULL_JOB_REMOVE_ON_COMPLETE_AGE || '3600', 10),
+    removeOnCompleteCount: parseInt(process.env.BULL_JOB_REMOVE_ON_COMPLETE_COUNT || '1000', 10),
+    removeOnFailAge: parseInt(process.env.BULL_JOB_REMOVE_ON_FAIL_AGE || '86400', 10),
+  },
+
+  // HTTP Configuration
+  http: {
+    maxRedirects: parseInt(process.env.HTTP_MAX_REDIRECTS || '5', 10),
   },
 
   // Logging

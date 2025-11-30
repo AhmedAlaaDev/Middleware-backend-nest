@@ -4,8 +4,8 @@ import { LedgerController } from './controllers/ledger.controller';
 import { EntryProcessorsModule } from '../entry-processors/entry-processors.module';
 import { DataBatchesModule } from '../data-batches/data-batches.module';
 
-const CommandHandlers = [];
-const QueryHandlers = [];
+const CommandHandlers: any[] = [];
+const QueryHandlers: any[] = [];
 
 @Module({
   imports: [CqrsModule, EntryProcessorsModule, DataBatchesModule],

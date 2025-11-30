@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import CircuitBreaker from 'opossum';
 
 export interface CircuitBreakerOptions {
@@ -11,7 +12,25 @@ export interface CircuitBreakerOptions {
 @Injectable()
 export class CircuitBreakerService {
   private readonly logger = new Logger(CircuitBreakerService.name);
+  private readonly defaultTimeout: number;
+  private readonly defaultResetTimeout: number;
+  private readonly defaultErrorThreshold: number;
   private breakers: Map<string, CircuitBreaker> = new Map();
+
+  constructor(private readonly configService: ConfigService) {
+    this.defaultTimeout = this.configService.get<number>(
+      'resilience.circuitBreaker.timeout',
+      30000,
+    );
+    this.defaultResetTimeout = this.configService.get<number>(
+      'resilience.circuitBreaker.resetTimeout',
+      30000,
+    );
+    this.defaultErrorThreshold = this.configService.get<number>(
+      'resilience.circuitBreaker.errorThresholdPercentage',
+      50,
+    );
+  }
 
   createCircuitBreaker<T>(
     name: string,
@@ -23,9 +42,9 @@ export class CircuitBreakerService {
     }
 
     const defaultOptions: CircuitBreakerOptions = {
-      timeout: options?.timeout || 30000,
-      errorThresholdPercentage: options?.errorThresholdPercentage || 50,
-      resetTimeout: options?.resetTimeout || 30000,
+      timeout: options?.timeout || this.defaultTimeout,
+      errorThresholdPercentage: options?.errorThresholdPercentage || this.defaultErrorThreshold,
+      resetTimeout: options?.resetTimeout || this.defaultResetTimeout,
       enabled: options?.enabled !== false,
     };
 

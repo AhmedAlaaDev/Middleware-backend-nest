@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { EntryProcessorTypes } from '../../../data-batches/schemas/data-batch.schema';
+import { EntryProcessorTypes } from '../../data-batches/schemas/data-batch.schema';
 import { EntryProcessorBase } from './base/entry-processor.base';
 import { D365FODataService } from '../../d365fo/services/d365fo-data.service';
 import { MasterDataService } from '../../master-data/services/master-data.service';
 import { PrismaService } from '../../database/services/prisma.service';
-import { RawDataModel, DynDataModel } from '../../interfaces/entry-processor.interface';
+import { RawDataModel, DynDataModel } from '../interfaces/entry-processor.interface';
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {

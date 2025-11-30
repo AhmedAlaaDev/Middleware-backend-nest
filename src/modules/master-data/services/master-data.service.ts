@@ -81,10 +81,10 @@ export class MasterDataService implements OnModuleInit {
           },
         });
 
-        return dimensions.map((d) => ({
+        return dimensions.map((d: any) => ({
           id: d.id,
           financialKey: d.financialKey,
-          dimensionValues: d.dimensionValues.map((v) => ({
+          dimensionValues: d.dimensionValues.map((v: any) => ({
             id: v.id,
             financialDimensionKey: v.financialDimensionKey,
             value: v.value,
@@ -93,9 +93,9 @@ export class MasterDataService implements OnModuleInit {
         }));
       },
       {
-        l1Ttl: 300000, // 5 minutes
-        l2Ttl: 1800000, // 30 minutes
-        l3Ttl: 7200000, // 2 hours
+        l1Ttl: this.configService.get<number>('cache.l1Ttl', 300) * 1000, // 5 minutes
+        l2Ttl: this.configService.get<number>('cache.l2Ttl', 1800) * 1000, // 30 minutes
+        l3Ttl: this.configService.get<number>('cache.l3Ttl', 7200) * 1000, // 2 hours
       },
     );
   }
@@ -118,7 +118,7 @@ export class MasterDataService implements OnModuleInit {
           return [];
         }
 
-        return dimension.dimensionValues.map((v) => ({
+        return dimension.dimensionValues.map((v: any) => ({
           id: v.id,
           financialDimensionKey: v.financialDimensionKey,
           value: v.value,
@@ -147,7 +147,7 @@ export class MasterDataService implements OnModuleInit {
             where: { serviceType },
           });
 
-        return mappings.map((m) => ({
+        return mappings.map((m: any) => ({
           id: m.id,
           name: m.name,
           customerAccount: m.customerAccount,
@@ -176,10 +176,10 @@ export class MasterDataService implements OnModuleInit {
           },
         });
 
-        return charts.map((c) => ({
+        return charts.map((c: any) => ({
           id: c.id,
           chartNumber: c.chartNumber,
-          accounts: c.accounts.map((a) => ({
+          accounts: c.accounts.map((a: any) => ({
             id: a.id,
             chartNumber: a.chartNumber,
             accountNumber: a.accountNumber,
@@ -205,7 +205,7 @@ export class MasterDataService implements OnModuleInit {
           where: { chartNumber },
         });
 
-        return accounts.map((a) => ({
+        return accounts.map((a: any) => ({
           id: a.id,
           chartNumber: a.chartNumber,
           accountNumber: a.accountNumber,

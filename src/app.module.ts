@@ -33,7 +33,12 @@ import { RedisClientOptions } from 'redis';
       isGlobal: true,
       load: [configuration],
       validationSchema,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: [
+        `.env.${process.env.NODE_ENV || 'development'}.local`,
+        `.env.${process.env.NODE_ENV || 'development'}`,
+        '.env.local',
+        '.env',
+      ],
     }),
 
     // Database - MongoDB
@@ -90,17 +95,17 @@ import { RedisClientOptions } from 'redis';
           password: configService.get<string>('REDIS_PASSWORD'),
         },
         defaultJobOptions: {
-          attempts: 3,
+          attempts: configService.get<number>('bull.jobAttempts', 3),
           backoff: {
             type: 'exponential',
-            delay: 2000,
+            delay: configService.get<number>('bull.jobBackoffDelay', 2000),
           },
           removeOnComplete: {
-            age: 3600, // 1 hour
-            count: 1000,
+            age: configService.get<number>('bull.removeOnCompleteAge', 3600), // 1 hour
+            count: configService.get<number>('bull.removeOnCompleteCount', 1000),
           },
           removeOnFail: {
-            age: 86400, // 24 hours
+            age: configService.get<number>('bull.removeOnFailAge', 86400), // 24 hours
           },
         },
       }),
