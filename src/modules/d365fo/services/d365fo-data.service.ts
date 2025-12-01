@@ -62,7 +62,7 @@ export class D365FODataService {
   /**
    * Get data from D365FO with caching and circuit breaker
    */
-  async getDataAsync<T>(
+  public async getDataAsync<T>(
     endpoint: string,
     useCache: boolean = true,
   ): Promise<T> {
@@ -127,7 +127,7 @@ export class D365FODataService {
 
   // D365FO specific methods (mirrored from .NET)
 
-  async getBillingCodeListAsync(
+  public async getBillingCodeListAsync(
     company: string,
     billingClassId: string,
     skipCount: number = 0,
@@ -137,7 +137,7 @@ export class D365FODataService {
     return this.getDataAsync<any[]>(query);
   }
 
-  async getBillingClassificationListAsync(
+  public async getBillingClassificationListAsync(
     company: string,
     skipCount: number = 0,
     maxCount: number = 5000,
@@ -146,7 +146,7 @@ export class D365FODataService {
     return this.getDataAsync<any[]>(query);
   }
 
-  async getDimensionListAsync(
+  public async getDimensionListAsync(
     skipCount: number = 0,
     maxCount: number = 5000,
   ): Promise<any[]> {
@@ -154,7 +154,7 @@ export class D365FODataService {
     return this.getDataAsync<any[]>(query);
   }
 
-  async getDimensionValueListAsync(
+  public async getDimensionValueListAsync(
     dimension: string,
     company: string,
     skipCount: number = 0,
@@ -164,7 +164,7 @@ export class D365FODataService {
     return this.getDataAsync<any[]>(query);
   }
 
-  async getExchangeRateAsync(
+  public async getExchangeRateAsync(
     company: string,
     rateType: string = 'Default',
     skipCount: number = 0,
@@ -175,7 +175,7 @@ export class D365FODataService {
   }
 
   // Create methods
-  async createCustomerInvoiceHeaderAsync(
+  public async createCustomerInvoiceHeaderAsync(
     company: string,
     data: any,
   ): Promise<any> {
@@ -185,7 +185,7 @@ export class D365FODataService {
     });
   }
 
-  async createCustomerInvoiceLineAsync(
+  public async createCustomerInvoiceLineAsync(
     company: string,
     invoiceNumber: number,
     data: any,
@@ -197,7 +197,7 @@ export class D365FODataService {
     });
   }
 
-  async createGeneralJournalHeaderAsync(
+  public async createGeneralJournalHeaderAsync(
     company: string,
     data: any,
   ): Promise<any> {
@@ -207,7 +207,7 @@ export class D365FODataService {
     });
   }
 
-  async createGeneralJournalLineAsync(
+  public async createGeneralJournalLineAsync(
     company: string,
     data: any,
   ): Promise<any> {

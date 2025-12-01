@@ -4,6 +4,7 @@ import { Global, Module } from '@nestjs/common';
 
 import { CacheService } from '@/modules/resilience/services/cache.service';
 import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
+import { MultiLayerCacheService } from '@/modules/resilience/services/mutli-layer-cache.service';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 @Global()
@@ -20,7 +21,17 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
       maxRedirects: 5, // 5 redirects
     }),
   ],
-  providers: [CircuitBreakerService, RetryService, CacheService],
-  exports: [CircuitBreakerService, RetryService, CacheService],
+  providers: [
+    CircuitBreakerService,
+    RetryService,
+    CacheService,
+    MultiLayerCacheService,
+  ],
+  exports: [
+    CircuitBreakerService,
+    RetryService,
+    CacheService,
+    MultiLayerCacheService,
+  ],
 })
 export class ResilienceModule {}

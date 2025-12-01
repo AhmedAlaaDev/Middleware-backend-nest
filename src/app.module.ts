@@ -11,6 +11,7 @@ import {
   resilienceConfig,
 } from '@/config';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
+import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { PrismaModule } from '@/modules/prisma/prisma.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
 
@@ -29,6 +30,7 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
     ResilienceModule,
     PrismaModule,
     D365FOModule,
+    MasterDataModule,
   ],
 
   controllers: [AppController],

@@ -51,6 +51,12 @@ export const ConfigSchema = Joi.object<IConfig>({
       errorThresholdPercentage: Joi.number().default(50),
       enabled: Joi.boolean().default(true),
     }),
+    cache: Joi.object({
+      l1Ttl: Joi.number().default(5 * 60 * 1000),
+      l2Ttl: Joi.number().default(30 * 60 * 1000),
+      l3Ttl: Joi.number().default(2 * 60 * 60 * 1000),
+      redisEnabled: Joi.boolean().default(false),
+    }),
   }),
 });
 
