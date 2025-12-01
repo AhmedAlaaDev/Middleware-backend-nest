@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseInterceptors,
-  ClassSerializerInterceptor,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiResponse } from '@nestjs/swagger';
 
 import { D365FODataService } from '@/modules/d365fo/services/d365fo-data.service';
@@ -14,7 +8,6 @@ import { MasterDataService } from '@/modules/master-data/master-data.service';
  * Finance - Master Data
  */
 @Controller('Finance/MasterData')
-@UseInterceptors(ClassSerializerInterceptor)
 export class MasterDataController {
   constructor(
     private readonly masterDataService: MasterDataService,
