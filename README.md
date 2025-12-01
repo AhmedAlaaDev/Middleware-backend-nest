@@ -1,250 +1,98 @@
-# MG D365FO Middleware - NestJS Implementation
+<p align="center">
+  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+</p>
 
-A high-performance NestJS (TypeScript) backend middleware system that facilitates data integration between IST (Internal Logistics System) and Dynamics 365 Finance and Operations (D365FO). This is a complete rewrite with all best practices and performance optimizations applied.
+[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
+[circleci-url]: https://circleci.com/gh/nestjs/nest
 
-## 🎯 Key Improvements Over .NET Version
+  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
+    <p align="center">
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
+<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
+<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
+<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
+<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
+  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
+    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
+  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+</p>
+  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
+  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-### 1. ✅ Multi-Layer Caching (Implemented)
-- **L1**: In-Memory Cache (MemoryCache) - Hot data, 5 min TTL
-- **L2**: Distributed Cache (Redis) - Warm data, 30 min TTL  
-- **L3**: Database Cache - Cold data, 2 hour TTL
-- **Cache Service**: Unified abstraction with automatic fallback
-- **Cache Warming**: Preloads master data on startup
+## Description
 
-### 2. ✅ Resilience Patterns (Implemented)
-- **Circuit Breaker**: Prevents cascading failures
-- **Retry Policies**: Exponential backoff with jitter
-- **Timeout Handling**: Configurable timeouts per operation
-- **Graceful Degradation**: Fallback to cached data
+[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
-### 3. ✅ Performance Optimizations (Implemented)
-- **Parallel Processing**: Async/await throughout
-- **Bulk Operations**: MongoDB bulk writes
-- **Query Optimization**: Prisma query optimization
-- **Connection Pooling**: Optimized pool sizes
-
-### 4. ✅ Better Architecture (Implemented)
-- **CQRS Pattern**: NestJS CQRS module
-- **Clean Architecture**: Separation of concerns
-- **Dependency Injection**: Native NestJS DI
-- **Type Safety**: Full TypeScript with strict mode
-
-### 5. ✅ Enterprise Features (Implemented)
-- **Health Checks**: Terminus integration
-- **Rate Limiting**: Throttler module
-- **API Versioning**: URI-based versioning
-- **Structured Logging**: Winston with rotation
-
-## 📦 Technology Stack
-
-- **Framework**: NestJS 10.x
-- **Language**: TypeScript 5.x (Strict Mode)
-- **Databases**: 
-  - PostgreSQL (via Prisma)
-  - MongoDB (via Mongoose)
-  - Redis (via cache-manager)
-- **Background Jobs**: Bull/BullMQ
-- **Validation**: class-validator + class-transformer
-- **API Docs**: Swagger/OpenAPI
-- **Logging**: Winston
-- **Testing**: Jest
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Node.js 18+ 
-- pnpm 8+ (recommended) or npm
-- PostgreSQL 12+
-- MongoDB 4.4+
-- Redis 6+
-
-### Installation
+## Project setup
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Copy environment file
-cp .env.example .env
-
-# Configure environment variables (see .env.example)
+$ pnpm install
 ```
 
-### Environment Configuration
-
-Create a `.env` file with:
-
-```env
-# Application
-NODE_ENV=development
-PORT=3000
-
-# Database - PostgreSQL
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_USERNAME=postgres
-DATABASE_PASSWORD=your_password
-DATABASE_NAME=mgd365fomiddleware
-
-# MongoDB
-MONGODB_URI=mongodb://localhost:27017/d365fomiddleware
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-
-# JWT
-JWT_SECRET=your_secret_key
-JWT_EXPIRES_IN=15d
-
-# D365FO
-D365FO_TENANT_ID=your_tenant_id
-D365FO_CLIENT_ID=your_client_id
-D365FO_CLIENT_SECRET=your_client_secret
-D365FO_RESOURCE=https://your-instance.operations.dynamics.com
-
-# Cache TTLs (in seconds)
-CACHE_L1_TTL=300    # 5 minutes
-CACHE_L2_TTL=1800   # 30 minutes
-CACHE_L3_TTL=7200   # 2 hours
-
-# Resilience
-CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
-CIRCUIT_BREAKER_TIMEOUT=30000
-RETRY_MAX_RETRIES=3
-```
-
-### Running the Application
+## Compile and run the project
 
 ```bash
-# Development
-pnpm run start:dev
+# development
+$ pnpm run start
 
-# Production
-pnpm run build
-pnpm run start:prod
+# watch mode
+$ pnpm run start:dev
 
-# With debugging
-pnpm run start:debug
+# production mode
+$ pnpm run start:prod
 ```
 
-### API Documentation
-
-Once running, access:
-- **Swagger UI**: http://localhost:3000/api-docs
-- **Health Check**: http://localhost:3000/api/health
-
-## 📁 Project Structure
-
-```
-src/
-├── common/                    # Shared utilities
-│   ├── filters/              # Exception filters
-│   ├── interceptors/         # Request/response interceptors
-│   ├── decorators/           # Custom decorators
-│   ├── guards/               # Auth guards
-│   ├── dto/                  # Common DTOs
-│   ├── interfaces/           # Shared interfaces
-│   ├── logger/               # Winston logger
-│   └── resilience/           # Circuit breaker, retry
-│
-├── modules/                   # Feature modules
-│   ├── auth/                 # Authentication
-│   ├── users/                # User management
-│   ├── cache/                # Cache service (Multi-layer)
-│   ├── master-data/          # Master data service (Optimized)
-│   ├── data-batches/         # Batch management
-│   ├── account-receivable/   # AR processing
-│   ├── ledger/               # Ledger entries
-│   ├── d365fo/               # D365FO integration (Resilient)
-│   ├── entry-processors/     # Entry processors (Factory pattern)
-│   ├── health/               # Health checks
-│   └── database/             # Database utilities
-│
-├── config/                    # Configuration
-│   ├── configuration.ts      # Config mapping
-│   └── validation.schema.ts  # Env validation
-│
-└── main.ts                    # Application entry point
-```
-
-## 🔧 Key Features
-
-### Multi-Layer Caching
-
-```typescript
-// Automatic multi-layer cache with fallback
-const data = await multiLayerCache.get(
-  'master-data:dimensions',
-  async () => await fetchFromDatabase(),
-);
-```
-
-### Circuit Breaker
-
-```typescript
-const breaker = circuitBreakerService.createCircuitBreaker(
-  'd365fo-api',
-  async () => await callD365FO(),
-  { timeout: 30000, errorThresholdPercentage: 50 }
-);
-```
-
-### Retry with Exponential Backoff
-
-```typescript
-const result = await retryService.executeWithRetry(
-  async () => await apiCall(),
-  { retries: 3, exponentialBackoff: true }
-);
-```
-
-## 📊 Performance Improvements
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Database Queries | Baseline | -60% | 60% reduction |
-| Response Time | Baseline | -50% | 50% faster |
-| Cache Hit Ratio | 0% | 80%+ | Fully implemented |
-| Error Rate | Baseline | -90% | Circuit breaker |
-| Throughput | Baseline | +100% | 2x increase |
-
-## 🧪 Testing
+## Run tests
 
 ```bash
-# Unit tests
-pnpm run test
+# unit tests
+$ pnpm run test
 
-# E2E tests
-pnpm run test:e2e
+# e2e tests
+$ pnpm run test:e2e
 
-# Coverage
-pnpm run test:cov
+# test coverage
+$ pnpm run test:cov
 ```
 
-## 📝 Migration from .NET
+## Deployment
 
-This NestJS version is a complete mirror with improvements:
+When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
 
-1. **Same Business Logic**: All entry processors implemented
-2. **Better Performance**: Multi-layer caching, optimized queries
-3. **Improved Resilience**: Circuit breakers, retries
-4. **Type Safety**: Full TypeScript coverage
-5. **Modern Stack**: Latest NestJS with best practices
+If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
 
-## 🔗 Related Documentation
+```bash
+$ pnpm install -g @nestjs/mau
+$ mau deploy
+```
 
-- [Architecture Improvements](../ARCHITECTURE_IMPROVEMENTS.md)
-- [Refactoring Summary](../REFACTORING_SUMMARY.md)
-- [Original Architecture](../ARCHITECTURE.md)
+With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
-## 📄 License
+## Resources
 
-[Specify your license]
+Check out a few resources that may come in handy when working with NestJS:
 
----
+- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
+- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
+- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
+- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
+- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
+- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
+- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
+- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
 
-**Built with ❤️ using NestJS and TypeScript**
+## Support
 
+Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+
+## Stay in touch
+
+- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- Website - [https://nestjs.com](https://nestjs.com/)
+- Twitter - [@nestframework](https://twitter.com/nestframework)
+
+## License
+
+Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

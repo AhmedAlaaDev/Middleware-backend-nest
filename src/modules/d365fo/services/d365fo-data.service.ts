@@ -1,12 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
-import { D365FOAuthService } from './d365fo-auth.service';
-import { MultiLayerCacheService } from '../../cache/services/multi-layer-cache.service';
-import { CircuitBreakerService } from '../../../common/resilience/circuit-breaker.service';
-import { RetryService } from '../../../common/resilience/retry.service';
 import { AxiosError } from 'axios';
+import { firstValueFrom } from 'rxjs';
+
+import { D365FOConfig, IConfig } from '@/config';
+import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
+import { CacheService } from '@/modules/resilience/services/cache.service';
+import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
+import { RetryService } from '@/modules/resilience/services/retry.service';
 
 @Injectable()
 export class D365FODataService {
@@ -17,13 +19,13 @@ export class D365FODataService {
   constructor(
     private readonly httpService: HttpService,
     private readonly authService: D365FOAuthService,
-    private readonly cache: MultiLayerCacheService,
+    private readonly cacheService: CacheService,
     private readonly circuitBreakerService: CircuitBreakerService,
     private readonly retryService: RetryService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService<IConfig>,
   ) {
     this.resource =
-      this.configService.get<string>('D365FO_RESOURCE') || '';
+      this.configService.get<D365FOConfig>('d365fo')?.resource || '';
 
     // Configure retry for HTTP service
     this.retryService.configureAxiosRetry(this.httpService.axiosRef, {
@@ -38,16 +40,6 @@ export class D365FODataService {
         );
       },
     });
-
-    // Create circuit breaker for D365FO API calls
-    const circuitBreakerTimeout = this.configService.get<number>(
-      'resilience.circuitBreaker.timeout',
-      30000,
-    );
-    const circuitBreakerResetTimeout = this.configService.get<number>(
-      'resilience.circuitBreaker.resetTimeout',
-      30000,
-    );
 
     this.circuitBreaker = this.circuitBreakerService.createCircuitBreaker(
       'd365fo-api',
@@ -64,14 +56,6 @@ export class D365FODataService {
         );
         return response.data;
       },
-      {
-        timeout: circuitBreakerTimeout,
-        errorThresholdPercentage: this.configService.get<number>(
-          'resilience.circuitBreaker.errorThresholdPercentage',
-          50,
-        ) || 50,
-        resetTimeout: circuitBreakerResetTimeout,
-      },
     );
   }
 
@@ -85,20 +69,17 @@ export class D365FODataService {
     const cacheKey = `d365fo:${endpoint}`;
 
     if (useCache) {
-      const l1Ttl = this.configService.get<number>('cache.l1Ttl', 300) * 1000;
-      const l2Ttl = this.configService.get<number>('cache.l2Ttl', 1800) * 1000;
+      let data = await this.cacheService.get<T>(cacheKey);
 
-      return this.cache.get(
-        cacheKey,
-        async () => {
-          return this.executeRequest<T>(endpoint);
-        },
-        {
-          l1Ttl,
-          l2Ttl,
-          skipL3: true, // Don't cache external API data in L3
-        },
-      );
+      if (data) {
+        return data;
+      }
+
+      data = await this.executeRequest<T>(endpoint);
+
+      await this.cacheService.set(cacheKey, data, 1000 * 60);
+
+      return data;
     }
 
     return this.executeRequest<T>(endpoint);
@@ -107,7 +88,7 @@ export class D365FODataService {
   /**
    * Post data to D365FO with circuit breaker
    */
-  async postDataAsync<TRequest, TResponse>(
+  public postDataAsync<TRequest, TResponse>(
     endpoint: string,
     data: TRequest,
   ): Promise<TResponse> {
@@ -236,4 +217,3 @@ export class D365FODataService {
     });
   }
 }
-

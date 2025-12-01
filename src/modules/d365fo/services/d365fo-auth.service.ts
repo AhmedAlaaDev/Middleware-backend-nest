@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
-import { MultiLayerCacheService } from '../../cache/services/multi-layer-cache.service';
-import { AxiosRequestConfig } from 'axios';
+
+import { D365FOConfig, IConfig } from '@/config';
+import { CacheService } from '@/modules/resilience/services/cache.service';
 
 export interface TokenResponse {
   access_token: string;
@@ -15,63 +16,46 @@ export interface TokenResponse {
 @Injectable()
 export class D365FOAuthService {
   private readonly logger = new Logger(D365FOAuthService.name);
-  private readonly tenantId: string;
-  private readonly clientId: string;
-  private readonly clientSecret: string;
-  private readonly authority: string;
-  private readonly resource: string;
+  private readonly _cacheKey = 'd365fo:access-token';
 
   constructor(
     private readonly httpService: HttpService,
-    private readonly configService: ConfigService,
-    private readonly cache: MultiLayerCacheService,
-  ) {
-    this.tenantId = this.configService.get<string>('D365FO_TENANT_ID') || '';
-    this.clientId = this.configService.get<string>('D365FO_CLIENT_ID') || '';
-    this.clientSecret =
-      this.configService.get<string>('D365FO_CLIENT_SECRET') || '';
-    this.authority =
-      this.configService.get<string>(
-        'D365FO_AUTHORITY',
-        'https://login.microsoftonline.com',
-      ) || '';
-    this.resource = this.configService.get<string>('D365FO_RESOURCE') || '';
+    private readonly configService: ConfigService<IConfig>,
+    private readonly cacheService: CacheService,
+  ) {}
+
+  public async getAccessToken(): Promise<string> {
+    let token = await this.cacheService.get<TokenResponse>(this._cacheKey);
+
+    if (token) {
+      return token.access_token;
+    }
+
+    token = await this.requestAccessToken();
+
+    const ttl = (token.expires_in - 300) * 1000;
+
+    await this.cacheService.set(this._cacheKey, token, ttl);
+
+    return token.access_token;
   }
 
-  /**
-   * Get access token with caching
-   */
-  async getAccessToken(): Promise<string> {
-    const cacheKey = 'd365fo:access-token';
-
-    // Request token first to get expiry time
-    const token = await this.requestAccessToken();
-    const ttl = (token.expires_in - 300) * 1000; // Cache until 5 min before expiry
-
-    return this.cache.get(
-      cacheKey,
-      async () => {
-        return token.access_token;
-      },
-      {
-        l1Ttl: ttl,
-        l2Ttl: ttl,
-        skipL3: true, // Don't cache tokens in L3 (database)
-      },
-    );
+  public async getAuthorizationHeader(): Promise<string> {
+    const token = await this.getAccessToken();
+    return `Bearer ${token}`;
   }
 
-  /**
-   * Request access token from Azure AD
-   */
   private async requestAccessToken(): Promise<TokenResponse> {
-    const tokenUrl = `${this.authority}/${this.tenantId}/oauth2/token`;
+    const { authority, tenantId, clientId, clientSecret, resource } =
+      this.d365foConfig;
+
+    const tokenUrl = `${authority}/${tenantId}/oauth2/token`;
 
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
-    params.append('client_id', this.clientId);
-    params.append('client_secret', this.clientSecret);
-    params.append('resource', this.resource);
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+    params.append('resource', resource);
 
     try {
       const response = await firstValueFrom(
@@ -84,9 +68,7 @@ export class D365FOAuthService {
 
       const tokenResponse: TokenResponse = {
         ...response.data,
-        expires_at: new Date(
-          Date.now() + response.data.expires_in * 1000,
-        ),
+        expires_at: new Date(Date.now() + response.data.expires_in * 1000),
       };
 
       this.logger.debug('Successfully obtained D365FO access token');
@@ -99,12 +81,7 @@ export class D365FOAuthService {
     }
   }
 
-  /**
-   * Get authorization header value
-   */
-  async getAuthorizationHeader(): Promise<string> {
-    const token = await this.getAccessToken();
-    return `Bearer ${token}`;
+  private get d365foConfig(): D365FOConfig {
+    return this.configService.get<D365FOConfig>('d365fo')!;
   }
 }
-

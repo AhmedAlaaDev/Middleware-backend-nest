@@ -1,0 +1,26 @@
+import { HttpModule } from '@nestjs/axios';
+import { CacheModule } from '@nestjs/cache-manager';
+import { Global, Module } from '@nestjs/common';
+
+import { CacheService } from '@/modules/resilience/services/cache.service';
+import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
+import { RetryService } from '@/modules/resilience/services/retry.service';
+
+@Global()
+@Module({
+  imports: [
+    CacheModule.register({
+      isGlobal: true,
+      ttl: 60 * 60 * 1000, // 1 hour
+      max: 100, // 100 items
+    }),
+    HttpModule.register({
+      global: true,
+      timeout: 30000, // 30 seconds
+      maxRedirects: 5, // 5 redirects
+    }),
+  ],
+  providers: [CircuitBreakerService, RetryService, CacheService],
+  exports: [CircuitBreakerService, RetryService, CacheService],
+})
+export class ResilienceModule {}

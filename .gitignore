@@ -1,6 +1,7 @@
-# Compiled output
+# compiled output
 /dist
 /node_modules
+/build
 
 # Logs
 logs
@@ -34,24 +35,24 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# Environment variables
+# dotenv environment variable files
 .env
+.env.development.local
+.env.test.local
+.env.production.local
 .env.local
-.env.*.local
-.env.development
-.env.production
-.env.test
 
-# Temporary files
-*.tmp
-*.temp
+# temp directory
+.temp
+.tmp
 
-# SSL Certificates (development only)
-/certs
-*.pem
-*.key
-*.crt
-*.csr
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma

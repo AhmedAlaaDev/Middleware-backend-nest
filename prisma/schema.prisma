@@ -6,13 +6,15 @@
 
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  output   = "../generated/prisma"
   moduleFormat    = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("POSTGRES_URL")
 }
+
 
 // Cache entries table for L3 cache
 model CacheEntry {

@@ -3,9 +3,16 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true,
-    "webpack": false,
-    "tsConfigPath": "tsconfig.json"
+    "plugins": [
+      {
+        "name": "@nestjs/swagger",
+        "options": {
+          "dtoFileNameSuffix": [".dto.ts", ".interface.ts"],
+          "classValidatorShim": false,
+          "introspectComments": true
+        }
+      }
+    ],
+    "deleteOutDir": true
   }
 }
-
