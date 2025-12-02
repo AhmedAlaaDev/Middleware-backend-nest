@@ -1,10 +1,10 @@
 import { Query } from '@nestjs/cqrs';
 
-import { PaginatedResDto } from '@/common/dtos/paginated-res.dto';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
 
 export class GetBatchErrorListQuery extends Query<
-  PaginatedResDto<DataBatchError>
+  IPaginatedRes<DataBatchError>
 > {
   constructor(
     public readonly batchId: string,

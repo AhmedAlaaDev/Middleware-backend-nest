@@ -11,23 +11,23 @@ import {
   ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 
-import { PaginatedResDto } from '@/common/dtos/paginated-res.dto';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { PostBatchInDFOCommand } from '@/modules/data-batch/commands/post-batch-in-dfo.command';
+import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
+import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
-import {
-  DataBatch,
-  EntryProcessorTypes,
-} from '@/modules/db/schemas/data-batch.schema';
+import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
 
+/**
+ * Data Migration - Data Batches
+ */
 @Controller('DataMigration/DataBatch')
-@ApiTags('Data Migration - Data Batches')
 @UseInterceptors(ClassSerializerInterceptor)
 export class DataBatchController {
   constructor(
@@ -35,87 +35,74 @@ export class DataBatchController {
     private readonly queryBus: QueryBus,
   ) {}
 
+  /**
+   * Get a list of data batches
+   */
   @Get('list')
-  @ApiOperation({ summary: 'Get a list of data batches' })
-  @ApiQuery({ name: 'EntryProcessorTypes', required: false, isArray: true })
-  @ApiQuery({ name: 'batchNumberIds', required: false, isArray: true })
-  @ApiQuery({ name: 'SkipCount', required: false, type: Number })
-  @ApiQuery({ name: 'MaxCount', required: false, type: Number })
-  @ApiResponse({
-    status: 200,
-    description: 'Batch list retrieved successfully',
-  })
   public async getDataBatchList(
-    @Query('EntryProcessorTypes') entryProcessorTypes?: EntryProcessorTypes[],
-    @Query('batchNumberIds') batchNumberIds?: string[],
-    @Query('SkipCount') skipCount: number = 0,
-    @Query('MaxCount') maxCount: number = 150,
-  ): Promise<PaginatedResDto<DataBatch>> {
+    @Query() query: DataBatchListDto,
+  ): Promise<IPaginatedRes<DataBatch>> {
     return this.queryBus.execute(
       new GetDataBatchListQuery(
-        entryProcessorTypes,
-        batchNumberIds,
-        skipCount,
-        maxCount,
+        query.entryProcessorTypes,
+        query.batchNumberIds,
+        query.skipCount,
+        query.maxCount,
       ),
     );
   }
 
+  /**
+   * Post batch to Dynamics 365 FO
+   */
   @Post('insert')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Post batch to Dynamics 365 FO' })
-  @ApiResponse({ status: 200, description: 'Batch queued for processing' })
-  public async insertIntoDynamicsAsync(@Body() batchId: string): Promise<void> {
+  public async insertIntoDynamicsAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<void> {
     return this.commandBus.execute(new PostBatchInDFOCommand(batchId));
   }
 
+  /**
+   * Download enhanced record list
+   */
   @Post('download-enhanced-record-list')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Download enhanced records as Excel file' })
-  @ApiResponse({
-    status: 200,
-    description: 'Excel file downloaded',
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  })
   public async downloadEnhancedRecordListAsync(
-    @Body() batchId: string,
+    @Body() { batchId }: BatchIdDto,
   ): Promise<string> {
     return this.commandBus.execute(
       new DownloadBatchEnhancedRecordCommand(batchId),
     );
   }
 
+  /**
+   * Download batch error list
+   */
   @Post('download-batch-error-list')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Download batch errors as Excel file' })
-  @ApiResponse({
-    status: 200,
-    description: 'Excel file downloaded',
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  })
   public async downloadErrorRecordListAsync(
-    @Body() batchId: string,
+    @Body() { batchId }: BatchIdDto,
   ): Promise<string> {
     return this.commandBus.execute(new DownloadBatchErrorCommand(batchId));
   }
 
+  /**
+   * Get list of errors for a batch
+   */
   @Get('error-list')
-  @ApiOperation({ summary: 'Get list of errors for a batch' })
-  @ApiResponse({
-    status: 200,
-    description: 'Error list retrieved successfully',
-  })
   public async getBatchErrorListAsync(
-    @Query() batchId: string,
-  ): Promise<PaginatedResDto<DataBatchError>> {
+    @Query() { batchId }: BatchIdDto,
+  ): Promise<IPaginatedRes<DataBatchError>> {
     return this.queryBus.execute(new GetBatchErrorListQuery(batchId));
   }
 
+  /**
+   * Delete a batch with all related entities
+   */
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a batch with all related entities' })
-  @ApiResponse({ status: 204, description: 'Batch deleted successfully' })
-  async deleteAsync(@Query('id') id: string): Promise<void> {
-    await this.commandBus.execute(new DeleteBatchCommand(id));
+  public async deleteAsync(@Query() { batchId }: BatchIdDto): Promise<void> {
+    await this.commandBus.execute(new DeleteBatchCommand(batchId));
   }
 }

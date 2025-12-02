@@ -1,6 +1,6 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { PaginatedResDto } from '@/common/dtos/paginated-res.dto';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { DBService } from '@/modules/db/db.service';
 import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
@@ -11,7 +11,7 @@ export class GetDataBatchListHandler implements IQueryHandler<GetDataBatchListQu
 
   public async execute(
     query: GetDataBatchListQuery,
-  ): Promise<PaginatedResDto<DataBatch>> {
+  ): Promise<IPaginatedRes<DataBatch>> {
     const filter: any = {};
 
     if (query.entryProcessorTypes && query.entryProcessorTypes.length > 0) {
@@ -32,7 +32,7 @@ export class GetDataBatchListHandler implements IQueryHandler<GetDataBatchListQu
       .lean()
       .exec();
 
-    const result = new PaginatedResDto<DataBatch>(
+    const result = new IPaginatedRes<DataBatch>(
       data,
       total,
       query.maxCount || 150,

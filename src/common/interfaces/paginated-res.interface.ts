@@ -1,4 +1,4 @@
-export class PaginatedResDto<T> {
+export class IPaginatedRes<T> {
   data: T[];
   total: number;
   pageSize: number;

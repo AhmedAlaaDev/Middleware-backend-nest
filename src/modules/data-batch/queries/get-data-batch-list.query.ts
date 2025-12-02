@@ -1,12 +1,12 @@
 import { Query } from '@nestjs/cqrs';
 
-import { PaginatedResDto } from '@/common/dtos/paginated-res.dto';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import {
   DataBatch,
   EntryProcessorTypes,
 } from '@/modules/db/schemas/data-batch.schema';
 
-export class GetDataBatchListQuery extends Query<PaginatedResDto<DataBatch>> {
+export class GetDataBatchListQuery extends Query<IPaginatedRes<DataBatch>> {
   constructor(
     public readonly entryProcessorTypes?: EntryProcessorTypes[],
     public readonly batchNumberIds?: string[],
