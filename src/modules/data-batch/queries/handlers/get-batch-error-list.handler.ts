@@ -1,0 +1,36 @@
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+import { PaginatedResDto } from '@/common/dtos/paginated-res.dto';
+import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
+import { DBService } from '@/modules/db/db.service';
+import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
+
+@QueryHandler(GetBatchErrorListQuery)
+export class GetBatchErrorListHandler implements IQueryHandler<GetBatchErrorListQuery> {
+  constructor(private readonly db: DBService) {}
+
+  public async execute(
+    query: GetBatchErrorListQuery,
+  ): Promise<PaginatedResDto<DataBatchError>> {
+    const filter = { batchId: query.batchId };
+
+    const total = await this.db.dataBatchErrorModel.countDocuments(filter);
+
+    const data = await this.db.dataBatchErrorModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(query.skipCount || 0)
+      .limit(query.maxCount || 150)
+      .lean()
+      .exec();
+
+    const result = new PaginatedResDto<DataBatchError>(
+      data,
+      total,
+      query.maxCount || 150,
+      query.skipCount || 0,
+    );
+
+    return result;
+  }
+}
