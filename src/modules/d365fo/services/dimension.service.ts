@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import {
+  D365FODimension,
+  D365FODimensionValue,
+} from '@/modules/d365fo/types/d365fo-dimension.type';
+import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
@@ -25,7 +30,7 @@ export class DimensionService {
     select?: string[];
     orderBy?: string | string[];
     filter?: string;
-  }): Promise<any[]> {
+  }): Promise<D365FOODataResponse<D365FODimension>> {
     const {
       skipCount = 0,
       maxCount = 5000,
@@ -46,7 +51,7 @@ export class DimensionService {
 
     this.logger.debug('Fetching dimension list');
 
-    return this.d365foClient.get<any[]>(query, {
+    return this.d365foClient.get<D365FODimension>(query, {
       useCache,
       cacheTtl: 60 * 60 * 1000, // 1 hour - dimensions don't change often
     });
@@ -65,7 +70,7 @@ export class DimensionService {
       select?: string[];
       orderBy?: string | string[];
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOODataResponse<D365FODimensionValue>> {
     const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
       options || {};
 
@@ -97,7 +102,7 @@ export class DimensionService {
       `Fetching dimension values for dimension: ${dimension}, company: ${company}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    return this.d365foClient.get<D365FODimensionValue>(query, {
       useCache,
       cacheTtl: 30 * 60 * 1000, // 30 minutes
     });

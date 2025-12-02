@@ -5,6 +5,7 @@ import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 
 import { D365FOConfig, IConfig } from '@/config';
+import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
@@ -73,6 +74,7 @@ export class D365FOClientService {
 
   /**
    * Execute GET request with caching and circuit breaker
+   * Returns data wrapped in D365FOODataResponse format
    */
   public async get<T>(
     endpoint: string,
@@ -81,13 +83,15 @@ export class D365FOClientService {
       cacheTtl?: number;
       headers?: Record<string, string>;
     },
-  ): Promise<T> {
+  ): Promise<D365FOODataResponse<T>> {
     const { useCache = true, cacheTtl = 60 * 1000, headers = {} } =
       options || {};
     const cacheKey = `d365fo:${endpoint}`;
 
     if (useCache) {
-      const cached = await this.cacheService.get<T>(cacheKey);
+      const cached = await this.cacheService.get<D365FOODataResponse<T>>(
+        cacheKey,
+      );
       if (cached) {
         this.logger.debug(`Cache hit for: ${endpoint}`);
         return cached;
@@ -95,15 +99,36 @@ export class D365FOClientService {
     }
 
     const fullUrl = `${this.resource}${endpoint}`;
-    let data: T;
+    let responseData: any;
 
     try {
-      data = await this.circuitBreaker.fire(fullUrl, { headers });
+      responseData = await this.circuitBreaker.fire(fullUrl, { headers });
     } catch (error: any) {
       this.logger.error(
         `D365FO API GET failed: ${endpoint} - ${error.message}`,
       );
       throw error;
+    }
+
+    // Ensure response is in OData format
+    let data: D365FOODataResponse<T>;
+    if (Array.isArray(responseData)) {
+      // If response is already an array, wrap it in OData format
+      data = {
+        value: responseData as T[],
+      };
+    } else if (
+      responseData &&
+      typeof responseData === 'object' &&
+      'value' in responseData
+    ) {
+      // Already in OData format
+      data = responseData as D365FOODataResponse<T>;
+    } else {
+      // Single object - wrap in array
+      data = {
+        value: [responseData] as T[],
+      };
     }
 
     if (useCache) {
