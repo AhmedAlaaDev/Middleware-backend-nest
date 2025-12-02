@@ -1,4 +1,5 @@
-import { D365FODataService } from '@/modules/d365fo/services/d365fo-data.service';
+import { BillingService } from '@/modules/d365fo/services/billing.service';
+import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
@@ -21,7 +22,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   > = new Map();
 
   constructor(
-    protected readonly d365FODataService: D365FODataService,
+    protected readonly billingService: BillingService,
+    protected readonly customerInvoiceService: CustomerInvoiceService,
     protected readonly masterDataService: MasterDataService,
     protected readonly db: DBService,
   ) {}

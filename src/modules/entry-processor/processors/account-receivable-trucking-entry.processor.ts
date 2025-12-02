@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { D365FODataService } from '@/modules/d365fo/services/d365fo-data.service';
+import { BillingService } from '@/modules/d365fo/services/billing.service';
+import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { DBService } from '@/modules/db/db.service';
 import {
   RawDataModel,
@@ -36,11 +37,12 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
   ];
 
   constructor(
-    d365FODataService: D365FODataService,
+    billingService: BillingService,
+    customerInvoiceService: CustomerInvoiceService,
     masterDataService: MasterDataService,
     db: DBService,
   ) {
-    super(d365FODataService, masterDataService, db);
+    super(billingService, customerInvoiceService, masterDataService, db);
   }
 
   async formatAndEnrichAsync(
@@ -72,11 +74,13 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
     const accLines: DynAccountReceivableLineDto[] = [];
 
-    const billingCodes = await this.d365FODataService.getBillingCodeListAsync(
+    const billingCodes = await this.billingService.getBillingCodeList(
       company,
       billingClassId || '',
-      0,
-      5000,
+      {
+        skipCount: 0,
+        maxCount: 5000,
+      },
     );
 
     if (billingClassId) {
@@ -239,13 +243,13 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
       const firstLine = lines[0];
       const createdInvoice =
-        await this.d365FODataService.createCustomerInvoiceHeaderAsync(
+        await this.customerInvoiceService.createInvoiceHeader(
           company,
           firstLine,
         );
 
       for (const line of lines) {
-        await this.d365FODataService.createCustomerInvoiceLineAsync(
+        await this.customerInvoiceService.createInvoiceLine(
           company,
           createdInvoice.InvoiceIdentifier || 0,
           line,
