@@ -1,3 +1,5 @@
+import { QueryBus } from '@nestjs/cqrs';
+
 import { BillingService } from '@/modules/d365fo/services/billing.service';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { DBService } from '@/modules/db/db.service';
@@ -10,7 +12,10 @@ import {
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
-import { MasterDataCacheService } from '@/modules/master-data/services/master-data-cache.service';
+import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
+import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
@@ -24,7 +29,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   constructor(
     protected readonly billingService: BillingService,
     protected readonly customerInvoiceService: CustomerInvoiceService,
-    protected readonly masterDataService: MasterDataCacheService,
+    protected readonly queryBus: QueryBus,
     protected readonly db: DBService,
   ) {}
 
@@ -634,5 +639,37 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         `The dimension ${dimensionsModel.worker} does not exist in the system.`,
       );
     }
+  }
+
+  /**
+   * Get account customer invoice mappings by service type
+   */
+  protected async getAccountCustomerInvoiceMappings(
+    serviceType: ServiceTypes,
+  ) {
+    return this.queryBus.execute(new GetAccountMappingsQuery(serviceType));
+  }
+
+  /**
+   * Get all main accounts
+   */
+  protected async getAllMainAccounts() {
+    return this.queryBus.execute(new GetMainAccountsQuery());
+  }
+
+  /**
+   * Get financial dimension values as string array by dimension key
+   */
+  protected async getFinancialDimensionValues(
+    financialKey: string,
+  ): Promise<string[]> {
+    const dimensions = await this.queryBus.execute(
+      new GetFinancialDimensionsQuery(),
+    );
+    const dimension = dimensions.find((d) => d.financialKey === financialKey);
+    if (!dimension) {
+      return [];
+    }
+    return dimension.dimensionValues.map((dv) => dv.value);
   }
 }

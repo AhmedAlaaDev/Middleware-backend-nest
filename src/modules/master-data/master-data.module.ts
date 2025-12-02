@@ -12,6 +12,7 @@ import { GetBillingCodesHandler } from '@/modules/master-data/queries/handlers/g
 import { GetMainAccountsHandler } from '@/modules/master-data/queries/handlers/get-main-accounts.handler';
 import { SyncAccountMappingsHandler } from '@/modules/master-data/commands/handlers/sync-account-mappings.handler';
 import { GetAccountMappingsHandler } from '@/modules/master-data/queries/handlers/get-account-mappings.handler';
+import { GetCustomersHandler } from '@/modules/master-data/queries/handlers/get-customers.handler';
 
 const CommandHandlers = [
   SyncFinancialDimensionsHandler,
@@ -26,6 +27,7 @@ const QueryHandlers = [
   GetBillingCodesHandler,
   GetMainAccountsHandler,
   GetAccountMappingsHandler,
+  GetCustomersHandler,
 ];
 
 @Module({

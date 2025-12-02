@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CqrsModule } from '@nestjs/cqrs';
 
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
@@ -13,7 +14,7 @@ const EntryProcessors = [
 ];
 
 @Module({
-  imports: [D365FOModule, MasterDataModule],
+  imports: [CqrsModule, D365FOModule, MasterDataModule],
   providers: [EntryProcessorFactory, ...EntryProcessors],
   exports: [EntryProcessorFactory],
 })

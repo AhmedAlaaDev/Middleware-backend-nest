@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { QueryBus } from '@nestjs/cqrs';
 
 import { BillingService } from '@/modules/d365fo/services/billing.service';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
@@ -11,12 +12,7 @@ import {
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
-enum ServiceTypes {
-  Freight = 1,
-  Trucking = 2,
-  FreightCreditNote = 3,
-  TruckingCreditNote = 4,
-}
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 @Injectable()
 export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
@@ -39,10 +35,10 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
   constructor(
     billingService: BillingService,
     customerInvoiceService: CustomerInvoiceService,
-    masterDataService: MasterDataCacheService,
+    queryBus: QueryBus,
     db: DBService,
   ) {
-    super(billingService, customerInvoiceService, masterDataService, db);
+    super(billingService, customerInvoiceService, queryBus, db);
   }
 
   async formatAndEnrichAsync(
@@ -50,11 +46,10 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    // Load master data (cached)
-    const accounts =
-      await this.masterDataService.getAccountCustomerInvoiceMappings(
-        ServiceTypes.Freight,
-      );
+    // Load master data
+    const accounts = await this.getAccountCustomerInvoiceMappings(
+      ServiceTypes.Freight,
+    );
 
     const arData = data.map((raw) => {
       const model = new AccountReceivableFileModel();
@@ -163,12 +158,13 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
     // Load dimensions and accounts
-    const accounts = await this.masterDataService.getAllMainAccounts();
+    const accounts = await this.getAllMainAccounts();
 
     const dimensionsMap = new Map<string, string[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.masterDataService.getFinancialDimensionValues(dimensionKey);
+      const dimensionValues = await this.getFinancialDimensionValues(
+        dimensionKey,
+      );
       dimensionsMap.set(dimensionKey, dimensionValues);
     }
 

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import { D365FOCustomer } from '@/modules/d365fo/types';
 
 /**
  * Service for managing customers in D365FO
@@ -28,7 +29,7 @@ export class CustomerService {
       orderBy?: string | string[];
       filters?: string | string[];
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOCustomer[]> {
     const {
       skipCount = 0,
       maxCount = 50,
@@ -59,7 +60,7 @@ export class CustomerService {
 
     this.logger.debug(`Fetching customer list for company: ${company}`);
 
-    const response = await this.d365foClient.get<any>(query, {
+    const response = await this.d365foClient.get<D365FOCustomer>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
@@ -78,7 +79,7 @@ export class CustomerService {
       select?: string[];
       expand?: string | string[];
     },
-  ): Promise<any> {
+  ): Promise<D365FOCustomer | null> {
     const { useCache = true, select, expand } = options || {};
 
     const filter = this.queryBuilder.and(
@@ -98,7 +99,7 @@ export class CustomerService {
       `Fetching customer ${customerAccount} for company: ${company}`,
     );
 
-    const response = await this.d365foClient.get<any>(query, {
+    const response = await this.d365foClient.get<D365FOCustomer>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
@@ -118,14 +119,14 @@ export class CustomerService {
       useCache?: boolean;
       select?: string[];
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOCustomer[]> {
     const { skipCount = 0, maxCount = 50, useCache = true, select } =
       options || {};
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
       this.queryBuilder.or(
-        this.queryBuilder.contains('CustomerName', searchTerm),
+        this.queryBuilder.contains('Name', searchTerm),
         this.queryBuilder.contains('CustomerAccount', searchTerm),
       ),
     );
@@ -135,7 +136,7 @@ export class CustomerService {
       top: maxCount,
       skip: skipCount,
       select,
-      orderBy: 'CustomerName',
+      orderBy: 'Name',
       crossCompany: true,
     });
 
@@ -143,7 +144,7 @@ export class CustomerService {
       `Searching customers for company: ${company}, term: ${searchTerm}`,
     );
 
-    const response = await this.d365foClient.get<any>(query, {
+    const response = await this.d365foClient.get<D365FOCustomer>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
