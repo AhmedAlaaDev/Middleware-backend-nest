@@ -16,7 +16,7 @@ Add the following Redis configuration to your `.env.development` and `.env.produ
 # Redis Configuration
 REDIS_HOST=localhost
 REDIS_PORT=6379
-REDIS_PASSWORD=
+# REDIS_PASSWORD=  # Optional - leave empty or omit if not using password
 REDIS_DB=0
 REDIS_MAX_RETRIES_PER_REQUEST=3
 REDIS_ENABLE_READY_CHECK=true
@@ -28,7 +28,7 @@ REDIS_LAZY_CONNECT=false
 When using Docker, Redis is automatically configured. The connection will use:
 - **Host**: `redis` (service name in docker-compose)
 - **Port**: `6379`
-- **Password**: Set via `REDIS_PASSWORD` environment variable (optional)
+- **Password**: Optional - Redis runs without password by default. Set `REDIS_PASSWORD` only if you need authentication.
 
 ## Project Structure
 

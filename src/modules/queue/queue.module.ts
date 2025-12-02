@@ -14,17 +14,21 @@ import { QueueService } from './services/queue.service';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const redis = configService.get<ReturnType<typeof redisConfig>>('redis');
-        return {
-          connection: {
-            host: redis?.host ?? 'localhost',
-            port: redis?.port ?? 6379,
-            password: redis?.password,
-            db: redis?.db ?? 0,
-            maxRetriesPerRequest: redis?.maxRetriesPerRequest ?? 3,
-            enableReadyCheck: redis?.enableReadyCheck ?? true,
-            lazyConnect: redis?.lazyConnect ?? false,
-          },
+        const connection: Record<string, unknown> = {
+          host: redis?.host ?? 'localhost',
+          port: redis?.port ?? 6379,
+          db: redis?.db ?? 0,
+          maxRetriesPerRequest: redis?.maxRetriesPerRequest ?? 3,
+          enableReadyCheck: redis?.enableReadyCheck ?? true,
+          lazyConnect: redis?.lazyConnect ?? false,
         };
+
+        // Only add password if it's provided
+        if (redis?.password) {
+          connection.password = redis.password;
+        }
+
+        return { connection };
       },
     }),
     // Register queues

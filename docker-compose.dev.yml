@@ -14,7 +14,6 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_DB: ${REDIS_DB:-0}
       PREFIX: ${PREFIX:-}
       ALLOWED_CORS_ORIGINS: ${ALLOWED_CORS_ORIGINS:-*}
@@ -82,7 +81,14 @@ services:
     container_name: redis-dev
     hostname: redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
+    command: >
+      sh -c "
+      if [ -n \"$$REDIS_PASSWORD\" ]; then
+        redis-server --requirepass $$REDIS_PASSWORD --appendonly yes
+      else
+        redis-server --appendonly yes
+      fi
+      "
     ports:
       - '${REDIS_PORT:-6379}:6379'
     volumes:
