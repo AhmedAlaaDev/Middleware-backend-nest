@@ -46,6 +46,7 @@
     "joi": "^18.0.2",
     "mongoose": "^9.0.0",
     "opossum": "^9.0.0",
+    "pnpm": "^10.24.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

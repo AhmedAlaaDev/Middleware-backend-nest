@@ -26,7 +26,12 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
       validationOptions: {
         abortEarly: true,
       },
-      // envFilePath: `.env.development`,
+      envFilePath: [
+        `.env.${process.env.NODE_ENV || 'development'}.local`,
+        `.env.${process.env.NODE_ENV || 'development'}`,
+        '.env.local',
+        '.env',
+      ],
     }),
 
     ResilienceModule,
