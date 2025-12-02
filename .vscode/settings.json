@@ -16,6 +16,7 @@
   },
   "typescript.preferences.importModuleSpecifier": "non-relative",
   "[prisma]": {
-    "editor.defaultFormatter": "Prisma.prisma"
-  }
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "prisma.pinToPrisma6": true
 }

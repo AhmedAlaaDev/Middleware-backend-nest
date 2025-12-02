@@ -1,4 +1,5 @@
 import { D365FODataService } from '@/modules/d365fo/services/d365fo-data.service';
+import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   EntryProcessorTypes,
@@ -9,7 +10,6 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { MasterDataService } from '@/modules/master-data/master-data.service';
-import { PrismaService } from '@/modules/prisma/prisma.service';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
@@ -23,7 +23,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   constructor(
     protected readonly d365FODataService: D365FODataService,
     protected readonly masterDataService: MasterDataService,
-    protected readonly prisma: PrismaService,
+    protected readonly db: DBService,
   ) {}
 
   abstract formatAndEnrichAsync(

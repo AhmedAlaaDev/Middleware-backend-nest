@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { PrismaService } from '@/modules/prisma/prisma.service';
+import { DBService } from '@/modules/db/db.service';
 import { MultiLayerCacheService } from '@/modules/resilience/services/mutli-layer-cache.service';
 
 export enum ServiceTypes {
@@ -52,7 +52,7 @@ export class MasterDataService implements OnModuleInit {
   private readonly cacheWarmupEnabled: boolean;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DBService,
     private readonly cache: MultiLayerCacheService,
     private readonly configService: ConfigService,
   ) {
@@ -74,17 +74,16 @@ export class MasterDataService implements OnModuleInit {
    */
   public async getFinancialDimensions(): Promise<FinancialDimension[]> {
     return this.cache.get('master-data:financial-dimensions:all', async () => {
-      const dimensions = await this.prisma.financialDimension.findMany({
-        include: {
-          dimensionValues: true,
-        },
-      });
+      const dimensions = await this.db.financialDimensionModel
+        .find()
+        .populate('dimensionValues') // uses ref in schema
+        .lean();
 
       return dimensions.map((d: any) => ({
-        id: d.id,
+        id: d._id.toString(),
         financialKey: d.financialKey,
-        dimensionValues: d.dimensionValues.map((v: any) => ({
-          id: v.id,
+        dimensionValues: (d?.dimensionValues || []).map((v: any) => ({
+          id: v._id.toString(),
           financialDimensionKey: v.financialDimensionKey,
           value: v.value,
           description: v.description || undefined,
@@ -102,17 +101,17 @@ export class MasterDataService implements OnModuleInit {
     return this.cache.get(
       `master-data:dimension-values:${financialKey}`,
       async () => {
-        const dimension = await this.prisma.financialDimension.findUnique({
-          where: { financialKey },
-          include: { dimensionValues: true },
-        });
+        const dimension = (await this.db.financialDimensionModel
+          .findOne({ financialKey })
+          .populate('dimensionValues')
+          .lean()) as any;
 
         if (!dimension) {
           return [];
         }
 
         return dimension.dimensionValues.map((v: any) => ({
-          id: v.id,
+          id: v._id.toString(),
           financialDimensionKey: v.financialDimensionKey,
           value: v.value,
           description: v.description || undefined,
@@ -135,13 +134,12 @@ export class MasterDataService implements OnModuleInit {
     return this.cache.get(
       `master-data:account-mappings:${serviceType}`,
       async () => {
-        const mappings =
-          await this.prisma.accountCustomerInvoiceMapping.findMany({
-            where: { serviceType },
-          });
+        const mappings = await this.db.accountCustomerInvoiceMappingModel
+          .find({ serviceType })
+          .lean();
 
         return mappings.map((m: any) => ({
-          id: m.id,
+          id: m._id.toString(),
           name: m.name,
           customerAccount: m.customerAccount,
           invoiceAccount: m.invoiceAccount,
@@ -163,17 +161,16 @@ export class MasterDataService implements OnModuleInit {
     return this.cache.get(
       'master-data:chart-of-accounts:all',
       async () => {
-        const charts = await this.prisma.chartOfAccount.findMany({
-          include: {
-            accounts: true,
-          },
-        });
+        const charts = await this.db.chartOfAccountModel
+          .find()
+          .populate('accounts')
+          .lean();
 
         return charts.map((c: any) => ({
-          id: c.id,
+          id: c._id.toString(),
           chartNumber: c.chartNumber,
-          accounts: c.accounts.map((a: any) => ({
-            id: a.id,
+          accounts: (c.accounts || []).map((a: any) => ({
+            id: a._id.toString(),
             chartNumber: a.chartNumber,
             accountNumber: a.accountNumber,
           })),
@@ -194,12 +191,12 @@ export class MasterDataService implements OnModuleInit {
     return this.cache.get(
       `master-data:main-accounts:${chartNumber}`,
       async () => {
-        const accounts = await this.prisma.mainAccount.findMany({
-          where: { chartNumber },
-        });
+        const accounts = await this.db.mainAccountModel
+          .find({ chartNumber })
+          .lean();
 
-        return accounts.map((a: any) => ({
-          id: a.id,
+        return accounts.map((a) => ({
+          id: a._id.toString(),
           chartNumber: a.chartNumber,
           accountNumber: a.accountNumber,
         }));
@@ -213,35 +210,16 @@ export class MasterDataService implements OnModuleInit {
   }
 
   /**
-   * Warm up cache on startup
-   */
-  private async warmUpCache(): Promise<void> {
-    try {
-      const warmupTasks = [
-        this.getFinancialDimensions(),
-        this.getChartOfAccounts(),
-        this.getAccountCustomerInvoiceMappings(ServiceTypes.Freight),
-        this.getAccountCustomerInvoiceMappings(ServiceTypes.Trucking),
-      ];
-
-      await Promise.all(warmupTasks);
-      this.logger.log('Master data cache warmed up successfully');
-    } catch (error) {
-      this.logger.error('Failed to warm up master data cache', error);
-    }
-  }
-
-  /**
    * Get all main accounts across all charts (cached)
    */
   public async getAllMainAccounts(): Promise<MainAccount[]> {
     return this.cache.get(
       'master-data:main-accounts:all',
       async () => {
-        const accounts = await this.prisma.mainAccount.findMany();
+        const accounts = await this.db.mainAccountModel.find().lean();
 
-        return accounts.map((a: any) => ({
-          id: a.id,
+        return accounts.map((a) => ({
+          id: a._id.toString(),
           chartNumber: a.chartNumber,
           accountNumber: a.accountNumber,
         }));
@@ -274,5 +252,24 @@ export class MasterDataService implements OnModuleInit {
       this.cache.delete('master-data:account-mappings:1'),
       this.cache.delete('master-data:account-mappings:2'),
     ]);
+  }
+
+  /**
+   * Warm up cache on startup
+   */
+  private async warmUpCache(): Promise<void> {
+    try {
+      const warmupTasks = [
+        this.getFinancialDimensions(),
+        this.getChartOfAccounts(),
+        this.getAccountCustomerInvoiceMappings(ServiceTypes.Freight),
+        this.getAccountCustomerInvoiceMappings(ServiceTypes.Trucking),
+      ];
+
+      await Promise.all(warmupTasks);
+      this.logger.log('Master data cache warmed up successfully');
+    } catch (error) {
+      this.logger.error('Failed to warm up master data cache', error);
+    }
   }
 }

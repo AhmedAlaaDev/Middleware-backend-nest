@@ -38,7 +38,6 @@ export const ConfigSchema = Joi.object<IConfig>({
   }),
 
   db: Joi.object<DBConfig>({
-    postgresqlUrl: Joi.string().required(),
     mongodbUri: Joi.string().required(),
     mongodbMaxPoolSize: Joi.number().default(5),
   }),

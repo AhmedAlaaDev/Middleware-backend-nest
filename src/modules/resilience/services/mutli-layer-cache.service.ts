@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { IConfig, ResilienceConfig } from '@/config';
-import { PrismaService } from '@/modules/prisma/prisma.service';
+import { DBService } from '@/modules/db/db.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 
 export interface CacheLayerOptions {
@@ -26,7 +26,7 @@ export class MultiLayerCacheService {
 
   constructor(
     private readonly cache: CacheService, // In-memory (now), Redis (future)
-    private readonly prisma: PrismaService,
+    private readonly dbService: DBService,
     private readonly config: ConfigService<IConfig>,
   ) {
     const defaultCacheOptions =
@@ -90,7 +90,9 @@ export class MultiLayerCacheService {
   async delete(key: string): Promise<void> {
     await this.cache.del(`l1:${key}`).catch(() => {});
     if (this.redisEnabled) await this.cache.del(`l2:${key}`).catch(() => {});
-    await this.prisma.cacheEntry.deleteMany({ where: { key: `l3:${key}` } });
+    await this.dbService.cacheEntryModel
+      .deleteMany({ key: `l3:${key}` })
+      .exec();
   }
 
   // ----------------------------------------
@@ -106,8 +108,9 @@ export class MultiLayerCacheService {
   }
 
   private async getL3<T>(key: string) {
-    const entry = await this.prisma.cacheEntry.findFirst({
-      where: { key: `l3:${key}`, expiresAt: { gt: new Date() } },
+    const entry = await this.dbService.cacheEntryModel.findOne({
+      key: `l3:${key}`,
+      expiresAt: { $gt: new Date() },
     });
     return entry ? (JSON.parse(entry.value) as T) : undefined;
   }
@@ -123,11 +126,15 @@ export class MultiLayerCacheService {
 
   private async setL3<T>(key: string, value: T, ttl: number) {
     const expiresAt = new Date(Date.now() + ttl);
-    await this.prisma.cacheEntry.upsert({
-      where: { key: `l3:${key}` },
-      update: { value: JSON.stringify(value), expiresAt },
-      create: { key: `l3:${key}`, value: JSON.stringify(value), expiresAt },
-    });
+    await this.dbService.cacheEntryModel.findOneAndUpdate(
+      { key: `l3:${key}` },
+      {
+        key: `l3:${key}`,
+        value: JSON.stringify(value),
+        expiresAt,
+      },
+      { upsert: true, new: true },
+    );
   }
 
   private async promoteToUpperLayers<T>(

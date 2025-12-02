@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { D365FODataService } from '@/modules/d365fo/services/d365fo-data.service';
+import { DBService } from '@/modules/db/db.service';
 import {
   RawDataModel,
   DynDataModel,
@@ -13,7 +14,6 @@ import {
   MasterDataService,
   ServiceTypes,
 } from '@/modules/master-data/master-data.service';
-import { PrismaService } from '@/modules/prisma/prisma.service';
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
@@ -38,9 +38,9 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
   constructor(
     d365FODataService: D365FODataService,
     masterDataService: MasterDataService,
-    prisma: PrismaService,
+    db: DBService,
   ) {
-    super(d365FODataService, masterDataService, prisma);
+    super(d365FODataService, masterDataService, db);
   }
 
   async formatAndEnrichAsync(
