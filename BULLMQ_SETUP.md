@@ -150,40 +150,9 @@ await queueService.addExampleJob(
 );
 ```
 
-## API Endpoints
+## Internal Usage
 
-The queue controller provides REST API endpoints:
-
-### Add Job
-```http
-POST /v1/queue/example
-Content-Type: application/json
-
-{
-  "message": "Process this",
-  "userId": "user123"
-}
-```
-
-### Get Queue Statistics
-```http
-GET /v1/queue/stats
-```
-
-### Get Job Details
-```http
-GET /v1/queue/job/:jobId
-```
-
-### Retry Failed Job
-```http
-POST /v1/queue/job/:jobId/retry
-```
-
-### Remove Job
-```http
-DELETE /v1/queue/job/:jobId
-```
+The `QueueService` is exported from `QueueModule` and can be injected into any service for internal use. There are no REST API endpoints - all queue operations are done programmatically.
 
 ## Job Options
 
@@ -210,12 +179,17 @@ Then create a dashboard module to view queues and jobs in real-time.
 
 ### Queue Statistics
 
-Use the `/v1/queue/stats` endpoint to get:
+Use the `QueueService.getQueueStats()` method to get:
 - Waiting jobs count
 - Active jobs count
 - Completed jobs count
 - Failed jobs count
 - Delayed jobs count
+
+```typescript
+const stats = await queueService.getQueueStats();
+console.log(stats);
+```
 
 ## Best Practices
 

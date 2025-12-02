@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: build
+      target: development
     container_name: d365fo-middleware-dev
     restart: unless-stopped
     ports:

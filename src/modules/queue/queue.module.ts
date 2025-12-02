@@ -4,7 +4,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { redisConfig } from '@/config';
 import { ExampleProcessor } from './processors/example.processor';
-import { QueueController } from './queue.controller';
 import { QueueService } from './services/queue.service';
 
 @Module({
@@ -18,7 +17,8 @@ import { QueueService } from './services/queue.service';
           host: redis?.host ?? 'localhost',
           port: redis?.port ?? 6379,
           db: redis?.db ?? 0,
-          maxRetriesPerRequest: redis?.maxRetriesPerRequest ?? 3,
+          // BullMQ requires maxRetriesPerRequest to be null
+          maxRetriesPerRequest: null,
           enableReadyCheck: redis?.enableReadyCheck ?? true,
           lazyConnect: redis?.lazyConnect ?? false,
         };
@@ -36,7 +36,6 @@ import { QueueService } from './services/queue.service';
       name: 'example-queue',
     }),
   ],
-  controllers: [QueueController],
   providers: [ExampleProcessor, QueueService],
   exports: [BullModule, QueueService],
 })
