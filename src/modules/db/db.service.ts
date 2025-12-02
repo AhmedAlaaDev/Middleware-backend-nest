@@ -16,6 +16,7 @@ import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counte
 import { MainAccount } from '@/modules/db/schemas/main-account.schema';
 import { BillingClassification } from '@/modules/db/schemas/billing-classification.schema';
 import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
+import { Vendor } from '@/modules/db/schemas/vendor.schema';
 
 @Injectable()
 export class DBService {
@@ -48,6 +49,8 @@ export class DBService {
     private readonly _billingClassificationModel: Model<BillingClassification>,
     @InjectModel(BillingCode.name)
     private readonly _billingCodeModel: Model<BillingCode>,
+    @InjectModel(Vendor.name)
+    private readonly _vendorModel: Model<Vendor>,
   ) {}
 
   public get accountCustomerInvoiceMappingModel() {
@@ -104,5 +107,9 @@ export class DBService {
 
   public get billingCodeModel() {
     return this._billingCodeModel;
+  }
+
+  public get vendorModel() {
+    return this._vendorModel;
   }
 }

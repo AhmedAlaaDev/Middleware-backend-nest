@@ -2,24 +2,24 @@ import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
 
 import { DBService } from '@/modules/db/db.service';
-import { SyncAccountMappingsCommand } from '../sync-account-mappings.command';
+import { SaveAccountMappingsCommand } from '../save-account-mappings.command';
 
-@CommandHandler(SyncAccountMappingsCommand)
-export class SyncAccountMappingsHandler
-  implements ICommandHandler<SyncAccountMappingsCommand>
+@CommandHandler(SaveAccountMappingsCommand)
+export class SaveAccountMappingsHandler
+  implements ICommandHandler<SaveAccountMappingsCommand>
 {
-  private readonly logger = new Logger(SyncAccountMappingsHandler.name);
+  private readonly logger = new Logger(SaveAccountMappingsHandler.name);
 
   constructor(private readonly db: DBService) {}
 
   public async execute(
-    command: SyncAccountMappingsCommand,
+    command: SaveAccountMappingsCommand,
   ): Promise<{
     mappingsCreated: number;
     mappingsUpdated: number;
   }> {
     this.logger.log(
-      `Syncing ${command.mappings.length} account mappings`,
+      `Saving ${command.mappings.length} account mappings`,
     );
 
     let mappingsCreated = 0;
@@ -58,7 +58,7 @@ export class SyncAccountMappingsHandler
     }
 
     this.logger.log(
-      `Sync completed: ${mappingsCreated} mappings created, ${mappingsUpdated} mappings updated`,
+      `Save completed: ${mappingsCreated} mappings created, ${mappingsUpdated} mappings updated`,
     );
 
     return {

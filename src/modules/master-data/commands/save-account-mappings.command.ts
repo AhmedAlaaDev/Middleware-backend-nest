@@ -7,7 +7,7 @@ export interface AccountMappingData {
   serviceType: number;
 }
 
-export class SyncAccountMappingsCommand extends Command<{
+export class SaveAccountMappingsCommand extends Command<{
   mappingsCreated: number;
   mappingsUpdated: number;
 }> {

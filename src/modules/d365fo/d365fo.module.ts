@@ -10,6 +10,7 @@ import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.ser
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
+import { VendorService } from '@/modules/d365fo/services/vendor.service';
 
 @Module({
   providers: [
@@ -23,6 +24,7 @@ import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accou
     ExchangeRateService,
     GeneralJournalService,
     ChartOfAccountsService,
+    VendorService,
   ],
   exports: [
     D365FOAuthService,
@@ -35,6 +37,7 @@ import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accou
     ExchangeRateService,
     GeneralJournalService,
     ChartOfAccountsService,
+    VendorService,
   ],
 })
 export class D365FOModule {}

@@ -60,6 +60,10 @@ import {
   BillingCode,
   BillingCodeSchema,
 } from '@/modules/db/schemas/billing-code.schema';
+import {
+  Vendor,
+  VendorSchema,
+} from '@/modules/db/schemas/vendor.schema';
 
 @Global()
 @Module({
@@ -117,6 +121,10 @@ import {
       {
         name: BillingCode.name,
         schema: BillingCodeSchema,
+      },
+      {
+        name: Vendor.name,
+        schema: VendorSchema,
       },
     ]),
   ],

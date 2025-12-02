@@ -10,15 +10,18 @@ import { GetFinancialDimensionsHandler } from '@/modules/master-data/queries/han
 import { GetBillingClassificationsHandler } from '@/modules/master-data/queries/handlers/get-billing-classifications.handler';
 import { GetBillingCodesHandler } from '@/modules/master-data/queries/handlers/get-billing-codes.handler';
 import { GetMainAccountsHandler } from '@/modules/master-data/queries/handlers/get-main-accounts.handler';
-import { SyncAccountMappingsHandler } from '@/modules/master-data/commands/handlers/sync-account-mappings.handler';
+import { SaveAccountMappingsHandler } from '@/modules/master-data/commands/handlers/save-account-mappings.handler';
 import { GetAccountMappingsHandler } from '@/modules/master-data/queries/handlers/get-account-mappings.handler';
 import { GetCustomersHandler } from '@/modules/master-data/queries/handlers/get-customers.handler';
+import { SyncVendorsHandler } from '@/modules/master-data/commands/handlers/sync-vendors.handler';
+import { GetVendorsHandler } from '@/modules/master-data/queries/handlers/get-vendors.handler';
 
 const CommandHandlers = [
   SyncFinancialDimensionsHandler,
   SyncBillingDataHandler,
   SyncMainAccountsHandler,
-  SyncAccountMappingsHandler,
+  SaveAccountMappingsHandler,
+  SyncVendorsHandler,
 ];
 
 const QueryHandlers = [
@@ -28,6 +31,7 @@ const QueryHandlers = [
   GetMainAccountsHandler,
   GetAccountMappingsHandler,
   GetCustomersHandler,
+  GetVendorsHandler,
 ];
 
 @Module({

@@ -8,10 +8,12 @@ import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/ge
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
-import { SyncAccountMappingsCommand, AccountMappingData } from '@/modules/master-data/commands/sync-account-mappings.command';
+import { SaveAccountMappingsCommand, AccountMappingData } from '@/modules/master-data/commands/save-account-mappings.command';
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
+import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
+import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 /**
@@ -169,17 +171,44 @@ export class MasterDataController {
   }
 
   /**
-   * Sync account mappings (insert if not exist, update if exists)
+   * Save account mappings (insert if not exist, update if exists)
    */
-  @Post('account-mappings/sync')
+  @Post('account-mappings')
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Account mappings synced successfully',
+    description: 'Account mappings saved successfully',
   })
-  public syncAccountMappingsAsync(
+  public saveAccountMappingsAsync(
     @Body() mappings: AccountMappingData[],
   ) {
-    return this.commandBus.execute(new SyncAccountMappingsCommand(mappings));
+    return this.commandBus.execute(new SaveAccountMappingsCommand(mappings));
+  }
+
+  /**
+   * Get vendors from database (Query)
+   */
+  @Get('vendors')
+  @ApiResponse({
+    status: 200,
+    description: 'Vendors retrieved successfully',
+  })
+  public getVendorsAsync(
+    @Query('company') company?: string,
+  ) {
+    return this.queryBus.execute(new GetVendorsQuery(company));
+  }
+
+  /**
+   * Sync vendors from D365FO (insert if not exist, update if exists)
+   */
+  @Post('vendors/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Vendors synced successfully',
+  })
+  public syncVendorsAsync(@Query('company') company: string) {
+    return this.commandBus.execute(new SyncVendorsCommand(company));
   }
 }
