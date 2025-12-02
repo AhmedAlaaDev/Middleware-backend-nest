@@ -1,12 +1,12 @@
 export class IPaginatedRes<T> {
-  data: T[];
+  items: T[];
   total: number;
   pageSize: number;
   pageNumber: number;
   totalPages: number;
 
-  constructor(data: T[], total: number, pageSize: number, pageNumber: number) {
-    this.data = data;
+  constructor(items: T[], total: number, pageSize: number, pageNumber: number) {
+    this.items = items;
     this.total = total;
     this.pageSize = pageSize;
     this.pageNumber = pageNumber;

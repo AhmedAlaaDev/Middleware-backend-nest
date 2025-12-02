@@ -7,6 +7,9 @@ import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 
+import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
+import { GlobalResponseInterceptor } from '@/common/interceptors/global-response.interceptor';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
@@ -36,6 +39,12 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // use global exception filter to handle all exceptions
+  app.useGlobalFilters(new GlobalExceptionFilter());
+
+  // use global interceptor to transform response
+  app.useGlobalInterceptors(new GlobalResponseInterceptor());
 
   // Swagger setup
   const config = new DocumentBuilder()
