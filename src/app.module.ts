@@ -10,6 +10,7 @@ import {
   ConfigSchema,
   resilienceConfig,
 } from '@/config';
+import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
@@ -33,6 +34,7 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
     D365FOModule,
     MasterDataModule,
     DataBatchModule,
+    AccountsReceivableModule,
   ],
 
   controllers: [AppController],
