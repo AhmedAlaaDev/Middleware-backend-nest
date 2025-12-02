@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 /**
  * Service for managing customer invoices in D365FO
@@ -9,7 +10,10 @@ import { D365FOClientService } from './d365fo-client.service';
 export class CustomerInvoiceService {
   private readonly logger = new Logger(CustomerInvoiceService.name);
 
-  constructor(private readonly d365foClient: D365FOClientService) {}
+  constructor(
+    private readonly d365foClient: D365FOClientService,
+    private readonly queryBuilder: ODataQueryBuilderService,
+  ) {}
 
   /**
    * Create a customer invoice header
@@ -54,17 +58,38 @@ export class CustomerInvoiceService {
       skipCount?: number;
       maxCount?: number;
       useCache?: boolean;
-      filters?: string;
+      filters?: string | string[];
+      select?: string[];
+      orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 100, useCache = false, filters = '' } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 100,
+      useCache = false,
+      filters,
+      select,
+      orderBy,
+    } = options || {};
 
-    let query = `/data/FreeTextInvoiceHeaders?cross-company=true&$filter=dataAreaId eq '${company}'`;
-    if (filters) {
-      query += ` and ${filters}`;
-    }
-    query += `&$top=${maxCount}&$skip=${skipCount}`;
+    const baseFilter = this.queryBuilder.eq('dataAreaId', company);
+    const filter = filters
+      ? this.queryBuilder.and(
+          baseFilter,
+          Array.isArray(filters)
+            ? this.queryBuilder.buildFilterExpression(filters)
+            : filters,
+        )
+      : baseFilter;
+
+    const query = this.queryBuilder.buildQuery('/data/FreeTextInvoiceHeaders', {
+      filter,
+      top: maxCount,
+      skip: skipCount,
+      select,
+      orderBy,
+      crossCompany: true,
+    });
 
     this.logger.debug(`Fetching invoice headers for company: ${company}`);
 
@@ -84,11 +109,26 @@ export class CustomerInvoiceService {
       skipCount?: number;
       maxCount?: number;
       useCache?: boolean;
+      select?: string[];
+      orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 1000, useCache = false } = options || {};
+    const { skipCount = 0, maxCount = 1000, useCache = false, select, orderBy } =
+      options || {};
 
-    const query = `/data/FreeTextInvoiceLines?cross-company=true&$filter=dataAreaId eq '${company}' and ParentRecId eq ${invoiceNumber}&$top=${maxCount}&$skip=${skipCount}`;
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      this.queryBuilder.eq('ParentRecId', invoiceNumber),
+    );
+
+    const query = this.queryBuilder.buildQuery('/data/FreeTextInvoiceLines', {
+      filter,
+      top: maxCount,
+      skip: skipCount,
+      select,
+      orderBy,
+      crossCompany: true,
+    });
 
     this.logger.debug(
       `Fetching invoice lines for company: ${company}, invoice: ${invoiceNumber}`,

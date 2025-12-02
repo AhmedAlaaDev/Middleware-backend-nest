@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 /**
  * Service for managing general journal entries in D365FO
@@ -9,7 +10,10 @@ import { D365FOClientService } from './d365fo-client.service';
 export class GeneralJournalService {
   private readonly logger = new Logger(GeneralJournalService.name);
 
-  constructor(private readonly d365foClient: D365FOClientService) {}
+  constructor(
+    private readonly d365foClient: D365FOClientService,
+    private readonly queryBuilder: ODataQueryBuilderService,
+  ) {}
 
   /**
    * Create a general journal header
@@ -47,17 +51,38 @@ export class GeneralJournalService {
       skipCount?: number;
       maxCount?: number;
       useCache?: boolean;
-      filters?: string;
+      filters?: string | string[];
+      select?: string[];
+      orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 100, useCache = false, filters = '' } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 100,
+      useCache = false,
+      filters,
+      select,
+      orderBy,
+    } = options || {};
 
-    let query = `/data/LedgerJournalHeaders?cross-company=true&$filter=dataAreaId eq '${company}'`;
-    if (filters) {
-      query += ` and ${filters}`;
-    }
-    query += `&$top=${maxCount}&$skip=${skipCount}`;
+    const baseFilter = this.queryBuilder.eq('dataAreaId', company);
+    const filter = filters
+      ? this.queryBuilder.and(
+          baseFilter,
+          Array.isArray(filters)
+            ? this.queryBuilder.buildFilterExpression(filters)
+            : filters,
+        )
+      : baseFilter;
+
+    const query = this.queryBuilder.buildQuery('/data/LedgerJournalHeaders', {
+      filter,
+      top: maxCount,
+      skip: skipCount,
+      select,
+      orderBy,
+      crossCompany: true,
+    });
 
     this.logger.debug(`Fetching journal headers for company: ${company}`);
 
@@ -77,11 +102,26 @@ export class GeneralJournalService {
       skipCount?: number;
       maxCount?: number;
       useCache?: boolean;
+      select?: string[];
+      orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 1000, useCache = false } = options || {};
+    const { skipCount = 0, maxCount = 1000, useCache = false, select, orderBy } =
+      options || {};
 
-    const query = `/data/LedgerJournalLines?cross-company=true&$filter=dataAreaId eq '${company}' and JournalNum eq '${journalNumber}'&$top=${maxCount}&$skip=${skipCount}`;
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      this.queryBuilder.eq('JournalNum', journalNumber),
+    );
+
+    const query = this.queryBuilder.buildQuery('/data/LedgerJournalLines', {
+      filter,
+      top: maxCount,
+      skip: skipCount,
+      select,
+      orderBy,
+      crossCompany: true,
+    });
 
     this.logger.debug(
       `Fetching journal lines for company: ${company}, journal: ${journalNumber}`,
