@@ -3,13 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
-    container_name: d365fo-middleware
+      target: build
+    container_name: d365fo-middleware-dev
     restart: unless-stopped
     ports:
       - '${PORT:-3000}:3000'
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3000
       MONGODB_URI: ${MONGODB_URI:-mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin}
       REDIS_HOST: ${REDIS_HOST:-redis}
@@ -17,7 +17,14 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_DB: ${REDIS_DB:-0}
       PREFIX: ${PREFIX:-}
-      ALLOWED_CORS_ORIGINS: ${ALLOWED_CORS_ORIGINS:-}
+      ALLOWED_CORS_ORIGINS: ${ALLOWED_CORS_ORIGINS:-*}
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./nest-cli.json:/app/nest-cli.json:ro
+      # Exclude node_modules from volume mount
+      - /app/node_modules
     networks:
       - mongodb_network
       - redis_network
@@ -26,22 +33,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/docs', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    command: pnpm run start:dev
 
   mongodb:
     image: mongo:latest
-    container_name: mongodb
+    container_name: mongodb-dev
     hostname: mongodb
     restart: unless-stopped
     volumes:
       - ./mongodb/initdb.d/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-      - mongodb-data:/data/db/
-      - mongodb-log:/var/log/mongodb/
+      - mongodb-data-dev:/data/db/
+      - mongodb-log-dev:/var/log/mongodb/
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: sp3awi
@@ -58,7 +60,7 @@ services:
 
   mongo-express:
     image: mongo-express:latest
-    container_name: mongo-express
+    container_name: mongo-express-dev
     restart: unless-stopped
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: root
@@ -77,14 +79,14 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: redis
+    container_name: redis-dev
     hostname: redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
     ports:
       - '${REDIS_PORT:-6379}:6379'
     volumes:
-      - redis-data:/data
+      - redis-data-dev:/data
     networks:
       - redis_network
     healthcheck:
@@ -95,15 +97,12 @@ services:
       start_period: 10s
 
 volumes:
-  mongodb-data:
+  mongodb-data-dev:
     driver: local
-    name: mongo-data
-  mongodb-log:
+  mongodb-log-dev:
     driver: local
-    name: mongo-log
-  redis-data:
+  redis-data-dev:
     driver: local
-    name: redis-data
 
 networks:
   mongodb_network:
@@ -112,3 +111,4 @@ networks:
   redis_network:
     driver: bridge
     name: redis-network
+

@@ -4,6 +4,7 @@ import { AppConfig } from '@/config/app.config';
 import { AuthConfig } from '@/config/auth.config';
 import { D365FOConfig } from '@/config/d365fo.config';
 import { DBConfig } from '@/config/db.config';
+import { RedisConfig } from '@/config/redis.config';
 import { ResilienceConfig } from '@/config/resilience.config';
 
 export interface IConfig {
@@ -11,6 +12,7 @@ export interface IConfig {
   auth: AuthConfig;
   d365fo: D365FOConfig;
   db: DBConfig;
+  redis: RedisConfig;
   resilience: ResilienceConfig;
 }
 
@@ -42,6 +44,16 @@ export const ConfigSchema = Joi.object<IConfig>({
     mongodbMaxPoolSize: Joi.number().default(5),
   }),
 
+  redis: Joi.object<RedisConfig>({
+    host: Joi.string().default('localhost'),
+    port: Joi.number().default(6379),
+    password: Joi.string().optional(),
+    db: Joi.number().default(0),
+    maxRetriesPerRequest: Joi.number().default(3),
+    enableReadyCheck: Joi.boolean().default(true),
+    lazyConnect: Joi.boolean().default(false),
+  }),
+
   resilience: Joi.object<ResilienceConfig>({
     circuitBreaker: Joi.object({
       timeout: Joi.number().default(30000),
@@ -63,4 +75,5 @@ export * from './app.config';
 export * from './auth.config';
 export * from './d365fo.config';
 export * from './db.config';
+export * from './redis.config';
 export * from './resilience.config';

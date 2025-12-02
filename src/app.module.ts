@@ -7,6 +7,7 @@ import {
   authConfig,
   d365foConfig,
   dbConfig,
+  redisConfig,
   ConfigSchema,
   resilienceConfig,
 } from '@/config';
@@ -15,12 +16,13 @@ import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
+import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      load: [appConfig, authConfig, d365foConfig, dbConfig, resilienceConfig],
+      load: [appConfig, authConfig, d365foConfig, dbConfig, redisConfig, resilienceConfig],
       isGlobal: true,
       validationSchema: ConfigSchema,
       validationOptions: {
@@ -36,6 +38,7 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
 
     ResilienceModule,
     DBModule,
+    QueueModule,
     D365FOModule,
     MasterDataModule,
     DataBatchModule,
