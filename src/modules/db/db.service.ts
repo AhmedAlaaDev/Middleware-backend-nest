@@ -15,6 +15,8 @@ import { FinancialDimension } from '@/modules/db/schemas/financial-dimension.sch
 import { LedgerEntryBatchCounter } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
 import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counter.schema';
 import { MainAccount } from '@/modules/db/schemas/main-account.schema';
+import { BillingClassification } from '@/modules/db/schemas/billing-classification.schema';
+import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 
 @Injectable()
 export class DBService {
@@ -45,6 +47,10 @@ export class DBService {
     private readonly _ledgerVoucherCounterModel: Model<LedgerVoucherCounter>,
     @InjectModel(MainAccount.name)
     private readonly _mainAccountModel: Model<MainAccount>,
+    @InjectModel(BillingClassification.name)
+    private readonly _billingClassificationModel: Model<BillingClassification>,
+    @InjectModel(BillingCode.name)
+    private readonly _billingCodeModel: Model<BillingCode>,
   ) {}
 
   public get accountCustomerInvoiceMappingModel() {
@@ -97,5 +103,13 @@ export class DBService {
 
   public get mainAccountModel() {
     return this._mainAccountModel;
+  }
+
+  public get billingClassificationModel() {
+    return this._billingClassificationModel;
+  }
+
+  public get billingCodeModel() {
+    return this._billingCodeModel;
   }
 }

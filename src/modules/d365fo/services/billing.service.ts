@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import {
+  D365FOBillingClassification,
+  D365FOBillingCode,
+} from '@/modules/d365fo/types';
 
 /**
  * Service for managing billing codes and billing classifications in D365FO
@@ -28,7 +32,7 @@ export class BillingService {
       select?: string[];
       orderBy?: string | string[];
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOBillingCode[]> {
     const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
       options || {};
 
@@ -50,7 +54,7 @@ export class BillingService {
       `Fetching billing codes for company: ${company}, class: ${billingClassId}`,
     );
 
-    const response = await this.d365foClient.get<any>(query, {
+    const response = await this.d365foClient.get<D365FOBillingCode>(query, {
       useCache,
       cacheTtl: 30 * 60 * 1000, // 30 minutes
     });
@@ -70,7 +74,7 @@ export class BillingService {
       select?: string[];
       orderBy?: string | string[];
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOBillingClassification[]> {
     const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
       options || {};
 
@@ -87,10 +91,13 @@ export class BillingService {
 
     this.logger.debug(`Fetching billing classifications for company: ${company}`);
 
-    const response = await this.d365foClient.get<any>(query, {
-      useCache,
-      cacheTtl: 30 * 60 * 1000, // 30 minutes
-    });
+    const response = await this.d365foClient.get<D365FOBillingClassification>(
+      query,
+      {
+        useCache,
+        cacheTtl: 30 * 60 * 1000, // 30 minutes
+      },
+    );
 
     return response.value;
   }

@@ -5,6 +5,9 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
+import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 
 /**
  * Finance - Master Data
@@ -64,5 +67,51 @@ export class MasterDataController {
     return this.commandBus.execute(
       new SyncFinancialDimensionsCommand(company),
     );
+  }
+
+  /**
+   * Get billing classifications from database (Query)
+   */
+  @Get('billing-classifications')
+  @ApiResponse({
+    status: 200,
+    description: 'Billing classifications retrieved successfully',
+  })
+  public getBillingClassificationsAsync(
+    @Query('company') company?: string,
+  ) {
+    return this.queryBus.execute(
+      new GetBillingClassificationsQuery(company),
+    );
+  }
+
+  /**
+   * Get billing codes from database (Query)
+   */
+  @Get('billing-codes')
+  @ApiResponse({
+    status: 200,
+    description: 'Billing codes retrieved successfully',
+  })
+  public getBillingCodesAsync(
+    @Query('company') company?: string,
+    @Query('billingClassification') billingClassification?: string,
+  ) {
+    return this.queryBus.execute(
+      new GetBillingCodesQuery(company, billingClassification),
+    );
+  }
+
+  /**
+   * Sync billing data from D365FO (insert if not exist, update if exists)
+   */
+  @Post('billing-data/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Billing data synced successfully',
+  })
+  public syncBillingDataAsync(@Query('company') company: string) {
+    return this.commandBus.execute(new SyncBillingDataCommand(company));
   }
 }

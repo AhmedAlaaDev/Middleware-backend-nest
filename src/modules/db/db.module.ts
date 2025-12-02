@@ -56,6 +56,14 @@ import {
   MainAccount,
   MainAccountSchema,
 } from '@/modules/db/schemas/main-account.schema';
+import {
+  BillingClassification,
+  BillingClassificationSchema,
+} from '@/modules/db/schemas/billing-classification.schema';
+import {
+  BillingCode,
+  BillingCodeSchema,
+} from '@/modules/db/schemas/billing-code.schema';
 
 @Global()
 @Module({
@@ -109,6 +117,14 @@ import {
       {
         name: MainAccount.name,
         schema: MainAccountSchema,
+      },
+      {
+        name: BillingClassification.name,
+        schema: BillingClassificationSchema,
+      },
+      {
+        name: BillingCode.name,
+        schema: BillingCodeSchema,
       },
     ]),
   ],
