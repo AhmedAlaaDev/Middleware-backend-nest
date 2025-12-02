@@ -45,7 +45,7 @@ The Docker setup includes the following services:
 
 1. **app** - NestJS application (port 3000)
 2. **mongodb** - MongoDB database (port 27017)
-3. **mongo-express** - MongoDB web interface (port 8081)
+3. **redis** - Redis cache/queue backend (port 6379)
 
 ## Environment Variables
 
@@ -122,7 +122,6 @@ docker compose -f docker-compose.dev.yml up -d --build
 - **Application**: http://localhost:3000
 - **API Documentation**: http://localhost:3000/docs
 - **MongoDB**: mongodb://localhost:27017
-- **Mongo Express**: http://localhost:8081 (username: root, password: sp3awi)
 
 ## Dockerfile Stages
 

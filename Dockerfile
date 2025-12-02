@@ -50,7 +50,8 @@ COPY . .
 EXPOSE 3000
 
 # Start in development mode with watch
-CMD ["pnpm", "run", "start:dev"]
+# Use pnpm exec to ensure nest CLI is found from node_modules/.bin
+CMD ["pnpm", "exec", "nest", "start", "--watch"]
 
 # Stage 3: Production
 FROM node:20-alpine AS production

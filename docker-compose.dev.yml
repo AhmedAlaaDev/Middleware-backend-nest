@@ -67,7 +67,7 @@ services:
     command: pnpm run start:dev
 
   mongodb:
-    image: mongo:latest
+    image: mongodb/mongodb-community-server:latest
     container_name: mongodb-dev
     hostname: mongodb
     restart: unless-stopped
@@ -76,37 +76,18 @@ services:
       - mongodb-data-dev:/data/db/
       - mongodb-log-dev:/var/log/mongodb/
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: sp3awi
+      MONGODB_INITDB_ROOT_USERNAME: root
+      MONGODB_INITDB_ROOT_PASSWORD: sp3awi
     ports:
       - '27017:27017'
     networks:
       - mongodb_network
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      test: mongosh --eval "db.adminCommand('ping')" --quiet
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
-
-  mongo-express:
-    image: mongo-express:latest
-    container_name: mongo-express-dev
-    restart: unless-stopped
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: sp3awi
-      ME_CONFIG_MONGODB_PORT: 27017
-      ME_CONFIG_MONGODB_SERVER: 'mongodb'
-      ME_CONFIG_BASICAUTH_USERNAME: root
-      ME_CONFIG_BASICAUTH_PASSWORD: sp3awi
-    ports:
-      - 8081:8081
-    networks:
-      - mongodb_network
-    depends_on:
-      mongodb:
-        condition: service_healthy
 
   redis:
     image: redis:7-alpine
