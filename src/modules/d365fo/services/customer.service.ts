@@ -59,10 +59,12 @@ export class CustomerService {
 
     this.logger.debug(`Fetching customer list for company: ${company}`);
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 
   /**
@@ -96,12 +98,12 @@ export class CustomerService {
       `Fetching customer ${customerAccount} for company: ${company}`,
     );
 
-    const results = await this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
 
-    return results.length > 0 ? results[0] : null;
+    return response.value.length > 0 ? response.value[0] : null;
   }
 
   /**
@@ -141,10 +143,12 @@ export class CustomerService {
       `Searching customers for company: ${company}, term: ${searchTerm}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 }
 

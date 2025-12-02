@@ -50,10 +50,12 @@ export class BillingService {
       `Fetching billing codes for company: ${company}, class: ${billingClassId}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 30 * 60 * 1000, // 30 minutes
     });
+
+    return response.value;
   }
 
   /**
@@ -85,10 +87,12 @@ export class BillingService {
 
     this.logger.debug(`Fetching billing classifications for company: ${company}`);
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 30 * 60 * 1000, // 30 minutes
     });
+
+    return response.value;
   }
 }
 

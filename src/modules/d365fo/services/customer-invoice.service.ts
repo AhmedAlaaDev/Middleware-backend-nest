@@ -93,10 +93,12 @@ export class CustomerInvoiceService {
 
     this.logger.debug(`Fetching invoice headers for company: ${company}`);
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 
   /**
@@ -134,10 +136,12 @@ export class CustomerInvoiceService {
       `Fetching invoice lines for company: ${company}, invoice: ${invoiceNumber}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 }
 

@@ -67,10 +67,12 @@ export class ExchangeRateService {
       `Fetching exchange rates for company: ${company}, rateType: ${rateType}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 15 * 60 * 1000, // 15 minutes - exchange rates change frequently
     });
+
+    return response.value;
   }
 }
 

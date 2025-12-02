@@ -23,13 +23,20 @@ export class SyncFinancialDimensionsHandler
 
   public async execute(
     command: SyncFinancialDimensionsCommand,
-  ): Promise<{ dimensionsCreated: number; dimensionValuesCreated: number }> {
+  ): Promise<{
+    dimensionsCreated: number;
+    dimensionsUpdated: number;
+    dimensionValuesCreated: number;
+    dimensionValuesUpdated: number;
+  }> {
     this.logger.log(
       `Syncing financial dimensions from D365FO${command.company ? ` for company: ${command.company}` : ''}`,
     );
 
     let dimensionsCreated = 0;
+    let dimensionsUpdated = 0;
     let dimensionValuesCreated = 0;
+    let dimensionValuesUpdated = 0;
 
     // Fetch all dimensions from D365FO using pagination
     const allDimensions: D365FODimension[] = [];
@@ -72,7 +79,7 @@ export class SyncFinancialDimensionsHandler
         continue;
       }
 
-      // Check if dimension exists in database
+      // Check if dimension exists in database - upsert logic
       const existingDimension =
         await this.db.financialDimensionModel.findOne({
           financialKey: dimensionName,
@@ -85,6 +92,10 @@ export class SyncFinancialDimensionsHandler
         });
         dimensionsCreated++;
         this.logger.debug(`Created dimension: ${dimensionName}`);
+      } else {
+        // Dimension already exists - no update needed as we only store the key
+        // But we count it as processed for consistency
+        dimensionsUpdated++;
       }
 
       // Fetch all dimension values from D365FO using pagination
@@ -146,23 +157,36 @@ export class SyncFinancialDimensionsHandler
           });
 
         if (!existingValue) {
+          // Create new dimension value
           await this.db.financialDimensionValueModel.create({
             financialDimensionKey: dimensionName,
             value: value,
             description: description,
           });
           dimensionValuesCreated++;
+        } else {
+          // Update existing dimension value if description changed
+          if (existingValue.description !== description) {
+            existingValue.description = description;
+            await existingValue.save();
+            dimensionValuesUpdated++;
+            this.logger.debug(
+              `Updated dimension value: ${dimensionName}/${value}`,
+            );
+          }
         }
       }
     }
 
     this.logger.log(
-      `Sync completed: ${dimensionsCreated} dimensions created, ${dimensionValuesCreated} dimension values created`,
+      `Sync completed: ${dimensionsCreated} dimensions created, ${dimensionsUpdated} dimensions updated, ${dimensionValuesCreated} dimension values created, ${dimensionValuesUpdated} dimension values updated`,
     );
 
     return {
       dimensionsCreated,
+      dimensionsUpdated,
       dimensionValuesCreated,
+      dimensionValuesUpdated,
     };
   }
 }

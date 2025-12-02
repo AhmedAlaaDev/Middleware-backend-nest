@@ -4,7 +4,6 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
-import { UpdateFinancialDimensionsCommand } from '@/modules/master-data/commands/update-financial-dimensions.command';
 import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
 
 /**
@@ -51,7 +50,7 @@ export class MasterDataController {
   }
 
   /**
-   * Sync financial dimensions from D365FO (insert if not exist)
+   * Sync financial dimensions from D365FO (insert if not exist, update if exists)
    */
   @Post('financial-dimensions/sync')
   @HttpCode(HttpStatus.OK)
@@ -64,23 +63,6 @@ export class MasterDataController {
   ) {
     return this.commandBus.execute(
       new SyncFinancialDimensionsCommand(company),
-    );
-  }
-
-  /**
-   * Update financial dimensions from D365FO
-   */
-  @Post('financial-dimensions/update')
-  @HttpCode(HttpStatus.OK)
-  @ApiResponse({
-    status: 200,
-    description: 'Financial dimensions updated successfully',
-  })
-  public updateFinancialDimensionsAsync(
-    @Query('company') company?: string,
-  ) {
-    return this.commandBus.execute(
-      new UpdateFinancialDimensionsCommand(company),
     );
   }
 }

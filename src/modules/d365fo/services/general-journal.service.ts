@@ -86,10 +86,12 @@ export class GeneralJournalService {
 
     this.logger.debug(`Fetching journal headers for company: ${company}`);
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 
   /**
@@ -127,10 +129,12 @@ export class GeneralJournalService {
       `Fetching journal lines for company: ${company}, journal: ${journalNumber}`,
     );
 
-    return this.d365foClient.get<any[]>(query, {
+    const response = await this.d365foClient.get<any>(query, {
       useCache,
       cacheTtl: 5 * 60 * 1000, // 5 minutes
     });
+
+    return response.value;
   }
 }
 

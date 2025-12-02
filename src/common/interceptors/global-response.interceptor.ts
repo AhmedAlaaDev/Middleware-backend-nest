@@ -3,7 +3,7 @@
  * -----------------------------------------------------------
  * - Wraps successful handler results into a unified ApiResponse<T> envelope.
  * - Mirrors the error envelope's "meta" structure (requestId, timestamp, path, method).
- * - Skips transformation for non-API routes (URL not starting with "/api").
+ * - Skips transformation for specific non-API routes (e.g., /docs, /health).
  * - Skips transformation for stream/file responses (best-effort detection).
  * - Handles 204 No Content cleanly.
  *
@@ -63,8 +63,8 @@ export class GlobalResponseInterceptor<T> implements NestInterceptor<
 
     const url = req.originalUrl || req.url;
 
-    // Ignore non-API routes
-    if (!url.startsWith('/api')) {
+    // Ignore specific non-API routes (Swagger, health checks, static files, etc.)
+    if (this.shouldSkipTransformation(url)) {
       return next.handle() as unknown as Observable<ApiResponse<T>>;
     }
 
@@ -154,6 +154,35 @@ export class GlobalResponseInterceptor<T> implements NestInterceptor<
       default:
         return 'Success';
     }
+  }
+
+  /**
+   * Checks if the route should skip response transformation.
+   * Excludes Swagger docs, health checks, and static assets.
+   */
+  private shouldSkipTransformation(url: string): boolean {
+    // Exclude Swagger documentation
+    if (url.startsWith('/docs') || url.startsWith('/api-docs')) {
+      return true;
+    }
+
+    // Exclude health check endpoints
+    if (url.startsWith('/health')) {
+      return true;
+    }
+
+    // Exclude static assets (images, CSS, JS files, etc.)
+    const staticExtensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot'];
+    if (staticExtensions.some(ext => url.toLowerCase().endsWith(ext))) {
+      return true;
+    }
+
+    // Exclude root redirect
+    if (url === '/') {
+      return true;
+    }
+
+    return false;
   }
 
   /**
