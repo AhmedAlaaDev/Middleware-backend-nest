@@ -49,6 +49,20 @@ export class D365FOAuthService {
     const { authority, tenantId, clientId, clientSecret, resource } =
       this.d365foConfig;
 
+    // Validate required configuration
+    const missing: string[] = [];
+    if (!authority) missing.push('D365FO_AUTHORITY');
+    if (!tenantId) missing.push('D365FO_TENANT_ID');
+    if (!clientId) missing.push('D365FO_CLIENT_ID');
+    if (!clientSecret) missing.push('D365FO_CLIENT_SECRET');
+    if (!resource) missing.push('D365FO_RESOURCE');
+
+    if (missing.length > 0) {
+      const errorMsg = `Missing required D365FO configuration: ${missing.join(', ')}`;
+      this.logger.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
     const tokenUrl = `${authority}/${tenantId}/oauth2/token`;
 
     const params = new URLSearchParams();

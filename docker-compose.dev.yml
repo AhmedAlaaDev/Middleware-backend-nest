@@ -6,17 +6,49 @@ services:
       target: development
     container_name: d365fo-middleware-dev
     restart: unless-stopped
+    env_file:
+      - .env.development
     ports:
       - '${PORT:-3000}:3000'
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      MONGODB_URI: ${MONGODB_URI:-mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_DB: ${REDIS_DB:-0}
+      # Application Configuration
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
       PREFIX: ${PREFIX:-}
       ALLOWED_CORS_ORIGINS: ${ALLOWED_CORS_ORIGINS:-*}
+      
+      # Database Configuration
+      MONGODB_URI: ${MONGODB_URI:-mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin}
+      MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-5}
+      
+      # Redis Configuration
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_MAX_RETRIES_PER_REQUEST: ${REDIS_MAX_RETRIES_PER_REQUEST:-3}
+      REDIS_ENABLE_READY_CHECK: ${REDIS_ENABLE_READY_CHECK:-true}
+      REDIS_LAZY_CONNECT: ${REDIS_LAZY_CONNECT:-false}
+      
+      # Authentication Configuration
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15d}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-mg-d365fo-middleware}
+      JWT_ISSUER: ${JWT_ISSUER:-mg-d365fo-middleware}
+      
+      # D365FO Configuration - loaded from env_file (.env.development)
+      # These are not set here to allow env_file to take precedence
+      
+      # Resilience Configuration
+      CIRCUIT_BREAKER_TIMEOUT: ${CIRCUIT_BREAKER_TIMEOUT:-30000}
+      CIRCUIT_BREAKER_RESET_TIMEOUT: ${CIRCUIT_BREAKER_RESET_TIMEOUT:-30000}
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: ${CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
+      CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: ${CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE:-50}
+      CIRCUIT_BREAKER_ENABLED: ${CIRCUIT_BREAKER_ENABLED:-true}
+      CACHE_L1_TTL: ${CACHE_L1_TTL:-5}
+      CACHE_L2_TTL: ${CACHE_L2_TTL:-30}
+      CACHE_L3_TTL: ${CACHE_L3_TTL:-120}
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
     volumes:
       # Mount source code for hot reload
       - ./src:/app/src:ro
