@@ -5,7 +5,6 @@ import { Model } from 'mongoose';
 import { AccountCustomerInvoiceMapping } from '@/modules/db/schemas/account-customer-invoice-mapping.schema';
 import { AppSetting } from '@/modules/db/schemas/app-setting.schema';
 import { CacheEntry } from '@/modules/db/schemas/cache-entry.schema';
-import { ChartOfAccount } from '@/modules/db/schemas/chart-of-account.schema';
 import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
 import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
 import { DataEnhancedRecord } from '@/modules/db/schemas/data-enhanced-record.schema';
@@ -27,8 +26,6 @@ export class DBService {
     private readonly _appSettingModel: Model<AppSetting>,
     @InjectModel(CacheEntry.name)
     private readonly _cacheEntryModel: Model<CacheEntry>,
-    @InjectModel(ChartOfAccount.name)
-    private readonly _chartOfAccountModel: Model<ChartOfAccount>,
     @InjectModel(DataBatch.name)
     private readonly _dataBatchModel: Model<DataBatch>,
     @InjectModel(DataBatchError.name)
@@ -63,10 +60,6 @@ export class DBService {
 
   public get cacheEntryModel() {
     return this._cacheEntryModel;
-  }
-
-  public get chartOfAccountModel() {
-    return this._chartOfAccountModel;
   }
 
   public get dataBatchModel() {

@@ -9,6 +9,7 @@ import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
+import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
 
 @Module({
   providers: [
@@ -21,6 +22,7 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
     DimensionService,
     ExchangeRateService,
     GeneralJournalService,
+    ChartOfAccountsService,
   ],
   exports: [
     D365FOAuthService,
@@ -32,6 +34,7 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
     DimensionService,
     ExchangeRateService,
     GeneralJournalService,
+    ChartOfAccountsService,
   ],
 })
 export class D365FOModule {}

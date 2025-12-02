@@ -10,7 +10,7 @@ import {
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
-import { MasterDataService } from '@/modules/master-data/master-data.service';
+import { MasterDataCacheService } from '@/modules/master-data/services/master-data-cache.service';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
@@ -24,7 +24,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   constructor(
     protected readonly billingService: BillingService,
     protected readonly customerInvoiceService: CustomerInvoiceService,
-    protected readonly masterDataService: MasterDataService,
+    protected readonly masterDataService: MasterDataCacheService,
     protected readonly db: DBService,
   ) {}
 

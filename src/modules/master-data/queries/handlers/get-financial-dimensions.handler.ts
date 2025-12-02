@@ -1,8 +1,7 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
 import { DBService } from '@/modules/db/db.service';
-import { FinancialDimension } from '@/modules/master-data/master-data.service';
-import { GetFinancialDimensionsQuery } from '../get-financial-dimensions.query';
+import { GetFinancialDimensionsQuery, FinancialDimension } from '../get-financial-dimensions.query';
 
 @QueryHandler(GetFinancialDimensionsQuery)
 export class GetFinancialDimensionsHandler

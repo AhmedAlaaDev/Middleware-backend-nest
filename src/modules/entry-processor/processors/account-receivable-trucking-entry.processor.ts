@@ -11,10 +11,12 @@ import {
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
-import {
-  MasterDataService,
-  ServiceTypes,
-} from '@/modules/master-data/master-data.service';
+enum ServiceTypes {
+  Freight = 1,
+  Trucking = 2,
+  FreightCreditNote = 3,
+  TruckingCreditNote = 4,
+}
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
@@ -39,7 +41,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
   constructor(
     billingService: BillingService,
     customerInvoiceService: CustomerInvoiceService,
-    masterDataService: MasterDataService,
+    masterDataService: MasterDataCacheService,
     db: DBService,
   ) {
     super(billingService, customerInvoiceService, masterDataService, db);

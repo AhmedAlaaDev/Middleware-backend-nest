@@ -17,10 +17,6 @@ import {
   CacheEntrySchema,
 } from '@/modules/db/schemas/cache-entry.schema';
 import {
-  ChartOfAccount,
-  ChartOfAccountSchema,
-} from '@/modules/db/schemas/chart-of-account.schema';
-import {
   DataBatchError,
   DataBatchErrorSchema,
 } from '@/modules/db/schemas/data-batch-error.schema';
@@ -105,10 +101,6 @@ import {
       {
         name: AppSetting.name,
         schema: AppSettingSchema,
-      },
-      {
-        name: ChartOfAccount.name,
-        schema: ChartOfAccountSchema,
       },
       {
         name: FinancialDimension.name,

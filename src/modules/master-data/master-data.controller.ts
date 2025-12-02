@@ -1,13 +1,10 @@
-import { Controller, Get, Post, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Query, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiResponse } from '@nestjs/swagger';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
-import { CustomerService } from '@/modules/d365fo/services/customer.service';
-import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
-import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
-import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
-import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
-import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
+import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
+import { SyncAccountMappingsCommand, AccountMappingData } from '@/modules/master-data/commands/sync-account-mappings.command';
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 /**
  * Finance - Master Data
@@ -15,103 +12,36 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 @Controller('Finance/MasterData')
 export class MasterDataController {
   constructor(
-    private readonly customerService: CustomerService,
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
   ) {}
 
   /**
-   * Get customer list from D365FO
+   * Get account customer invoice mappings from database (Query)
    */
-  @Get('customer-list')
+  @Get('account-mappings')
   @ApiResponse({
     status: 200,
-    description: 'Customer list retrieved successfully',
+    description: 'Account mappings retrieved successfully',
   })
-  public getCustomerListAsync(
-    @Query('company') company: string,
-    @Query('skipCount') skipCount: number = 0,
-    @Query('maxCount') maxCount: number = 50,
-  ): Promise<any> {
-    return this.customerService.getCustomerList(company, {
-      skipCount,
-      maxCount,
-      useCache: true,
-    });
+  public getAccountMappingsAsync(
+    @Query('serviceType') serviceType?: ServiceTypes,
+  ) {
+    return this.queryBus.execute(new GetAccountMappingsQuery(serviceType));
   }
 
   /**
-   * Get financial dimensions from database (Query)
+   * Sync account mappings (insert if not exist, update if exists)
    */
-  @Get('financial-dimensions')
-  @ApiResponse({
-    status: 200,
-    description: 'Financial dimensions retrieved successfully',
-  })
-  public getFinancialDimensionsAsync() {
-    return this.queryBus.execute(new GetFinancialDimensionsQuery());
-  }
-
-  /**
-   * Sync financial dimensions from D365FO (insert if not exist, update if exists)
-   */
-  @Post('financial-dimensions/sync')
+  @Post('account-mappings/sync')
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Financial dimensions synced successfully',
+    description: 'Account mappings synced successfully',
   })
-  public syncFinancialDimensionsAsync(
-    @Query('company') company?: string,
+  public syncAccountMappingsAsync(
+    @Body() mappings: AccountMappingData[],
   ) {
-    return this.commandBus.execute(
-      new SyncFinancialDimensionsCommand(company),
-    );
-  }
-
-  /**
-   * Get billing classifications from database (Query)
-   */
-  @Get('billing-classifications')
-  @ApiResponse({
-    status: 200,
-    description: 'Billing classifications retrieved successfully',
-  })
-  public getBillingClassificationsAsync(
-    @Query('company') company?: string,
-  ) {
-    return this.queryBus.execute(
-      new GetBillingClassificationsQuery(company),
-    );
-  }
-
-  /**
-   * Get billing codes from database (Query)
-   */
-  @Get('billing-codes')
-  @ApiResponse({
-    status: 200,
-    description: 'Billing codes retrieved successfully',
-  })
-  public getBillingCodesAsync(
-    @Query('company') company?: string,
-    @Query('billingClassification') billingClassification?: string,
-  ) {
-    return this.queryBus.execute(
-      new GetBillingCodesQuery(company, billingClassification),
-    );
-  }
-
-  /**
-   * Sync billing data from D365FO (insert if not exist, update if exists)
-   */
-  @Post('billing-data/sync')
-  @HttpCode(HttpStatus.OK)
-  @ApiResponse({
-    status: 200,
-    description: 'Billing data synced successfully',
-  })
-  public syncBillingDataAsync(@Query('company') company: string) {
-    return this.commandBus.execute(new SyncBillingDataCommand(company));
+    return this.commandBus.execute(new SyncAccountMappingsCommand(mappings));
   }
 }
