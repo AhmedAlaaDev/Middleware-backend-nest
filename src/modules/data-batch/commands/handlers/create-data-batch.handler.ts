@@ -6,10 +6,10 @@ import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
 
 @CommandHandler(CreateDataBatchCommand)
 export class CreateDataBatchHandler implements ICommandHandler<CreateDataBatchCommand> {
-  constructor(private readonly dataBatchService: DataBatchService) {}
+  constructor(private readonly dataBatchService: DataBatchService) { }
 
   public async execute(command: CreateDataBatchCommand): Promise<DataBatch> {
-    return this.dataBatchService.createAsync(
+    return await this.dataBatchService.createAsync(
       command.entryProcessorType,
       command.entryProcessorName,
       command.companyId,
