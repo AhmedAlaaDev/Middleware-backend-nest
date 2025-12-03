@@ -26,10 +26,24 @@ export class SaveAccountMappingsHandler
     let mappingsUpdated = 0;
 
     for (const mappingData of command.mappings) {
-      // Check if mapping exists - use customerAccount and serviceType as unique identifier
+      // Validate required fields
+      if (
+        !mappingData.name ||
+        !mappingData.customerAccount ||
+        !mappingData.invoiceAccount ||
+        mappingData.serviceType === undefined
+      ) {
+        this.logger.warn(
+          'Skipping account mapping with missing required fields',
+          mappingData,
+        );
+        continue;
+      }
+
+      // Check if mapping exists - use name and serviceType as unique identifier
       const existingMapping =
         await this.db.accountCustomerInvoiceMappingModel.findOne({
-          customerAccount: mappingData.customerAccount,
+          name: mappingData.name,
           serviceType: mappingData.serviceType,
         });
 
@@ -46,14 +60,24 @@ export class SaveAccountMappingsHandler
           `Created account mapping: ${mappingData.customerAccount} -> ${mappingData.invoiceAccount} (serviceType: ${mappingData.serviceType})`,
         );
       } else {
-        // Update existing mapping
-        existingMapping.name = mappingData.name;
-        existingMapping.invoiceAccount = mappingData.invoiceAccount;
-        await existingMapping.save();
-        mappingsUpdated++;
-        this.logger.debug(
-          `Updated account mapping: ${mappingData.customerAccount} -> ${mappingData.invoiceAccount} (serviceType: ${mappingData.serviceType})`,
-        );
+        // Update existing mapping if any fields changed
+        let hasChanges = false;
+        if (existingMapping.customerAccount !== mappingData.customerAccount) {
+          existingMapping.customerAccount = mappingData.customerAccount;
+          hasChanges = true;
+        }
+        if (existingMapping.invoiceAccount !== mappingData.invoiceAccount) {
+          existingMapping.invoiceAccount = mappingData.invoiceAccount;
+          hasChanges = true;
+        }
+
+        if (hasChanges) {
+          await existingMapping.save();
+          mappingsUpdated++;
+          this.logger.debug(
+            `Updated account mapping: ${mappingData.name} (serviceType: ${mappingData.serviceType}) - customerAccount: ${mappingData.customerAccount}, invoiceAccount: ${mappingData.invoiceAccount}`,
+          );
+        }
       }
     }
 

@@ -1,10 +1,11 @@
 import { Command } from '@nestjs/cqrs';
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 export interface AccountMappingData {
   name: string;
   customerAccount: string;
   invoiceAccount: string;
-  serviceType: number;
+  serviceType: ServiceTypes;
 }
 
 export class SaveAccountMappingsCommand extends Command<{

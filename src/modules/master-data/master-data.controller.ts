@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Query, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiResponse } from '@nestjs/swagger';
+import { ApiResponse, ApiBody } from '@nestjs/swagger';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
@@ -9,6 +9,7 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { SaveAccountMappingsCommand, AccountMappingData } from '@/modules/master-data/commands/save-account-mappings.command';
+import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
@@ -179,17 +180,80 @@ export class MasterDataController {
 
   /**
    * Save account mappings (insert if not exist, update if exists)
+   * Each mapping object must include: name, customerAccount, invoiceAccount, and serviceType
+   * Request body should be an array of mapping objects: [{ name, customerAccount, invoiceAccount, serviceType }, ...]
    */
   @Post('account-mappings')
   @HttpCode(HttpStatus.OK)
+  @ApiBody({
+    description: 'Array of account mappings. Each mapping must include: name, customerAccount, invoiceAccount, and serviceType',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'customerAccount', 'invoiceAccount', 'serviceType'],
+        properties: {
+          name: {
+            type: 'string',
+            example: 'Freight Service Account',
+            description: 'Name of the account mapping',
+          },
+          customerAccount: {
+            type: 'string',
+            example: 'CUST001',
+            description: 'Customer account number',
+          },
+          invoiceAccount: {
+            type: 'string',
+            example: 'INV001',
+            description: 'Invoice account number',
+          },
+          serviceType: {
+            type: 'number',
+            enum: [1, 2, 3, 4],
+            example: 1,
+            description: 'Service type: 1=Freight, 2=Trucking, 3=FreightCreditNote, 4=TruckingCreditNote',
+          },
+        },
+      },
+    },
+    examples: {
+      example1: {
+        summary: 'Array of account mappings',
+        value: [
+          {
+            name: 'Freight Service Account',
+            customerAccount: 'CUST001',
+            invoiceAccount: 'INV001',
+            serviceType: 1,
+          },
+          {
+            name: 'Trucking Service Account',
+            customerAccount: 'CUST002',
+            invoiceAccount: 'INV002',
+            serviceType: 2,
+          },
+        ],
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Account mappings saved successfully',
   })
   public saveAccountMappingsAsync(
-    @Body() mappings: AccountMappingData[],
+    @Body() mappings: SaveAccountMappingDto[],
   ) {
-    return this.commandBus.execute(new SaveAccountMappingsCommand(mappings));
+    // Convert DTO to command data format
+    const commandMappings: AccountMappingData[] = mappings.map((m) => ({
+      name: m.name,
+      customerAccount: m.customerAccount,
+      invoiceAccount: m.invoiceAccount,
+      serviceType: m.serviceType,
+    }));
+    return this.commandBus.execute(
+      new SaveAccountMappingsCommand(commandMappings),
+    );
   }
 
   /**
