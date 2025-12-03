@@ -16,6 +16,7 @@ import { GetBillingCodesHandler } from '@/modules/master-data/queries/handlers/g
 import { GetCustomersHandler } from '@/modules/master-data/queries/handlers/get-customers.handler';
 import { GetExchangeRatesHandler } from '@/modules/master-data/queries/handlers/get-exchange-rates.handler';
 import { GetFinancialDimensionsHandler } from '@/modules/master-data/queries/handlers/get-financial-dimensions.handler';
+import { GetFinancialDimensionWithValueHandler } from '@/modules/master-data/queries/handlers/get-financial-dimension-with-values.handler';
 import { GetMainAccountsHandler } from '@/modules/master-data/queries/handlers/get-main-accounts.handler';
 import { GetVendorsHandler } from '@/modules/master-data/queries/handlers/get-vendors.handler';
 
@@ -31,6 +32,7 @@ const CommandHandlers = [
 
 const QueryHandlers = [
   GetFinancialDimensionsHandler,
+  GetFinancialDimensionWithValueHandler,
   GetBillingClassificationsHandler,
   GetBillingCodesHandler,
   GetMainAccountsHandler,
@@ -45,4 +47,4 @@ const QueryHandlers = [
   controllers: [MasterDataController],
   providers: [...CommandHandlers, ...QueryHandlers],
 })
-export class MasterDataModule {}
+export class MasterDataModule { }
