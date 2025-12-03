@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+
 import {
   D365FOBillingClassification,
   D365FOBillingCode,
@@ -33,22 +34,30 @@ export class BillingService {
       orderBy?: string | string[];
     },
   ): Promise<D365FOBillingCode[]> {
-    const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 5000,
+      useCache = true,
+      select,
+      orderBy,
+    } = options || {};
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
       this.queryBuilder.eq('BillingClassification', billingClassId),
     );
 
-    const query = this.queryBuilder.buildQuery('/data/BillingClassificationCodes', {
-      filter,
-      top: maxCount,
-      skip: skipCount,
-      select,
-      orderBy,
-      crossCompany: true,
-    });
+    const query = this.queryBuilder.buildQuery(
+      '/data/BillingClassificationCodes',
+      {
+        filter,
+        top: maxCount,
+        skip: skipCount,
+        select,
+        orderBy,
+        crossCompany: true,
+      },
+    );
 
     this.logger.debug(
       `Fetching billing codes for company: ${company}, class: ${billingClassId}`,
@@ -75,8 +84,13 @@ export class BillingService {
       orderBy?: string | string[];
     },
   ): Promise<D365FOBillingClassification[]> {
-    const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 5000,
+      useCache = true,
+      select,
+      orderBy,
+    } = options || {};
 
     const filter = this.queryBuilder.eq('dataAreaId', company);
 
@@ -89,7 +103,9 @@ export class BillingService {
       crossCompany: true,
     });
 
-    this.logger.debug(`Fetching billing classifications for company: ${company}`);
+    this.logger.debug(
+      `Fetching billing classifications for company: ${company}`,
+    );
 
     const response = await this.d365foClient.get<D365FOBillingClassification>(
       query,
@@ -102,4 +118,3 @@ export class BillingService {
     return response.value;
   }
 }
-

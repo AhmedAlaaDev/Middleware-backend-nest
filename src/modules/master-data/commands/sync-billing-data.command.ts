@@ -10,4 +10,3 @@ export class SyncBillingDataCommand extends Command<{
     super();
   }
 }
-

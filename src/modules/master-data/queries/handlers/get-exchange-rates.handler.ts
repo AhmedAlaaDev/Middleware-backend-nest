@@ -1,14 +1,15 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+import {
+  ExchangeRate,
+  GetExchangeRatesQuery,
+} from '../get-exchange-rates.query';
 
 import { DBService } from '@/modules/db/db.service';
-import { ExchangeRate } from '../get-exchange-rates.query';
-import { GetExchangeRatesQuery } from '../get-exchange-rates.query';
 
 @QueryHandler(GetExchangeRatesQuery)
-export class GetExchangeRatesHandler
-  implements IQueryHandler<GetExchangeRatesQuery>
-{
+export class GetExchangeRatesHandler implements IQueryHandler<GetExchangeRatesQuery> {
   private readonly logger = new Logger(GetExchangeRatesHandler.name);
 
   constructor(private readonly db: DBService) {}
@@ -50,4 +51,3 @@ export class GetExchangeRatesHandler
     }));
   }
 }
-

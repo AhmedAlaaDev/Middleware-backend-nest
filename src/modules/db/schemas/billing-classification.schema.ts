@@ -43,12 +43,12 @@ export class BillingClassification {
   termsOfPayment?: string;
 }
 
-export const BillingClassificationSchema =
-  SchemaFactory.createForClass(BillingClassification);
+export const BillingClassificationSchema = SchemaFactory.createForClass(
+  BillingClassification,
+);
 
 // Create compound index for unique billing classification per company
 BillingClassificationSchema.index(
   { dataAreaId: 1, billingClassification: 1 },
   { unique: true },
 );
-

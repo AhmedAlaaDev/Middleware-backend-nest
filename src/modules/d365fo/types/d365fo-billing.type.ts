@@ -27,4 +27,3 @@ export interface D365FOBillingCode {
   BillingClassification: string;
   RecId?: number; // Internal record ID
 }
-

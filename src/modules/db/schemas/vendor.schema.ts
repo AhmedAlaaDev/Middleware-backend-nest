@@ -38,8 +38,4 @@ export class Vendor {
 
 export const VendorSchema = SchemaFactory.createForClass(Vendor);
 
-VendorSchema.index(
-  { company: 1, vendorAccountNumber: 1 },
-  { unique: true },
-);
-
+VendorSchema.index({ company: 1, vendorAccountNumber: 1 }, { unique: true });

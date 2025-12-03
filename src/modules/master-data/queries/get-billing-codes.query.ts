@@ -15,4 +15,3 @@ export class GetBillingCodesQuery extends Query<BillingCode[]> {
     super();
   }
 }
-

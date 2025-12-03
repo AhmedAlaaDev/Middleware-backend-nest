@@ -18,10 +18,7 @@ export class CustomerInvoiceService {
   /**
    * Create a customer invoice header
    */
-  public async createInvoiceHeader(
-    company: string,
-    data: any,
-  ): Promise<any> {
+  public async createInvoiceHeader(company: string, data: any): Promise<any> {
     this.logger.debug(`Creating invoice header for company: ${company}`);
 
     return this.d365foClient.post<any, any>('/data/FreeTextInvoiceHeaders', {
@@ -115,8 +112,13 @@ export class CustomerInvoiceService {
       orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 1000, useCache = false, select, orderBy } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 1000,
+      useCache = false,
+      select,
+      orderBy,
+    } = options || {};
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
@@ -144,4 +146,3 @@ export class CustomerInvoiceService {
     return response.value;
   }
 }
-

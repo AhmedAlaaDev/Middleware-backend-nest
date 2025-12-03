@@ -81,7 +81,8 @@ export class ODataQueryBuilderService {
       queryParams.push(`$search=${this.encodeValue(options.search)}`);
     }
 
-    const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+    const queryString =
+      queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
 
     return `${endpoint}${queryString}`;
   }
@@ -204,4 +205,3 @@ export class ODataQueryBuilderService {
     return encodeURIComponent(value);
   }
 }
-

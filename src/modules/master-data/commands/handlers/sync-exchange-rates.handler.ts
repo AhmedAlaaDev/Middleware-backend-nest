@@ -1,15 +1,14 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { D365FOExchangeRate } from '@/modules/d365fo/types';
-import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
-import { DBService } from '@/modules/db/db.service';
 import { SyncExchangeRatesCommand } from '../sync-exchange-rates.command';
 
+import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
+import { D365FOExchangeRate } from '@/modules/d365fo/types';
+import { DBService } from '@/modules/db/db.service';
+
 @CommandHandler(SyncExchangeRatesCommand)
-export class SyncExchangeRatesHandler
-  implements ICommandHandler<SyncExchangeRatesCommand>
-{
+export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRatesCommand> {
   private readonly logger = new Logger(SyncExchangeRatesHandler.name);
 
   constructor(
@@ -17,9 +16,7 @@ export class SyncExchangeRatesHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncExchangeRatesCommand,
-  ): Promise<{
+  public async execute(command: SyncExchangeRatesCommand): Promise<{
     exchangeRatesCreated: number;
     exchangeRatesUpdated: number;
   }> {
@@ -80,13 +77,12 @@ export class SyncExchangeRatesHandler
       }
 
       // Check if exchange rate exists in database - upsert logic
-      const existingExchangeRate =
-        await this.db.exchangeRateModel.findOne({
-          rateTypeName: rateTypeName,
-          fromCurrency: fromCurrency,
-          toCurrency: toCurrency,
-          startDate: startDate,
-        });
+      const existingExchangeRate = await this.db.exchangeRateModel.findOne({
+        rateTypeName: rateTypeName,
+        fromCurrency: fromCurrency,
+        toCurrency: toCurrency,
+        startDate: startDate,
+      });
 
       const exchangeRateData = {
         rateTypeName: rateTypeName,
@@ -94,7 +90,9 @@ export class SyncExchangeRatesHandler
         toCurrency: toCurrency,
         startDate: startDate,
         rate: exchangeRate.Rate || 0,
-        endDate: exchangeRate.EndDate ? new Date(exchangeRate.EndDate) : startDate,
+        endDate: exchangeRate.EndDate
+          ? new Date(exchangeRate.EndDate)
+          : startDate,
         conversionFactor: exchangeRate.ConversionFactor,
         rateTypeDescription: exchangeRate.RateTypeDescription,
       };
@@ -157,4 +155,3 @@ export class SyncExchangeRatesHandler
     };
   }
 }
-

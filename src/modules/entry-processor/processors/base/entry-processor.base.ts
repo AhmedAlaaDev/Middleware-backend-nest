@@ -644,9 +644,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   /**
    * Get account customer invoice mappings by service type
    */
-  protected async getAccountCustomerInvoiceMappings(
-    serviceType: ServiceTypes,
-  ) {
+  protected async getAccountCustomerInvoiceMappings(serviceType: ServiceTypes) {
     return this.queryBus.execute(new GetAccountMappingsQuery(serviceType));
   }
 

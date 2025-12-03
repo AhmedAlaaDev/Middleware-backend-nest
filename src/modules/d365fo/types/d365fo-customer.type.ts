@@ -258,4 +258,3 @@ export interface D365FOCustomer {
   AddressStreet?: string;
   RecId?: number;
 }
-

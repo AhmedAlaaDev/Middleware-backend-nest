@@ -23,4 +23,3 @@ export class GetExchangeRatesQuery extends Query<ExchangeRate[]> {
     super();
   }
 }
-

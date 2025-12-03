@@ -7,4 +7,3 @@ export interface D365FOODataResponse<T> {
   '@odata.count'?: number;
   value: T[];
 }
-

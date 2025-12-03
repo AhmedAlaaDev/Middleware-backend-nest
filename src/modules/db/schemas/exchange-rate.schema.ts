@@ -39,4 +39,3 @@ ExchangeRateSchema.index(
   { rateTypeName: 1, fromCurrency: 1, toCurrency: 1, startDate: 1 },
   { unique: true },
 );
-

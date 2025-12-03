@@ -1,23 +1,34 @@
-import { Controller, Get, Post, Query, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiResponse, ApiBody } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Body,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { ApiResponse, ApiBody } from '@nestjs/swagger';
 
-import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
-import { GetCustomersQuery } from '@/modules/master-data/queries/get-customers.query';
-import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
-import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
-import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
-import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
-import { SaveAccountMappingsCommand, AccountMappingData } from '@/modules/master-data/commands/save-account-mappings.command';
-import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
+import {
+  SaveAccountMappingsCommand,
+  AccountMappingData,
+} from '@/modules/master-data/commands/save-account-mappings.command';
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
+import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
+import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
-import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
-import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
-import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
+import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
+import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
+import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
+import { GetCustomersQuery } from '@/modules/master-data/queries/get-customers.query';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
+import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
+import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 /**
@@ -79,12 +90,8 @@ export class MasterDataController {
     status: 200,
     description: 'Financial dimensions synced successfully',
   })
-  public syncFinancialDimensionsAsync(
-    @Query('company') company?: string,
-  ) {
-    return this.commandBus.execute(
-      new SyncFinancialDimensionsCommand(company),
-    );
+  public syncFinancialDimensionsAsync(@Query('company') company?: string) {
+    return this.commandBus.execute(new SyncFinancialDimensionsCommand(company));
   }
 
   /**
@@ -95,12 +102,8 @@ export class MasterDataController {
     status: 200,
     description: 'Billing classifications retrieved successfully',
   })
-  public getBillingClassificationsAsync(
-    @Query('company') company?: string,
-  ) {
-    return this.queryBus.execute(
-      new GetBillingClassificationsQuery(company),
-    );
+  public getBillingClassificationsAsync(@Query('company') company?: string) {
+    return this.queryBus.execute(new GetBillingClassificationsQuery(company));
   }
 
   /**
@@ -186,7 +189,8 @@ export class MasterDataController {
   @Post('account-mappings')
   @HttpCode(HttpStatus.OK)
   @ApiBody({
-    description: 'Array of account mappings. Each mapping must include: name, customerAccount, invoiceAccount, and serviceType',
+    description:
+      'Array of account mappings. Each mapping must include: name, customerAccount, invoiceAccount, and serviceType',
     schema: {
       type: 'array',
       items: {
@@ -212,7 +216,8 @@ export class MasterDataController {
             type: 'number',
             enum: [1, 2, 3, 4],
             example: 1,
-            description: 'Service type: 1=Freight, 2=Trucking, 3=FreightCreditNote, 4=TruckingCreditNote',
+            description:
+              'Service type: 1=Freight, 2=Trucking, 3=FreightCreditNote, 4=TruckingCreditNote',
           },
         },
       },
@@ -241,9 +246,7 @@ export class MasterDataController {
     status: 200,
     description: 'Account mappings saved successfully',
   })
-  public saveAccountMappingsAsync(
-    @Body() mappings: SaveAccountMappingDto[],
-  ) {
+  public saveAccountMappingsAsync(@Body() mappings: SaveAccountMappingDto[]) {
     // Convert DTO to command data format
     const commandMappings: AccountMappingData[] = mappings.map((m) => ({
       name: m.name,
@@ -264,9 +267,7 @@ export class MasterDataController {
     status: 200,
     description: 'Vendors retrieved successfully',
   })
-  public getVendorsAsync(
-    @Query('company') company?: string,
-  ) {
+  public getVendorsAsync(@Query('company') company?: string) {
     return this.queryBus.execute(new GetVendorsQuery(company));
   }
 

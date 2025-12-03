@@ -5,8 +5,8 @@ import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 
 import { D365FOConfig, IConfig } from '@/config';
-import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
+import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
 import { RetryService } from '@/modules/resilience/services/retry.service';
@@ -84,14 +84,16 @@ export class D365FOClientService {
       headers?: Record<string, string>;
     },
   ): Promise<D365FOODataResponse<T>> {
-    const { useCache = true, cacheTtl = 60 * 1000, headers = {} } =
-      options || {};
+    const {
+      useCache = true,
+      cacheTtl = 60 * 1000,
+      headers = {},
+    } = options || {};
     const cacheKey = `d365fo:${endpoint}`;
 
     if (useCache) {
-      const cached = await this.cacheService.get<D365FOODataResponse<T>>(
-        cacheKey,
-      );
+      const cached =
+        await this.cacheService.get<D365FOODataResponse<T>>(cacheKey);
       if (cached) {
         this.logger.debug(`Cache hit for: ${endpoint}`);
         return cached;
@@ -223,4 +225,3 @@ export class D365FOClientService {
     });
   }
 }
-

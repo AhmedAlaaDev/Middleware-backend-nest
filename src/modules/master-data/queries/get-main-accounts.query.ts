@@ -11,4 +11,3 @@ export class GetMainAccountsQuery extends Query<MainAccount[]> {
     super();
   }
 }
-

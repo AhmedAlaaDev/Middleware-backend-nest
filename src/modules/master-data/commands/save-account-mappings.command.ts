@@ -1,4 +1,5 @@
 import { Command } from '@nestjs/cqrs';
+
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 export interface AccountMappingData {
@@ -16,4 +17,3 @@ export class SaveAccountMappingsCommand extends Command<{
     super();
   }
 }
-

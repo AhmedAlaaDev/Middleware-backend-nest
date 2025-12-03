@@ -18,4 +18,3 @@ export class GetVendorsQuery extends Query<Vendor[]> {
     super();
   }
 }
-

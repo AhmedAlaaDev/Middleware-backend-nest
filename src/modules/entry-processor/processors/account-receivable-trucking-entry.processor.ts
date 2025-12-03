@@ -164,9 +164,8 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
     const dimensionsMap = new Map<string, string[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues = await this.getFinancialDimensionValues(
-        dimensionKey,
-      );
+      const dimensionValues =
+        await this.getFinancialDimensionValues(dimensionKey);
       dimensionsMap.set(dimensionKey, dimensionValues);
     }
 

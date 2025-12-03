@@ -285,4 +285,3 @@ export interface D365FOVendor {
   IsPublicSector_IT?: 'Yes' | 'No';
   RecId?: number;
 }
-

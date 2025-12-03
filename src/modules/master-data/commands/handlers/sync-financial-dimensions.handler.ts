@@ -1,19 +1,17 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
+import { SyncFinancialDimensionsCommand } from '../sync-financial-dimensions.command';
+
+import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import {
   D365FODimension,
   D365FODimensionValue,
 } from '@/modules/d365fo/types/d365fo-dimension.type';
-import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
-import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { DBService } from '@/modules/db/db.service';
-import { SyncFinancialDimensionsCommand } from '../sync-financial-dimensions.command';
 
 @CommandHandler(SyncFinancialDimensionsCommand)
-export class SyncFinancialDimensionsHandler
-  implements ICommandHandler<SyncFinancialDimensionsCommand>
-{
+export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinancialDimensionsCommand> {
   private readonly logger = new Logger(SyncFinancialDimensionsHandler.name);
 
   constructor(
@@ -21,9 +19,7 @@ export class SyncFinancialDimensionsHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncFinancialDimensionsCommand,
-  ): Promise<{
+  public async execute(command: SyncFinancialDimensionsCommand): Promise<{
     dimensionsCreated: number;
     dimensionsUpdated: number;
     dimensionValuesCreated: number;
@@ -52,9 +48,7 @@ export class SyncFinancialDimensionsHandler
       });
 
       // Response is always in D365FOODataResponse format
-      const dimensions = Array.isArray(response.value)
-        ? response.value
-        : [];
+      const dimensions = Array.isArray(response.value) ? response.value : [];
 
       if (dimensions.length === 0) {
         hasMore = false;
@@ -72,7 +66,8 @@ export class SyncFinancialDimensionsHandler
 
     // Process each dimension
     for (const dim of allDimensions) {
-      const dimensionName = dim.DimensionName || dim.Name || dim.DimensionAttributeName || '';
+      const dimensionName =
+        dim.DimensionName || dim.Name || dim.DimensionAttributeName || '';
 
       if (!dimensionName) {
         this.logger.warn('Skipping dimension with no name', dim);
@@ -80,10 +75,9 @@ export class SyncFinancialDimensionsHandler
       }
 
       // Check if dimension exists in database - upsert logic
-      const existingDimension =
-        await this.db.financialDimensionModel.findOne({
-          financialKey: dimensionName,
-        });
+      const existingDimension = await this.db.financialDimensionModel.findOne({
+        financialKey: dimensionName,
+      });
 
       if (!existingDimension) {
         // Create new dimension
@@ -105,16 +99,15 @@ export class SyncFinancialDimensionsHandler
       let hasMoreValues = true;
 
       while (hasMoreValues) {
-        const response =
-          await this.dimensionService.getDimensionValueList(
-            dimensionName,
-            command.company || '',
-            {
-              useCache: false,
-              maxCount: valuePageSize,
-              skipCount: valueSkipCount,
-            },
-          );
+        const response = await this.dimensionService.getDimensionValueList(
+          dimensionName,
+          command.company || '',
+          {
+            useCache: false,
+            maxCount: valuePageSize,
+            skipCount: valueSkipCount,
+          },
+        );
 
         // Response is always in D365FOODataResponse format
         const dimensionValues = Array.isArray(response.value)
@@ -190,4 +183,3 @@ export class SyncFinancialDimensionsHandler
     };
   }
 }
-

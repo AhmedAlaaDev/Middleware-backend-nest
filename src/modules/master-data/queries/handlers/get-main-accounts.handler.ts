@@ -1,20 +1,17 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { DBService } from '@/modules/db/db.service';
 import { GetMainAccountsQuery, MainAccount } from '../get-main-accounts.query';
 
+import { DBService } from '@/modules/db/db.service';
+
 @QueryHandler(GetMainAccountsQuery)
-export class GetMainAccountsHandler
-  implements IQueryHandler<GetMainAccountsQuery>
-{
+export class GetMainAccountsHandler implements IQueryHandler<GetMainAccountsQuery> {
   private readonly logger = new Logger(GetMainAccountsHandler.name);
 
   constructor(private readonly db: DBService) {}
 
-  public async execute(
-    query: GetMainAccountsQuery,
-  ): Promise<MainAccount[]> {
+  public async execute(query: GetMainAccountsQuery): Promise<MainAccount[]> {
     this.logger.log(
       `Fetching main accounts from database${query.chartOfAccounts ? ` for chart of accounts: ${query.chartOfAccounts}` : ''}`,
     );
@@ -31,4 +28,3 @@ export class GetMainAccountsHandler
     }));
   }
 }
-

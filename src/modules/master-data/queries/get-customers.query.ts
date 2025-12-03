@@ -23,4 +23,3 @@ export class GetCustomersQuery extends Query<Customer[]> {
     super();
   }
 }
-

@@ -1,15 +1,13 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { D365FOCustomer } from '@/modules/d365fo/types';
-import { CustomerService } from '@/modules/d365fo/services/customer.service';
-import { DBService } from '@/modules/db/db.service';
 import { SyncCustomersCommand } from '../sync-customers.command';
 
+import { CustomerService } from '@/modules/d365fo/services/customer.service';
+import { DBService } from '@/modules/db/db.service';
+
 @CommandHandler(SyncCustomersCommand)
-export class SyncCustomersHandler
-  implements ICommandHandler<SyncCustomersCommand>
-{
+export class SyncCustomersHandler implements ICommandHandler<SyncCustomersCommand> {
   private readonly logger = new Logger(SyncCustomersHandler.name);
 
   constructor(
@@ -17,9 +15,7 @@ export class SyncCustomersHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncCustomersCommand,
-  ): Promise<{
+  public async execute(command: SyncCustomersCommand): Promise<{
     customersCreated: number;
     customersUpdated: number;
   }> {
@@ -77,9 +73,7 @@ export class SyncCustomersHandler
         // Create new customer
         await this.db.customerModel.create(customerData);
         customersCreated++;
-        this.logger.debug(
-          `Created customer: ${company}/${customerAccount}`,
-        );
+        this.logger.debug(`Created customer: ${company}/${customerAccount}`);
       } else {
         // Update existing customer if data changed
         let hasChanges = false;
@@ -99,15 +93,12 @@ export class SyncCustomersHandler
           existingCustomer.nameAlias = customerData.nameAlias;
           hasChanges = true;
         }
-        if (
-          existingCustomer.customerGroupId !== customerData.customerGroupId
-        ) {
+        if (existingCustomer.customerGroupId !== customerData.customerGroupId) {
           existingCustomer.customerGroupId = customerData.customerGroupId;
           hasChanges = true;
         }
         if (
-          existingCustomer.salesCurrencyCode !==
-          customerData.salesCurrencyCode
+          existingCustomer.salesCurrencyCode !== customerData.salesCurrencyCode
         ) {
           existingCustomer.salesCurrencyCode = customerData.salesCurrencyCode;
           hasChanges = true;
@@ -121,7 +112,8 @@ export class SyncCustomersHandler
           hasChanges = true;
         }
         if (
-          existingCustomer.organizationNumber !== customerData.organizationNumber
+          existingCustomer.organizationNumber !==
+          customerData.organizationNumber
         ) {
           existingCustomer.organizationNumber = customerData.organizationNumber;
           hasChanges = true;
@@ -138,9 +130,7 @@ export class SyncCustomersHandler
         if (hasChanges) {
           await existingCustomer.save();
           customersUpdated++;
-          this.logger.debug(
-            `Updated customer: ${company}/${customerAccount}`,
-          );
+          this.logger.debug(`Updated customer: ${company}/${customerAccount}`);
         }
       }
     }
@@ -155,4 +145,3 @@ export class SyncCustomersHandler
     };
   }
 }
-

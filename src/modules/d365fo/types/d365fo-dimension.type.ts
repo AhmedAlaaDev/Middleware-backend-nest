@@ -39,4 +39,3 @@ export interface D365FODimensionValue {
   Value?: string; // Alternative field name
   Name?: string; // Alternative field name
 }
-

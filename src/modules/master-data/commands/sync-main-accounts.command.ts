@@ -8,4 +8,3 @@ export class SyncMainAccountsCommand extends Command<{
     super();
   }
 }
-

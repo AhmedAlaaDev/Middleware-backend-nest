@@ -1,15 +1,13 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { D365FOVendor } from '@/modules/d365fo/types';
-import { VendorService } from '@/modules/d365fo/services/vendor.service';
-import { DBService } from '@/modules/db/db.service';
 import { SyncVendorsCommand } from '../sync-vendors.command';
 
+import { VendorService } from '@/modules/d365fo/services/vendor.service';
+import { DBService } from '@/modules/db/db.service';
+
 @CommandHandler(SyncVendorsCommand)
-export class SyncVendorsHandler
-  implements ICommandHandler<SyncVendorsCommand>
-{
+export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
   private readonly logger = new Logger(SyncVendorsHandler.name);
 
   constructor(
@@ -17,9 +15,7 @@ export class SyncVendorsHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncVendorsCommand,
-  ): Promise<{
+  public async execute(command: SyncVendorsCommand): Promise<{
     vendorsCreated: number;
     vendorsUpdated: number;
   }> {
@@ -72,14 +68,16 @@ export class SyncVendorsHandler
         // Create new vendor
         await this.db.vendorModel.create(vendorData);
         vendorsCreated++;
-        this.logger.debug(
-          `Created vendor: ${company}/${vendorAccountNumber}`,
-        );
+        this.logger.debug(`Created vendor: ${company}/${vendorAccountNumber}`);
       } else {
         // Update existing vendor if data changed
         let hasChanges = false;
-        if (existingVendor.vendorOrganizationName !== vendorData.vendorOrganizationName) {
-          existingVendor.vendorOrganizationName = vendorData.vendorOrganizationName;
+        if (
+          existingVendor.vendorOrganizationName !==
+          vendorData.vendorOrganizationName
+        ) {
+          existingVendor.vendorOrganizationName =
+            vendorData.vendorOrganizationName;
           hasChanges = true;
         }
         if (existingVendor.vendorSearchName !== vendorData.vendorSearchName) {
@@ -94,8 +92,12 @@ export class SyncVendorsHandler
           existingVendor.currencyCode = vendorData.currencyCode;
           hasChanges = true;
         }
-        if (existingVendor.defaultPaymentTermsName !== vendorData.defaultPaymentTermsName) {
-          existingVendor.defaultPaymentTermsName = vendorData.defaultPaymentTermsName;
+        if (
+          existingVendor.defaultPaymentTermsName !==
+          vendorData.defaultPaymentTermsName
+        ) {
+          existingVendor.defaultPaymentTermsName =
+            vendorData.defaultPaymentTermsName;
           hasChanges = true;
         }
         if (existingVendor.salesTaxGroupCode !== vendorData.salesTaxGroupCode) {
@@ -127,4 +129,3 @@ export class SyncVendorsHandler
     };
   }
 }
-

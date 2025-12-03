@@ -18,10 +18,7 @@ export class GeneralJournalService {
   /**
    * Create a general journal header
    */
-  public async createJournalHeader(
-    company: string,
-    data: any,
-  ): Promise<any> {
+  public async createJournalHeader(company: string, data: any): Promise<any> {
     this.logger.debug(`Creating journal header for company: ${company}`);
 
     return this.d365foClient.post<any, any>('/data/LedgerJournalHeaders', {
@@ -108,8 +105,13 @@ export class GeneralJournalService {
       orderBy?: string | string[];
     },
   ): Promise<any[]> {
-    const { skipCount = 0, maxCount = 1000, useCache = false, select, orderBy } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 1000,
+      useCache = false,
+      select,
+      orderBy,
+    } = options || {};
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
@@ -137,4 +139,3 @@ export class GeneralJournalService {
     return response.value;
   }
 }
-

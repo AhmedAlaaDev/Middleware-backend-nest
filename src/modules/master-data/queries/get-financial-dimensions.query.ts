@@ -18,4 +18,3 @@ export class GetFinancialDimensionsQuery extends Query<FinancialDimension[]> {
     super();
   }
 }
-

@@ -8,4 +8,3 @@ export class SyncCustomersCommand extends Command<{
     super();
   }
 }
-

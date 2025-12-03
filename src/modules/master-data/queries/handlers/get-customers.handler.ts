@@ -1,9 +1,9 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+import { Customer, GetCustomersQuery } from '../get-customers.query';
 
 import { DBService } from '@/modules/db/db.service';
-import { Customer } from '../get-customers.query';
-import { GetCustomersQuery } from '../get-customers.query';
 
 @QueryHandler(GetCustomersQuery)
 export class GetCustomersHandler implements IQueryHandler<GetCustomersQuery> {
@@ -46,4 +46,3 @@ export class GetCustomersHandler implements IQueryHandler<GetCustomersQuery> {
     }));
   }
 }
-

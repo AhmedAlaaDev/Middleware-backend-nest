@@ -1,13 +1,12 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { DBService } from '@/modules/db/db.service';
 import { GetBillingCodesQuery, BillingCode } from '../get-billing-codes.query';
 
+import { DBService } from '@/modules/db/db.service';
+
 @QueryHandler(GetBillingCodesQuery)
-export class GetBillingCodesHandler
-  implements IQueryHandler<GetBillingCodesQuery>
-{
+export class GetBillingCodesHandler implements IQueryHandler<GetBillingCodesQuery> {
   private readonly logger = new Logger(GetBillingCodesHandler.name);
 
   constructor(private readonly db: DBService) {}
@@ -35,4 +34,3 @@ export class GetBillingCodesHandler
     }));
   }
 }
-

@@ -1,18 +1,17 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
+import { SyncBillingDataCommand } from '../sync-billing-data.command';
+
+import { BillingService } from '@/modules/d365fo/services/billing.service';
 import {
   D365FOBillingClassification,
   D365FOBillingCode,
 } from '@/modules/d365fo/types';
-import { BillingService } from '@/modules/d365fo/services/billing.service';
 import { DBService } from '@/modules/db/db.service';
-import { SyncBillingDataCommand } from '../sync-billing-data.command';
 
 @CommandHandler(SyncBillingDataCommand)
-export class SyncBillingDataHandler
-  implements ICommandHandler<SyncBillingDataCommand>
-{
+export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCommand> {
   private readonly logger = new Logger(SyncBillingDataHandler.name);
 
   constructor(
@@ -20,9 +19,7 @@ export class SyncBillingDataHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncBillingDataCommand,
-  ): Promise<{
+  public async execute(command: SyncBillingDataCommand): Promise<{
     classificationsCreated: number;
     classificationsUpdated: number;
     codesCreated: number;
@@ -54,14 +51,15 @@ export class SyncBillingDataHandler
     let hasMore = true;
 
     while (hasMore) {
-      const classifications = await this.billingService.getBillingClassificationList(
-        command.company,
-        {
-          useCache: false, // Don't use cache for sync operations
-          maxCount: pageSize,
-          skipCount: skipCount,
-        },
-      );
+      const classifications =
+        await this.billingService.getBillingClassificationList(
+          command.company,
+          {
+            useCache: false, // Don't use cache for sync operations
+            maxCount: pageSize,
+            skipCount: skipCount,
+          },
+        );
 
       if (classifications.length === 0) {
         hasMore = false;
@@ -217,4 +215,3 @@ export class SyncBillingDataHandler
     };
   }
 }
-

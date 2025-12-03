@@ -43,4 +43,3 @@ export interface D365FOMainAccount {
   ActiveFrom?: string; // ISO 8601 date string
   NatureCode_BR?: string;
 }
-

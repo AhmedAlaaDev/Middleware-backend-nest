@@ -13,4 +13,3 @@ export interface D365FOExchangeRate {
   RateTypeDescription?: string;
   RecId?: number;
 }
-

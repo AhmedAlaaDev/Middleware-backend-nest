@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { D365FOClientService } from './d365fo-client.service';
+import { ODataQueryBuilderService } from './odata-query-builder.service';
+
 import {
   D365FODimension,
   D365FODimensionValue,
 } from '@/modules/d365fo/types/d365fo-dimension.type';
 import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
-import { D365FOClientService } from './d365fo-client.service';
-import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 /**
  * Service for managing financial dimensions and dimension values in D365FO
@@ -71,8 +72,13 @@ export class DimensionService {
       orderBy?: string | string[];
     },
   ): Promise<D365FOODataResponse<D365FODimensionValue>> {
-    const { skipCount = 0, maxCount = 5000, useCache = true, select, orderBy } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 5000,
+      useCache = true,
+      select,
+      orderBy,
+    } = options || {};
 
     // Filter: (LegalEntityId eq 'company' and FinancialDimension eq 'dimension') or (LegalEntityId eq '' and FinancialDimension eq 'dimension')
     const filter = this.queryBuilder.or(
@@ -108,4 +114,3 @@ export class DimensionService {
     });
   }
 }
-

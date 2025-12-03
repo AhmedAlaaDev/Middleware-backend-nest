@@ -172,8 +172,21 @@ export class GlobalResponseInterceptor<T> implements NestInterceptor<
     }
 
     // Exclude static assets (images, CSS, JS files, etc.)
-    const staticExtensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot'];
-    if (staticExtensions.some(ext => url.toLowerCase().endsWith(ext))) {
+    const staticExtensions = [
+      '.js',
+      '.css',
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.gif',
+      '.svg',
+      '.ico',
+      '.woff',
+      '.woff2',
+      '.ttf',
+      '.eot',
+    ];
+    if (staticExtensions.some((ext) => url.toLowerCase().endsWith(ext))) {
       return true;
     }
 

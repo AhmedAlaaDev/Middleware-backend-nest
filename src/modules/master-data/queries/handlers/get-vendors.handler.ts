@@ -1,14 +1,12 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+
+import { Vendor, GetVendorsQuery } from '../get-vendors.query';
 
 import { DBService } from '@/modules/db/db.service';
-import { Vendor } from '../get-vendors.query';
-import { GetVendorsQuery } from '../get-vendors.query';
 
 @QueryHandler(GetVendorsQuery)
-export class GetVendorsHandler
-  implements IQueryHandler<GetVendorsQuery>
-{
+export class GetVendorsHandler implements IQueryHandler<GetVendorsQuery> {
   private readonly logger = new Logger(GetVendorsHandler.name);
 
   constructor(private readonly db: DBService) {}
@@ -35,4 +33,3 @@ export class GetVendorsHandler
     }));
   }
 }
-

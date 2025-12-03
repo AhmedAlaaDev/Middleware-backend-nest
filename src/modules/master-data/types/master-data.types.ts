@@ -14,4 +14,3 @@ export interface AccountCustomerInvoiceMapping {
   invoiceAccount: string;
   serviceType: ServiceTypes;
 }
-

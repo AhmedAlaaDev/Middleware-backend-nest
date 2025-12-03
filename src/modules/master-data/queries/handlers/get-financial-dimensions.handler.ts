@@ -1,16 +1,18 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
+import {
+  GetFinancialDimensionsQuery,
+  FinancialDimension,
+} from '../get-financial-dimensions.query';
+
 import { DBService } from '@/modules/db/db.service';
-import { GetFinancialDimensionsQuery, FinancialDimension } from '../get-financial-dimensions.query';
 
 @QueryHandler(GetFinancialDimensionsQuery)
-export class GetFinancialDimensionsHandler
-  implements IQueryHandler<GetFinancialDimensionsQuery>
-{
+export class GetFinancialDimensionsHandler implements IQueryHandler<GetFinancialDimensionsQuery> {
   constructor(private readonly db: DBService) {}
 
   public async execute(
-    query: GetFinancialDimensionsQuery,
+    _query: GetFinancialDimensionsQuery,
   ): Promise<FinancialDimension[]> {
     const dimensions = await this.db.financialDimensionModel
       .find()
@@ -29,4 +31,3 @@ export class GetFinancialDimensionsHandler
     }));
   }
 }
-

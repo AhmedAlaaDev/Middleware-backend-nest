@@ -88,21 +88,25 @@ export class D365FOAuthService {
       this.logger.debug('Successfully obtained D365FO access token');
       return tokenResponse;
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.error_description || 
-                          error?.response?.data?.error || 
-                          error?.message || 
-                          'Unknown error';
+      const errorMessage =
+        error?.response?.data?.error_description ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Unknown error';
       const statusCode = error?.response?.status || error?.status || 'N/A';
-      
+
       this.logger.error(
         `Failed to obtain D365FO access token (Status: ${statusCode}): ${errorMessage}`,
       );
-      
+
       // Log additional details for debugging (without sensitive data)
       if (error?.response?.data) {
-        this.logger.debug('D365FO Auth Error Details:', JSON.stringify(error.response.data));
+        this.logger.debug(
+          'D365FO Auth Error Details:',
+          JSON.stringify(error.response.data),
+        );
       }
-      
+
       throw new Error(`Failed to authenticate with D365FO: ${errorMessage}`);
     }
   }

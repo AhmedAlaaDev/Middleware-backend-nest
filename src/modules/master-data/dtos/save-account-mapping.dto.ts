@@ -1,12 +1,6 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsEnum,
-  IsArray,
-  ValidateNested,
-} from 'class-validator';
-import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
+
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 export class SaveAccountMappingDto {
@@ -47,4 +41,3 @@ export class SaveAccountMappingDto {
   @IsNotEmpty()
   serviceType: ServiceTypes;
 }
-

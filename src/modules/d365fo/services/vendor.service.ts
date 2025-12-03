@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+
 import { D365FOVendor } from '@/modules/d365fo/types';
 
 /**
@@ -172,8 +173,12 @@ export class VendorService {
       select?: string[];
     },
   ): Promise<D365FOVendor[]> {
-    const { skipCount = 0, maxCount = 50, useCache = true, select } =
-      options || {};
+    const {
+      skipCount = 0,
+      maxCount = 50,
+      useCache = true,
+      select,
+    } = options || {};
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
@@ -205,4 +210,3 @@ export class VendorService {
     return response.value;
   }
 }
-

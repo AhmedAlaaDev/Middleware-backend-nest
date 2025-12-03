@@ -10,4 +10,3 @@ export class SyncFinancialDimensionsCommand extends Command<{
     super();
   }
 }
-

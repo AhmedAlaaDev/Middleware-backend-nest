@@ -1,15 +1,13 @@
-import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
+import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { D365FOMainAccount } from '@/modules/d365fo/types';
-import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
-import { DBService } from '@/modules/db/db.service';
 import { SyncMainAccountsCommand } from '../sync-main-accounts.command';
 
+import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
+import { DBService } from '@/modules/db/db.service';
+
 @CommandHandler(SyncMainAccountsCommand)
-export class SyncMainAccountsHandler
-  implements ICommandHandler<SyncMainAccountsCommand>
-{
+export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccountsCommand> {
   private readonly logger = new Logger(SyncMainAccountsHandler.name);
 
   constructor(
@@ -17,9 +15,7 @@ export class SyncMainAccountsHandler
     private readonly db: DBService,
   ) {}
 
-  public async execute(
-    command: SyncMainAccountsCommand,
-  ): Promise<{
+  public async execute(command: SyncMainAccountsCommand): Promise<{
     accountsCreated: number;
     accountsUpdated: number;
   }> {
@@ -38,9 +34,7 @@ export class SyncMainAccountsHandler
       },
     );
 
-    this.logger.log(
-      `Fetched ${allAccounts.length} main accounts from D365FO`,
-    );
+    this.logger.log(`Fetched ${allAccounts.length} main accounts from D365FO`);
 
     // Process each account
     for (const account of allAccounts) {
@@ -88,4 +82,3 @@ export class SyncMainAccountsHandler
     };
   }
 }
-
