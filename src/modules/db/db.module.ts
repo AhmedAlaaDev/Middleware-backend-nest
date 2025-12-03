@@ -64,6 +64,10 @@ import {
   Vendor,
   VendorSchema,
 } from '@/modules/db/schemas/vendor.schema';
+import {
+  ExchangeRate,
+  ExchangeRateSchema,
+} from '@/modules/db/schemas/exchange-rate.schema';
 
 @Global()
 @Module({
@@ -125,6 +129,10 @@ import {
       {
         name: Vendor.name,
         schema: VendorSchema,
+      },
+      {
+        name: ExchangeRate.name,
+        schema: ExchangeRateSchema,
       },
     ]),
   ],

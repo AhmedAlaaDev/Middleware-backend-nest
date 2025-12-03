@@ -14,6 +14,8 @@ import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/s
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
 import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
+import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
+import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 /**
@@ -210,5 +212,49 @@ export class MasterDataController {
   })
   public syncVendorsAsync(@Query('company') company: string) {
     return this.commandBus.execute(new SyncVendorsCommand(company));
+  }
+
+  /**
+   * Get exchange rates from database (Query)
+   */
+  @Get('exchange-rates')
+  @ApiResponse({
+    status: 200,
+    description: 'Exchange rates retrieved successfully',
+  })
+  public getExchangeRatesAsync(
+    @Query('rateType') rateType?: string,
+    @Query('fromCurrency') fromCurrency?: string,
+    @Query('toCurrency') toCurrency?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.queryBus.execute(
+      new GetExchangeRatesQuery(
+        rateType,
+        fromCurrency,
+        toCurrency,
+        fromDate ? new Date(fromDate) : undefined,
+        toDate ? new Date(toDate) : undefined,
+      ),
+    );
+  }
+
+  /**
+   * Sync exchange rates from D365FO (insert if not exist, update if exists)
+   */
+  @Post('exchange-rates/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Exchange rates synced successfully',
+  })
+  public syncExchangeRatesAsync(
+    @Query('company') company: string,
+    @Query('rateType') rateType?: string,
+  ) {
+    return this.commandBus.execute(
+      new SyncExchangeRatesCommand(company, rateType),
+    );
   }
 }

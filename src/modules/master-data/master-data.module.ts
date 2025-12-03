@@ -15,6 +15,8 @@ import { GetAccountMappingsHandler } from '@/modules/master-data/queries/handler
 import { GetCustomersHandler } from '@/modules/master-data/queries/handlers/get-customers.handler';
 import { SyncVendorsHandler } from '@/modules/master-data/commands/handlers/sync-vendors.handler';
 import { GetVendorsHandler } from '@/modules/master-data/queries/handlers/get-vendors.handler';
+import { SyncExchangeRatesHandler } from '@/modules/master-data/commands/handlers/sync-exchange-rates.handler';
+import { GetExchangeRatesHandler } from '@/modules/master-data/queries/handlers/get-exchange-rates.handler';
 
 const CommandHandlers = [
   SyncFinancialDimensionsHandler,
@@ -22,6 +24,7 @@ const CommandHandlers = [
   SyncMainAccountsHandler,
   SaveAccountMappingsHandler,
   SyncVendorsHandler,
+  SyncExchangeRatesHandler,
 ];
 
 const QueryHandlers = [
@@ -32,6 +35,7 @@ const QueryHandlers = [
   GetAccountMappingsHandler,
   GetCustomersHandler,
   GetVendorsHandler,
+  GetExchangeRatesHandler,
 ];
 
 @Module({

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import { D365FOExchangeRate } from '@/modules/d365fo/types';
 
 /**
  * Service for managing exchange rates in D365FO
@@ -30,7 +31,7 @@ export class ExchangeRateService {
       fromDate?: Date;
       toDate?: Date;
     },
-  ): Promise<any[]> {
+  ): Promise<D365FOExchangeRate[]> {
     const {
       rateType = 'Default',
       skipCount = 0,
@@ -45,11 +46,11 @@ export class ExchangeRateService {
     const filters: string[] = [this.queryBuilder.eq('RateTypeName', rateType)];
 
     if (fromDate) {
-      filters.push(this.queryBuilder.ge('ValidFrom', fromDate.toISOString()));
+      filters.push(this.queryBuilder.ge('StartDate', fromDate.toISOString()));
     }
 
     if (toDate) {
-      filters.push(this.queryBuilder.le('ValidTo', toDate.toISOString()));
+      filters.push(this.queryBuilder.le('EndDate', toDate.toISOString()));
     }
 
     const filter = this.queryBuilder.and(...filters);
@@ -67,7 +68,7 @@ export class ExchangeRateService {
       `Fetching exchange rates for company: ${company}, rateType: ${rateType}`,
     );
 
-    const response = await this.d365foClient.get<any>(query, {
+    const response = await this.d365foClient.get<D365FOExchangeRate>(query, {
       useCache,
       cacheTtl: 15 * 60 * 1000, // 15 minutes - exchange rates change frequently
     });
