@@ -25,5 +25,3 @@ export const redisConfig = registerAs(
     lazyConnect: process.env.REDIS_LAZY_CONNECT === 'true',
   }),
 );
-
-

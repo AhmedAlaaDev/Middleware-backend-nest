@@ -1,98 +1,82 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
-import { Queue } from 'bullmq';
+import { JobsOptions, Queue } from 'bullmq';
 
-import { ExampleJobData } from '../processors/example.processor';
+import { QUEUES } from '@/modules/queue/constants/queues';
+
+type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 @Injectable()
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
   constructor(
-    @InjectQueue('example-queue')
-    private readonly exampleQueue: Queue,
+    @InjectQueue(QUEUES.POST_BATCH_DFO)
+    private readonly dfoQueue: Queue,
   ) {}
 
-  /**
-   * Add a job to the example queue
-   */
-  async addExampleJob(data: ExampleJobData, options?: { delay?: number; priority?: number }) {
-    const job = await this.exampleQueue.add('process-example', data, {
-      attempts: 3, // Retry 3 times on failure
-      backoff: {
-        type: 'exponential',
-        delay: 2000, // Start with 2 second delay
-      },
-      removeOnComplete: {
-        age: 24 * 3600, // Keep completed jobs for 24 hours
-        count: 1000, // Keep last 1000 completed jobs
-      },
-      removeOnFail: {
-        age: 7 * 24 * 3600, // Keep failed jobs for 7 days
-      },
-      ...options,
-    });
+  /** 🧠 Helper to return the Queue instance dynamically */
+  private getQueue(queueName: QueueName): Queue {
+    switch (queueName) {
+      case QUEUES.POST_BATCH_DFO:
+        return this.dfoQueue;
+      default:
+        throw new Error(`Queue is not registered`);
+    }
+  }
 
-    this.logger.log(`Added job ${job.id} to example-queue`);
+  /** ➕ Add Job */
+  public async addJob(
+    queueName: QueueName,
+    jobName: string,
+    data: any,
+    options?: JobsOptions,
+  ) {
+    const queue = this.getQueue(queueName);
+    const job = await queue.add(jobName, data, options);
+
+    this.logger.log(`Added job ${job.id} to queue ${queueName}`);
     return job;
   }
 
-  /**
-   * Get queue statistics
-   */
-  async getQueueStats() {
+  /** 📊 Queue Stats */
+  public async getStats(queueName: QueueName) {
+    const q = this.getQueue(queueName);
+
     const [waiting, active, completed, failed, delayed] = await Promise.all([
-      this.exampleQueue.getWaitingCount(),
-      this.exampleQueue.getActiveCount(),
-      this.exampleQueue.getCompletedCount(),
-      this.exampleQueue.getFailedCount(),
-      this.exampleQueue.getDelayedCount(),
+      q.getWaitingCount(),
+      q.getActiveCount(),
+      q.getCompletedCount(),
+      q.getFailedCount(),
+      q.getDelayedCount(),
     ]);
 
-    return {
-      waiting,
-      active,
-      completed,
-      failed,
-      delayed,
-      total: waiting + active + completed + failed + delayed,
-    };
+    return { waiting, active, completed, failed, delayed };
   }
 
-  /**
-   * Get job by ID
-   */
-  async getJob(jobId: string) {
-    return this.exampleQueue.getJob(jobId);
+  /** 🔍 Get Job */
+  public getJob(queueName: QueueName, jobId: string) {
+    return this.getQueue(queueName).getJob(jobId);
   }
 
-  /**
-   * Retry a failed job
-   */
-  async retryJob(jobId: string) {
-    const job = await this.getJob(jobId);
-    if (!job) {
-      throw new Error(`Job ${jobId} not found`);
-    }
+  /** 🔄 Retry Job */
+  public async retryJob(queueName: QueueName, jobId: string) {
+    const job = await this.getJob(queueName, jobId);
+    if (!job) throw new Error(`Job ${jobId} not found`);
+
     return job.retry();
   }
 
-  /**
-   * Remove a job
-   */
-  async removeJob(jobId: string) {
-    const job = await this.getJob(jobId);
-    if (!job) {
-      throw new Error(`Job ${jobId} not found`);
-    }
+  /** ❌ Remove Job */
+  public async removeJob(queueName: QueueName, jobId: string) {
+    const job = await this.getJob(queueName, jobId);
+    if (!job) throw new Error(`Job ${jobId} not found`);
+
     return job.remove();
   }
 
-  /**
-   * Clean old jobs
-   */
-  async cleanOldJobs(grace: number = 1000 * 60 * 60) {
-    return this.exampleQueue.clean(grace, 1000, 'completed');
+  /** 🗑️ Clean Old Jobs */
+  public cleanOldJobs(queueName: QueueName, grace: number = 1000 * 60 * 60) {
+    return this.getQueue(queueName).clean(grace, 1000, 'completed');
   }
 }
-

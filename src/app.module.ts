@@ -22,7 +22,14 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      load: [appConfig, authConfig, d365foConfig, dbConfig, redisConfig, resilienceConfig],
+      load: [
+        appConfig,
+        authConfig,
+        d365foConfig,
+        dbConfig,
+        redisConfig,
+        resilienceConfig,
+      ],
       isGlobal: true,
       validationSchema: ConfigSchema,
       validationOptions: {

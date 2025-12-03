@@ -1,18 +1,22 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Global, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
-import { redisConfig } from '@/config';
-import { ExampleProcessor } from './processors/example.processor';
-import { QueueService } from './services/queue.service';
+import { IConfig, RedisConfig } from '@/config';
+import { QUEUES } from '@/modules/queue/constants/queues';
+import { PostBatchDFOProcessor } from '@/modules/queue/processors/post-batch-dfo.processor';
+import { QueueService } from '@/modules/queue/services/queue.service';
 
+const processors = [PostBatchDFOProcessor];
+
+@Global()
 @Module({
   imports: [
     BullModule.forRootAsync({
-      imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const redis = configService.get<ReturnType<typeof redisConfig>>('redis');
+      useFactory: (configService: ConfigService<IConfig>) => {
+        const redis = configService.get<RedisConfig>('redis');
+
         const connection: Record<string, unknown> = {
           host: redis?.host ?? 'localhost',
           port: redis?.port ?? 6379,
@@ -31,12 +35,13 @@ import { QueueService } from './services/queue.service';
         return { connection };
       },
     }),
+
     // Register queues
-    BullModule.registerQueue({
-      name: 'example-queue',
-    }),
+    BullModule.registerQueue(
+      ...Object.values(QUEUES).map((queue) => ({ name: queue })),
+    ),
   ],
-  providers: [ExampleProcessor, QueueService],
-  exports: [BullModule, QueueService],
+  providers: [...processors, QueueService],
+  exports: [QueueService],
 })
 export class QueueModule {}

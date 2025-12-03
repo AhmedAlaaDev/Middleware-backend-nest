@@ -13,9 +13,18 @@ import {
   AppSettingSchema,
 } from '@/modules/db/schemas/app-setting.schema';
 import {
+  BillingClassification,
+  BillingClassificationSchema,
+} from '@/modules/db/schemas/billing-classification.schema';
+import {
+  BillingCode,
+  BillingCodeSchema,
+} from '@/modules/db/schemas/billing-code.schema';
+import {
   CacheEntry,
   CacheEntrySchema,
 } from '@/modules/db/schemas/cache-entry.schema';
+import { Customer, CustomerSchema } from '@/modules/db/schemas/customer.schema';
 import {
   DataBatchError,
   DataBatchErrorSchema,
@@ -32,6 +41,10 @@ import {
   DataSourceRecord,
   DataSourceRecordSchema,
 } from '@/modules/db/schemas/data-source-record.schema';
+import {
+  ExchangeRate,
+  ExchangeRateSchema,
+} from '@/modules/db/schemas/exchange-rate.schema';
 import {
   FinancialDimensionValue,
   FinancialDimensionValueSchema,
@@ -52,26 +65,7 @@ import {
   MainAccount,
   MainAccountSchema,
 } from '@/modules/db/schemas/main-account.schema';
-import {
-  BillingClassification,
-  BillingClassificationSchema,
-} from '@/modules/db/schemas/billing-classification.schema';
-import {
-  BillingCode,
-  BillingCodeSchema,
-} from '@/modules/db/schemas/billing-code.schema';
-import {
-  Vendor,
-  VendorSchema,
-} from '@/modules/db/schemas/vendor.schema';
-import {
-  ExchangeRate,
-  ExchangeRateSchema,
-} from '@/modules/db/schemas/exchange-rate.schema';
-import {
-  Customer,
-  CustomerSchema,
-} from '@/modules/db/schemas/customer.schema';
+import { Vendor, VendorSchema } from '@/modules/db/schemas/vendor.schema';
 
 @Global()
 @Module({
