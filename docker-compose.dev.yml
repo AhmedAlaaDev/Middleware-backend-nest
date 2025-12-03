@@ -68,7 +68,7 @@ services:
     command: pnpm run start:dev
 
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     container_name: mongodb-dev
     restart: unless-stopped
     hostname: mongodb

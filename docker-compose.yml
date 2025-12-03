@@ -10,7 +10,7 @@ services:
     env_file:
       - .env.production
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3001}:3000'
     environment:
       # Application Configuration
       NODE_ENV: ${NODE_ENV:-production}
@@ -70,9 +70,17 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.7'
+          memory: 700M
+        reservations:
+          cpus: '0.3'
+          memory: 300M
 
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     container_name: mongodb
     restart: unless-stopped
     hostname: mongodb
@@ -95,6 +103,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: '2G'
 
   redis:
     image: redis:7-alpine
@@ -121,6 +134,11 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '300M'
 
 volumes:
   mongodb-data:
