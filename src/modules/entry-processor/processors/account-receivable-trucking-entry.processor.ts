@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { BillingService } from '@/modules/d365fo/services/billing.service';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { DBService } from '@/modules/db/db.service';
 import {
@@ -13,6 +13,7 @@ import { AccountReceivableFileModel } from '@/modules/entry-processor/models/acc
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
+import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
@@ -35,12 +36,11 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
   ];
 
   constructor(
-    billingService: BillingService,
     customerInvoiceService: CustomerInvoiceService,
     queryBus: QueryBus,
     db: DBService,
   ) {
-    super(billingService, customerInvoiceService, queryBus, db);
+    super(customerInvoiceService, queryBus, db);
   }
 
   async formatAndEnrichAsync(
@@ -71,13 +71,8 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
     const accLines: DynAccountReceivableLineDto[] = [];
 
-    const billingCodes = await this.billingService.getBillingCodeList(
-      company,
-      billingClassId || '',
-      {
-        skipCount: 0,
-        maxCount: 5000,
-      },
+    const billingCodes = await this.queryBus.execute(
+      new GetBillingCodesQuery(company, billingClassId || ''),
     );
 
     if (billingClassId) {
@@ -131,7 +126,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
           const billingCode =
             billingCodes.find((bc: any) =>
-              bc.BillingCode?.toLowerCase().includes(
+              bc.billingCode?.toLowerCase().includes(
                 accountDimensions.chargeType?.toLowerCase() || '',
               ),
             ) || null;
@@ -162,11 +157,11 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     // Load dimensions and accounts
     const accounts = await this.getAllMainAccounts();
 
-    const dimensionsMap = new Map<string, string[]>();
+    const dimensionsMap = new Map<string, FinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
       const dimensionValues =
         await this.getFinancialDimensionValues(dimensionKey);
-      dimensionsMap.set(dimensionKey, dimensionValues);
+      dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 
     const arData = data as DynAccountReceivableLineDto[];
@@ -177,7 +172,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       const billingCodes =
         this.billingClassifications.get(billingClassId) || [];
       chargeTypeDims.push(
-        ...billingCodes.map((bc) => bc.BillingCode).filter((bc) => bc),
+        ...billingCodes.map((bc) => bc.billingCode).filter((bc) => bc),
       );
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));

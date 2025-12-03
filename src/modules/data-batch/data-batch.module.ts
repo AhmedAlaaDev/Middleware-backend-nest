@@ -25,5 +25,6 @@ const QueryHandlers = [GetDataBatchListHandler, GetBatchErrorListHandler];
   imports: [CqrsModule.forRoot()],
   providers: [DataBatchService, ...CommandHandlers, ...QueryHandlers],
   controllers: [DataBatchController],
+  exports: [DataBatchService],
 })
 export class DataBatchModule {}

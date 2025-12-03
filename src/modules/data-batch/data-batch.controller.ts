@@ -16,7 +16,6 @@ import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
-import { PostBatchInDFOCommand } from '@/modules/data-batch/commands/post-batch-in-dfo.command';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
@@ -33,7 +32,7 @@ export class DataBatchController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
-  ) {}
+  ) { }
 
   /**
    * Get a list of data batches
@@ -50,17 +49,6 @@ export class DataBatchController {
         query.maxCount,
       ),
     );
-  }
-
-  /**
-   * Post batch to Dynamics 365 FO
-   */
-  @Post('insert')
-  @HttpCode(HttpStatus.OK)
-  public async insertIntoDynamicsAsync(
-    @Body() { batchId }: BatchIdDto,
-  ): Promise<void> {
-    return this.commandBus.execute(new PostBatchInDFOCommand(batchId));
   }
 
   /**
