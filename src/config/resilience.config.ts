@@ -20,7 +20,7 @@ export const resilienceConfig = registerAs(
   'resilience',
   (): ResilienceConfig => ({
     circuitBreaker: {
-      timeout: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT ?? '30000', 10),
+      timeout: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT ?? '60000', 10),
       resetTimeout: parseInt(
         process.env.CIRCUIT_BREAKER_RESET_TIMEOUT ?? '30000',
         10,

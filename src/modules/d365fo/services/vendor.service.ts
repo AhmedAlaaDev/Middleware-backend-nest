@@ -33,7 +33,7 @@ export class VendorService {
   ): Promise<D365FOVendor[]> {
     const {
       skipCount = 0,
-      maxCount = 5000,
+      maxCount = 1000,
       useCache = true,
       select,
       orderBy,
@@ -86,7 +86,7 @@ export class VendorService {
 
     const allVendors: D365FOVendor[] = [];
     let skipCount = 0;
-    const pageSize = 5000;
+    const pageSize = 1000;
     let hasMore = true;
 
     this.logger.debug(
