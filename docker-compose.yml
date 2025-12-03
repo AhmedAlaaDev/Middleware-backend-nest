@@ -1,3 +1,4 @@
+# docker-compose.yml
 services:
   app:
     build:
@@ -16,11 +17,11 @@ services:
       PORT: ${PORT:-3000}
       PREFIX: ${PREFIX:-}
       ALLOWED_CORS_ORIGINS: ${ALLOWED_CORS_ORIGINS:-}
-      
+
       # Database Configuration
       MONGODB_URI: ${MONGODB_URI:-mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin}
       MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-5}
-      
+
       # Redis Configuration
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -29,16 +30,16 @@ services:
       REDIS_MAX_RETRIES_PER_REQUEST: ${REDIS_MAX_RETRIES_PER_REQUEST:-3}
       REDIS_ENABLE_READY_CHECK: ${REDIS_ENABLE_READY_CHECK:-true}
       REDIS_LAZY_CONNECT: ${REDIS_LAZY_CONNECT:-false}
-      
+
       # Authentication Configuration
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15d}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-mg-d365fo-middleware}
       JWT_ISSUER: ${JWT_ISSUER:-mg-d365fo-middleware}
-      
+
       # D365FO Configuration - loaded from env_file (.env.production)
       # These are not set here to allow env_file to take precedence
-      
+
       # Resilience Configuration
       CIRCUIT_BREAKER_TIMEOUT: ${CIRCUIT_BREAKER_TIMEOUT:-30000}
       CIRCUIT_BREAKER_RESET_TIMEOUT: ${CIRCUIT_BREAKER_RESET_TIMEOUT:-30000}
@@ -58,34 +59,42 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/docs', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3000/docs', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
   mongodb:
-    image: mongodb/mongodb-community-server:latest
+    image: mongo:latest
     container_name: mongodb
-    hostname: mongodb
     restart: unless-stopped
-    volumes:
-      - ./mongodb/initdb.d/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-      - mongodb-data:/data/db/
-      - mongodb-log:/var/log/mongodb/
-    environment:
-      MONGODB_INITDB_ROOT_USERNAME: root
-      MONGODB_INITDB_ROOT_PASSWORD: sp3awi
+    hostname: mongodb
     ports:
       - '27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: sp3awi
+    volumes:
+      - mongodb-data:/data/db
     networks:
       - mongodb_network
     healthcheck:
-      test: mongosh --eval "db.adminCommand('ping')" --quiet
+      test:
+        [
+          'CMD-SHELL',
+          'mongosh --username root --password sp3awi --eval "db.adminCommand(''ping'')" || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 20s
 
   redis:
     image: redis:7-alpine
