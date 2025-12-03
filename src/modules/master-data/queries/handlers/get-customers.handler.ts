@@ -1,33 +1,49 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
 
-import { CustomerService } from '@/modules/d365fo/services/customer.service';
+import { DBService } from '@/modules/db/db.service';
+import { Customer } from '../get-customers.query';
 import { GetCustomersQuery } from '../get-customers.query';
 
 @QueryHandler(GetCustomersQuery)
 export class GetCustomersHandler implements IQueryHandler<GetCustomersQuery> {
   private readonly logger = new Logger(GetCustomersHandler.name);
 
-  constructor(private readonly customerService: CustomerService) {}
+  constructor(private readonly db: DBService) {}
 
-  public async execute(query: GetCustomersQuery) {
+  public async execute(query: GetCustomersQuery): Promise<Customer[]> {
     this.logger.log(
-      `Fetching customers for company: ${query.company}${query.searchTerm ? `, search term: ${query.searchTerm}` : ''}`,
+      `Fetching customers from database${query.company ? ` for company: ${query.company}` : ''}${query.searchTerm ? `, search term: ${query.searchTerm}` : ''}`,
     );
 
+    const filter: any = {};
+    if (query.company) {
+      filter.company = query.company;
+    }
     if (query.searchTerm) {
-      return this.customerService.searchCustomers(query.company, query.searchTerm, {
-        skipCount: query.skipCount,
-        maxCount: query.maxCount,
-        useCache: true,
-      });
+      filter.$or = [
+        { customerAccount: { $regex: query.searchTerm, $options: 'i' } },
+        { name: { $regex: query.searchTerm, $options: 'i' } },
+        { nameAlias: { $regex: query.searchTerm, $options: 'i' } },
+      ];
     }
 
-    return this.customerService.getCustomerList(query.company, {
-      skipCount: query.skipCount,
-      maxCount: query.maxCount,
-      useCache: true,
-    });
+    const customers = await this.db.customerModel.find(filter).lean();
+
+    return customers.map((c: any) => ({
+      id: c._id.toString(),
+      company: c.company,
+      customerAccount: c.customerAccount,
+      name: c.name,
+      organizationPhoneticName: c.organizationPhoneticName,
+      nameAlias: c.nameAlias,
+      customerGroupId: c.customerGroupId,
+      salesCurrencyCode: c.salesCurrencyCode,
+      invoiceAccount: c.invoiceAccount,
+      partyNumber: c.partyNumber,
+      organizationNumber: c.organizationNumber,
+      defaultDimensionDisplayValue: c.defaultDimensionDisplayValue,
+    }));
   }
 }
 

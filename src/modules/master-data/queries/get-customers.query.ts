@@ -1,11 +1,23 @@
 import { Query } from '@nestjs/cqrs';
-import { D365FOCustomer } from '@/modules/d365fo/types';
 
-export class GetCustomersQuery extends Query<D365FOCustomer[]> {
+export interface Customer {
+  id: string;
+  company: string;
+  customerAccount: string;
+  name?: string;
+  organizationPhoneticName?: string;
+  nameAlias?: string;
+  customerGroupId?: string;
+  salesCurrencyCode?: string;
+  invoiceAccount?: string;
+  partyNumber?: string;
+  organizationNumber?: string;
+  defaultDimensionDisplayValue?: string;
+}
+
+export class GetCustomersQuery extends Query<Customer[]> {
   constructor(
-    public readonly company: string,
-    public readonly skipCount: number = 0,
-    public readonly maxCount: number = 50,
+    public readonly company?: string,
     public readonly searchTerm?: string,
   ) {
     super();

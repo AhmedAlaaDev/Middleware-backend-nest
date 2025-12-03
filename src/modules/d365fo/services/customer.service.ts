@@ -69,6 +69,58 @@ export class CustomerService {
   }
 
   /**
+   * Get all customers for a specific company with automatic pagination.
+   * This method handles pagination internally and fetches all customers regardless of count.
+   */
+  public async getAllCustomers(
+    company: string,
+    options?: {
+      useCache?: boolean;
+      select?: string[];
+      orderBy?: string | string[];
+      filters?: string | string[];
+    },
+  ): Promise<D365FOCustomer[]> {
+    const { useCache = true, select, orderBy, filters } = options || {};
+
+    const allCustomers: D365FOCustomer[] = [];
+    let skipCount = 0;
+    const pageSize = 50;
+    let hasMore = true;
+
+    this.logger.debug(
+      `Fetching all customers for company: ${company} (with pagination)`,
+    );
+
+    while (hasMore) {
+      const customers = await this.getCustomerList(company, {
+        skipCount: skipCount,
+        maxCount: pageSize,
+        useCache: useCache,
+        select: select,
+        orderBy: orderBy,
+        filters: filters,
+      });
+
+      if (customers.length === 0) {
+        hasMore = false;
+      } else {
+        allCustomers.push(...customers);
+        skipCount += pageSize;
+        if (customers.length < pageSize) {
+          hasMore = false;
+        }
+      }
+    }
+
+    this.logger.debug(
+      `Fetched ${allCustomers.length} total customers for company: ${company}`,
+    );
+
+    return allCustomers;
+  }
+
+  /**
    * Get a single customer by account number
    */
   public async getCustomerByAccount(

@@ -18,6 +18,7 @@ import { BillingClassification } from '@/modules/db/schemas/billing-classificati
 import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 import { Vendor } from '@/modules/db/schemas/vendor.schema';
 import { ExchangeRate } from '@/modules/db/schemas/exchange-rate.schema';
+import { Customer } from '@/modules/db/schemas/customer.schema';
 
 @Injectable()
 export class DBService {
@@ -54,6 +55,8 @@ export class DBService {
     private readonly _vendorModel: Model<Vendor>,
     @InjectModel(ExchangeRate.name)
     private readonly _exchangeRateModel: Model<ExchangeRate>,
+    @InjectModel(Customer.name)
+    private readonly _customerModel: Model<Customer>,
   ) {}
 
   public get accountCustomerInvoiceMappingModel() {
@@ -118,5 +121,9 @@ export class DBService {
 
   public get exchangeRateModel() {
     return this._exchangeRateModel;
+  }
+
+  public get customerModel() {
+    return this._customerModel;
   }
 }

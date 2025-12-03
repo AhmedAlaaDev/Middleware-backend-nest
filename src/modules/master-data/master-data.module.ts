@@ -13,6 +13,7 @@ import { GetMainAccountsHandler } from '@/modules/master-data/queries/handlers/g
 import { SaveAccountMappingsHandler } from '@/modules/master-data/commands/handlers/save-account-mappings.handler';
 import { GetAccountMappingsHandler } from '@/modules/master-data/queries/handlers/get-account-mappings.handler';
 import { GetCustomersHandler } from '@/modules/master-data/queries/handlers/get-customers.handler';
+import { SyncCustomersHandler } from '@/modules/master-data/commands/handlers/sync-customers.handler';
 import { SyncVendorsHandler } from '@/modules/master-data/commands/handlers/sync-vendors.handler';
 import { GetVendorsHandler } from '@/modules/master-data/queries/handlers/get-vendors.handler';
 import { SyncExchangeRatesHandler } from '@/modules/master-data/commands/handlers/sync-exchange-rates.handler';
@@ -23,6 +24,7 @@ const CommandHandlers = [
   SyncBillingDataHandler,
   SyncMainAccountsHandler,
   SaveAccountMappingsHandler,
+  SyncCustomersHandler,
   SyncVendorsHandler,
   SyncExchangeRatesHandler,
 ];

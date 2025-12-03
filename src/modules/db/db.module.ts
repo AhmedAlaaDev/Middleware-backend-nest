@@ -68,6 +68,10 @@ import {
   ExchangeRate,
   ExchangeRateSchema,
 } from '@/modules/db/schemas/exchange-rate.schema';
+import {
+  Customer,
+  CustomerSchema,
+} from '@/modules/db/schemas/customer.schema';
 
 @Global()
 @Module({
@@ -133,6 +137,10 @@ import {
       {
         name: ExchangeRate.name,
         schema: ExchangeRateSchema,
+      },
+      {
+        name: Customer.name,
+        schema: CustomerSchema,
       },
     ]),
   ],

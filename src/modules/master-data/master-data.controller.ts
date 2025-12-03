@@ -12,6 +12,7 @@ import { SaveAccountMappingsCommand, AccountMappingData } from '@/modules/master
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
+import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
 import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
 import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
@@ -29,27 +30,31 @@ export class MasterDataController {
   ) {}
 
   /**
-   * Get customer list from D365FO (Query)
+   * Get customers from database (Query)
    */
   @Get('customers')
   @ApiResponse({
     status: 200,
-    description: 'Customer list retrieved successfully',
+    description: 'Customers retrieved successfully',
   })
   public getCustomersAsync(
-    @Query('company') company: string,
-    @Query('skipCount') skipCount?: number,
-    @Query('maxCount') maxCount?: number,
+    @Query('company') company?: string,
     @Query('searchTerm') searchTerm?: string,
   ) {
-    return this.queryBus.execute(
-      new GetCustomersQuery(
-        company,
-        skipCount ? parseInt(skipCount.toString(), 10) : 0,
-        maxCount ? parseInt(maxCount.toString(), 10) : 50,
-        searchTerm,
-      ),
-    );
+    return this.queryBus.execute(new GetCustomersQuery(company, searchTerm));
+  }
+
+  /**
+   * Sync customers from D365FO (insert if not exist, update if exists)
+   */
+  @Post('customers/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Customers synced successfully',
+  })
+  public syncCustomersAsync(@Query('company') company: string) {
+    return this.commandBus.execute(new SyncCustomersCommand(company));
   }
 
   /**
