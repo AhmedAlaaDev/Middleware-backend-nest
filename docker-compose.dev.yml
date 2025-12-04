@@ -69,7 +69,7 @@ services:
     command: pnpm run start:dev
 
   mongodb:
-    image: mongodb/mongodb-community-server:latest
+    image: mongodb/mongodb-community-server:8.0.4-ubi8
     container_name: mongodb-dev
     restart: unless-stopped
     hostname: mongodb
