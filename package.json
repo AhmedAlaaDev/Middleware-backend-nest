@@ -30,8 +30,8 @@
     "docker:dev:down:v": "docker compose -f docker-compose.dev.yml down -v",
     "docker:dev:restart": "pnpm docker:dev:down && pnpm docker:dev:up",
     "docker:dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
-    "docker:build": "docker build -t moatazali/middleware-app:1.0.1 .",
-    "docker:push": "docker push moatazali/middleware-app:1.0.1",
+    "docker:build": "docker build --no-cache -t moatazali/middleware-app:1.0.2 .",
+    "docker:push": "docker push moatazali/middleware-app:1.0.2",
     "docker:build:dev": "docker build --target development -t d365fo-middleware:dev ."
   },
   "dependencies": {
