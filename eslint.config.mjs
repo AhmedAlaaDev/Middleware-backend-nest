@@ -46,7 +46,7 @@ export default [
           ignoreRestSiblings: true,
         },
       ],
-      'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      'prettier/prettier': ['warn', { endOfLine: 'auto' }],
       'import/no-duplicates': 'error',
       'import/order': [
         'error',

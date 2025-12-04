@@ -1,6 +1,11 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 
 @Controller('test')
 export class AppController {
-  constructor() { }
+  constructor() {}
+
+  @Get()
+  getHello(): string {
+    return 'NestJS is up and running!';
+  }
 }

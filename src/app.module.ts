@@ -36,8 +36,7 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
         abortEarly: true,
       },
       envFilePath: [
-        `.env.${process.env.NODE_ENV || 'development'}.local`,
-        `.env.${process.env.NODE_ENV || 'development'}`,
+        `.env.${process.env.NODE_ENV || 'local'}`,
         '.env.local',
         '.env',
       ],
