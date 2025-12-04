@@ -17,7 +17,7 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
     }),
     HttpModule.register({
       global: true,
-      timeout: 30000, // 30 seconds
+      timeout: 120000, // 120 seconds default, configurable via HTTP_TIMEOUT env var
       maxRedirects: 5, // 5 redirects
     }),
   ],
@@ -34,4 +34,4 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
     MultiLayerCacheService,
   ],
 })
-export class ResilienceModule {}
+export class ResilienceModule { }

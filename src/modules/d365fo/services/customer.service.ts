@@ -15,7 +15,7 @@ export class CustomerService {
   constructor(
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
-  ) {}
+  ) { }
 
   /**
    * Get customer list for a specific company
@@ -43,11 +43,11 @@ export class CustomerService {
     const baseFilter = this.queryBuilder.eq('dataAreaId', company);
     const filter = filters
       ? this.queryBuilder.and(
-          baseFilter,
-          Array.isArray(filters)
-            ? this.queryBuilder.buildFilterExpression(filters)
-            : filters,
-        )
+        baseFilter,
+        Array.isArray(filters)
+          ? this.queryBuilder.buildFilterExpression(filters)
+          : filters,
+      )
       : baseFilter;
 
     const query = this.queryBuilder.buildQuery('/data/Customers', {
@@ -86,7 +86,7 @@ export class CustomerService {
 
     const allCustomers: D365FOCustomer[] = [];
     let skipCount = 0;
-    const pageSize = 50;
+    const pageSize = 1000;
     let hasMore = true;
 
     this.logger.debug(

@@ -41,8 +41,9 @@ services:
       # These are not set here to allow env_file to take precedence
 
       # Resilience Configuration
-      CIRCUIT_BREAKER_TIMEOUT: ${CIRCUIT_BREAKER_TIMEOUT:-30000}
+      CIRCUIT_BREAKER_TIMEOUT: ${CIRCUIT_BREAKER_TIMEOUT:-120000}
       CIRCUIT_BREAKER_RESET_TIMEOUT: ${CIRCUIT_BREAKER_RESET_TIMEOUT:-30000}
+      HTTP_TIMEOUT: ${HTTP_TIMEOUT:-120000}
       CIRCUIT_BREAKER_FAILURE_THRESHOLD: ${CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
       CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: ${CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE:-50}
       CIRCUIT_BREAKER_ENABLED: ${CIRCUIT_BREAKER_ENABLED:-true}
@@ -80,15 +81,15 @@ services:
           memory: 300M
 
   mongodb:
-    image: mongo:8.0
+    image: mongodb/mongodb-community-server:latest
     container_name: mongodb
     restart: unless-stopped
     hostname: mongodb
     ports:
       - '27017:27017'
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: sp3awi
+      MONGODB_INITDB_ROOT_USERNAME: root
+      MONGODB_INITDB_ROOT_PASSWORD: sp3awi
     volumes:
       - mongodb-data:/data/db
     networks:
