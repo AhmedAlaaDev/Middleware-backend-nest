@@ -17,9 +17,9 @@ export class GetSettingHandler implements IQueryHandler<GetSettingQuery> {
       `Fetching setting with logical name: ${query.logicalName}`,
     );
 
-    const setting = await this.db.appSettingModel
+    const setting = (await this.db.appSettingModel
       .findOne({ logicalName: query.logicalName })
-      .lean();
+      .lean()) as any;
 
     if (!setting) {
       return null;
