@@ -1,5 +1,6 @@
 import { join } from 'path';
 
+import { NotFoundException } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import * as ExcelJS from 'exceljs';
 
@@ -19,7 +20,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<Downl
       await this.batchService.getEnhancedRecordsAsync(batchId);
 
     if (enhancedRecords.length === 0) {
-      throw new Error('No enhanced records found for this batch');
+      throw new NotFoundException('No enhanced records found for this batch');
     }
 
     // Create Excel file

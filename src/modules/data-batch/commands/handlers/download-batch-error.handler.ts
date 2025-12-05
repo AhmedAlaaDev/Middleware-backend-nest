@@ -1,5 +1,6 @@
 import { join } from 'path';
 
+import { NotFoundException } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import * as ExcelJS from 'exceljs';
 
@@ -14,7 +15,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
     const errors = await this.db.getErrorsAsync(command.batchId);
 
     if (errors.length === 0) {
-      throw new Error('No errors found for this batch');
+      throw new NotFoundException('No errors found for this batch');
     }
 
     // Create Excel file

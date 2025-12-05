@@ -14,8 +14,6 @@ export class GetBatchErrorListHandler implements IQueryHandler<GetBatchErrorList
   ): Promise<IPaginatedRes<DataBatchError>> {
     const filter = { batchId: query.batchId };
 
-    const total = await this.db.dataBatchErrorModel.countDocuments(filter);
-
     const data = await this.db.dataBatchErrorModel
       .find(filter)
       .sort({ createdAt: -1 })
@@ -23,6 +21,8 @@ export class GetBatchErrorListHandler implements IQueryHandler<GetBatchErrorList
       .limit(query.maxCount || 150)
       .lean()
       .exec();
+
+    const total = await this.db.dataBatchErrorModel.countDocuments(filter);
 
     const result = new IPaginatedRes<DataBatchError>(
       data,

@@ -24,6 +24,7 @@
     "docker:down:v": "docker compose down -v",
     "docker:restart": "pnpm docker:down && pnpm docker:up",
     "docker:logs": "docker compose logs app -f",
+    "docker:build": "docker compose build --no-cache",
     "docker:prod:up": "docker compose -f docker-compose.production.yml up -d",
     "docker:prod:down": "docker compose -f docker-compose.production.yml down",
     "docker:prod:down:v": "docker compose -f docker-compose.production.yml down -v",
