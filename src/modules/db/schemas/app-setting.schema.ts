@@ -8,14 +8,17 @@ export type AppSettingDocument = HydratedDocument<AppSetting>;
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class AppSetting {
-  @Prop({ unique: true })
+  @Prop({ required: true })
+  displayName: string;
+
+  @Prop({ required: true, unique: true })
   logicalName: string;
 
   @Prop()
-  displayName: string;
+  value?: string;
 
   @Prop()
-  value?: string;
+  groupName?: string;
 
   @Prop({ default: false })
   hasAction: boolean;
@@ -24,3 +27,6 @@ export class AppSetting {
   order: number;
 }
 export const AppSettingSchema = SchemaFactory.createForClass(AppSetting);
+
+// Add index for groupName for faster queries
+AppSettingSchema.index({ groupName: 1 });
