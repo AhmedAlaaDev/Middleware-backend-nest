@@ -5,4 +5,3 @@ export class DeleteSettingCommand extends Command<{ success: boolean }> {
     super();
   }
 }
-

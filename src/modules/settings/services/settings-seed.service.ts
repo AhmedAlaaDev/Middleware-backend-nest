@@ -131,4 +131,3 @@ export class SettingsSeedService implements OnModuleInit {
     );
   }
 }
-

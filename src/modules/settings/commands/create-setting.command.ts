@@ -16,4 +16,3 @@ export class CreateSettingCommand extends Command<ReadSettingDto> {
     super();
   }
 }
-

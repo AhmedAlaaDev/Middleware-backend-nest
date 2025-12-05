@@ -27,4 +27,3 @@ export class UpdateSettingDto {
   @IsNumber()
   order?: number;
 }
-

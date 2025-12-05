@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { GetSettingQuery } from '../get-setting.query';
 import { ReadSettingDto } from '../../dtos/read-setting.dto';
+import { GetSettingQuery } from '../get-setting.query';
 
 import { DBService } from '@/modules/db/db.service';
 
@@ -13,9 +13,7 @@ export class GetSettingHandler implements IQueryHandler<GetSettingQuery> {
   constructor(private readonly db: DBService) {}
 
   public async execute(query: GetSettingQuery): Promise<ReadSettingDto | null> {
-    this.logger.log(
-      `Fetching setting with logical name: ${query.logicalName}`,
-    );
+    this.logger.log(`Fetching setting with logical name: ${query.logicalName}`);
 
     const setting = (await this.db.appSettingModel
       .findOne({ logicalName: query.logicalName })
@@ -38,4 +36,3 @@ export class GetSettingHandler implements IQueryHandler<GetSettingQuery> {
     };
   }
 }
-

@@ -7,7 +7,9 @@ export class ReadSettingDto {
   @ApiProperty({ description: 'Display name of the setting' })
   displayName: string;
 
-  @ApiProperty({ description: 'Logical name (unique identifier) of the setting' })
+  @ApiProperty({
+    description: 'Logical name (unique identifier) of the setting',
+  })
   logicalName: string;
 
   @ApiPropertyOptional({ description: 'Value of the setting' })
@@ -16,7 +18,10 @@ export class ReadSettingDto {
   @ApiPropertyOptional({ description: 'Group name to categorize the setting' })
   groupName?: string;
 
-  @ApiProperty({ description: 'Whether the setting has an action', default: false })
+  @ApiProperty({
+    description: 'Whether the setting has an action',
+    default: false,
+  })
   hasAction: boolean;
 
   @ApiProperty({ description: 'Order for sorting', default: 0 })
@@ -28,4 +33,3 @@ export class ReadSettingDto {
   @ApiProperty({ description: 'Last update date' })
   updatedAt: Date;
 }
-

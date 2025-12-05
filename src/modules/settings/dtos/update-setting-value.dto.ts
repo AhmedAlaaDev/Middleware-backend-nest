@@ -6,4 +6,3 @@ export class UpdateSettingValueDto {
   @IsString()
   value: string;
 }
-

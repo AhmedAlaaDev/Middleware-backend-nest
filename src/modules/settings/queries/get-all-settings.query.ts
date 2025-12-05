@@ -7,4 +7,3 @@ export class GetAllSettingsQuery extends Query<ReadSettingDto[]> {
     super();
   }
 }
-

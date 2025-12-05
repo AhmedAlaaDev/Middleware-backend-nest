@@ -1,23 +1,21 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { UpdateSettingCommand } from '../update-setting.command';
 import { ReadSettingDto } from '../../dtos/read-setting.dto';
+import { UpdateSettingCommand } from '../update-setting.command';
 
 import { DBService } from '@/modules/db/db.service';
 
 @CommandHandler(UpdateSettingCommand)
-export class UpdateSettingHandler
-  implements ICommandHandler<UpdateSettingCommand>
-{
+export class UpdateSettingHandler implements ICommandHandler<UpdateSettingCommand> {
   private readonly logger = new Logger(UpdateSettingHandler.name);
 
   constructor(private readonly db: DBService) {}
 
-  public async execute(
-    command: UpdateSettingCommand,
-  ): Promise<ReadSettingDto> {
-    this.logger.log(`Updating setting with logical name: ${command.logicalName}`);
+  public async execute(command: UpdateSettingCommand): Promise<ReadSettingDto> {
+    this.logger.log(
+      `Updating setting with logical name: ${command.logicalName}`,
+    );
 
     const setting = await this.db.appSettingModel.findOne({
       logicalName: command.logicalName,
@@ -69,4 +67,3 @@ export class UpdateSettingHandler
     };
   }
 }
-

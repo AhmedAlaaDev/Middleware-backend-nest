@@ -1,20 +1,18 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { GetAllSettingsQuery } from '../get-all-settings.query';
 import { ReadSettingDto } from '../../dtos/read-setting.dto';
+import { GetAllSettingsQuery } from '../get-all-settings.query';
 
 import { DBService } from '@/modules/db/db.service';
 
 @QueryHandler(GetAllSettingsQuery)
-export class GetAllSettingsHandler
-  implements IQueryHandler<GetAllSettingsQuery>
-{
+export class GetAllSettingsHandler implements IQueryHandler<GetAllSettingsQuery> {
   private readonly logger = new Logger(GetAllSettingsHandler.name);
 
   constructor(private readonly db: DBService) {}
 
-  public async execute(query: GetAllSettingsQuery): Promise<ReadSettingDto[]> {
+  public async execute(_query: GetAllSettingsQuery): Promise<ReadSettingDto[]> {
     this.logger.log('Fetching all settings');
 
     const settings = await this.db.appSettingModel
@@ -35,4 +33,3 @@ export class GetAllSettingsHandler
     }));
   }
 }
-

@@ -1,23 +1,21 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { CreateSettingCommand } from '../create-setting.command';
 import { ReadSettingDto } from '../../dtos/read-setting.dto';
+import { CreateSettingCommand } from '../create-setting.command';
 
 import { DBService } from '@/modules/db/db.service';
 
 @CommandHandler(CreateSettingCommand)
-export class CreateSettingHandler
-  implements ICommandHandler<CreateSettingCommand>
-{
+export class CreateSettingHandler implements ICommandHandler<CreateSettingCommand> {
   private readonly logger = new Logger(CreateSettingHandler.name);
 
   constructor(private readonly db: DBService) {}
 
-  public async execute(
-    command: CreateSettingCommand,
-  ): Promise<ReadSettingDto> {
-    this.logger.log(`Creating setting with logical name: ${command.data.logicalName}`);
+  public async execute(command: CreateSettingCommand): Promise<ReadSettingDto> {
+    this.logger.log(
+      `Creating setting with logical name: ${command.data.logicalName}`,
+    );
 
     // Check if setting already exists
     const existing = await this.db.appSettingModel.findOne({
@@ -60,4 +58,3 @@ export class CreateSettingHandler
     };
   }
 }
-

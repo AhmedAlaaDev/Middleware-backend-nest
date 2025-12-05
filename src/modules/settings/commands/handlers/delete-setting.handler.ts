@@ -6,9 +6,7 @@ import { DeleteSettingCommand } from '../delete-setting.command';
 import { DBService } from '@/modules/db/db.service';
 
 @CommandHandler(DeleteSettingCommand)
-export class DeleteSettingHandler
-  implements ICommandHandler<DeleteSettingCommand>
-{
+export class DeleteSettingHandler implements ICommandHandler<DeleteSettingCommand> {
   private readonly logger = new Logger(DeleteSettingHandler.name);
 
   constructor(private readonly db: DBService) {}
@@ -16,7 +14,9 @@ export class DeleteSettingHandler
   public async execute(
     command: DeleteSettingCommand,
   ): Promise<{ success: boolean }> {
-    this.logger.log(`Deleting setting with logical name: ${command.logicalName}`);
+    this.logger.log(
+      `Deleting setting with logical name: ${command.logicalName}`,
+    );
 
     const result = await this.db.appSettingModel.deleteOne({
       logicalName: command.logicalName,
@@ -38,4 +38,3 @@ export class DeleteSettingHandler
     return { success: true };
   }
 }
-

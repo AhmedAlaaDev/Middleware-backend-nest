@@ -6,7 +6,9 @@ export class CreateSettingDto {
   @IsString()
   displayName: string;
 
-  @ApiProperty({ description: 'Logical name (unique identifier) of the setting' })
+  @ApiProperty({
+    description: 'Logical name (unique identifier) of the setting',
+  })
   @IsString()
   logicalName: string;
 
@@ -20,7 +22,10 @@ export class CreateSettingDto {
   @IsString()
   groupName?: string;
 
-  @ApiPropertyOptional({ description: 'Whether the setting has an action', default: false })
+  @ApiPropertyOptional({
+    description: 'Whether the setting has an action',
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   hasAction?: boolean;
@@ -30,4 +35,3 @@ export class CreateSettingDto {
   @IsNumber()
   order?: number;
 }
-

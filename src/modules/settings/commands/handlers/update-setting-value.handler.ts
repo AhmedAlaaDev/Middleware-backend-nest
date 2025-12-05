@@ -1,15 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { UpdateSettingValueCommand } from '../update-setting-value.command';
 import { ReadSettingDto } from '../../dtos/read-setting.dto';
+import { UpdateSettingValueCommand } from '../update-setting-value.command';
 
 import { DBService } from '@/modules/db/db.service';
 
 @CommandHandler(UpdateSettingValueCommand)
-export class UpdateSettingValueHandler
-  implements ICommandHandler<UpdateSettingValueCommand>
-{
+export class UpdateSettingValueHandler implements ICommandHandler<UpdateSettingValueCommand> {
   private readonly logger = new Logger(UpdateSettingValueHandler.name);
 
   constructor(private readonly db: DBService) {}
@@ -55,4 +53,3 @@ export class UpdateSettingValueHandler
     };
   }
 }
-

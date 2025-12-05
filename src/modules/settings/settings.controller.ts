@@ -3,11 +3,11 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
 
 import { UpdateSettingValueCommand } from './commands/update-setting-value.command';
-import { UpdateSettingValueDto } from './dtos/update-setting-value.dto';
 import { ReadSettingDto } from './dtos/read-setting.dto';
 import { ReadSettingsListDto } from './dtos/read-settings-list.dto';
-import { GetSettingQuery } from './queries/get-setting.query';
+import { UpdateSettingValueDto } from './dtos/update-setting-value.dto';
 import { GetAllSettingsQuery } from './queries/get-all-settings.query';
+import { GetSettingQuery } from './queries/get-setting.query';
 
 @ApiTags('Settings')
 @Controller('settings')
@@ -66,4 +66,3 @@ export class SettingsController {
     );
   }
 }
-

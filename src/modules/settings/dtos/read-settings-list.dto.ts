@@ -6,4 +6,3 @@ export class ReadSettingsListDto {
   @ApiProperty({ type: [ReadSettingDto], description: 'List of settings' })
   settings: ReadSettingDto[];
 }
-
