@@ -1,25 +1,15 @@
-# docker-compose.dev.yml
+# docker-compose.production.yml
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: development
-    container_name: d365fo-middleware-dev
+    image: moatazali/middleware-app:1.0.2
+    container_name: d365fo-middleware-production
     restart: unless-stopped
     env_file:
-      - .env.development
+      - .env.production
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3001}:${PORT:-3001}'
     environment:
       NODE_ENV: production
-    volumes:
-      # Mount source code for hot reload
-      - ./src:/app/src
-      - ./tsconfig.json:/app/tsconfig.json:ro
-      - ./nest-cli.json:/app/nest-cli.json:ro
-      # Exclude node_modules from volume mount
-      - /app/node_modules
     networks:
       - mongodb_network
       - redis_network
@@ -28,11 +18,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: sh -c "cd /app && pnpm start:dev"
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:${PORT:-3001}/docs', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    mem_limit: 700m
+    cpus: 0.7
 
   mongodb:
     image: mongodb/mongodb-community-server:8.0.4-ubi8
-    container_name: mongodb-dev
+    container_name: mongodb
     restart: unless-stopped
     hostname: mongodb
     ports:
@@ -41,7 +44,7 @@ services:
       MONGODB_INITDB_ROOT_USERNAME: root
       MONGODB_INITDB_ROOT_PASSWORD: sp3awi
     volumes:
-      - mongodb-data-dev:/data/db
+      - mongodb-data:/data/db
     networks:
       - mongodb_network
     healthcheck:
@@ -54,10 +57,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    mem_limit: 2g
+    cpus: 1.0
 
   redis:
     image: redis:7-alpine
-    container_name: redis-dev
+    container_name: redis
     hostname: redis
     restart: unless-stopped
     command: >
@@ -71,7 +76,7 @@ services:
     ports:
       - '${REDIS_PORT:-6379}:6379'
     volumes:
-      - redis-data-dev:/data
+      - redis-data:/data
     networks:
       - redis_network
     healthcheck:
@@ -80,14 +85,19 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    mem_limit: 1g
+    cpus: 0.5
 
 volumes:
-  mongodb-data-dev:
+  mongodb-data:
     driver: local
-  mongodb-log-dev:
+    name: mongo-data
+  mongodb-log:
     driver: local
-  redis-data-dev:
+    name: mongo-log
+  redis-data:
     driver: local
+    name: redis-data
 
 networks:
   mongodb_network:

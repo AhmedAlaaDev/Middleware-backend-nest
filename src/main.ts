@@ -21,6 +21,7 @@ async function bootstrap() {
 
   // CORS
   const allowedOrigins = process.env.ALLOWED_CORS_ORIGINS?.split(',') || [];
+
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
