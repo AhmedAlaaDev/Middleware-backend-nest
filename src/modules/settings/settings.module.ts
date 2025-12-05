@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 
-import { UpdateSettingValueHandler } from './commands/handlers/update-setting-value.handler';
+import { UpdateSettingValueHandler } from './commands/handlers';
 import { SettingsController } from './settings.controller';
+import { SettingsSeedService } from './services/settings-seed.service';
 import {
   GetSettingHandler,
   GetAllSettingsHandler,
@@ -15,7 +16,11 @@ const QueryHandlers = [GetSettingHandler, GetAllSettingsHandler];
 @Module({
   imports: [CqrsModule.forRoot()],
   controllers: [SettingsController],
-  providers: [...CommandHandlers, ...QueryHandlers],
+  providers: [
+    ...CommandHandlers,
+    ...QueryHandlers,
+    SettingsSeedService,
+  ],
 })
 export class SettingsModule {}
 
