@@ -43,6 +43,7 @@
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.2.3",
+    "argon2": "^0.44.0",
     "axios": "^1.13.2",
     "axios-retry": "^4.5.0",
     "bullmq": "^5.65.1",
