@@ -18,6 +18,7 @@ import { DBModule } from '@/modules/db/db.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ResilienceModule } from '@/modules/resilience/resilience.module';
     MasterDataModule,
     DataBatchModule,
     AccountsReceivableModule,
+    SettingsModule,
   ],
 
   controllers: [AppController],
