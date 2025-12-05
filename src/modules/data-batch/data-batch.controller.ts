@@ -32,7 +32,7 @@ export class DataBatchController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
-  ) { }
+  ) {}
 
   /**
    * Get a list of data batches
