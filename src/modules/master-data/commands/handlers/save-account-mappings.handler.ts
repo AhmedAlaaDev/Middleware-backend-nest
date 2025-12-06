@@ -1,21 +1,27 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SaveAccountMappingsCommand } from '../save-account-mappings.command';
-
-import { DBService } from '@/modules/db/db.service';
+import { SaveAccountMappingsCommand } from '@/modules/master-data/commands/save-account-mappings.command';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SaveAccountMappingsCommand)
 export class SaveAccountMappingsHandler implements ICommandHandler<SaveAccountMappingsCommand> {
   private readonly logger = new Logger(SaveAccountMappingsHandler.name);
 
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly masterDataService: MasterDataService) {}
 
   public async execute(command: SaveAccountMappingsCommand): Promise<{
     mappingsCreated: number;
     mappingsUpdated: number;
   }> {
     this.logger.log(`Saving ${command.mappings.length} account mappings`);
+
+    const { items: existingMappings } =
+      await this.masterDataService.getAccountMappingsAsync({});
+    const existingMap = new Map<string, boolean>();
+    existingMappings.forEach((m) =>
+      existingMap.set(`${m.name}|${m.serviceType}`, true),
+    );
 
     let mappingsCreated = 0;
     let mappingsUpdated = 0;
@@ -35,46 +41,16 @@ export class SaveAccountMappingsHandler implements ICommandHandler<SaveAccountMa
         continue;
       }
 
-      // Check if mapping exists - use name and serviceType as unique identifier
-      const existingMapping =
-        await this.db.accountCustomerInvoiceMappingModel.findOne({
-          name: mappingData.name,
-          serviceType: mappingData.serviceType,
-        });
-
-      if (!existingMapping) {
-        // Create new mapping
-        await this.db.accountCustomerInvoiceMappingModel.create({
-          name: mappingData.name,
-          customerAccount: mappingData.customerAccount,
-          invoiceAccount: mappingData.invoiceAccount,
-          serviceType: mappingData.serviceType,
-        });
-        mappingsCreated++;
-        this.logger.debug(
-          `Created account mapping: ${mappingData.customerAccount} -> ${mappingData.invoiceAccount} (serviceType: ${mappingData.serviceType})`,
-        );
+      const key = `${mappingData.name}|${mappingData.serviceType}`;
+      if (existingMap.has(key)) {
+        mappingsUpdated++;
       } else {
-        // Update existing mapping if any fields changed
-        let hasChanges = false;
-        if (existingMapping.customerAccount !== mappingData.customerAccount) {
-          existingMapping.customerAccount = mappingData.customerAccount;
-          hasChanges = true;
-        }
-        if (existingMapping.invoiceAccount !== mappingData.invoiceAccount) {
-          existingMapping.invoiceAccount = mappingData.invoiceAccount;
-          hasChanges = true;
-        }
-
-        if (hasChanges) {
-          await existingMapping.save();
-          mappingsUpdated++;
-          this.logger.debug(
-            `Updated account mapping: ${mappingData.name} (serviceType: ${mappingData.serviceType}) - customerAccount: ${mappingData.customerAccount}, invoiceAccount: ${mappingData.invoiceAccount}`,
-          );
-        }
+        mappingsCreated++;
+        existingMap.set(key, true);
       }
     }
+
+    await this.masterDataService.upsertAccountMappingsAsync(command.mappings);
 
     this.logger.log(
       `Save completed: ${mappingsCreated} mappings created, ${mappingsUpdated} mappings updated`,

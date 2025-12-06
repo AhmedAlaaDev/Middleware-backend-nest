@@ -1,36 +1,26 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { GetBillingCodesQuery, BillingCode } from '../get-billing-codes.query';
-
-import { DBService } from '@/modules/db/db.service';
+import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @QueryHandler(GetBillingCodesQuery)
 export class GetBillingCodesHandler implements IQueryHandler<GetBillingCodesQuery> {
   private readonly logger = new Logger(GetBillingCodesHandler.name);
 
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly masterDataService: MasterDataService) {}
 
-  public async execute(query: GetBillingCodesQuery): Promise<BillingCode[]> {
+  public async execute(query: GetBillingCodesQuery): Promise<IBillingCode[]> {
     this.logger.log(
       `Fetching billing codes from database${query.company ? ` for company: ${query.company}` : ''}${query.billingClassification ? `, classification: ${query.billingClassification}` : ''}`,
     );
 
-    const filter: any = {};
-    if (query.company) {
-      filter.dataAreaId = query.company;
-    }
-    if (query.billingClassification) {
-      filter.billingClassification = query.billingClassification;
-    }
+    const { items } = await this.masterDataService.getBillingCodesAsync({
+      company: query.company,
+      billingClassification: query.billingClassification,
+    });
 
-    const codes = await this.db.billingCodeModel.find(filter).lean();
-
-    return codes.map((c: any) => ({
-      id: c._id.toString(),
-      dataAreaId: c.dataAreaId,
-      billingCode: c.billingCode,
-      billingClassification: c.billingClassification,
-    }));
+    return items;
   }
 }

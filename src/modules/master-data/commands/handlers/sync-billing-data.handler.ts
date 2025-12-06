@@ -1,14 +1,15 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncBillingDataCommand } from '../sync-billing-data.command';
-
 import { BillingService } from '@/modules/d365fo/services/billing.service';
 import {
   D365FOBillingClassification,
   D365FOBillingCode,
 } from '@/modules/d365fo/types';
-import { DBService } from '@/modules/db/db.service';
+import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
+import { ICreateBillingClassification } from '@/modules/master-data/interfaces/billing-classification.interface';
+import { ICreateBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncBillingDataCommand)
 export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCommand> {
@@ -16,7 +17,7 @@ export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCo
 
   constructor(
     private readonly billingService: BillingService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncBillingDataCommand): Promise<{
@@ -77,6 +78,26 @@ export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCo
       `Fetched ${allClassifications.length} billing classifications from D365FO`,
     );
 
+    const existingClassifications =
+      await this.masterDataService.getBillingClassificationsAsync({
+        company: command.company,
+      });
+    const classificationMap = new Map<string, boolean>();
+    existingClassifications.items.forEach((c) =>
+      classificationMap.set(c.billingClassification.toLowerCase(), true),
+    );
+
+    const existingCodes = await this.masterDataService.getBillingCodesAsync({
+      company: command.company,
+    });
+    const codeMap = new Map<string, boolean>();
+    existingCodes.items.forEach((c) =>
+      codeMap.set(c.billingCode.toLowerCase(), true),
+    );
+
+    const classificationPayload: ICreateBillingClassification[] = [];
+    const codePayload: ICreateBillingCode[] = [];
+
     // Process each billing classification
     for (const classification of allClassifications) {
       const billingClassification = classification.BillingClassification;
@@ -89,45 +110,33 @@ export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCo
         continue;
       }
 
-      // Upsert billing classification
-      const existingClassification =
-        await this.db.billingClassificationModel.findOne({
-          dataAreaId: command.company,
-          billingClassification: billingClassification,
-        });
-
       const classificationData = {
         dataAreaId: command.company,
         billingClassification: billingClassification,
-        creditNoteNumber: classification.CreditNoteNumber,
+        creditNoteNumber: classification.CreditNoteNumber || undefined,
         useInterestCodeFromPostingProfile:
-          classification.UseInterestCodeFromPostingProfile,
-        invoiceNumber: classification.InvoiceNumber,
-        interestCode: classification.InterestCode,
-        description: classification.Description,
-        collectionLetterSequence: classification.CollectionLetterSequence,
+          classification.UseInterestCodeFromPostingProfile || undefined,
+        invoiceNumber: classification.InvoiceNumber || undefined,
+        interestCode: classification.InterestCode || undefined,
+        description: classification.Description || undefined,
+        collectionLetterSequence:
+          classification.CollectionLetterSequence || undefined,
         restrictSettlementOfCreditNotes:
-          classification.RestrictSettlementOfCreditNotes,
+          classification.RestrictSettlementOfCreditNotes || undefined,
         useCollectionLetterSequenceFromPostingProfile:
-          classification.UseCollectionLetterSequenceFromPostingProfile,
-        termsOfPayment: classification.TermsOfPayment,
+          classification.UseCollectionLetterSequenceFromPostingProfile ||
+          undefined,
+        termsOfPayment: classification.TermsOfPayment || undefined,
       };
 
-      if (!existingClassification) {
-        await this.db.billingClassificationModel.create(classificationData);
-        classificationsCreated++;
-        this.logger.debug(
-          `Created billing classification: ${billingClassification}`,
-        );
-      } else {
-        // Update existing classification
-        Object.assign(existingClassification, classificationData);
-        await existingClassification.save();
+      if (classificationMap.has(billingClassification.toLowerCase())) {
         classificationsUpdated++;
-        this.logger.debug(
-          `Updated billing classification: ${billingClassification}`,
-        );
+      } else {
+        classificationsCreated++;
+        classificationMap.set(billingClassification.toLowerCase(), true);
       }
+
+      classificationPayload.push(classificationData);
 
       // Fetch all billing codes for this classification using pagination
       const allCodes: D365FOBillingCode[] = [];
@@ -174,33 +183,35 @@ export class SyncBillingDataHandler implements ICommandHandler<SyncBillingDataCo
           continue;
         }
 
-        const existingCode = await this.db.billingCodeModel.findOne({
-          dataAreaId: command.company,
-          billingCode: billingCode,
-        });
-
         const codeData = {
           dataAreaId: command.company,
           billingCode: billingCode,
           billingClassification: billingClassification,
         };
 
-        if (!existingCode) {
-          await this.db.billingCodeModel.create(codeData);
-          codesCreated++;
-          this.logger.debug(
-            `Created billing code: ${billingCode} for classification: ${billingClassification}`,
-          );
-        } else {
-          // Update existing code
-          Object.assign(existingCode, codeData);
-          await existingCode.save();
+        if (codeMap.has(billingCode.toLowerCase())) {
           codesUpdated++;
-          this.logger.debug(
-            `Updated billing code: ${billingCode} for classification: ${billingClassification}`,
-          );
+        } else {
+          codesCreated++;
+          codeMap.set(billingCode.toLowerCase(), true);
         }
+
+        codePayload.push(codeData);
       }
+    }
+
+    if (classificationPayload.length > 0) {
+      await this.masterDataService.upsertBillingClassificationsAsync(
+        command.company,
+        classificationPayload,
+      );
+    }
+
+    if (codePayload.length > 0) {
+      await this.masterDataService.upsertBillingCodesAsync(
+        command.company,
+        codePayload,
+      );
     }
 
     this.logger.log(

@@ -1,19 +1,14 @@
 import { Command } from '@nestjs/cqrs';
 
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
-
-export interface AccountMappingData {
-  name: string;
-  customerAccount: string;
-  invoiceAccount: string;
-  serviceType: ServiceTypes;
-}
+import { ICreateAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
 
 export class SaveAccountMappingsCommand extends Command<{
   mappingsCreated: number;
   mappingsUpdated: number;
 }> {
-  constructor(public readonly mappings: AccountMappingData[]) {
+  constructor(
+    public readonly mappings: ICreateAccountCustomerInvoiceMapping[],
+  ) {
     super();
   }
 }

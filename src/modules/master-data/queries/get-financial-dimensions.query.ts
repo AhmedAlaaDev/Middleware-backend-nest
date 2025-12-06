@@ -1,19 +1,8 @@
 import { Query } from '@nestjs/cqrs';
 
-export interface FinancialDimension {
-  id: string;
-  financialKey: string;
-  dimensionValues: FinancialDimensionValue[];
-}
+import { IFinancialDimension } from '@/modules/master-data/interfaces/financial-dimension.interface';
 
-export interface FinancialDimensionValue {
-  id: string;
-  financialDimensionKey: string;
-  value: string;
-  description?: string;
-}
-
-export class GetFinancialDimensionsQuery extends Query<FinancialDimension[]> {
+export class GetFinancialDimensionsQuery extends Query<IFinancialDimension[]> {
   constructor() {
     super();
   }

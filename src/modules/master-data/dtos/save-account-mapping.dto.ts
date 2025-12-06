@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
 
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
+import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 
 export class SaveAccountMappingDto {
   @ApiProperty({

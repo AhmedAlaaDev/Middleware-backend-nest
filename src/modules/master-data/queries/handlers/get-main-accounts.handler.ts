@@ -1,30 +1,25 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { GetMainAccountsQuery, MainAccount } from '../get-main-accounts.query';
-
-import { DBService } from '@/modules/db/db.service';
+import { IMainAccount } from '@/modules/master-data/interfaces/main-account.interface';
+import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @QueryHandler(GetMainAccountsQuery)
 export class GetMainAccountsHandler implements IQueryHandler<GetMainAccountsQuery> {
   private readonly logger = new Logger(GetMainAccountsHandler.name);
 
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly masterDataService: MasterDataService) {}
 
-  public async execute(query: GetMainAccountsQuery): Promise<MainAccount[]> {
+  public async execute(query: GetMainAccountsQuery): Promise<IMainAccount[]> {
     this.logger.log(
       `Fetching main accounts from database${query.chartOfAccounts ? ` for chart of accounts: ${query.chartOfAccounts}` : ''}`,
     );
 
-    const filter = query.chartOfAccounts
-      ? { chartNumber: query.chartOfAccounts }
-      : {};
-    const accounts = await this.db.mainAccountModel.find(filter).lean();
+    const { items } = await this.masterDataService.getMainAccountsAsync({
+      chartNumber: query.chartOfAccounts,
+    });
 
-    return accounts.map((a: any) => ({
-      id: a._id.toString(),
-      chartNumber: a.chartNumber,
-      accountNumber: a.accountNumber,
-    }));
+    return items;
   }
 }

@@ -2,54 +2,23 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { AccountCustomerInvoiceMapping } from '@/modules/db/schemas/account-customer-invoice-mapping.schema';
 import { AppSetting } from '@/modules/db/schemas/app-setting.schema';
-import { BillingClassification } from '@/modules/db/schemas/billing-classification.schema';
-import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 import { CacheEntry } from '@/modules/db/schemas/cache-entry.schema';
-import { Customer } from '@/modules/db/schemas/customer.schema';
-import { ExchangeRate } from '@/modules/db/schemas/exchange-rate.schema';
-import { FinancialDimensionValue } from '@/modules/db/schemas/financial-dimension-value.schema';
-import { FinancialDimension } from '@/modules/db/schemas/financial-dimension.schema';
 import { LedgerEntryBatchCounter } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
 import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counter.schema';
-import { MainAccount } from '@/modules/db/schemas/main-account.schema';
-import { Vendor } from '@/modules/db/schemas/vendor.schema';
 
 @Injectable()
 export class DBService {
   constructor(
-    @InjectModel(AccountCustomerInvoiceMapping.name)
-    private readonly _accountCustomerInvoiceMappingModel: Model<AccountCustomerInvoiceMapping>,
     @InjectModel(AppSetting.name)
     private readonly _appSettingModel: Model<AppSetting>,
     @InjectModel(CacheEntry.name)
     private readonly _cacheEntryModel: Model<CacheEntry>,
-    @InjectModel(FinancialDimension.name)
-    private readonly _financialDimensionModel: Model<FinancialDimension>,
-    @InjectModel(FinancialDimensionValue.name)
-    private readonly _financialDimensionValueModel: Model<FinancialDimensionValue>,
     @InjectModel(LedgerEntryBatchCounter.name)
     private readonly _ledgerEntryBatchCounterModel: Model<LedgerEntryBatchCounter>,
     @InjectModel(LedgerVoucherCounter.name)
     private readonly _ledgerVoucherCounterModel: Model<LedgerVoucherCounter>,
-    @InjectModel(MainAccount.name)
-    private readonly _mainAccountModel: Model<MainAccount>,
-    @InjectModel(BillingClassification.name)
-    private readonly _billingClassificationModel: Model<BillingClassification>,
-    @InjectModel(BillingCode.name)
-    private readonly _billingCodeModel: Model<BillingCode>,
-    @InjectModel(Vendor.name)
-    private readonly _vendorModel: Model<Vendor>,
-    @InjectModel(ExchangeRate.name)
-    private readonly _exchangeRateModel: Model<ExchangeRate>,
-    @InjectModel(Customer.name)
-    private readonly _customerModel: Model<Customer>,
   ) {}
-
-  public get accountCustomerInvoiceMappingModel() {
-    return this._accountCustomerInvoiceMappingModel;
-  }
 
   public get appSettingModel() {
     return this._appSettingModel;
@@ -59,43 +28,11 @@ export class DBService {
     return this._cacheEntryModel;
   }
 
-  public get financialDimensionModel() {
-    return this._financialDimensionModel;
-  }
-
-  public get financialDimensionValueModel() {
-    return this._financialDimensionValueModel;
-  }
-
   public get ledgerEntryBatchCounterModel() {
     return this._ledgerEntryBatchCounterModel;
   }
 
   public get ledgerVoucherCounterModel() {
     return this._ledgerVoucherCounterModel;
-  }
-
-  public get mainAccountModel() {
-    return this._mainAccountModel;
-  }
-
-  public get billingClassificationModel() {
-    return this._billingClassificationModel;
-  }
-
-  public get billingCodeModel() {
-    return this._billingCodeModel;
-  }
-
-  public get vendorModel() {
-    return this._vendorModel;
-  }
-
-  public get exchangeRateModel() {
-    return this._exchangeRateModel;
-  }
-
-  public get customerModel() {
-    return this._customerModel;
   }
 }

@@ -1,13 +1,8 @@
 import { Query } from '@nestjs/cqrs';
 
-export interface BillingCode {
-  id: string;
-  dataAreaId: string;
-  billingCode: string;
-  billingClassification: string;
-}
+import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 
-export class GetBillingCodesQuery extends Query<BillingCode[]> {
+export class GetBillingCodesQuery extends Query<IBillingCode[]> {
   constructor(
     public readonly company?: string,
     public readonly billingClassification?: string,

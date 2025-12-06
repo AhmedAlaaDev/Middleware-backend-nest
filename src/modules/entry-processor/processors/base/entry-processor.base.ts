@@ -3,7 +3,6 @@ import { QueryBus } from '@nestjs/cqrs';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
-import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 import {
   DynDataModel,
   IEntryProcessor,
@@ -12,17 +11,19 @@ import {
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
+import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
+import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
+import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetFinancialDimensionWithValueQuery } from '@/modules/master-data/queries/get-financial-dimension-with-values.query';
-import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
   abstract readonly requiredDimensions: string[];
 
-  protected billingClassifications: Map<string, Array<BillingCode>> = new Map();
+  protected billingClassifications: Map<string, Array<IBillingCode>> =
+    new Map();
 
   constructor(
     protected readonly customerInvoiceService: CustomerInvoiceService,
@@ -163,7 +164,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     dimensions: AccountDimensionsModel,
     custLine: AccountReceivableFileModel,
     ledgerLine: AccountReceivableFileModel,
-    billingCode: BillingCode | null,
+    billingCode: IBillingCode | null,
     billingClassId: string,
   ): DynAccountReceivableLineDto {
     const termsOfPaymentDays =
@@ -248,7 +249,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateCustomerDimension(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -275,7 +276,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateSubCustomerDimension(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -333,7 +334,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateActivityName(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -360,7 +361,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateCostCenter(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -387,7 +388,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateBusinessUnit(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -414,7 +415,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateLocation(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -441,7 +442,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateFreightType(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -468,7 +469,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateSalesMan(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -495,7 +496,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateTruckerType(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -522,7 +523,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateTruckNumber(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -549,7 +550,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateDirection(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -576,7 +577,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateCoordinatorMan(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -603,7 +604,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateVendor(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -630,7 +631,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateSubVendor(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
@@ -657,7 +658,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected validateWorker(
     ar: DynDataModel,
-    dimensions: FinancialDimensionValue[],
+    dimensions: IFinancialDimensionValue[],
   ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (!dimensionsModel?.worker) {
@@ -697,7 +698,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    */
   protected async getFinancialDimensionValues(
     financialKey: string,
-  ): Promise<FinancialDimensionValue[]> {
+  ): Promise<IFinancialDimensionValue[]> {
     const { FinancialDimension, Values } = await this.queryBus.execute(
       new GetFinancialDimensionWithValueQuery(financialKey),
     );

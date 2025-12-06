@@ -1,18 +1,8 @@
 import { Query } from '@nestjs/cqrs';
 
-export interface ExchangeRate {
-  id: string;
-  rateTypeName: string;
-  fromCurrency: string;
-  toCurrency: string;
-  startDate: string;
-  rate: number;
-  endDate: string;
-  conversionFactor?: string;
-  rateTypeDescription?: string;
-}
+import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
 
-export class GetExchangeRatesQuery extends Query<ExchangeRate[]> {
+export class GetExchangeRatesQuery extends Query<IExchangeRate[]> {
   constructor(
     public readonly rateType?: string,
     public readonly fromCurrency?: string,

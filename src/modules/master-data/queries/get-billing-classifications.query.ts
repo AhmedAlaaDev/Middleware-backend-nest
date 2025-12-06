@@ -1,22 +1,9 @@
 import { Query } from '@nestjs/cqrs';
 
-export interface BillingClassification {
-  id: string;
-  dataAreaId: string;
-  billingClassification: string;
-  creditNoteNumber?: string;
-  useInterestCodeFromPostingProfile?: 'Yes' | 'No';
-  invoiceNumber?: string;
-  interestCode?: string;
-  description?: string;
-  collectionLetterSequence?: string;
-  restrictSettlementOfCreditNotes?: 'Yes' | 'No';
-  useCollectionLetterSequenceFromPostingProfile?: 'Yes' | 'No';
-  termsOfPayment?: string;
-}
+import { IBillingClassification } from '@/modules/master-data/interfaces/billing-classification.interface';
 
 export class GetBillingClassificationsQuery extends Query<
-  BillingClassification[]
+  IBillingClassification[]
 > {
   constructor(public readonly company?: string) {
     super();

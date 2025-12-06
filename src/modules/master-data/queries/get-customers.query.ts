@@ -1,21 +1,8 @@
 import { Query } from '@nestjs/cqrs';
 
-export interface Customer {
-  id: string;
-  company: string;
-  customerAccount: string;
-  name?: string;
-  organizationPhoneticName?: string;
-  nameAlias?: string;
-  customerGroupId?: string;
-  salesCurrencyCode?: string;
-  invoiceAccount?: string;
-  partyNumber?: string;
-  organizationNumber?: string;
-  defaultDimensionDisplayValue?: string;
-}
+import { ICustomer } from '@/modules/master-data/interfaces/customer.interface';
 
-export class GetCustomersQuery extends Query<Customer[]> {
+export class GetCustomersQuery extends Query<ICustomer[]> {
   constructor(
     public readonly company?: string,
     public readonly searchTerm?: string,

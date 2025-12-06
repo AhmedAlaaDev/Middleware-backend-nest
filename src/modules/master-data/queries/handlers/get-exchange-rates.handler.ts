@@ -1,53 +1,29 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import {
-  ExchangeRate,
-  GetExchangeRatesQuery,
-} from '../get-exchange-rates.query';
-
-import { DBService } from '@/modules/db/db.service';
+import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
+import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @QueryHandler(GetExchangeRatesQuery)
 export class GetExchangeRatesHandler implements IQueryHandler<GetExchangeRatesQuery> {
   private readonly logger = new Logger(GetExchangeRatesHandler.name);
 
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly masterDataService: MasterDataService) {}
 
-  public async execute(query: GetExchangeRatesQuery): Promise<ExchangeRate[]> {
+  public async execute(query: GetExchangeRatesQuery): Promise<IExchangeRate[]> {
     this.logger.log(
       `Fetching exchange rates from database${query.rateType ? `, rateType: ${query.rateType}` : ''}${query.fromCurrency ? `, fromCurrency: ${query.fromCurrency}` : ''}${query.toCurrency ? `, toCurrency: ${query.toCurrency}` : ''}`,
     );
 
-    const filter: any = {};
-    if (query.rateType) {
-      filter.rateTypeName = query.rateType;
-    }
-    if (query.fromCurrency) {
-      filter.fromCurrency = query.fromCurrency;
-    }
-    if (query.toCurrency) {
-      filter.toCurrency = query.toCurrency;
-    }
-    if (query.fromDate) {
-      filter.startDate = { $gte: query.fromDate };
-    }
-    if (query.toDate) {
-      filter.endDate = { $lte: query.toDate };
-    }
+    const { items } = await this.masterDataService.getExchangeRatesAsync({
+      rateTypeName: query.rateType,
+      fromCurrency: query.fromCurrency,
+      toCurrency: query.toCurrency,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+    });
 
-    const exchangeRates = await this.db.exchangeRateModel.find(filter).lean();
-
-    return exchangeRates.map((er: any) => ({
-      id: er._id.toString(),
-      rateTypeName: er.rateTypeName,
-      fromCurrency: er.fromCurrency,
-      toCurrency: er.toCurrency,
-      startDate: er.startDate.toISOString(),
-      rate: er.rate,
-      endDate: er.endDate.toISOString(),
-      conversionFactor: er.conversionFactor,
-      rateTypeDescription: er.rateTypeDescription,
-    }));
+    return items;
   }
 }

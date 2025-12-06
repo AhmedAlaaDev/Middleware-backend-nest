@@ -1,11 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncExchangeRatesCommand } from '../sync-exchange-rates.command';
-
 import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
 import { D365FOExchangeRate } from '@/modules/d365fo/types';
-import { DBService } from '@/modules/db/db.service';
+import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
+import { ICreateExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncExchangeRatesCommand)
 export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRatesCommand> {
@@ -13,7 +13,7 @@ export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRat
 
   constructor(
     private readonly exchangeRateService: ExchangeRateService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncExchangeRatesCommand): Promise<{
@@ -59,6 +59,19 @@ export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRat
       `Fetched ${allExchangeRates.length} exchange rates from D365FO`,
     );
 
+    const existing = await this.masterDataService.getExchangeRatesAsync({
+      rateTypeName: command.rateType,
+    });
+    const existingMap = new Map<string, boolean>();
+    existing.items.forEach((er) => {
+      const key = `${er.rateTypeName}|${er.fromCurrency}|${er.toCurrency}|${new Date(
+        er.startDate,
+      ).toISOString()}`;
+      existingMap.set(key, true);
+    });
+
+    const exchangeRatePayload: ICreateExchangeRate[] = [];
+
     // Process each exchange rate
     for (const exchangeRate of allExchangeRates) {
       const rateTypeName = exchangeRate.RateTypeName || '';
@@ -76,14 +89,6 @@ export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRat
         continue;
       }
 
-      // Check if exchange rate exists in database - upsert logic
-      const existingExchangeRate = await this.db.exchangeRateModel.findOne({
-        rateTypeName: rateTypeName,
-        fromCurrency: fromCurrency,
-        toCurrency: toCurrency,
-        startDate: startDate,
-      });
-
       const exchangeRateData = {
         rateTypeName: rateTypeName,
         fromCurrency: fromCurrency,
@@ -97,52 +102,21 @@ export class SyncExchangeRatesHandler implements ICommandHandler<SyncExchangeRat
         rateTypeDescription: exchangeRate.RateTypeDescription,
       };
 
-      if (!existingExchangeRate) {
-        // Create new exchange rate
-        await this.db.exchangeRateModel.create(exchangeRateData);
-        exchangeRatesCreated++;
-        this.logger.debug(
-          `Created exchange rate: ${rateTypeName}/${fromCurrency}->${toCurrency}/${startDate.toISOString()}`,
-        );
+      const key = `${rateTypeName}|${fromCurrency}|${toCurrency}|${startDate.toISOString()}`;
+      if (existingMap.has(key)) {
+        exchangeRatesUpdated++;
       } else {
-        // Update existing exchange rate if data changed
-        let hasChanges = false;
-        if (existingExchangeRate.rate !== exchangeRateData.rate) {
-          existingExchangeRate.rate = exchangeRateData.rate;
-          hasChanges = true;
-        }
-        if (
-          existingExchangeRate.endDate.getTime() !==
-          exchangeRateData.endDate.getTime()
-        ) {
-          existingExchangeRate.endDate = exchangeRateData.endDate;
-          hasChanges = true;
-        }
-        if (
-          existingExchangeRate.conversionFactor !==
-          exchangeRateData.conversionFactor
-        ) {
-          existingExchangeRate.conversionFactor =
-            exchangeRateData.conversionFactor;
-          hasChanges = true;
-        }
-        if (
-          existingExchangeRate.rateTypeDescription !==
-          exchangeRateData.rateTypeDescription
-        ) {
-          existingExchangeRate.rateTypeDescription =
-            exchangeRateData.rateTypeDescription;
-          hasChanges = true;
-        }
-
-        if (hasChanges) {
-          await existingExchangeRate.save();
-          exchangeRatesUpdated++;
-          this.logger.debug(
-            `Updated exchange rate: ${rateTypeName}/${fromCurrency}->${toCurrency}/${startDate.toISOString()}`,
-          );
-        }
+        exchangeRatesCreated++;
+        existingMap.set(key, true);
       }
+
+      exchangeRatePayload.push(exchangeRateData);
+    }
+
+    if (exchangeRatePayload.length > 0) {
+      await this.masterDataService.upsertExchangeRatesAsync(
+        exchangeRatePayload,
+      );
     }
 
     this.logger.log(

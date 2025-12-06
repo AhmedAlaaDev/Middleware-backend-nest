@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncCustomersCommand } from '../sync-customers.command';
-
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
-import { DBService } from '@/modules/db/db.service';
+import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
+import { ICreateCustomer } from '@/modules/master-data/interfaces/customer.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncCustomersCommand)
 export class SyncCustomersHandler implements ICommandHandler<SyncCustomersCommand> {
@@ -12,7 +12,7 @@ export class SyncCustomersHandler implements ICommandHandler<SyncCustomersComman
 
   constructor(
     private readonly customerService: CustomerService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncCustomersCommand): Promise<{
@@ -36,7 +36,15 @@ export class SyncCustomersHandler implements ICommandHandler<SyncCustomersComman
 
     this.logger.log(`Fetched ${allCustomers.length} customers from D365FO`);
 
-    // Process each customer
+    const existing = await this.masterDataService.getCustomersAsync({
+      company: command.company,
+    });
+    const existingMap = new Map<string, boolean>();
+    existing.items.forEach((c) =>
+      existingMap.set(c.customerAccount.toLowerCase(), true),
+    );
+
+    const customerPayload: ICreateCustomer[] = [];
     for (const customer of allCustomers) {
       const company = customer.dataAreaId || '';
       const customerAccount = customer.CustomerAccount || '';
@@ -48,12 +56,6 @@ export class SyncCustomersHandler implements ICommandHandler<SyncCustomersComman
         );
         continue;
       }
-
-      // Check if customer exists in database - upsert logic
-      const existingCustomer = await this.db.customerModel.findOne({
-        company: company,
-        customerAccount: customerAccount,
-      });
 
       const customerData = {
         company: company,
@@ -69,70 +71,21 @@ export class SyncCustomersHandler implements ICommandHandler<SyncCustomersComman
         defaultDimensionDisplayValue: customer.DefaultDimensionDisplayValue,
       };
 
-      if (!existingCustomer) {
-        // Create new customer
-        await this.db.customerModel.create(customerData);
-        customersCreated++;
-        this.logger.debug(`Created customer: ${company}/${customerAccount}`);
+      if (existingMap.has(customerAccount.toLowerCase())) {
+        customersUpdated++;
       } else {
-        // Update existing customer if data changed
-        let hasChanges = false;
-        if (existingCustomer.name !== customerData.name) {
-          existingCustomer.name = customerData.name;
-          hasChanges = true;
-        }
-        if (
-          existingCustomer.organizationPhoneticName !==
-          customerData.organizationPhoneticName
-        ) {
-          existingCustomer.organizationPhoneticName =
-            customerData.organizationPhoneticName;
-          hasChanges = true;
-        }
-        if (existingCustomer.nameAlias !== customerData.nameAlias) {
-          existingCustomer.nameAlias = customerData.nameAlias;
-          hasChanges = true;
-        }
-        if (existingCustomer.customerGroupId !== customerData.customerGroupId) {
-          existingCustomer.customerGroupId = customerData.customerGroupId;
-          hasChanges = true;
-        }
-        if (
-          existingCustomer.salesCurrencyCode !== customerData.salesCurrencyCode
-        ) {
-          existingCustomer.salesCurrencyCode = customerData.salesCurrencyCode;
-          hasChanges = true;
-        }
-        if (existingCustomer.invoiceAccount !== customerData.invoiceAccount) {
-          existingCustomer.invoiceAccount = customerData.invoiceAccount;
-          hasChanges = true;
-        }
-        if (existingCustomer.partyNumber !== customerData.partyNumber) {
-          existingCustomer.partyNumber = customerData.partyNumber;
-          hasChanges = true;
-        }
-        if (
-          existingCustomer.organizationNumber !==
-          customerData.organizationNumber
-        ) {
-          existingCustomer.organizationNumber = customerData.organizationNumber;
-          hasChanges = true;
-        }
-        if (
-          existingCustomer.defaultDimensionDisplayValue !==
-          customerData.defaultDimensionDisplayValue
-        ) {
-          existingCustomer.defaultDimensionDisplayValue =
-            customerData.defaultDimensionDisplayValue;
-          hasChanges = true;
-        }
-
-        if (hasChanges) {
-          await existingCustomer.save();
-          customersUpdated++;
-          this.logger.debug(`Updated customer: ${company}/${customerAccount}`);
-        }
+        customersCreated++;
+        existingMap.set(customerAccount.toLowerCase(), true);
       }
+
+      customerPayload.push(customerData);
+    }
+
+    if (customerPayload.length > 0) {
+      await this.masterDataService.upsertCustomersAsync(
+        command.company,
+        customerPayload,
+      );
     }
 
     this.logger.log(

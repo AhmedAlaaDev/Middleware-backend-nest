@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncVendorsCommand } from '../sync-vendors.command';
-
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
-import { DBService } from '@/modules/db/db.service';
+import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
+import { ICreateVendor } from '@/modules/master-data/interfaces/vendor.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncVendorsCommand)
 export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
@@ -12,7 +12,7 @@ export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
 
   constructor(
     private readonly vendorService: VendorService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncVendorsCommand): Promise<{
@@ -33,7 +33,15 @@ export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
 
     this.logger.log(`Fetched ${allVendors.length} vendors from D365FO`);
 
-    // Process each vendor
+    const existing = await this.masterDataService.getVendorsAsync({
+      company: command.company,
+    });
+    const existingMap = new Map<string, boolean>();
+    existing.items.forEach((v) =>
+      existingMap.set(v.vendorAccountNumber.toLowerCase(), true),
+    );
+
+    const vendorPayload: ICreateVendor[] = [];
     for (const vendor of allVendors) {
       const company = vendor.dataAreaId || '';
       const vendorAccountNumber = vendor.VendorAccountNumber || '';
@@ -45,12 +53,6 @@ export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
         );
         continue;
       }
-
-      // Check if vendor exists in database - upsert logic
-      const existingVendor = await this.db.vendorModel.findOne({
-        company: company,
-        vendorAccountNumber: vendorAccountNumber,
-      });
 
       const vendorData = {
         company: company,
@@ -64,59 +66,21 @@ export class SyncVendorsHandler implements ICommandHandler<SyncVendorsCommand> {
         onHoldStatus: vendor.OnHoldStatus,
       };
 
-      if (!existingVendor) {
-        // Create new vendor
-        await this.db.vendorModel.create(vendorData);
-        vendorsCreated++;
-        this.logger.debug(`Created vendor: ${company}/${vendorAccountNumber}`);
+      if (existingMap.has(vendorAccountNumber.toLowerCase())) {
+        vendorsUpdated++;
       } else {
-        // Update existing vendor if data changed
-        let hasChanges = false;
-        if (
-          existingVendor.vendorOrganizationName !==
-          vendorData.vendorOrganizationName
-        ) {
-          existingVendor.vendorOrganizationName =
-            vendorData.vendorOrganizationName;
-          hasChanges = true;
-        }
-        if (existingVendor.vendorSearchName !== vendorData.vendorSearchName) {
-          existingVendor.vendorSearchName = vendorData.vendorSearchName;
-          hasChanges = true;
-        }
-        if (existingVendor.vendorGroupId !== vendorData.vendorGroupId) {
-          existingVendor.vendorGroupId = vendorData.vendorGroupId;
-          hasChanges = true;
-        }
-        if (existingVendor.currencyCode !== vendorData.currencyCode) {
-          existingVendor.currencyCode = vendorData.currencyCode;
-          hasChanges = true;
-        }
-        if (
-          existingVendor.defaultPaymentTermsName !==
-          vendorData.defaultPaymentTermsName
-        ) {
-          existingVendor.defaultPaymentTermsName =
-            vendorData.defaultPaymentTermsName;
-          hasChanges = true;
-        }
-        if (existingVendor.salesTaxGroupCode !== vendorData.salesTaxGroupCode) {
-          existingVendor.salesTaxGroupCode = vendorData.salesTaxGroupCode;
-          hasChanges = true;
-        }
-        if (existingVendor.onHoldStatus !== vendorData.onHoldStatus) {
-          existingVendor.onHoldStatus = vendorData.onHoldStatus;
-          hasChanges = true;
-        }
-
-        if (hasChanges) {
-          await existingVendor.save();
-          vendorsUpdated++;
-          this.logger.debug(
-            `Updated vendor: ${company}/${vendorAccountNumber}`,
-          );
-        }
+        vendorsCreated++;
+        existingMap.set(vendorAccountNumber.toLowerCase(), true);
       }
+
+      vendorPayload.push(vendorData);
+    }
+
+    if (vendorPayload.length > 0) {
+      await this.masterDataService.upsertVendorsAsync(
+        command.company,
+        vendorPayload,
+      );
     }
 
     this.logger.log(

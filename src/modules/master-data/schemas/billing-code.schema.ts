@@ -20,8 +20,5 @@ export class BillingCode {
 
 export const BillingCodeSchema = SchemaFactory.createForClass(BillingCode);
 
-// Create compound index for unique billing code per company
 BillingCodeSchema.index({ dataAreaId: 1, billingCode: 1 }, { unique: true });
-
-// Index for filtering by billing classification
 BillingCodeSchema.index({ dataAreaId: 1, billingClassification: 1 });

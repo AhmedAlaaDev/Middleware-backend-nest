@@ -11,9 +11,9 @@ import {
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
+import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
-import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
@@ -157,7 +157,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     // Load dimensions and accounts
     const accounts = await this.getAllMainAccounts();
 
-    const dimensionsMap = new Map<string, FinancialDimensionValue[]>();
+    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
       const dimensionValues =
         await this.getFinancialDimensionValues(dimensionKey);

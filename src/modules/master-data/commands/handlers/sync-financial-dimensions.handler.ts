@@ -1,14 +1,17 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncFinancialDimensionsCommand } from '../sync-financial-dimensions.command';
-
 import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import {
   D365FODimension,
   D365FODimensionValue,
 } from '@/modules/d365fo/types/d365fo-dimension.type';
-import { DBService } from '@/modules/db/db.service';
+import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
+import {
+  ICreateFinancialDimension,
+  ICreateFinancialDimensionValue,
+} from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncFinancialDimensionsCommand)
 export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinancialDimensionsCommand> {
@@ -16,7 +19,7 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
 
   constructor(
     private readonly dimensionService: DimensionService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncFinancialDimensionsCommand): Promise<{
@@ -64,6 +67,16 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
 
     this.logger.log(`Fetched ${allDimensions.length} dimensions from D365FO`);
 
+    const existingDimensions =
+      await this.masterDataService.getFinancialDimensionsAsync();
+    const dimensionMap = new Map<string, boolean>();
+    existingDimensions.forEach((d) =>
+      dimensionMap.set(d.financialKey.toLowerCase(), true),
+    );
+
+    const dimensionPayload: ICreateFinancialDimension[] = [];
+    const dimensionValuePayload: ICreateFinancialDimensionValue[] = [];
+
     // Process each dimension
     for (const dim of allDimensions) {
       const dimensionName =
@@ -74,23 +87,14 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
         continue;
       }
 
-      // Check if dimension exists in database - upsert logic
-      const existingDimension = await this.db.financialDimensionModel.findOne({
-        financialKey: dimensionName,
-      });
-
-      if (!existingDimension) {
-        // Create new dimension
-        await this.db.financialDimensionModel.create({
-          financialKey: dimensionName,
-        });
-        dimensionsCreated++;
-        this.logger.debug(`Created dimension: ${dimensionName}`);
-      } else {
-        // Dimension already exists - no update needed as we only store the key
-        // But we count it as processed for consistency
+      if (dimensionMap.has(dimensionName.toLowerCase())) {
         dimensionsUpdated++;
+      } else {
+        dimensionsCreated++;
+        dimensionMap.set(dimensionName.toLowerCase(), true);
       }
+
+      dimensionPayload.push({ financialKey: dimensionName });
 
       // Fetch all dimension values from D365FO using pagination
       const allDimensionValues: D365FODimensionValue[] = [];
@@ -130,6 +134,13 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
         `Fetched ${allDimensionValues.length} values for dimension: ${dimensionName}`,
       );
 
+      const existingValues =
+        await this.masterDataService.getFinancialDimensionValuesAsync({
+          financialDimensionKey: dimensionName,
+        });
+      const valueMap = new Map<string, boolean>();
+      existingValues.forEach((v) => valueMap.set(v.value.toLowerCase(), true));
+
       // Insert dimension values if they don't exist
       for (const dv of allDimensionValues) {
         const value = dv.DimensionValue || dv.Value || '';
@@ -143,32 +154,31 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
           continue;
         }
 
-        const existingValue =
-          await this.db.financialDimensionValueModel.findOne({
-            financialDimensionKey: dimensionName,
-            value: value,
-          });
-
-        if (!existingValue) {
-          // Create new dimension value
-          await this.db.financialDimensionValueModel.create({
-            financialDimensionKey: dimensionName,
-            value: value,
-            description: description,
-          });
-          dimensionValuesCreated++;
+        if (valueMap.has(value.toLowerCase())) {
+          dimensionValuesUpdated++;
         } else {
-          // Update existing dimension value if description changed
-          if (existingValue.description !== description) {
-            existingValue.description = description;
-            await existingValue.save();
-            dimensionValuesUpdated++;
-            this.logger.debug(
-              `Updated dimension value: ${dimensionName}/${value}`,
-            );
-          }
+          dimensionValuesCreated++;
+          valueMap.set(value.toLowerCase(), true);
         }
+
+        dimensionValuePayload.push({
+          financialDimensionKey: dimensionName,
+          value: value,
+          description: description,
+        });
       }
+    }
+
+    if (dimensionPayload.length > 0) {
+      await this.masterDataService.upsertFinancialDimensionsAsync(
+        dimensionPayload,
+      );
+    }
+
+    if (dimensionValuePayload.length > 0) {
+      await this.masterDataService.upsertFinancialDimensionValuesAsync(
+        dimensionValuePayload,
+      );
     }
 
     this.logger.log(

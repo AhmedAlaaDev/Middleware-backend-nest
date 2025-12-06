@@ -16,11 +16,26 @@ export class IPaginatedRes<T> {
   @ApiProperty()
   totalPages: number;
 
-  constructor(items: T[], total: number, pageSize: number, pageNumber: number) {
+  constructor(
+    items: T[],
+    totalCount: number,
+    maxCount?: number, // page size
+    skipCount?: number, // offset
+  ) {
     this.items = items;
-    this.totalCount = total;
-    this.pageSize = pageSize;
-    this.pageNumber = pageNumber;
-    this.totalPages = Math.ceil(total / pageSize);
+    this.totalCount = totalCount;
+
+    // pageSize = maxCount أو totalCount لو undefined
+    this.pageSize = maxCount ?? totalCount;
+
+    // pageNumber = (skipCount / pageSize) + 1
+    this.pageNumber =
+      maxCount && skipCount !== undefined
+        ? Math.floor(skipCount / this.pageSize) + 1
+        : 1;
+
+    // totalPages = totalCount / pageSize
+    this.totalPages =
+      this.pageSize > 0 ? Math.ceil(totalCount / this.pageSize) : 1;
   }
 }

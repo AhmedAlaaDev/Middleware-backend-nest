@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
-import { SyncMainAccountsCommand } from '../sync-main-accounts.command';
-
 import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
-import { DBService } from '@/modules/db/db.service';
+import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
+import { ICreateMainAccount } from '@/modules/master-data/interfaces/main-account.interface';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncMainAccountsCommand)
 export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccountsCommand> {
@@ -12,7 +12,7 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
 
   constructor(
     private readonly chartOfAccountsService: ChartOfAccountsService,
-    private readonly db: DBService,
+    private readonly masterDataService: MasterDataService,
   ) {}
 
   public async execute(command: SyncMainAccountsCommand): Promise<{
@@ -36,7 +36,15 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
 
     this.logger.log(`Fetched ${allAccounts.length} main accounts from D365FO`);
 
-    // Process each account
+    const existing = await this.masterDataService.getMainAccountsAsync({
+      chartNumber: command.chartOfAccounts,
+    });
+    const existingMap = new Map<string, boolean>();
+    existing.items.forEach((a) =>
+      existingMap.set(a.accountNumber.toLowerCase(), true),
+    );
+
+    const accountPayload: ICreateMainAccount[] = [];
     for (const account of allAccounts) {
       const chartNumber = account.ChartOfAccounts || '';
       const accountNumber = account.MainAccountId || '';
@@ -49,27 +57,24 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
         continue;
       }
 
-      // Check if account exists in database - upsert logic
-      const existingAccount = await this.db.mainAccountModel.findOne({
+      if (existingMap.has(accountNumber.toLowerCase())) {
+        accountsUpdated++;
+      } else {
+        accountsCreated++;
+        existingMap.set(accountNumber.toLowerCase(), true);
+      }
+
+      accountPayload.push({
         chartNumber: chartNumber,
         accountNumber: accountNumber,
       });
+    }
 
-      if (!existingAccount) {
-        // Create new account
-        await this.db.mainAccountModel.create({
-          chartNumber: chartNumber,
-          accountNumber: accountNumber,
-        });
-        accountsCreated++;
-        this.logger.debug(
-          `Created main account: ${chartNumber}/${accountNumber}`,
-        );
-      } else {
-        // Account already exists - no update needed as we only store chartNumber and accountNumber
-        // But we count it as processed for consistency
-        accountsUpdated++;
-      }
+    if (accountPayload.length > 0) {
+      await this.masterDataService.upsertMainAccountsAsync(
+        command.chartOfAccounts,
+        accountPayload,
+      );
     }
 
     this.logger.log(

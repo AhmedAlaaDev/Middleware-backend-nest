@@ -1,35 +1,25 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { Vendor, GetVendorsQuery } from '../get-vendors.query';
-
-import { DBService } from '@/modules/db/db.service';
+import { IVendor } from '@/modules/master-data/interfaces/vendor.interface';
+import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
+import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @QueryHandler(GetVendorsQuery)
 export class GetVendorsHandler implements IQueryHandler<GetVendorsQuery> {
   private readonly logger = new Logger(GetVendorsHandler.name);
 
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly masterDataService: MasterDataService) {}
 
-  public async execute(query: GetVendorsQuery): Promise<Vendor[]> {
+  public async execute(query: GetVendorsQuery): Promise<IVendor[]> {
     this.logger.log(
       `Fetching vendors from database${query.company ? ` for company: ${query.company}` : ''}`,
     );
 
-    const filter = query.company ? { company: query.company } : {};
-    const vendors = await this.db.vendorModel.find(filter).lean();
+    const { items } = await this.masterDataService.getVendorsAsync({
+      company: query.company,
+    });
 
-    return vendors.map((v: any) => ({
-      id: v._id.toString(),
-      company: v.company,
-      vendorAccountNumber: v.vendorAccountNumber,
-      vendorOrganizationName: v.vendorOrganizationName,
-      vendorSearchName: v.vendorSearchName,
-      vendorGroupId: v.vendorGroupId,
-      currencyCode: v.currencyCode,
-      defaultPaymentTermsName: v.defaultPaymentTermsName,
-      salesTaxGroupCode: v.salesTaxGroupCode,
-      onHoldStatus: v.onHoldStatus,
-    }));
+    return items;
   }
 }

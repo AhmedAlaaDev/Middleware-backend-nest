@@ -10,10 +10,7 @@ import {
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiResponse, ApiBody } from '@nestjs/swagger';
 
-import {
-  SaveAccountMappingsCommand,
-  AccountMappingData,
-} from '@/modules/master-data/commands/save-account-mappings.command';
+import { SaveAccountMappingsCommand } from '@/modules/master-data/commands/save-account-mappings.command';
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
 import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
 import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
@@ -21,6 +18,8 @@ import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/s
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
 import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
+import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
+import { ICreateAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
@@ -29,7 +28,6 @@ import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchang
 import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 /**
  * Finance - Master Data
@@ -248,12 +246,13 @@ export class MasterDataController {
   })
   public saveAccountMappingsAsync(@Body() mappings: SaveAccountMappingDto[]) {
     // Convert DTO to command data format
-    const commandMappings: AccountMappingData[] = mappings.map((m) => ({
-      name: m.name,
-      customerAccount: m.customerAccount,
-      invoiceAccount: m.invoiceAccount,
-      serviceType: m.serviceType,
-    }));
+    const commandMappings: ICreateAccountCustomerInvoiceMapping[] =
+      mappings.map((m) => ({
+        name: m.name,
+        customerAccount: m.customerAccount,
+        invoiceAccount: m.invoiceAccount,
+        serviceType: m.serviceType,
+      }));
     return this.commandBus.execute(
       new SaveAccountMappingsCommand(commandMappings),
     );
