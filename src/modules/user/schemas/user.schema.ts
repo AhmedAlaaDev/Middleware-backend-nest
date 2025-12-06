@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types, model } from 'mongoose';
 
-import { RefreshToken } from '@/modules/db/schemas/refresh-token.schema';
+import { RefreshToken } from '@/modules/user/schemas/refresh-token.schema';
 
 export enum UserRole {
   ADMIN = 'ADMIN',
