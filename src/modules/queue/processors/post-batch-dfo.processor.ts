@@ -10,7 +10,7 @@ export interface PostBatchDFOJobData {
   entryProcessorName: string;
 }
 
-@Processor(QUEUES.POST_BATCH_DFO, {
+@Processor(QUEUES.DFO, {
   concurrency: 3, // Process 5 jobs concurrently
 })
 export class PostBatchDFOProcessor extends WorkerHost {

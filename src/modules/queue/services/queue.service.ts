@@ -11,14 +11,14 @@ export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
   constructor(
-    @InjectQueue(QUEUES.POST_BATCH_DFO)
+    @InjectQueue(QUEUES.DFO)
     private readonly dfoQueue: Queue,
   ) {}
 
   /** 🧠 Helper to return the Queue instance dynamically */
   private getQueue(queueName: QueueName): Queue {
     switch (queueName) {
-      case QUEUES.POST_BATCH_DFO:
+      case QUEUES.DFO:
         return this.dfoQueue;
       default:
         throw new Error(`Queue is not registered`);

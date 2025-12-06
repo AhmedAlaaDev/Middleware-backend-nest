@@ -1,3 +1,3 @@
 export const QUEUES = {
-  POST_BATCH_DFO: 'post-batch-dfo-queue',
+  DFO: 'dfo-queue',
 } as const;
