@@ -66,7 +66,6 @@ export const ConfigSchema = Joi.object<IConfig>({
       l1Ttl: Joi.number().default(5 * 60 * 1000),
       l2Ttl: Joi.number().default(30 * 60 * 1000),
       l3Ttl: Joi.number().default(2 * 60 * 60 * 1000),
-      redisEnabled: Joi.boolean().default(false),
     }),
   }),
 });

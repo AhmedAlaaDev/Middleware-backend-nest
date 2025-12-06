@@ -9,10 +9,6 @@ import {
   AppSettingSchema,
 } from '@/modules/db/schemas/app-setting.schema';
 import {
-  CacheEntry,
-  CacheEntrySchema,
-} from '@/modules/db/schemas/cache-entry.schema';
-import {
   LedgerEntryBatchCounter,
   LedgerEntryBatchCounterSchema,
 } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
@@ -41,10 +37,6 @@ import {
       {
         name: LedgerEntryBatchCounter.name,
         schema: LedgerEntryBatchCounterSchema,
-      },
-      {
-        name: CacheEntry.name,
-        schema: CacheEntrySchema,
       },
       {
         name: AppSetting.name,

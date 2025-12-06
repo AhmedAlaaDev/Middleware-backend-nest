@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { IConfig, ResilienceConfig } from '@/config';
-import { DBService } from '@/modules/db/db.service';
+import { CacheEntryRepository } from '@/modules/resilience/repositories/interfaces/cache-entry.repository';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 
 export interface CacheLayerOptions {
@@ -21,12 +21,9 @@ export class MultiLayerCacheService {
   private readonly defaultL2Ttl: number;
   private readonly defaultL3Ttl: number;
 
-  // Toggle Redis later without breaking anything
-  private readonly redisEnabled: boolean;
-
   constructor(
     private readonly cache: CacheService, // In-memory (now), Redis (future)
-    private readonly dbService: DBService,
+    private readonly cacheEntryRepo: CacheEntryRepository,
     private readonly config: ConfigService<IConfig>,
   ) {
     const defaultCacheOptions =
@@ -35,7 +32,6 @@ export class MultiLayerCacheService {
     this.defaultL1Ttl = defaultCacheOptions?.l1Ttl ?? 5 * 60 * 1000;
     this.defaultL2Ttl = defaultCacheOptions?.l2Ttl ?? 30 * 60 * 1000;
     this.defaultL3Ttl = defaultCacheOptions?.l3Ttl ?? 2 * 60 * 60 * 1000;
-    this.redisEnabled = defaultCacheOptions?.redisEnabled ?? false;
   }
 
   /**
@@ -56,7 +52,7 @@ export class MultiLayerCacheService {
     }
 
     // 2️⃣ Try L2 (if Redis enabled)
-    if (opts.useL2 && this.redisEnabled) {
+    if (opts.useL2) {
       const l2Value = await this.getL2<T>(key);
       if (l2Value !== undefined) {
         this.logger.debug(`L2 HIT: ${key}`);
@@ -89,10 +85,8 @@ export class MultiLayerCacheService {
    */
   async delete(key: string): Promise<void> {
     await this.cache.del(`l1:${key}`).catch(() => {});
-    if (this.redisEnabled) await this.cache.del(`l2:${key}`).catch(() => {});
-    await this.dbService.cacheEntryModel
-      .deleteMany({ key: `l3:${key}` })
-      .exec();
+    await this.cache.del(`l2:${key}`).catch(() => {});
+    await this.cacheEntryRepo.deleteMany(`l3:${key}`);
   }
 
   // ----------------------------------------
@@ -108,9 +102,8 @@ export class MultiLayerCacheService {
   }
 
   private async getL3<T>(key: string) {
-    const entry = await this.dbService.cacheEntryModel.findOne({
-      key: `l3:${key}`,
-      expiresAt: { $gt: new Date() },
+    const entry = await this.cacheEntryRepo.findOneByKey(key, {
+      expiresAt: new Date(),
     });
     return entry ? (JSON.parse(entry.value) as T) : undefined;
   }
@@ -120,21 +113,16 @@ export class MultiLayerCacheService {
   }
 
   private async setL2<T>(key: string, value: T, ttl: number) {
-    if (!this.redisEnabled) return;
     return this.cache.set(`l2:${key}`, value, ttl);
   }
 
   private async setL3<T>(key: string, value: T, ttl: number) {
     const expiresAt = new Date(Date.now() + ttl);
-    await this.dbService.cacheEntryModel.findOneAndUpdate(
-      { key: `l3:${key}` },
-      {
-        key: `l3:${key}`,
-        value: JSON.stringify(value),
-        expiresAt,
-      },
-      { upsert: true, new: true },
-    );
+    await this.cacheEntryRepo.upsert(`l3:${key}`, {
+      key: `l3:${key}`,
+      value: JSON.stringify(value),
+      expiresAt,
+    });
   }
 
   private async promoteToUpperLayers<T>(
@@ -157,7 +145,7 @@ export class MultiLayerCacheService {
     tasks.push(this.setL1(key, value, opts.l1Ttl!));
 
     // Set L2 only if enabled
-    if (opts.useL2 && this.redisEnabled) {
+    if (opts.useL2) {
       tasks.push(this.setL2(key, value, opts.l2Ttl!));
     }
 

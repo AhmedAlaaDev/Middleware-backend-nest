@@ -18,4 +18,16 @@ export class CacheEntry {
   expiresAt: Date;
 }
 export const CacheEntrySchema = SchemaFactory.createForClass(CacheEntry);
-CacheEntrySchema.index({ expiresAt: 1 });
+
+/**
+ * Compound index to speed up lookups:
+ * findOne({ key, expiresAt: { $gt: now } })
+ */
+CacheEntrySchema.index({ key: 1, expiresAt: 1 });
+
+/**
+ * TTL Index:
+ * MongoDB will automatically delete documents
+ * when expiresAt <= current time.
+ */
+CacheEntrySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
