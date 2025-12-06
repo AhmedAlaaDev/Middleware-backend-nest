@@ -1,31 +1,25 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
+import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
-import { DBService } from '@/modules/db/db.service';
-import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
+import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 
 @QueryHandler(GetBatchErrorListQuery)
 export class GetBatchErrorListHandler implements IQueryHandler<GetBatchErrorListQuery> {
-  constructor(private readonly db: DBService) {}
+  constructor(private readonly dataBatchservice: DataBatchService) {}
 
   public async execute(
     query: GetBatchErrorListQuery,
-  ): Promise<IPaginatedRes<DataBatchError>> {
-    const filter = { batchId: query.batchId };
+  ): Promise<IPaginatedRes<IDataBatchError>> {
+    const { items, total } = await this.dataBatchservice.getBatchErrorListAsync(
+      query.batchId,
+      query.skipCount || 0,
+      query.maxCount || 150,
+    );
 
-    const data = await this.db.dataBatchErrorModel
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .skip(query.skipCount || 0)
-      .limit(query.maxCount || 150)
-      .lean()
-      .exec();
-
-    const total = await this.db.dataBatchErrorModel.countDocuments(filter);
-
-    const result = new IPaginatedRes<DataBatchError>(
-      data,
+    const result = new IPaginatedRes<IDataBatchError>(
+      items,
       total,
       query.maxCount || 150,
       query.skipCount || 0,

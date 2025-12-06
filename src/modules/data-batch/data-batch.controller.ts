@@ -12,16 +12,17 @@ import {
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
+import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
+import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
-import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
-import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
 
 /**
  * Data Migration - Data Batches
@@ -38,9 +39,10 @@ export class DataBatchController {
    * Get a list of data batches
    */
   @Get('list')
+  @ApiPaginatedResponse(IDataBatch)
   public async getDataBatchList(
     @Query() query: DataBatchListDto,
-  ): Promise<IPaginatedRes<DataBatch>> {
+  ): Promise<IPaginatedRes<IDataBatch>> {
     return this.queryBus.execute(
       new GetDataBatchListQuery(
         query.entryProcessorTypes,
@@ -79,9 +81,10 @@ export class DataBatchController {
    * Get list of errors for a batch
    */
   @Get('error-list')
+  @ApiPaginatedResponse(IDataBatchError)
   public async getBatchErrorListAsync(
     @Query() { batchId }: BatchIdDto,
-  ): Promise<IPaginatedRes<DataBatchError>> {
+  ): Promise<IPaginatedRes<IDataBatchError>> {
     return this.queryBus.execute(new GetBatchErrorListQuery(batchId));
   }
 

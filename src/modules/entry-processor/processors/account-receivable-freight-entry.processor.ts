@@ -1,19 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
-  EntryProcessorTypes,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 @Injectable()
 export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
@@ -69,7 +69,9 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
 
     const accLines: DynAccountReceivableLineDto[] = [];
 
-    const billingCodes = await this.queryBus.execute(new GetBillingCodesQuery(company));
+    const billingCodes = await this.queryBus.execute(
+      new GetBillingCodesQuery(company),
+    );
 
     if (billingClassId) {
       this.billingClassifications.set(billingClassId, billingCodes);
@@ -156,9 +158,8 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
 
     const dimensionsMap = new Map<string, FinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues = await this.getFinancialDimensionValues(
-        dimensionKey,
-      );
+      const dimensionValues =
+        await this.getFinancialDimensionValues(dimensionKey);
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 

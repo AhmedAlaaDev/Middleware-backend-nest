@@ -1,13 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
-import { DBService } from '@/modules/db/db.service';
-import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
 import {
-  DataBatch,
   DataBatchStatus,
   EntryProcessorTypes,
-} from '@/modules/db/schemas/data-batch.schema';
-import { DataEnhancedRecord } from '@/modules/db/schemas/data-enhanced-record.schema';
+} from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
+import {
+  IDataBatch,
+  IDataBatchListFilter,
+} from '@/modules/data-batch/interfaces/data-batch.interface';
+import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
+import {
+  DataBatchErrorRepository,
+  DataBatchRepository,
+  DataEnhancedRecordRepository,
+  DataSourceRecordRepository,
+} from '@/modules/data-batch/repositories/interfaces';
 import {
   DynDataModel,
   RawDataModel,
@@ -15,9 +23,12 @@ import {
 
 @Injectable()
 export class DataBatchService {
-  private readonly logger = new Logger(DataBatchService.name);
-
-  constructor(private readonly db: DBService) {}
+  constructor(
+    private readonly dataBatchRepo: DataBatchRepository,
+    private readonly dataBatchErrorRepo: DataBatchErrorRepository,
+    private readonly dataSourceRecordRepo: DataSourceRecordRepository,
+    private readonly dataEnhancedRecordRepo: DataEnhancedRecordRepository,
+  ) {}
 
   /**
    * Create a new batch with source and enhanced records
@@ -30,12 +41,12 @@ export class DataBatchService {
     rawData: RawDataModel[],
     dynData: DynDataModel[],
     billingClassification?: string,
-  ): Promise<DataBatch> {
+  ): Promise<IDataBatch> {
     const successCount = dynData.filter((d) => d.errorCount === 0).length;
     const errorCount = dynData.filter((d) => d.errorCount > 0).length;
 
     // Create batch
-    const dataBatch = new this.db.dataBatchModel({
+    const dataBatch = await this.dataBatchRepo.create({
       company: companyId,
       entryProcessorType,
       entryProcessorName,
@@ -48,47 +59,41 @@ export class DataBatchService {
       billingCodeId: billingClassification,
     });
 
-    const savedBatch = await dataBatch.save();
-
     // Bulk insert source records
     if (rawData.length > 0) {
       const sourceRecords = rawData.map((record) => ({
-        batchId: savedBatch._id.toString(),
+        batchId: dataBatch.id,
         data: record,
       }));
-      await this.db.dataSourceRecordModel.insertMany(sourceRecords);
+      await this.dataSourceRecordRepo.insertMany(sourceRecords);
     }
 
     // Bulk insert enhanced records
     if (dynData.length > 0) {
       const enhancedRecords = dynData.map((record) => ({
-        batchId: savedBatch._id.toString(),
+        batchId: dataBatch.id,
         dimensionModel: record.dimensionModel,
         sourceIds: record.sourceIds || [],
         data: record,
         dataModelType: this.getDataModelType(record),
       }));
-      await this.db.dataEnhancedRecordModel.insertMany(enhancedRecords);
+      await this.dataEnhancedRecordRepo.insertMany(enhancedRecords);
     }
 
     // Insert errors if any
     const errorRecords = dynData.filter((d) => d.errorCount > 0);
     if (errorRecords.length > 0) {
       const batchErrors = errorRecords.map((record) => ({
-        batchId: savedBatch._id.toString(),
+        batchId: dataBatch.id,
         sourceRecordIds: record.sourceIds || [],
         errorMessages: record.getErrors(),
         accountDimensionsModel: record.dimensionModel,
         enhancedRecordIds: [record.lineNumber?.toString() || ''],
       }));
-      await this.db.dataBatchErrorModel.insertMany(batchErrors);
+      await this.dataBatchErrorRepo.insertMany(batchErrors);
     }
 
-    this.logger.log(
-      `Created batch ${savedBatch._id.toString()} with ${rawData.length} source records and ${dynData.length} enhanced records`,
-    );
-
-    return savedBatch;
+    return dataBatch;
   }
 
   /**
@@ -96,20 +101,18 @@ export class DataBatchService {
    */
   public async deleteAsync(batchId: string): Promise<void> {
     await Promise.all([
-      this.db.dataBatchModel.deleteOne({ _id: batchId }),
-      this.db.dataSourceRecordModel.deleteMany({ batchId }),
-      this.db.dataEnhancedRecordModel.deleteMany({ batchId }),
-      this.db.dataBatchErrorModel.deleteMany({ batchId }),
+      this.dataBatchRepo.deleteOne(batchId),
+      this.dataSourceRecordRepo.deleteMany(batchId),
+      this.dataEnhancedRecordRepo.deleteMany(batchId),
+      this.dataBatchErrorRepo.deleteMany(batchId),
     ]);
-
-    this.logger.log(`Deleted batch ${batchId} and all related records`);
   }
 
   /**
    * Get batch by ID
    */
-  public async getByIdAsync(batchId: string): Promise<DataBatch | null> {
-    return this.db.dataBatchModel.findById(batchId).exec();
+  public async getByIdAsync(batchId: string): Promise<IDataBatch | null> {
+    return this.dataBatchRepo.findById(batchId);
   }
 
   /**
@@ -117,8 +120,8 @@ export class DataBatchService {
    */
   public async getEnhancedRecordsAsync(
     batchId: string,
-  ): Promise<DataEnhancedRecord[]> {
-    return this.db.dataEnhancedRecordModel.find({ batchId }).exec();
+  ): Promise<IDataEnhancedRecord[]> {
+    return this.dataEnhancedRecordRepo.getList(batchId);
   }
 
   /**
@@ -128,14 +131,43 @@ export class DataBatchService {
     batchId: string,
     status: DataBatchStatus,
   ): Promise<void> {
-    await this.db.dataBatchModel.updateOne({ _id: batchId }, { status }).exec();
+    await this.dataBatchRepo.updateOne(batchId, { status });
   }
 
   /**
    * get data batch errors
    */
-  public async getErrorsAsync(batchId: string): Promise<DataBatchError[]> {
-    return this.db.dataBatchErrorModel.find({ batchId }).lean().exec();
+  public async getErrorsAsync(batchId: string): Promise<IDataBatchError[]> {
+    return this.dataBatchErrorRepo.getList({ batchId });
+  }
+
+  public async getDataBatchListAsync(
+    filter: IDataBatchListFilter,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: IDataBatch[]; total: number }> {
+    const items = await this.dataBatchRepo.getList(filter, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.dataBatchRepo.getCount(filter);
+    return { items, total };
+  }
+
+  public async getBatchErrorListAsync(
+    batchId: string,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: IDataBatchError[]; total: number }> {
+    const items = await this.dataBatchErrorRepo.getList(
+      { batchId },
+      {
+        skipCount,
+        maxCount,
+      },
+    );
+    const total = await this.dataBatchErrorRepo.getCount({ batchId });
+    return { items, total };
   }
 
   private getDataModelType(record: DynDataModel): string {

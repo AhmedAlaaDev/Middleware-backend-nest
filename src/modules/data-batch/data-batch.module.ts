@@ -1,15 +1,43 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
+import { MongooseModule } from '@nestjs/mongoose';
 
-import { CreateDataBatchHandler } from '@/modules/data-batch/commands/handlers/create-data-batch.handler';
-import { DeleteBatchHandler } from '@/modules/data-batch/commands/handlers/delete-batch.handler';
-import { DownloadBatchEnhancedRecordHandler } from '@/modules/data-batch/commands/handlers/download-batch-enhanced-record.handler';
-import { DownloadBatchErrorHandler } from '@/modules/data-batch/commands/handlers/download-batch-error.handler';
-import { PostBatchInDFOHandler } from '@/modules/data-batch/commands/handlers/post-batch-in-dfo.handler';
+import {
+  CreateDataBatchHandler,
+  DeleteBatchHandler,
+  DownloadBatchEnhancedRecordHandler,
+  DownloadBatchErrorHandler,
+  PostBatchInDFOHandler,
+} from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
-import { GetBatchErrorListHandler } from '@/modules/data-batch/queries/handlers/get-batch-error-list.handler';
-import { GetDataBatchListHandler } from '@/modules/data-batch/queries/handlers/get-data-batch-list.handler';
+import {
+  GetBatchErrorListHandler,
+  GetDataBatchListHandler,
+} from '@/modules/data-batch/queries/handlers';
+import {
+  DataBatchErrorMongoRepository,
+  DataBatchMongoRepository,
+  DataEnhancedRecordMongoRepository,
+  DataSourceRecordMongoRepository,
+} from '@/modules/data-batch/repositories';
+import {
+  DataBatchErrorRepository,
+  DataBatchRepository,
+  DataEnhancedRecordRepository,
+  DataSourceRecordRepository,
+} from '@/modules/data-batch/repositories/interfaces';
+import {
+  DataBatch,
+  DataBatchError,
+  DataBatchErrorSchema,
+  DataBatchSchema,
+  DataEnhancedRecord,
+  DataEnhancedRecordSchema,
+  DataSourceRecord,
+  DataSourceRecordSchema,
+} from '@/modules/data-batch/schemas';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { ExcelModule } from '@/modules/excel/excel.module';
 
 const CommandHandlers = [
   CreateDataBatchHandler,
@@ -22,8 +50,35 @@ const CommandHandlers = [
 const QueryHandlers = [GetDataBatchListHandler, GetBatchErrorListHandler];
 
 @Module({
-  imports: [CqrsModule.forRoot()],
-  providers: [DataBatchService, ...CommandHandlers, ...QueryHandlers],
+  imports: [
+    CqrsModule.forRoot(),
+    ExcelModule,
+    MongooseModule.forFeature([
+      { name: DataBatch.name, schema: DataBatchSchema },
+      { name: DataBatchError.name, schema: DataBatchErrorSchema },
+      { name: DataSourceRecord.name, schema: DataSourceRecordSchema },
+      { name: DataEnhancedRecord.name, schema: DataEnhancedRecordSchema },
+    ]),
+  ],
+  providers: [
+    DataBatchService,
+    { provide: DataBatchRepository, useClass: DataBatchMongoRepository },
+    {
+      provide: DataBatchErrorRepository,
+      useClass: DataBatchErrorMongoRepository,
+    },
+    {
+      provide: DataSourceRecordRepository,
+      useClass: DataSourceRecordMongoRepository,
+    },
+    {
+      provide: DataEnhancedRecordRepository,
+      useClass: DataEnhancedRecordMongoRepository,
+    },
+
+    ...CommandHandlers,
+    ...QueryHandlers,
+  ],
   controllers: [DataBatchController],
   exports: [DataBatchService],
 })

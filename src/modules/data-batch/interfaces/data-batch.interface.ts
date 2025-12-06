@@ -31,3 +31,8 @@ export class IDataBatch {
   status: DataBatchStatus;
   billingCodeId?: string;
 }
+
+export interface IDataBatchListFilter {
+  entryProcessorTypes?: EntryProcessorTypes[];
+  batchNumberIds?: string[];
+}

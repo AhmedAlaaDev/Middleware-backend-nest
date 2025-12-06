@@ -3,28 +3,30 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessARFreightCommand } from '../process-ar-freight.command';
 
-import { ExcelService } from '@/modules/excel/excel.service';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
-import { DataBatchService } from '@/modules/data-batch/services/data-batch.service'
-import { EntryProcessorTypes as DbEntryProcessorTypes } from '@/modules/db/schemas/data-batch.schema'
+import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessARFreightCommand)
 @Injectable()
-export class ProcessARFreightHandler
-  implements ICommandHandler<ProcessARFreightCommand> {
+export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreightCommand> {
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
-    private readonly dataBatchService: DataBatchService
-  ) { }
+    private readonly dataBatchService: DataBatchService,
+  ) {}
 
   public async execute(command: ProcessARFreightCommand): Promise<any> {
-    const rawData = await this.excelService.excelToJson<AccountReceivableFileModel>(command.fileBuffer);
+    const rawData =
+      await this.excelService.excelToJson<AccountReceivableFileModel>(
+        command.fileBuffer,
+      );
 
     const processor = this.processorFactory.getProcessorByName(
       'AccountReceivableFreightEntryProcessor',
-    )
+    );
 
     const enriched = await processor.formatAndEnrichAsync(
       rawData,
@@ -38,8 +40,8 @@ export class ProcessARFreightHandler
       command.billingCodeId || '',
     );
 
-    const batch = await this.dataBatchService.createAsync(
-      DbEntryProcessorTypes.AccountReceivableFreight,
+    await this.dataBatchService.createAsync(
+      EntryProcessorTypes.AccountReceivableFreight,
       'AccountReceivableFreightEntryProcessor',
       command.companyId,
       `Account Receivable Freight ${command.billingCodeId} , ${Date.now()}`,

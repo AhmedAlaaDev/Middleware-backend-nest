@@ -8,10 +8,6 @@ import { BillingClassification } from '@/modules/db/schemas/billing-classificati
 import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 import { CacheEntry } from '@/modules/db/schemas/cache-entry.schema';
 import { Customer } from '@/modules/db/schemas/customer.schema';
-import { DataBatchError } from '@/modules/db/schemas/data-batch-error.schema';
-import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
-import { DataEnhancedRecord } from '@/modules/db/schemas/data-enhanced-record.schema';
-import { DataSourceRecord } from '@/modules/db/schemas/data-source-record.schema';
 import { ExchangeRate } from '@/modules/db/schemas/exchange-rate.schema';
 import { FinancialDimensionValue } from '@/modules/db/schemas/financial-dimension-value.schema';
 import { FinancialDimension } from '@/modules/db/schemas/financial-dimension.schema';
@@ -29,14 +25,6 @@ export class DBService {
     private readonly _appSettingModel: Model<AppSetting>,
     @InjectModel(CacheEntry.name)
     private readonly _cacheEntryModel: Model<CacheEntry>,
-    @InjectModel(DataBatch.name)
-    private readonly _dataBatchModel: Model<DataBatch>,
-    @InjectModel(DataBatchError.name)
-    private readonly _dataBatchErrorModel: Model<DataBatchError>,
-    @InjectModel(DataEnhancedRecord.name)
-    private readonly _dataEnhancedRecordModel: Model<DataEnhancedRecord>,
-    @InjectModel(DataSourceRecord.name)
-    private readonly _dataSourceRecordModel: Model<DataSourceRecord>,
     @InjectModel(FinancialDimension.name)
     private readonly _financialDimensionModel: Model<FinancialDimension>,
     @InjectModel(FinancialDimensionValue.name)
@@ -69,22 +57,6 @@ export class DBService {
 
   public get cacheEntryModel() {
     return this._cacheEntryModel;
-  }
-
-  public get dataBatchModel() {
-    return this._dataBatchModel;
-  }
-
-  public get dataBatchErrorModel() {
-    return this._dataBatchErrorModel;
-  }
-
-  public get dataEnhancedRecordModel() {
-    return this._dataEnhancedRecordModel;
-  }
-
-  public get dataSourceRecordModel() {
-    return this._dataSourceRecordModel;
   }
 
   public get financialDimensionModel() {

@@ -1,19 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
 import {
   RawDataModel,
   DynDataModel,
-  EntryProcessorTypes,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
-import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
+import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
@@ -126,9 +126,9 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
           const billingCode =
             billingCodes.find((bc: any) =>
-              bc.billingCode?.toLowerCase().includes(
-                accountDimensions.chargeType?.toLowerCase() || '',
-              ),
+              bc.billingCode
+                ?.toLowerCase()
+                .includes(accountDimensions.chargeType?.toLowerCase() || ''),
             ) || null;
 
           const arLine = this.prepareAccountReceivableLine(

@@ -26,22 +26,6 @@ import {
 } from '@/modules/db/schemas/cache-entry.schema';
 import { Customer, CustomerSchema } from '@/modules/db/schemas/customer.schema';
 import {
-  DataBatchError,
-  DataBatchErrorSchema,
-} from '@/modules/db/schemas/data-batch-error.schema';
-import {
-  DataBatch,
-  DataBatchSchema,
-} from '@/modules/db/schemas/data-batch.schema';
-import {
-  DataEnhancedRecord,
-  DataEnhancedRecordSchema,
-} from '@/modules/db/schemas/data-enhanced-record.schema';
-import {
-  DataSourceRecord,
-  DataSourceRecordSchema,
-} from '@/modules/db/schemas/data-source-record.schema';
-import {
   ExchangeRate,
   ExchangeRateSchema,
 } from '@/modules/db/schemas/exchange-rate.schema';
@@ -83,10 +67,6 @@ import { Vendor, VendorSchema } from '@/modules/db/schemas/vendor.schema';
     }),
 
     MongooseModule.forFeature([
-      { name: DataBatch.name, schema: DataBatchSchema },
-      { name: DataEnhancedRecord.name, schema: DataEnhancedRecordSchema },
-      { name: DataSourceRecord.name, schema: DataSourceRecordSchema },
-      { name: DataBatchError.name, schema: DataBatchErrorSchema },
       { name: LedgerVoucherCounter.name, schema: LedgerVoucherCounterSchema },
       {
         name: LedgerEntryBatchCounter.name,

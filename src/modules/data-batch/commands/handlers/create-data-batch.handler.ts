@@ -1,15 +1,18 @@
+import { Logger } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
 import { CreateDataBatchCommand } from '@/modules/data-batch/commands/create-data-batch.command';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
-import { DataBatch } from '@/modules/db/schemas/data-batch.schema';
 
 @CommandHandler(CreateDataBatchCommand)
 export class CreateDataBatchHandler implements ICommandHandler<CreateDataBatchCommand> {
-  constructor(private readonly dataBatchService: DataBatchService) { }
+  private readonly logger = new Logger(CreateDataBatchHandler.name);
 
-  public async execute(command: CreateDataBatchCommand): Promise<DataBatch> {
-    return await this.dataBatchService.createAsync(
+  constructor(private readonly dataBatchService: DataBatchService) {}
+
+  public async execute(command: CreateDataBatchCommand): Promise<IDataBatch> {
+    const dataBatch = await this.dataBatchService.createAsync(
       command.entryProcessorType,
       command.entryProcessorName,
       command.companyId,
@@ -18,5 +21,11 @@ export class CreateDataBatchHandler implements ICommandHandler<CreateDataBatchCo
       command.dynData,
       command.billingClassification,
     );
+
+    this.logger.log(
+      `Created batch ${dataBatch.id} with ${command.rawData.length} source records and ${command.dynData.length} enhanced records`,
+    );
+
+    return dataBatch;
   }
 }

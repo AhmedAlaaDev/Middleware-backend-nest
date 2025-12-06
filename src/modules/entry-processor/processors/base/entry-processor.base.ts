@@ -1,10 +1,11 @@
 import { QueryBus } from '@nestjs/cqrs';
 
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
+import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
 import {
   DynDataModel,
-  EntryProcessorTypes,
   IEntryProcessor,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
@@ -12,27 +13,22 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
-import { FinancialDimensionValue, GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
+import { GetFinancialDimensionWithValueQuery } from '@/modules/master-data/queries/get-financial-dimension-with-values.query';
+import { FinancialDimensionValue } from '@/modules/master-data/queries/get-financial-dimensions.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { ServiceTypes } from '@/modules/master-data/types/master-data.types';
-import { BillingCode } from '@/modules/db/schemas/billing-code.schema';
-import { D365FODimensionValue } from '@/modules/d365fo/types';
-import { GetFinancialDimensionWithValueQuery } from '@/modules/master-data/queries/get-financial-dimension-with-values.query';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
   abstract readonly requiredDimensions: string[];
 
-  protected billingClassifications: Map<
-    string,
-    Array<BillingCode>
-  > = new Map();
+  protected billingClassifications: Map<string, Array<BillingCode>> = new Map();
 
   constructor(
     protected readonly customerInvoiceService: CustomerInvoiceService,
     protected readonly queryBus: QueryBus,
     protected readonly db: DBService,
-  ) { }
+  ) {}
 
   abstract formatAndEnrichAsync(
     data: RawDataModel[],
@@ -173,9 +169,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const termsOfPaymentDays =
       custLine.DUEDATE && custLine.TRANSDATE
         ? Math.ceil(
-          (custLine.DUEDATE.getTime() - custLine.TRANSDATE.getTime()) /
-          (1000 * 60 * 60 * 24),
-        )
+            (custLine.DUEDATE.getTime() - custLine.TRANSDATE.getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
         : 0;
 
     const line = new DynAccountReceivableLineDto();
@@ -335,7 +331,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateActivityName(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateActivityName(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.activityName ||
@@ -359,7 +358,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateCostCenter(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateCostCenter(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.costCenter ||
@@ -383,7 +385,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateBusinessUnit(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateBusinessUnit(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.businessUnit ||
@@ -407,7 +412,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateLocation(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateLocation(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.location ||
@@ -431,7 +439,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateFreightType(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateFreightType(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.freightType ||
@@ -455,7 +466,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateSalesMan(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateSalesMan(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.salesMan ||
@@ -479,7 +493,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateTruckerType(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateTruckerType(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.truckerType ||
@@ -503,7 +520,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateTruckNumber(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateTruckNumber(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.truckNumber ||
@@ -527,7 +547,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateDirection(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateDirection(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.direction ||
@@ -578,7 +601,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateVendor(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateVendor(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.vendor ||
@@ -602,7 +628,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateSubVendor(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateSubVendor(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (
       !dimensionsModel?.subVendor ||
@@ -626,7 +655,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
-  protected validateWorker(ar: DynDataModel, dimensions: FinancialDimensionValue[]): void {
+  protected validateWorker(
+    ar: DynDataModel,
+    dimensions: FinancialDimensionValue[],
+  ): void {
     const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
     if (!dimensionsModel?.worker) {
       ar.addError('WorkerDimensions', 'Worker is required');
@@ -673,6 +705,5 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       return Values;
     }
     return [];
-
   }
 }

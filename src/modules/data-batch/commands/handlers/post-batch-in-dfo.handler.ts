@@ -1,8 +1,8 @@
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
 import { PostBatchInDFOCommand } from '@/modules/data-batch/commands/post-batch-in-dfo.command';
+import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
-import { DataBatchStatus } from '@/modules/db/schemas/data-batch.schema';
 
 @CommandHandler(PostBatchInDFOCommand)
 export class PostBatchInDFOHandler implements ICommandHandler<PostBatchInDFOCommand> {
