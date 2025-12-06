@@ -36,21 +36,20 @@ export class FinancialDimensionMongoRepository implements FinancialDimensionRepo
     }
   }
 
+  public async count(): Promise<number> {
+    return this.model.countDocuments();
+  }
+
   async getList(options?: {
     skipCount?: number;
     maxCount?: number;
   }): Promise<IFinancialDimension[]> {
     const skip = options?.skipCount ?? 0;
     const limit = options?.maxCount ?? 150;
-    const docs = await this.model
-      .find({})
-      .skip(skip)
-      .limit(limit)
-      .lean()
-      .exec();
+    const docs = await this.model.find().skip(skip).limit(limit).lean().exec();
     return docs.map((doc) => ({
-      id: (doc as { _id: { toString(): string } })._id.toString(),
-      financialKey: (doc as { financialKey: string }).financialKey,
+      id: doc._id.toString(),
+      financialKey: doc.financialKey,
     }));
   }
 
@@ -58,8 +57,8 @@ export class FinancialDimensionMongoRepository implements FinancialDimensionRepo
     const doc = await this.model.findOne({ financialKey }).lean().exec();
     if (!doc) return null;
     return {
-      id: (doc as { _id: { toString(): string } })._id.toString(),
-      financialKey: (doc as { financialKey: string }).financialKey,
+      id: doc._id.toString(),
+      financialKey: doc.financialKey,
     };
   }
 }

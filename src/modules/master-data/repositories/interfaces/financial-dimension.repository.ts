@@ -13,6 +13,7 @@ export abstract class FinancialDimensionRepository {
     maxCount?: number;
   }): Promise<IFinancialDimension[]>;
   abstract findByKey(financialKey: string): Promise<IFinancialDimension | null>;
+  abstract count(): Promise<number>;
 }
 
 export abstract class FinancialDimensionValueRepository {

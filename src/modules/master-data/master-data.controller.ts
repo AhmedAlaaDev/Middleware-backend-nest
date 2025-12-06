@@ -10,6 +10,8 @@ import {
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiResponse, ApiBody } from '@nestjs/swagger';
 
+import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { SaveAccountMappingsCommand } from '@/modules/master-data/commands/save-account-mappings.command';
 import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
 import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
@@ -17,9 +19,11 @@ import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-ex
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
+import { GetFinancialDimensionDto } from '@/modules/master-data/dtos/get-financial-dimension.dto';
 import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { ICreateAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
+import { IFinancialDimension } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
@@ -71,12 +75,13 @@ export class MasterDataController {
    * Get financial dimensions from database (Query)
    */
   @Get('financial-dimensions')
-  @ApiResponse({
-    status: 200,
-    description: 'Financial dimensions retrieved successfully',
-  })
-  public getFinancialDimensionsAsync() {
-    return this.queryBus.execute(new GetFinancialDimensionsQuery());
+  @ApiPaginatedResponse(IFinancialDimension)
+  public getFinancialDimensionsAsync(
+    @Query() query: GetFinancialDimensionDto,
+  ): Promise<IPaginatedRes<IFinancialDimension>> {
+    return this.queryBus.execute(
+      new GetFinancialDimensionsQuery(query.maxCount, query.skipCount),
+    );
   }
 
   /**

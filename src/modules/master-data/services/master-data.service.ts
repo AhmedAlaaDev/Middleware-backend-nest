@@ -156,9 +156,17 @@ export class MasterDataService {
   async getFinancialDimensionsWithValuesAsync(
     skipCount?: number,
     maxCount?: number,
-  ): Promise<IFinancialDimension[]> {
+  ): Promise<{
+    items: IFinancialDimension[];
+    count: number;
+  }> {
+    const total = await this.finDimRepo.count();
     const dimensions = await this.finDimRepo.getList({ skipCount, maxCount });
-    if (dimensions.length === 0) return [];
+    if (dimensions.length === 0)
+      return {
+        items: [],
+        count: total,
+      };
 
     const results: IFinancialDimension[] = [];
     for (const dim of dimensions) {
@@ -167,7 +175,10 @@ export class MasterDataService {
       });
       results.push({ ...dim, dimensionValues: values });
     }
-    return results;
+    return {
+      items: results,
+      count: total,
+    };
   }
 
   async getFinancialDimensionWithValuesAsync(financialKey: string): Promise<{

@@ -4,6 +4,7 @@ import { IsNumber, IsOptional, Min } from 'class-validator';
 export class PaginatedDto {
   /**
    * Skip count should be >= 0
+   * @example 0
    */
   @IsOptional()
   @IsNumber()
@@ -12,7 +13,8 @@ export class PaginatedDto {
   skipCount?: number = 0;
 
   /**
-   * Max count should be >= 0
+   * Max count should be >= 1
+   * @example 10
    */
   @IsOptional()
   @IsNumber()

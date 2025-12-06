@@ -14,7 +14,7 @@ export interface ICreateFinancialDimensionValue {
 export type IUpdateFinancialDimensionValue =
   Partial<ICreateFinancialDimensionValue>;
 
-export interface IFinancialDimension {
+export class IFinancialDimension {
   id: string;
   financialKey: string;
   dimensionValues?: IFinancialDimensionValue[];
