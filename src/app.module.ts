@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-
-import { AppController } from '@/app.controller';
 import {
   appConfig,
   authConfig,
@@ -54,7 +52,5 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     DataBatchModule,
     SettingsModule,
   ],
-
-  controllers: [AppController],
 })
 export class AppModule {}
