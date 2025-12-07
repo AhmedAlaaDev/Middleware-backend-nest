@@ -6,6 +6,7 @@ import { ProcessARFreightCommand } from '../process-ar-freight.command';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { ExcelService } from '@/modules/excel/excel.service';
 
@@ -25,7 +26,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
       );
 
     const processor = this.processorFactory.getProcessorByName(
-      'AccountReceivableFreightEntryProcessor',
+      EntryProcessorTypes.AccountReceivableFreight,
     );
 
     const enriched = await processor.formatAndEnrichAsync(
@@ -42,7 +43,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
 
     await this.dataBatchService.createAsync(
       EntryProcessorTypes.AccountReceivableFreight,
-      'AccountReceivableFreightEntryProcessor',
+      ENTRY_PROCESSOR_NAMES.ACCOUNT_RECEIVABLE_FREIGHT,
       command.companyId,
       `Account Receivable Freight ${command.billingCodeId} , ${Date.now()}`,
       rawData,

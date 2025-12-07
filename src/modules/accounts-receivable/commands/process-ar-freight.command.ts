@@ -9,4 +9,3 @@ export class ProcessARFreightCommand extends Command<any> {
     super();
   }
 }
-

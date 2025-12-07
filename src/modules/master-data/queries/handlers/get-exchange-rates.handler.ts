@@ -20,8 +20,8 @@ export class GetExchangeRatesHandler implements IQueryHandler<GetExchangeRatesQu
       rateTypeName: query.rateType,
       fromCurrency: query.fromCurrency,
       toCurrency: query.toCurrency,
-      fromDate: query.fromDate,
-      toDate: query.toDate,
+      fromDate: query.fromDate ? new Date(query.fromDate) : undefined,
+      toDate: query.toDate ? new Date(query.toDate) : undefined,
     });
 
     return items;

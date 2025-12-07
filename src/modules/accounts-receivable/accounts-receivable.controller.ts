@@ -5,13 +5,13 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { CommandBus } from '@nestjs/cqrs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
-import { CommandBus } from '@nestjs/cqrs';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
-import { ARFreightDto } from '@/modules/accounts-receivable/dtos/ar-freight.dto';
 import { ProcessARFreightCommand } from '@/modules/accounts-receivable/commands/process-ar-freight.command';
+import { ARFreightDto } from '@/modules/accounts-receivable/dtos/ar-freight.dto';
 
 /**
  * Data Migration - Account Receivable
