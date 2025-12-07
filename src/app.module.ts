@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-
-import { AppController } from '@/app.controller';
 import {
   appConfig,
   authConfig,
@@ -52,7 +50,5 @@ import { SettingsModule } from '@/modules/settings/settings.module';
     AccountsReceivableModule,
     SettingsModule,
   ],
-
-  controllers: [AppController],
 })
 export class AppModule {}
