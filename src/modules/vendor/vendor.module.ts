@@ -5,7 +5,9 @@ import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
+import { ProcessVendorFreightAdjustmentHandler } from '@/modules/vendor/commands/handlers/process-vendor-freight-adjustment.handler';
 import { ProcessVendorFreightHandler } from '@/modules/vendor/commands/handlers/process-vendor-freight.handler';
+import { ProcessVendorTruckingAdjustmentHandler } from '@/modules/vendor/commands/handlers/process-vendor-trucking-adjustment.handler';
 import { ProcessVendorTruckingHandler } from '@/modules/vendor/commands/handlers/process-vendor-trucking.handler';
 import { VendorController } from '@/modules/vendor/vendor.controller';
 
@@ -18,6 +20,11 @@ import { VendorController } from '@/modules/vendor/vendor.controller';
     MasterDataModule,
   ],
   controllers: [VendorController],
-  providers: [ProcessVendorFreightHandler, ProcessVendorTruckingHandler],
+  providers: [
+    ProcessVendorFreightHandler,
+    ProcessVendorFreightAdjustmentHandler,
+    ProcessVendorTruckingHandler,
+    ProcessVendorTruckingAdjustmentHandler,
+  ],
 })
 export class VendorModule {}
