@@ -8,6 +8,7 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
+import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { ExcelService } from '@/modules/excel/excel.service';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 
@@ -58,13 +59,16 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
       `Validated rows: ${validated.length}, errors: ${validatedErrors}`,
     );
 
-    const batch = await this.dataBatchService.createAsync(
+    const batch = await this.dataBatchService.createAsync<
+      AccountReceivableFileModel,
+      DynAccountReceivableLineDto
+    >(
       EntryProcessorTypes.AccountReceivableFreight,
       ENTRY_PROCESSOR_NAMES.ACCOUNT_RECEIVABLE_FREIGHT,
       command.companyId,
       `Account Receivable Freight ${command.billingCodeId} , ${Date.now()}`,
       rawData,
-      validated,
+      validated as DynAccountReceivableLineDto[],
       command.billingCodeId,
     );
     this.logger.log(

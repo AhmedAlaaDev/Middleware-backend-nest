@@ -7,6 +7,7 @@ import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum'
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
+import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessARTruckingCommand)
@@ -58,13 +59,16 @@ export class ProcessARTruckingHandler implements ICommandHandler<ProcessARTrucki
       `Validated rows: ${validated.length}, errors: ${validatedErrors}`,
     );
 
-    const batch = await this.dataBatchService.createAsync(
+    const batch = await this.dataBatchService.createAsync<
+      AccountReceivableFileModel,
+      DynAccountReceivableLineDto
+    >(
       EntryProcessorTypes.AccountReceivableTrucking,
       'AccountReceivableTruckingEntryProcessor',
       command.companyId,
       `Account Receivable Trucking ${command.billingCodeId} , ${Date.now()}`,
       rawData,
-      validated,
+      validated as DynAccountReceivableLineDto[],
       command.billingCodeId,
     );
     this.logger.log(
