@@ -4,7 +4,6 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 export class DynLedgerClosingJournalEntryDto extends DynDataModel {
   CustomId: number;
   UniqueId?: number;
-  LineNumber?: number;
   JournalBatchNumber: string;
   JournalName: string;
   Description: string;
@@ -51,7 +50,5 @@ export class DynLedgerClosingJournalEntryDto extends DynDataModel {
   PostingProfile: string;
   PostingLayer: string;
   IsPosted: string;
-
-  DimensionModel?: AccountDimensionsModel;
 }
 
