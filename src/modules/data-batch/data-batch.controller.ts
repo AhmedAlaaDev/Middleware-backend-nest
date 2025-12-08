@@ -10,9 +10,11 @@ import {
   HttpStatus,
   UseInterceptors,
   ClassSerializerInterceptor,
+  Header,
+  StreamableFile,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags, ApiProduces } from '@nestjs/swagger';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
@@ -128,12 +130,35 @@ export class DataBatchController {
    */
   @Post('download-enhanced-record-list')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Download enhanced records as Excel file' })
+  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiResponse({
+    status: 200,
+    description: 'Excel file with enhanced records',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No enhanced records found for this batch',
+  })
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   public async downloadEnhancedRecordListAsync(
     @Body() { batchId }: BatchIdDto,
-  ): Promise<string> {
-    return this.commandBus.execute(
+  ): Promise<StreamableFile> {
+    const buffer = await this.commandBus.execute(
       new DownloadBatchEnhancedRecordCommand(batchId),
     );
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="enhanced-records-${batchId}.xlsx"`,
+    });
   }
 
   /**
@@ -141,10 +166,35 @@ export class DataBatchController {
    */
   @Post('download-batch-error-list')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Download batch errors as Excel file' })
+  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiResponse({
+    status: 200,
+    description: 'Excel file with batch errors',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No errors found for this batch',
+  })
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   public async downloadErrorRecordListAsync(
     @Body() { batchId }: BatchIdDto,
-  ): Promise<string> {
-    return this.commandBus.execute(new DownloadBatchErrorCommand(batchId));
+  ): Promise<StreamableFile> {
+    const buffer = await this.commandBus.execute(
+      new DownloadBatchErrorCommand(batchId),
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="batch-errors-${batchId}.xlsx"`,
+    });
   }
 
   /**

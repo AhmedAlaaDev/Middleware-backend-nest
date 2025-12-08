@@ -14,7 +14,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<Downl
 
   public async execute(
     command: DownloadBatchEnhancedRecordCommand,
-  ): Promise<string> {
+  ): Promise<Buffer> {
     const { batchId } = command;
 
     const enhancedRecords =
@@ -25,10 +25,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<Downl
     }
 
     const data = enhancedRecords.map((r) => r.data);
-    const filePath = await this.excelService.writeObjectsToTempFile(
-      data,
-      `enhanced-records-${command.batchId}`,
-    );
-    return filePath;
+    const buffer = await this.excelService.jsonToExcel(data);
+    return buffer;
   }
 }
