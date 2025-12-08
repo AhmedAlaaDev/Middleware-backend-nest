@@ -1,5 +1,5 @@
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { DynDataModel as IDynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
 export abstract class DynDataModel implements IDynDataModel {
   LineNumber?: number;
@@ -27,4 +27,3 @@ export abstract class DynDataModel implements IDynDataModel {
     this.errors.push({ property, message });
   }
 }
-

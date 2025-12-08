@@ -143,7 +143,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       this.validateDirection(line, dimensionsMap.Direction);
       this.validateVendor(line, dimensionsMap.Vendor);
 
-      if (line.dimensionModel.subVendor) {
+      if (line.DimensionModel.subVendor) {
         this.validateSubVendor(line, dimensionsMap.SubVendor);
       }
     }
@@ -228,9 +228,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       return new IVendorFreightDFOLine({
         header,
         journalBatchNum: header.journalBatchNum,
-        lineNumber: line.LINENUMBER,
+        LineNumber: line.LINENUMBER,
         accountType: line.ACCOUNTTYPE,
-        dimensionModel,
+        DimensionModel: dimensionModel,
         company,
         credit: line.CREDITAMOUNT ?? 0,
         debit: line.DEBITAMOUNT,
@@ -264,7 +264,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         termsOfPayment: '',
         transactionType: 'vendor',
         voucher: nextVoucher(),
-        sourceIds: [uniqueId],
+        SourceIds: [uniqueId],
       });
     });
   }

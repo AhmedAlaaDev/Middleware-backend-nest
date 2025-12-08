@@ -3,8 +3,8 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 class VendorTruckingDFOLine {
   header: IVendorTruckingDFOHeader;
   journalBatchNum: number;
-  lineNumber: number;
-  dimensionModel: AccountDimensionsModel;
+  LineNumber: number;
+  DimensionModel: AccountDimensionsModel;
   accountType: 'Vend' | 'Ledger';
   company: string;
   credit: number;
@@ -38,7 +38,7 @@ class VendorTruckingDFOLine {
   termsOfPayment: string;
   transactionType: string;
   voucher: number;
-  sourceIds: string[];
+  SourceIds: string[];
 
   constructor(data: VendorTruckingDFOLine) {
     Object.assign(this, data);
@@ -52,22 +52,22 @@ export class IVendorTruckingDFOLine extends VendorTruckingDFOLine {
     super(data);
   }
 
-  get errorCount(): number {
+  get ErrorCount(): number {
     return this.errors.length;
   }
 
-  get errorsText(): string {
+  get ErrorsText(): string {
     if (this.errors.length === 0) {
       return '';
     }
     return this.errors.map((e) => `${e.property}: ${e.message}`).join(';');
   }
 
-  addError(property: string, message: string): void {
+  AddError(property: string, message: string): void {
     this.errors.push({ property, message });
   }
 
-  getErrors(): string[] {
+  GetErrors(): string[] {
     return this.errors.map((e) => `${e.property}: ${e.message}`);
   }
 }

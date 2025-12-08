@@ -149,7 +149,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       this.validateTruckNumber(line, dimensionsMap.TruckNumber);
       this.validateWorker(line, dimensionsMap.Worker);
 
-      if (line.dimensionModel.subVendor) {
+      if (line.DimensionModel.subVendor) {
         this.validateSubVendor(line, dimensionsMap.SubVendor);
       }
     }
@@ -234,9 +234,9 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       return new IVendorTruckingDFOLine({
         header,
         journalBatchNum: header.journalBatchNum,
-        lineNumber: line.LINENUMBER,
+        LineNumber: line.LINENUMBER,
         accountType: line.ACCOUNTTYPE,
-        dimensionModel,
+        DimensionModel: dimensionModel,
         company,
         credit: line.CREDITAMOUNT ?? 0,
         debit: line.DEBITAMOUNT,
@@ -270,7 +270,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         termsOfPayment: '',
         transactionType: 'vendor',
         voucher: nextVoucher(),
-        sourceIds: [uniqueId],
+        SourceIds: [uniqueId],
       });
     });
   }
