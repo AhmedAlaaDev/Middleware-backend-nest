@@ -5,6 +5,7 @@ import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-proc
 import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
 import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
+import { VendorTruckingEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-entry.processor';
 
 @Injectable()
 export class EntryProcessorFactory {
@@ -15,6 +16,7 @@ export class EntryProcessorFactory {
     private readonly accountReceivableFreightProcessor: AccountReceivableFreightEntryProcessor,
     private readonly accountReceivableTruckingProcessor: AccountReceivableTruckingEntryProcessor,
     private readonly vendorFreightProcessor: VendorFreightEntryProcessor,
+    private readonly vendorTruckingProcessor: VendorTruckingEntryProcessor,
     // Add other processors here
   ) {
     this.registerProcessors();
@@ -32,6 +34,10 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.VendorFreight,
       this.vendorFreightProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.VendorTrucking,
+      this.vendorTruckingProcessor,
     );
     // Register other processors
   }

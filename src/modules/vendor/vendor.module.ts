@@ -6,6 +6,7 @@ import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processor
 import { ExcelModule } from '@/modules/excel/excel.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { ProcessVendorFreightHandler } from '@/modules/vendor/commands/handlers/process-vendor-freight.handler';
+import { ProcessVendorTruckingHandler } from '@/modules/vendor/commands/handlers/process-vendor-trucking.handler';
 import { VendorController } from '@/modules/vendor/vendor.controller';
 
 @Module({
@@ -17,6 +18,6 @@ import { VendorController } from '@/modules/vendor/vendor.controller';
     MasterDataModule,
   ],
   controllers: [VendorController],
-  providers: [ProcessVendorFreightHandler],
+  providers: [ProcessVendorFreightHandler, ProcessVendorTruckingHandler],
 })
 export class VendorModule {}
