@@ -243,7 +243,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     accounts: Array<{ accountNumber: string }>,
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (!dimensionsModel?.mainAccount) {
       ar.addError('MainAccount', 'Main Account is required');
       return;
@@ -295,7 +295,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.customer ||
       dimensionsModel.customer === '000' ||
@@ -322,7 +322,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.subCustomer ||
       dimensionsModel.subCustomer === '000' ||
@@ -349,7 +349,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: string[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.chargeType ||
       dimensionsModel.chargeType === '000' ||
@@ -380,7 +380,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.activityName ||
       dimensionsModel.activityName === '000' ||
@@ -407,7 +407,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.costCenter ||
       dimensionsModel.costCenter === '000' ||
@@ -434,7 +434,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.businessUnit ||
       dimensionsModel.businessUnit === '000' ||
@@ -461,7 +461,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.location ||
       dimensionsModel.location === '000' ||
@@ -488,7 +488,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.freightType ||
       dimensionsModel.freightType === '000' ||
@@ -515,7 +515,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.salesMan ||
       dimensionsModel.salesMan === '000' ||
@@ -542,7 +542,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.truckerType ||
       dimensionsModel.truckerType === '000' ||
@@ -569,7 +569,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.truckNumber ||
       dimensionsModel.truckNumber === '000' ||
@@ -596,7 +596,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.direction ||
       dimensionsModel.direction === '000' ||
@@ -623,7 +623,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.coordinatorMan ||
       dimensionsModel.coordinatorMan === '000' ||
@@ -650,7 +650,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.vendor ||
       dimensionsModel.vendor === '000' ||
@@ -677,7 +677,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (
       !dimensionsModel?.subVendor ||
       dimensionsModel.subVendor === '000' ||
@@ -704,7 +704,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = (ar as DynAccountReceivableLineDto).dimensionModel;
+    const dimensionsModel = ar.dimensionModel;
     if (!dimensionsModel?.worker) {
       ar.addError('WorkerDimensions', 'Worker is required');
       return;
