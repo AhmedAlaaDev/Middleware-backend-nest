@@ -13,7 +13,9 @@ import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
 import { ARFreightDto } from '@/modules/accounts-receivable/dtos/ar-freight.dto';
 import { ARTruckingDto } from '@/modules/accounts-receivable/dtos/ar-trucking.dto';
 import { ProcessARFreightCommand } from '@/modules/accounts-receivable/commands/process-ar-freight.command';
+import { ProcessARFreightCreditNoteCommand } from '@/modules/accounts-receivable/commands/process-ar-freight-credit-note.command';
 import { ProcessARTruckingCommand } from '@/modules/accounts-receivable/commands/process-ar-trucking.command';
+import { ProcessARTruckingCreditNoteCommand } from '@/modules/accounts-receivable/commands/process-ar-trucking-credit-note.command';
 
 /**
  * Data Migration - Account Receivable
@@ -38,6 +40,56 @@ export class AccountsReceivableController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessARFreightCommand(
+        file.buffer,
+        body.companyId,
+        body.billingCodeId,
+      ),
+    );
+
+    return result;
+  }
+
+  /**
+   * Freight Credit Note Document
+   */
+  @Post('Freight-CreditNote-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: ARFreightDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async freightCreditNoteDocument(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: ARFreightDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessARFreightCreditNoteCommand(
+        file.buffer,
+        body.companyId,
+        body.billingCodeId,
+      ),
+    );
+
+    return result;
+  }
+
+  /**
+   * Trucking Credit Note Document
+   */
+  @Post('Trucking-CreditNote-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: ARTruckingDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async truckingCreditNoteDocument(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: ARTruckingDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessARTruckingCreditNoteCommand(
         file.buffer,
         body.companyId,
         body.billingCodeId,
