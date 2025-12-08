@@ -1,18 +1,20 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
+import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
 
 @Injectable()
 export class EntryProcessorFactory {
-  private readonly logger = new Logger(EntryProcessorFactory.name);
-  private readonly processors: Map<string, IEntryProcessor> = new Map();
+  private readonly processors: Map<EntryProcessorTypes, IEntryProcessor> =
+    new Map();
 
   constructor(
     private readonly accountReceivableFreightProcessor: AccountReceivableFreightEntryProcessor,
     private readonly accountReceivableTruckingProcessor: AccountReceivableTruckingEntryProcessor,
+    private readonly vendorFreightProcessor: VendorFreightEntryProcessor,
     // Add other processors here
   ) {
     this.registerProcessors();
@@ -20,25 +22,26 @@ export class EntryProcessorFactory {
 
   private registerProcessors(): void {
     this.processors.set(
-      'AccountReceivableFreightEntryProcessor',
+      EntryProcessorTypes.AccountReceivableFreight,
       this.accountReceivableFreightProcessor,
     );
     this.processors.set(
-      'AccountReceivableTruckingEntryProcessor',
+      EntryProcessorTypes.AccountPayableTrucking,
       this.accountReceivableTruckingProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.VendorFreight,
+      this.vendorFreightProcessor,
     );
     // Register other processors
   }
 
   public getProcessor(
-    entryProcessorType: EntryProcessorTypes | string,
+    entryProcessorType: EntryProcessorTypes,
   ): IEntryProcessor {
-    const processor = this.processors.get(entryProcessorType.toString());
+    const processor = this.processors.get(entryProcessorType);
 
     if (!processor) {
-      this.logger.error(
-        `Entry processor not found for type: ${entryProcessorType}`,
-      );
       throw new Error(
         `Entry processor not found for type: ${entryProcessorType}`,
       );
@@ -47,12 +50,11 @@ export class EntryProcessorFactory {
     return processor;
   }
 
-  public getProcessorByName(name: string): IEntryProcessor {
-    const processor = this.processors.get(name);
+  public getProcessorByName(entry: EntryProcessorTypes): IEntryProcessor {
+    const processor = this.processors.get(entry);
 
     if (!processor) {
-      this.logger.error(`Entry processor not found with name: ${name}`);
-      throw new Error(`Entry processor not found with name: ${name}`);
+      throw new Error(`Entry processor ${entry} not found`);
     }
 
     return processor;

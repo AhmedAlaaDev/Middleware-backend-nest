@@ -17,6 +17,7 @@ import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
+import { VendorModule } from '@/modules/vendor/vendor.module';
 
 @Module({
   imports: [
@@ -41,13 +42,14 @@ import { SettingsModule } from '@/modules/settings/settings.module';
       ],
     }),
 
+    VendorModule,
+    AccountsReceivableModule,
     ResilienceModule,
     DBModule,
     QueueModule,
     D365FOModule,
     MasterDataModule,
     DataBatchModule,
-    AccountsReceivableModule,
     SettingsModule,
   ],
 })

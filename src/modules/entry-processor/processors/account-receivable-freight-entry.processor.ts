@@ -17,7 +17,9 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 
 @Injectable()
 export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(AccountReceivableFreightEntryProcessor.name);
+  private readonly procLogger = new Logger(
+    AccountReceivableFreightEntryProcessor.name,
+  );
   readonly entryProcessorType = EntryProcessorTypes.AccountReceivableFreight;
   readonly requiredDimensions = [
     'MainAccount',
@@ -126,9 +128,9 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
           //Get the Dims Billing code
           const billingCode =
             billingCodes.find((bc: any) =>
-              bc.billingCode?.toLowerCase().includes(
-                accountDimensions.chargeType?.toLowerCase() || '',
-              ),
+              bc.billingCode
+                ?.toLowerCase()
+                .includes(accountDimensions.chargeType?.toLowerCase() || ''),
             ) || null;
 
           const arLine = this.prepareAccountReceivableLine(
@@ -164,8 +166,6 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         await this.getFinancialDimensionValues(dimensionKey);
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
-
-
 
     // Get charge type dimensions from billing codes
     const chargeTypeDims: string[] = [];
@@ -208,7 +208,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         dimensionsMap.get('CoordinatorMan') || [],
       );
     }
-   this.procLogger.debug('data Validated');
+    this.procLogger.debug('data Validated');
     return data;
   }
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { capitalize } from '@/lib/utils';
 import {
   ICreateExchangeRate,
   IExchangeRate,
@@ -40,11 +41,14 @@ export class ExchangeRateMongoRepository implements ExchangeRateRepository {
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IExchangeRate[]> {
     const q: Record<string, unknown> = {};
-    if (filter.rateTypeName) q['rateTypeName'] = filter.rateTypeName;
-    if (filter.fromCurrency) q['fromCurrency'] = filter.fromCurrency;
-    if (filter.toCurrency) q['toCurrency'] = filter.toCurrency;
+    if (filter.rateTypeName)
+      q['rateTypeName'] = capitalize(filter.rateTypeName?.toLowerCase());
+    if (filter.fromCurrency)
+      q['fromCurrency'] = filter.fromCurrency?.toUpperCase();
+    if (filter.toCurrency) q['toCurrency'] = filter.toCurrency?.toUpperCase();
     if (filter.fromDate) q['startDate'] = { $gte: filter.fromDate } as unknown;
     if (filter.toDate) q['endDate'] = { $lte: filter.toDate } as unknown;
+
     let query = this.model.find(q).lean();
 
     if (options?.skipCount !== undefined) {

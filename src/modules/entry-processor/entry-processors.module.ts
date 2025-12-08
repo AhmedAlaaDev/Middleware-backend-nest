@@ -5,11 +5,13 @@ import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
+import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 
 const EntryProcessors = [
   AccountReceivableFreightEntryProcessor,
   AccountReceivableTruckingEntryProcessor,
+  VendorFreightEntryProcessor,
   // Add other processors here
 ];
 

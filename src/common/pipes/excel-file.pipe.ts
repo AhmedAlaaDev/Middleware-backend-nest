@@ -13,6 +13,14 @@ const ALLOWED_TYPES = [
 @Injectable()
 export class ExcelFilePipe implements PipeTransform {
   transform(value: MulterFile, _: ArgumentMetadata): MulterFile {
+    if (!value) {
+      throw new BadRequestException('File is required');
+    }
+
+    if (!value.mimetype) {
+      throw new BadRequestException('Invalid File type!');
+    }
+
     // "value" is an object containing the file's attributes and metadata
     if (!ALLOWED_TYPES.includes(value.mimetype)) {
       throw new BadRequestException('File type not allowed');

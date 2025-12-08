@@ -11,9 +11,7 @@ import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessARTruckingCommand)
 @Injectable()
-export class ProcessARTruckingHandler
-  implements ICommandHandler<ProcessARTruckingCommand>
-{
+export class ProcessARTruckingHandler implements ICommandHandler<ProcessARTruckingCommand> {
   private readonly logger = new Logger(ProcessARTruckingHandler.name);
 
   constructor(
@@ -37,7 +35,7 @@ export class ProcessARTruckingHandler
     }
 
     const processor = this.processorFactory.getProcessorByName(
-      'AccountReceivableTruckingEntryProcessor',
+      EntryProcessorTypes.AccountReceivableTrucking,
     );
 
     const enriched = await processor.formatAndEnrichAsync(
@@ -76,4 +74,3 @@ export class ProcessARTruckingHandler
     return validated;
   }
 }
-

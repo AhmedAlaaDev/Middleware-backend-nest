@@ -7,8 +7,8 @@ export class GetExchangeRatesQuery extends Query<IExchangeRate[]> {
     public readonly rateType?: string,
     public readonly fromCurrency?: string,
     public readonly toCurrency?: string,
-    public readonly fromDate?: Date,
-    public readonly toDate?: Date,
+    public readonly fromDate?: string,
+    public readonly toDate?: string,
   ) {
     super();
   }

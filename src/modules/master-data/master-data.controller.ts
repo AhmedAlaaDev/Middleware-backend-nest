@@ -19,6 +19,7 @@ import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-ex
 import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
 import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
 import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
+import { GetExchangeRatesDto } from '@/modules/master-data/dtos/get-exchange-rates.dto';
 import { GetFinancialDimensionDto } from '@/modules/master-data/dtos/get-financial-dimension.dto';
 import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
@@ -297,19 +298,15 @@ export class MasterDataController {
     description: 'Exchange rates retrieved successfully',
   })
   public getExchangeRatesAsync(
-    @Query('rateType') rateType?: string,
-    @Query('fromCurrency') fromCurrency?: string,
-    @Query('toCurrency') toCurrency?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
+    @Query() getExchangeRatesDto: GetExchangeRatesDto,
   ) {
     return this.queryBus.execute(
       new GetExchangeRatesQuery(
-        rateType,
-        fromCurrency,
-        toCurrency,
-        fromDate ? new Date(fromDate) : undefined,
-        toDate ? new Date(toDate) : undefined,
+        getExchangeRatesDto.rateType,
+        getExchangeRatesDto.fromCurrency,
+        getExchangeRatesDto.toCurrency,
+        getExchangeRatesDto.fromDate,
+        getExchangeRatesDto.toDate,
       ),
     );
   }

@@ -22,4 +22,6 @@ export enum EntryProcessorTypes {
   LedgerCashIn = 14,
   LedgerBankIn = 15,
   LedgerVisaIn = 16,
+  VendorFreight = 17,
+  VendorTrucking = 18,
 }

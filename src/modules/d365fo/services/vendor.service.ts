@@ -15,7 +15,7 @@ export class VendorService {
   constructor(
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
-  ) { }
+  ) {}
 
   /**
    * Get vendor list for a specific company
@@ -43,11 +43,11 @@ export class VendorService {
     const baseFilter = this.queryBuilder.eq('dataAreaId', company);
     const filter = filters
       ? this.queryBuilder.and(
-        baseFilter,
-        Array.isArray(filters)
-          ? this.queryBuilder.buildFilterExpression(filters)
-          : filters,
-      )
+          baseFilter,
+          Array.isArray(filters)
+            ? this.queryBuilder.buildFilterExpression(filters)
+            : filters,
+        )
       : baseFilter;
 
     const query = this.queryBuilder.buildQuery('/data/VendorsV3', {
