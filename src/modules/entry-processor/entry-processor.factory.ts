@@ -9,6 +9,7 @@ import { VendorFreightAdjustmentEntryProcessor } from '@/modules/entry-processor
 import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
 import { VendorTruckingAdjustmentEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-adjustment-entry.processor';
 import { VendorTruckingEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-entry.processor';
+import { AccountReceivableTruckingCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-credit-note-entry.processor';
 
 @Injectable()
 export class EntryProcessorFactory {
