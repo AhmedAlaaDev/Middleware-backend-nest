@@ -4,12 +4,22 @@ import {
   DataBatchStatus,
   EntryProcessorTypes,
 } from '@/modules/data-batch/enums/data-batch.enum';
-import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
+import {
+  ICreateDataBatchError,
+  IDataBatchError,
+} from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import {
   IDataBatch,
   IDataBatchListFilter,
 } from '@/modules/data-batch/interfaces/data-batch.interface';
-import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
+import {
+  ICreateDataEnhancedRecord,
+  IDataEnhancedRecord,
+} from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
+import {
+  ICreateDataSourceRecord,
+  IDataSourceRecord,
+} from '@/modules/data-batch/interfaces/data-source-record.interface';
 import {
   DataBatchErrorRepository,
   DataBatchRepository,
@@ -33,14 +43,19 @@ export class DataBatchService {
 
   /**
    * Create a new batch with source and enhanced records
+   * @template TRawData - Type of raw/source data records
+   * @template TEnhancedData - Type of enhanced/dynamic data records
    */
-  public async createAsync(
+  public async createAsync<
+    TRawData extends RawDataModel = RawDataModel,
+    TEnhancedData extends DynDataModel = DynDataModel,
+  >(
     entryProcessorType: EntryProcessorTypes,
     entryProcessorName: string,
     companyId: string,
     description: string,
-    rawData: RawDataModel[],
-    dynData: DynDataModel[],
+    rawData: TRawData[],
+    dynData: TEnhancedData[],
     billingClassification?: string,
   ): Promise<IDataBatch> {
     this.logger.log(
@@ -69,11 +84,18 @@ export class DataBatchService {
 
     // Bulk insert source records
     if (rawData.length > 0) {
-      const sourceRecords = rawData.map((record) => ({
-        batchId: dataBatch.id,
-        data: record,
+      const sourceRecords: ICreateDataSourceRecord<TRawData>[] = rawData.map(
+        (record) => ({
+          batchId: dataBatch.id,
+          data: record,
+        }),
+      );
+      // Convert to storage format for repository
+      const storageRecords = sourceRecords.map((record) => ({
+        batchId: record.batchId,
+        data: record.data as unknown as Record<string, unknown>,
       }));
-      await this.dataSourceRecordRepo.insertMany(sourceRecords);
+      await this.dataSourceRecordRepo.insertMany(storageRecords);
       this.logger.debug(
         `Inserted source records: count=${sourceRecords.length}`,
       );
@@ -81,14 +103,28 @@ export class DataBatchService {
 
     // Bulk insert enhanced records
     if (dynData.length > 0) {
-      const enhancedRecords = dynData.map((record) => ({
-        batchId: dataBatch.id,
+      const enhancedRecords: ICreateDataEnhancedRecord<TEnhancedData>[] =
+        dynData.map((record) => ({
+          batchId: dataBatch.id,
+          dimensionModel: record.dimensionModel
+            ? (Object.assign(
+                {},
+                record.dimensionModel,
+              ) as unknown as Record<string, unknown>)
+            : undefined,
+          sourceIds: record.sourceIds || [],
+          data: record,
+          dataModelType: this.getDataModelType(record),
+        }));
+      // Convert to storage format for repository
+      const storageRecords = enhancedRecords.map((record) => ({
+        batchId: record.batchId,
         dimensionModel: record.dimensionModel,
-        sourceIds: record.sourceIds || [],
-        data: record,
-        dataModelType: this.getDataModelType(record),
+        sourceIds: record.sourceIds,
+        data: record.data as unknown as Record<string, unknown>,
+        dataModelType: record.dataModelType,
       }));
-      await this.dataEnhancedRecordRepo.insertMany(enhancedRecords);
+      await this.dataEnhancedRecordRepo.insertMany(storageRecords);
       this.logger.debug(
         `Inserted enhanced records: count=${enhancedRecords.length}`,
       );
@@ -97,17 +133,30 @@ export class DataBatchService {
     // Insert errors if any
     const errorRecords = dynData.filter((d) => d.errorCount > 0);
     if (errorRecords.length > 0) {
-      const batchErrors = errorRecords.map((record) => ({
-        batchId: dataBatch.id,
-        sourceRecordIds: record.sourceIds || [],
-        errorMessages: record.getErrors(),
-        accountDimensionsModel: record.dimensionModel,
-        enhancedRecordIds: [record.lineNumber?.toString() || ''],
+      const batchErrors: ICreateDataBatchError<TEnhancedData>[] =
+        errorRecords.map((record) => ({
+          batchId: dataBatch.id,
+          sourceRecordIds: record.sourceIds || [],
+          errorMessages: record.getErrors(),
+          accountDimensionsModel: record.dimensionModel
+            ? (Object.assign(
+                {},
+                record.dimensionModel,
+              ) as unknown as Record<string, any>)
+            : undefined,
+          enhancedRecordIds: [record.lineNumber?.toString() || ''],
+          enhancedData: record,
+        }));
+      // Convert to storage format for repository
+      const storageErrors = batchErrors.map((error) => ({
+        batchId: error.batchId,
+        sourceRecordIds: error.sourceRecordIds,
+        errorMessages: error.errorMessages,
+        accountDimensionsModel: error.accountDimensionsModel,
+        enhancedRecordIds: error.enhancedRecordIds,
       }));
-      await this.dataBatchErrorRepo.insertMany(batchErrors);
-      this.logger.debug(
-        `Inserted batch errors: count=${batchErrors.length}`,
-      );
+      await this.dataBatchErrorRepo.insertMany(storageErrors);
+      this.logger.debug(`Inserted batch errors: count=${batchErrors.length}`);
     }
 
     this.logger.log(
@@ -136,12 +185,25 @@ export class DataBatchService {
   }
 
   /**
-   * Get enhanced records for a batch
+   * Get source records for a batch
+   * @template TRawData - Type of raw/source data records
    */
-  public async getEnhancedRecordsAsync(
+  public async getSourceRecordsAsync<TRawData = Record<string, unknown>>(
     batchId: string,
-  ): Promise<IDataEnhancedRecord[]> {
-    return this.dataEnhancedRecordRepo.getList(batchId);
+  ): Promise<IDataSourceRecord<TRawData>[]> {
+    const records = await this.dataSourceRecordRepo.getList(batchId);
+    return records as IDataSourceRecord<TRawData>[];
+  }
+
+  /**
+   * Get enhanced records for a batch
+   * @template TEnhancedData - Type of enhanced data records
+   */
+  public async getEnhancedRecordsAsync<TEnhancedData = Record<string, unknown>>(
+    batchId: string,
+  ): Promise<IDataEnhancedRecord<TEnhancedData>[]> {
+    const records = await this.dataEnhancedRecordRepo.getList(batchId);
+    return records as IDataEnhancedRecord<TEnhancedData>[];
   }
 
   /**
@@ -155,10 +217,14 @@ export class DataBatchService {
   }
 
   /**
-   * get data batch errors
+   * Get data batch errors
+   * @template TEnhancedData - Type of enhanced data in errors
    */
-  public async getErrorsAsync(batchId: string): Promise<IDataBatchError[]> {
-    return this.dataBatchErrorRepo.getList({ batchId });
+  public async getErrorsAsync<TEnhancedData = Record<string, unknown>>(
+    batchId: string,
+  ): Promise<IDataBatchError<TEnhancedData>[]> {
+    const errors = await this.dataBatchErrorRepo.getList({ batchId });
+    return errors as IDataBatchError<TEnhancedData>[];
   }
 
   public async getDataBatchListAsync(

@@ -1,12 +1,13 @@
-export interface IDataSourceRecord {
+export interface IDataSourceRecord<TRawData = Record<string, unknown>> {
   id: string;
   batchId: string;
-  data: Record<string, unknown>;
+  data: TRawData;
 }
 
-export interface ICreateDataSourceRecord {
+export interface ICreateDataSourceRecord<TRawData = Record<string, unknown>> {
   batchId: string;
-  data: Record<string, unknown>;
+  data: TRawData;
 }
 
-export type IUpdateDataSourceRecord = Partial<ICreateDataSourceRecord>;
+export type IUpdateDataSourceRecord<TRawData = Record<string, unknown>> =
+  Partial<ICreateDataSourceRecord<TRawData>>;
