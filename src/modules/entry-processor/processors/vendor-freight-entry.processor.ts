@@ -71,10 +71,17 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     const currentBatchNum =
       (
         await this.queryBus.execute(
-          new GetSettingQuery('last.ledger.vendor.freight.voucher.number'),
+          new GetSettingQuery('last.ledger.batch.number'),
         )
       )?.value ?? '0';
     let journalBatchNum: number = Number(currentBatchNum) + 1;
+    const currentVoucherNum =
+      (
+        await this.queryBus.execute(
+          new GetSettingQuery('last.ledger.vendor.freight.voucher.number'),
+        )
+      )?.value ?? '0';
+    const voucherNum: number = Number(currentVoucherNum) + 1;
 
     for (const [uniqueId, lines] of groupedByUniqueId.entries()) {
       const header = lines[0];
@@ -161,7 +168,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           taxExemptNumber: '',
           termsOfPayment: '',
           transactionType: 'vendor',
-          voucher: '',
+          voucher: voucherNum,
         };
       });
 

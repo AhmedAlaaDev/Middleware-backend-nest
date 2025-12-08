@@ -36,7 +36,7 @@ export class IVendorFreightDFOLine {
   taxExemptNumber: string;
   termsOfPayment: string;
   transactionType: string;
-  voucher: string;
+  voucher: number;
 }
 
 export class IVendorFreightDFOData {
