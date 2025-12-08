@@ -4,13 +4,13 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { ProcessARFreightCommand } from '../process-ar-freight.command';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { ExcelService } from '@/modules/excel/excel.service';
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 
 @CommandHandler(ProcessARFreightCommand)
 @Injectable()

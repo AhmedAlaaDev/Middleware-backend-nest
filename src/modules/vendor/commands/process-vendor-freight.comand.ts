@@ -1,6 +1,8 @@
 import { Command } from '@nestjs/cqrs';
 
-export class ProcessVendorFreightCommand extends Command<any> {
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
+
+export class ProcessVendorFreightCommand extends Command<IDataBatch> {
   constructor(
     public readonly fileBuffer: Buffer,
     public readonly companyId?: string,

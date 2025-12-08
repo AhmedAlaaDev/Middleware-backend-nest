@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
@@ -21,7 +22,7 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
   public async execute({
     companyId,
     fileBuffer,
-  }: ProcessVendorFreightCommand): Promise<any> {
+  }: ProcessVendorFreightCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
     const rawData =
       await this.excelService.excelToJson<VendorFreightRawData>(fileBuffer);
@@ -34,11 +35,7 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
 
     const validated = await processor.validateAsync(enriched, company);
 
-    return validated;
-
-    if (validated.length === 0) return;
-
-    await this.dataBatchService.createAsync(
+    const dataBatch = await this.dataBatchService.createAsync(
       EntryProcessorTypes.VendorFreight,
       ENTRY_PROCESSOR_NAMES.VENDOR_FREIGHT,
       company,
@@ -47,6 +44,6 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
       validated,
     );
 
-    return validated;
+    return dataBatch;
   }
 }

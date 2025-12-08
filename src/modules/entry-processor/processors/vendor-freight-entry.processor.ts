@@ -14,7 +14,7 @@ import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/finan
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
-  IVendorFreightDFOData,
+  IVendorFreightDFOHeader,
   IVendorFreightDFOLine,
 } from '@/modules/vendor/interfaces/vendor-freight-dfo-data.interface';
 import { VendorFreightRawData } from '@/modules/vendor/models/vendor-freight-raw-data.model';
@@ -30,8 +30,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     'Location',
     'ChargeType',
     'SalesMan',
-    'CoordinatorMan',
     'FreightType',
+    'CoordinatorMan',
     'Direction',
     'Vendor',
     'SubVendor',
@@ -67,7 +67,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       groupedByUniqueId.get(uniqueId)!.push(line);
     }
 
-    const eData: IVendorFreightDFOData[] = [];
+    const eData: IVendorFreightDFOLine[] = [];
 
     const currentBatchNum =
       (
@@ -122,11 +122,22 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       let journalTotalCredit = 0;
       let journalTotalDebit = 0;
 
+      const dfoHeader = new IVendorFreightDFOHeader({
+        journalBatchNum,
+        description: `Vendor Invoice Freight ${formattedDate}`,
+        isPosted: header.ISPOSTED,
+        journalName: header.JOURNALNAME,
+        journalTotalCredit,
+        journalTotalDebit,
+        oversideSalesTax: false,
+        salesTaxIncluded: true,
+      });
+
       const linesData: IVendorFreightDFOLine[] = lines.map((line) => {
         journalTotalCredit += line.CREDITAMOUNT ?? 0;
         journalTotalDebit += line.DEBITAMOUNT ?? 0;
 
-        const dimensions = this.parseToDimensions(
+        const dimensionModel = this.parseToDimensions(
           line.ISLEDGER
             ? line.ACCOUNTDISPLAYVALUE
             : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -134,11 +145,12 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
 
         voucherNum++;
 
-        return {
+        return new IVendorFreightDFOLine({
+          header: dfoHeader,
           journalBatchNum,
           lineNumber: line.LINENUMBER,
           accountType: line.ACCOUNTTYPE,
-          dimensions,
+          dimensionModel,
           company: company,
           credit: line.CREDITAMOUNT ?? 0,
           currency: line.CURRENCYCODE,
@@ -172,36 +184,28 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           termsOfPayment: '',
           transactionType: 'vendor',
           voucher: voucherNum,
-        };
+          sourceIds: [uniqueId],
+        });
       });
 
-      const dfoData = new IVendorFreightDFOData({
-        journalBatchNum,
-        description: `Vendor Invoice Freight ${formattedDate}`,
-        isPosted: header.ISPOSTED,
-        journalName: header.JOURNALNAME,
-        journalTotalCredit,
-        journalTotalDebit,
-        oversideSalesTax: false,
-        salesTaxIncluded: true,
-        lines: linesData,
-        sourceIds: [uniqueId],
-      });
-
-      eData.push(dfoData);
+      eData.push(...linesData);
       journalBatchNum++;
     }
 
-    return eData.slice(0, 10);
+    return eData as unknown as DynDataModel[];
   }
 
   public async validateAsync(
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
-    const arData = data as IVendorFreightDFOData[];
+    const arData = data as unknown as IVendorFreightDFOLine[];
+
     // Load dimensions and accounts
     const accounts = await this.getAllMainAccounts();
+    const accountNumbers = accounts.map(({ accountNumber }) => ({
+      accountNumber,
+    }));
 
     type MapKey = (typeof this.requiredDimensions)[number];
 
@@ -215,24 +219,37 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
 
     // Validate each line
     for (const arLine of arData) {
-      this.validateMainAccount(
-        arLine,
-        accounts.map((a) => ({ accountNumber: a.accountNumber })),
-      );
+      // Validate main account
+      this.validateMainAccount(arLine, accountNumbers);
+      // Validate activity
       this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
+      // Validate cost centers
       this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
+      // Validate business unit
       this.validateBusinessUnit(
         arLine,
         dimensionsMap.get('BusinessUnit') || [],
       );
+      // Validate location
       this.validateLocation(arLine, dimensionsMap.get('Location') || []);
+      // Validate charge type
+      // Validate sales man
       this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
+      // Validate freight type
       this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
-      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
+      // Validate coordinator man
       this.validateCoordinatorMan(
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
       );
+      // Validate direction
+      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
+      // Validate vendor
+      this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
+      // validate subvendor
+      if (arLine.dimensionModel.subVendor) {
+        this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
+      }
     }
 
     return data;

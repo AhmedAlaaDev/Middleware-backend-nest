@@ -1,9 +1,10 @@
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
-export class IVendorFreightDFOLine {
+class VendorFreightDFOLine {
+  header: IVendorFreightDFOHeader;
   journalBatchNum: number;
   lineNumber: number;
-  dimensions: AccountDimensionsModel;
+  dimensionModel: AccountDimensionsModel;
   accountType: 'Vend' | 'Ledger';
   company: string;
   credit: number;
@@ -37,46 +38,18 @@ export class IVendorFreightDFOLine {
   termsOfPayment: string;
   transactionType: string;
   voucher: number;
-}
-
-interface VendorFreightDFOData {
-  journalBatchNum: number;
-  description: string;
-  isPosted: boolean;
-  journalName: string;
-  journalTotalCredit: number;
-  journalTotalDebit: number;
-  oversideSalesTax: boolean;
-  salesTaxIncluded: boolean;
-  lines: IVendorFreightDFOLine[];
-  sourceIds: string[];
-}
-
-export class IVendorFreightDFOData {
-  journalBatchNum: number;
-  description: string;
-  isPosted: boolean;
-  journalName: string;
-  journalTotalCredit: number;
-  journalTotalDebit: number;
-  oversideSalesTax: boolean;
-  salesTaxIncluded: boolean;
-  lines: IVendorFreightDFOLine[];
   sourceIds: string[];
 
+  constructor(data: VendorFreightDFOLine) {
+    Object.assign(this, data);
+  }
+}
+
+export class IVendorFreightDFOLine extends VendorFreightDFOLine {
   private errors: Array<{ property: string; message: string }> = [];
 
-  constructor(data: VendorFreightDFOData) {
-    this.journalBatchNum = data.journalBatchNum;
-    this.description = data.description;
-    this.isPosted = data.isPosted;
-    this.journalName = data.journalName;
-    this.journalTotalCredit = data.journalTotalCredit;
-    this.journalTotalDebit = data.journalTotalDebit;
-    this.oversideSalesTax = data.oversideSalesTax;
-    this.salesTaxIncluded = data.salesTaxIncluded;
-    this.lines = data.lines;
-    this.sourceIds = data.sourceIds;
+  constructor(data: VendorFreightDFOLine) {
+    super(data);
   }
 
   get errorCount(): number {
@@ -96,5 +69,20 @@ export class IVendorFreightDFOData {
 
   getErrors(): string[] {
     return this.errors.map((e) => `${e.property}: ${e.message}`);
+  }
+}
+
+export class IVendorFreightDFOHeader {
+  journalBatchNum: number;
+  description: string;
+  isPosted: boolean;
+  journalName: string;
+  journalTotalCredit: number;
+  journalTotalDebit: number;
+  oversideSalesTax: boolean;
+  salesTaxIncluded: boolean;
+
+  constructor(data: IVendorFreightDFOHeader) {
+    Object.assign(this, data);
   }
 }

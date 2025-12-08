@@ -107,10 +107,10 @@ export class DataBatchService {
         dynData.map((record) => ({
           batchId: dataBatch.id,
           dimensionModel: record.dimensionModel
-            ? (Object.assign(
-                {},
-                record.dimensionModel,
-              ) as unknown as Record<string, unknown>)
+            ? (Object.assign({}, record.dimensionModel) as unknown as Record<
+                string,
+                unknown
+              >)
             : undefined,
           sourceIds: record.sourceIds || [],
           data: record,
@@ -139,10 +139,10 @@ export class DataBatchService {
           sourceRecordIds: record.sourceIds || [],
           errorMessages: record.getErrors(),
           accountDimensionsModel: record.dimensionModel
-            ? (Object.assign(
-                {},
-                record.dimensionModel,
-              ) as unknown as Record<string, any>)
+            ? (Object.assign({}, record.dimensionModel) as unknown as Record<
+                string,
+                any
+              >)
             : undefined,
           enhancedRecordIds: [record.lineNumber?.toString() || ''],
           enhancedData: record,
