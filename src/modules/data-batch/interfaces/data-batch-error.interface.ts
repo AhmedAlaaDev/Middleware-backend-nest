@@ -1,3 +1,5 @@
+import { ApiHideProperty } from '@nestjs/swagger';
+
 export class IDataBatchError<TEnhancedData = Record<string, unknown>> {
   id: string;
   batchId: string;
@@ -5,6 +7,8 @@ export class IDataBatchError<TEnhancedData = Record<string, unknown>> {
   errorMessages: string[];
   accountDimensionsModel?: Record<string, any>;
   enhancedRecordIds: string[];
+  
+  @ApiHideProperty()
   enhancedData?: TEnhancedData;
 }
 
