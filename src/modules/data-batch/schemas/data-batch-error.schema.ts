@@ -22,6 +22,9 @@ export class DataBatchError {
 
   @Prop({ type: [String], default: [] })
   enhancedRecordIds: string[];
+
+  @Prop({ type: Object })
+  enhancedData?: Record<string, unknown>;
 }
 export const DataBatchErrorSchema =
   SchemaFactory.createForClass(DataBatchError);

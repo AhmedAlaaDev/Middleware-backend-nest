@@ -3,6 +3,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessARTruckingCommand } from '../process-ar-trucking.command';
 
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
@@ -21,7 +22,7 @@ export class ProcessARTruckingHandler implements ICommandHandler<ProcessARTrucki
     private readonly dataBatchService: DataBatchService,
   ) {}
 
-  public async execute(command: ProcessARTruckingCommand): Promise<any> {
+  public async execute(command: ProcessARTruckingCommand): Promise<IDataBatch> {
     this.logger.log(
       `Start ProcessARTrucking: company=${command.companyId}, billingCodeId=${command.billingCodeId}, bufferLength=${command.fileBuffer?.length || 0}`,
     );
@@ -72,9 +73,9 @@ export class ProcessARTruckingHandler implements ICommandHandler<ProcessARTrucki
       command.billingCodeId,
     );
     this.logger.log(
-      `Created data batch: ${(batch as any)?.id || 'unknown'} with ${validated.length} enhanced records`,
+      `Created data batch: ${batch.id} with ${validated.length} enhanced records`,
     );
 
-    return validated;
+    return batch;
   }
 }
