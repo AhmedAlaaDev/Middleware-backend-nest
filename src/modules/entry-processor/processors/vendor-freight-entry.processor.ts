@@ -10,6 +10,7 @@ import {
   DynDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
@@ -34,7 +35,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     'Direction',
     'Vendor',
     'SubVendor',
-  ];
+  ] as const;
 
   constructor(
     customerInvoiceService: CustomerInvoiceService,
@@ -81,7 +82,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           new GetSettingQuery('last.ledger.vendor.freight.voucher.number'),
         )
       )?.value ?? '0';
-    const voucherNum: number = Number(currentVoucherNum) + 1;
+    let voucherNum: number = Number(currentVoucherNum) + 1;
 
     for (const [uniqueId, lines] of groupedByUniqueId.entries()) {
       const header = lines[0];
@@ -131,6 +132,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
             : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
         );
 
+        voucherNum++;
+
         return {
           journalBatchNum,
           lineNumber: line.LINENUMBER,
@@ -172,7 +175,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         };
       });
 
-      const dfoData: IVendorFreightDFOData = {
+      const dfoData = new IVendorFreightDFOData({
         journalBatchNum,
         description: `Vendor Invoice Freight ${formattedDate}`,
         isPosted: header.ISPOSTED,
@@ -182,24 +185,61 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         oversideSalesTax: false,
         salesTaxIncluded: true,
         lines: linesData,
-      };
+        sourceIds: [uniqueId],
+      });
 
       eData.push(dfoData);
       journalBatchNum++;
     }
 
-    return eData.slice(0, 10) as unknown as Promise<DynDataModel[]>;
+    return eData.slice(0, 10);
   }
 
-  public validateAsync(
+  public async validateAsync(
     data: DynDataModel[],
-    company: string,
+    _company: string,
   ): Promise<DynDataModel[]> {
-    return data as unknown as Promise<DynDataModel[]>;
+    const arData = data as IVendorFreightDFOData[];
+    // Load dimensions and accounts
+    const accounts = await this.getAllMainAccounts();
+
+    type MapKey = (typeof this.requiredDimensions)[number];
+
+    const dimensionsMap = new Map<MapKey, IFinancialDimensionValue[]>();
+
+    for (const dimensionKey of this.requiredDimensions) {
+      const dimensionValues =
+        await this.getFinancialDimensionValues(dimensionKey);
+      dimensionsMap.set(dimensionKey, dimensionValues || []);
+    }
+
+    // Validate each line
+    for (const arLine of arData) {
+      this.validateMainAccount(
+        arLine,
+        accounts.map((a) => ({ accountNumber: a.accountNumber })),
+      );
+      this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
+      this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
+      this.validateBusinessUnit(
+        arLine,
+        dimensionsMap.get('BusinessUnit') || [],
+      );
+      this.validateLocation(arLine, dimensionsMap.get('Location') || []);
+      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
+      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
+      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
+      this.validateCoordinatorMan(
+        arLine,
+        dimensionsMap.get('CoordinatorMan') || [],
+      );
+    }
+
+    return data;
   }
 
   public async insertIntoDynamicsAsync(
-    data: DynDataModel[],
-    company: string,
+    _data: DynDataModel[],
+    _company: string,
   ): Promise<void> {}
 }

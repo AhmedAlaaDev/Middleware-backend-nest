@@ -16,7 +16,7 @@ export interface DynDataModel {
 
 export interface IEntryProcessor {
   readonly entryProcessorType: EntryProcessorTypes;
-  readonly requiredDimensions: string[];
+  readonly requiredDimensions: readonly string[] | string[];
 
   formatAndEnrichAsync(
     data: RawDataModel[],

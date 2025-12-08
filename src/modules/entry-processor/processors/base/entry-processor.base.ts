@@ -21,7 +21,7 @@ import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
-  abstract readonly requiredDimensions: string[];
+  abstract readonly requiredDimensions: readonly string[];
 
   protected billingClassifications: Map<string, Array<IBillingCode>> =
     new Map();
@@ -94,9 +94,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         parts.length > 3 ? capitalizeFirst(parts[3])?.trim() : undefined,
       location:
         parts.length > 4
-          ? (String(parts[4]).toLowerCase().includes('cai')
+          ? String(parts[4]).toLowerCase().includes('cai')
             ? '002'
-            : String(parts[4]).trim())
+            : String(parts[4]).trim()
           : undefined,
       customer:
         parts.length > 5 ? capitalizeFirst(parts[5])?.trim() : undefined,
@@ -141,7 +141,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       dimensionsModel.costCenter,
       dimensionsModel.activityName,
       dimensionsModel.businessUnit,
-      (String(dimensionsModel.location) === '002' ? 'cai' : dimensionsModel.location),
+      String(dimensionsModel.location) === '002'
+        ? 'cai'
+        : dimensionsModel.location,
       dimensionsModel.customer,
       dimensionsModel.subCustomer,
       dimensionsModel.vendor,
@@ -181,16 +183,17 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const termsOfPaymentDays =
       dueDate && transDate
         ? Math.ceil(
-          (dueDate.getTime() - transDate.getTime()) /
-          (1000 * 60 * 60 * 24),
-        )
+            (dueDate.getTime() - transDate.getTime()) / (1000 * 60 * 60 * 24),
+          )
         : 0;
 
     const line = new DynAccountReceivableLineDto();
     const sourceId = this.buildSourceId(custLine, ledgerLine, lineNumber);
     line.sourceIds = [sourceId];
-    line.uniqueId = typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
-    line.customId = typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
+    line.uniqueId =
+      typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
+    line.customId =
+      typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.lineNumber = lineNumber;
     line.freeTextNumber = custLine.getFormattedInvoiceNumber();
     line.documentDate = transDate;
@@ -731,7 +734,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    * Get all main accounts
    */
   protected async getAllMainAccounts() {
-    return this.queryBus.execute(new GetMainAccountsQuery("coa"));
+    return this.queryBus.execute(new GetMainAccountsQuery('coa'));
   }
 
   /**
