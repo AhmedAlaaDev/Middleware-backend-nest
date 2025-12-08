@@ -8,6 +8,7 @@ import { AccountReceivableFreightCreditNoteEntryProcessor } from '@/modules/entr
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
 import { AccountReceivableTruckingCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-credit-note-entry.processor';
 import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
+import { VendorTruckingEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-entry.processor';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 
 const EntryProcessors = [
@@ -16,6 +17,7 @@ const EntryProcessors = [
   AccountReceivableTruckingEntryProcessor,
   AccountReceivableTruckingCreditNoteEntryProcessor,
   VendorFreightEntryProcessor,
+  VendorTruckingEntryProcessor,
   // Add other processors here
 ];
 

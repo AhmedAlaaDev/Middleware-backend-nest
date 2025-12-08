@@ -14,14 +14,14 @@ import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/finan
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
-  IVendorFreightDFOHeader,
-  IVendorFreightDFOLine,
-} from '@/modules/vendor/interfaces/vendor-freight-dfo-data.interface';
-import { VendorFreightRawData } from '@/modules/vendor/models/vendor-freight-raw-data.model';
+  IVendorTruckingDFOHeader,
+  IVendorTruckingDFOLine,
+} from '@/modules/vendor/interfaces/vendor-trucking-dfo-data.interface';
+import { VendorTruckingRawData } from '@/modules/vendor/models/vendor-trucking-raw-data.model';
 
 @Injectable()
-export class VendorFreightEntryProcessor extends EntryProcessorBase {
-  readonly entryProcessorType = EntryProcessorTypes.VendorFreight;
+export class VendorTruckingEntryProcessor extends EntryProcessorBase {
+  readonly entryProcessorType = EntryProcessorTypes.VendorTrucking;
 
   readonly requiredDimensions = [
     'MainAccount',
@@ -31,11 +31,14 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     'Location',
     'ChargeType',
     'SalesMan',
-    'FreightType',
     'CoordinatorMan',
+    'FreightType',
     'Direction',
+    'TruckerType',
+    'TruckNumber',
     'Vendor',
     'SubVendor',
+    'Worker',
   ] as const;
 
   constructor(
@@ -55,10 +58,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     company: string,
   ): Promise<DynDataModel[]> {
     const grouped = this.groupByUniqueId(
-      data.map((d) => new VendorFreightRawData(d)),
+      data.map((d) => new VendorTruckingRawData(d)),
     );
 
-    const eData: IVendorFreightDFOLine[] = [];
+    const eData: IVendorTruckingDFOLine[] = [];
     let journalBatchNum = await this.getNextBatchNumber();
     let voucherNum = await this.getNextVoucherNumber();
 
@@ -79,9 +82,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         false,
       );
 
-      const header = new IVendorFreightDFOHeader({
+      const header = new IVendorTruckingDFOHeader({
         journalBatchNum,
-        description: `Vendor Invoice Freight ${formattedDate}`,
+        description: `Vendor Invoice Fleet ${formattedDate}`,
         isPosted: headerLine.ISPOSTED,
         journalName: headerLine.JOURNALNAME,
         journalTotalCredit: 0,
@@ -124,7 +127,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
-    const lines = data as unknown as IVendorFreightDFOLine[];
+    const lines = data as unknown as IVendorTruckingDFOLine[];
 
     const dimensionsMap = await this.loadDimensionsMap();
     const mainAccounts = (await this.getAllMainAccounts()).map(
@@ -142,6 +145,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
       this.validateDirection(line, dimensionsMap.Direction);
       this.validateVendor(line, dimensionsMap.Vendor);
+      this.validateTruckerType(line, dimensionsMap.TruckerType);
+      this.validateTruckNumber(line, dimensionsMap.TruckNumber);
+      this.validateWorker(line, dimensionsMap.Worker);
 
       if (line.dimensionModel.subVendor) {
         this.validateSubVendor(line, dimensionsMap.SubVendor);
@@ -155,9 +161,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
 
-  private groupByUniqueId(lines: VendorFreightRawData[]) {
+  private groupByUniqueId(lines: VendorTruckingRawData[]) {
     const sorted = [...lines].sort((a, b) => a.UniqueId - b.UniqueId);
-    const grouped = new Map<string, VendorFreightRawData[]>();
+    const grouped = new Map<string, VendorTruckingRawData[]>();
 
     sorted.forEach((line) => {
       const id = line.UniqueId.toString();
@@ -210,14 +216,14 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   }
 
   private buildLines(
-    lines: VendorFreightRawData[],
-    header: IVendorFreightDFOHeader,
+    lines: VendorTruckingRawData[],
+    header: IVendorTruckingDFOHeader,
     company: string,
     exchangeRate: number,
     reportingRate: number,
     uniqueId: string,
     nextVoucher: () => number,
-  ): IVendorFreightDFOLine[] {
+  ): IVendorTruckingDFOLine[] {
     return lines.map((line) => {
       const dimensionModel = this.parseToDimensions(
         line.ISLEDGER
@@ -225,7 +231,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
       );
 
-      return new IVendorFreightDFOLine({
+      return new IVendorTruckingDFOLine({
         header,
         journalBatchNum: header.journalBatchNum,
         lineNumber: line.LINENUMBER,
@@ -246,7 +252,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         invoiceDate: line.DOCUMENTDATE,
         isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
         itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-        itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+        itemWithholdingTaxGroupCode: '',
         methodOfPayment: line.PAYMENTMETHOD,
         offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
         offsetAccountType: line.OFFSETACCOUNTTYPE,

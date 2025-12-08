@@ -106,13 +106,13 @@ export class DataBatchService {
       const enhancedRecords: ICreateDataEnhancedRecord<TEnhancedData>[] =
         dynData.map((record) => ({
           batchId: dataBatch.id,
-        dimensionModel: record.DimensionModel
-          ? (Object.assign(
-              {},
-              record.DimensionModel,
-            ) as unknown as Record<string, unknown>)
-          : undefined,
-        sourceIds: record.SourceIds || [],
+          dimensionModel: record.dimensionModel
+            ? (Object.assign({}, record.dimensionModel) as unknown as Record<
+                string,
+                unknown
+              >)
+            : undefined,
+          sourceIds: record.sourceIds || [],
           data: record,
           dataModelType: this.getDataModelType(record),
         }));
@@ -136,13 +136,13 @@ export class DataBatchService {
       const batchErrors: ICreateDataBatchError<TEnhancedData>[] =
         errorRecords.map((record) => ({
           batchId: dataBatch.id,
-          sourceRecordIds: record.SourceIds || [],
-          errorMessages: record.GetErrors(),
-          accountDimensionsModel: record.DimensionModel
-            ? (Object.assign(
-                {},
-                record.DimensionModel,
-              ) as unknown as Record<string, any>)
+          sourceRecordIds: record.sourceIds || [],
+          errorMessages: record.getErrors(),
+          accountDimensionsModel: record.dimensionModel
+            ? (Object.assign({}, record.dimensionModel) as unknown as Record<
+                string,
+                any
+              >)
             : undefined,
           enhancedRecordIds: [record.LineNumber?.toString() || ''],
           enhancedData: record,

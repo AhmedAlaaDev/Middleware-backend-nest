@@ -1,8 +1,7 @@
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 
-class VendorFreightDFOLine {
-  header: IVendorFreightDFOHeader;
+class VendorTruckingDFOLine {
+  header: IVendorTruckingDFOHeader;
   journalBatchNum: number;
   lineNumber: number;
   dimensionModel: AccountDimensionsModel;
@@ -41,15 +40,15 @@ class VendorFreightDFOLine {
   voucher: number;
   sourceIds: string[];
 
-  constructor(data: VendorFreightDFOLine) {
+  constructor(data: VendorTruckingDFOLine) {
     Object.assign(this, data);
   }
 }
 
-export class IVendorFreightDFOLine extends VendorFreightDFOLine {
+export class IVendorTruckingDFOLine extends VendorTruckingDFOLine {
   private errors: Array<{ property: string; message: string }> = [];
 
-  constructor(data: VendorFreightDFOLine) {
+  constructor(data: VendorTruckingDFOLine) {
     super(data);
   }
 
@@ -73,7 +72,7 @@ export class IVendorFreightDFOLine extends VendorFreightDFOLine {
   }
 }
 
-export class IVendorFreightDFOHeader {
+export class IVendorTruckingDFOHeader {
   journalBatchNum: number;
   description: string;
   isPosted: boolean;
@@ -83,7 +82,7 @@ export class IVendorFreightDFOHeader {
   oversideSalesTax: boolean;
   salesTaxIncluded: boolean;
 
-  constructor(data: IVendorFreightDFOHeader) {
+  constructor(data: IVendorTruckingDFOHeader) {
     Object.assign(this, data);
   }
 }

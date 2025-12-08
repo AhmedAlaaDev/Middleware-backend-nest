@@ -24,7 +24,10 @@ export class DataBatchListDto extends PaginatedDto {
    * Batch number ids to filter
    */
   @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
   @IsArray()
-  @IsString()
+  @IsString({
+    each: true,
+  })
   batchNumberIds?: string[];
 }

@@ -8,6 +8,7 @@ import {
 } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataEnhancedRecordRepository } from '@/modules/data-batch/repositories/interfaces/data-enhanced-record.repository';
 import { DataEnhancedRecord } from '@/modules/data-batch/schemas';
+import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
 @Injectable()
 export class DataEnhancedRecordMongoRepository implements DataEnhancedRecordRepository {

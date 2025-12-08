@@ -1,3 +1,4 @@
+import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 
 export class DynAccountReceivableLineDto extends DynDataModel {
