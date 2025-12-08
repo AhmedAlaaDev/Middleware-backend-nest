@@ -371,18 +371,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
       custLine.DOCUMENT || '',
     );
 
-    if (
-      billingCode &&
-      billingClassId &&
-      this.billingClassifications.has(billingClassId.toLowerCase()) &&
-      this.billingClassifications
-        .get(billingClassId.toLowerCase())!
-        .some((bc: IBillingCode) =>
-          bc.billingCode
-            ?.toLowerCase()
-            .includes(dimensions.chargeType?.toLowerCase() || ''),
-        )
-    ) {
+    if (billingCode) {
       line.BillingCode = billingCode.billingCode;
     } else {
       line.AddError(
