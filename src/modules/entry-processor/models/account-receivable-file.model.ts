@@ -28,7 +28,7 @@ export class AccountReceivableFileModel {
   ISWITHHOLDINGCALCULATIONENABLED?: string;
   ITEMWITHHOLDINGTAXGROUPCODE?: string;
   DOCUMENT?: string;
-  DOCUMENTDATE?: Date;
+  DOCUMENTDATE: Date;
   DUEDATE?: Date;
   INVOICE?: string;
   PAYMENTMETHOD?: string;

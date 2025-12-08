@@ -1,30 +1,32 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { ProcessARFreightCommand } from '../process-ar-freight.command';
+import { ProcessARTruckingCommand } from '../process-ar-trucking.command';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
-import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { ExcelService } from '@/modules/excel/excel.service';
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 
-@CommandHandler(ProcessARFreightCommand)
+@CommandHandler(ProcessARTruckingCommand)
 @Injectable()
-export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreightCommand> {
-  private readonly logger = new Logger(ProcessARFreightHandler.name);
+export class ProcessARTruckingHandler
+  implements ICommandHandler<ProcessARTruckingCommand>
+{
+  private readonly logger = new Logger(ProcessARTruckingHandler.name);
+
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
     private readonly dataBatchService: DataBatchService,
   ) {}
 
-  public async execute(command: ProcessARFreightCommand): Promise<IDataBatch> {
+  public async execute(command: ProcessARTruckingCommand): Promise<any> {
     this.logger.log(
-      `Start ProcessARFreight: company=${command.companyId}, billingCodeId=${command.billingCodeId}, bufferLength=${command.fileBuffer?.length || 0}`,
+      `Start ProcessARTrucking: company=${command.companyId}, billingCodeId=${command.billingCodeId}, bufferLength=${command.fileBuffer?.length || 0}`,
     );
+
     const rawData =
       await this.excelService.excelToJson<AccountReceivableFileModel>(
         command.fileBuffer,
@@ -35,7 +37,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     }
 
     const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.AccountReceivableFreight,
+      'AccountReceivableTruckingEntryProcessor',
     );
 
     const enriched = await processor.formatAndEnrichAsync(
@@ -59,18 +61,19 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     );
 
     const batch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.AccountReceivableFreight,
-      ENTRY_PROCESSOR_NAMES.ACCOUNT_RECEIVABLE_FREIGHT,
+      EntryProcessorTypes.AccountReceivableTrucking,
+      'AccountReceivableTruckingEntryProcessor',
       command.companyId,
-      `Account Receivable Freight ${command.billingCodeId} , ${Date.now()}`,
+      `Account Receivable Trucking ${command.billingCodeId} , ${Date.now()}`,
       rawData,
       validated,
       command.billingCodeId,
     );
     this.logger.log(
-      `Created data batch: ${batch.id} with ${validated.length} enhanced records`,
+      `Created data batch: ${(batch as any)?.id || 'unknown'} with ${validated.length} enhanced records`,
     );
 
-    return batch;
+    return validated;
   }
 }
+

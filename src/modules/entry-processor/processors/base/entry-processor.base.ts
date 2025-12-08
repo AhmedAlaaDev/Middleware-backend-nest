@@ -17,6 +17,7 @@ import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/finan
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetFinancialDimensionWithValueQuery } from '@/modules/master-data/queries/get-financial-dimension-with-values.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
+import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
@@ -49,9 +50,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   ): Promise<void>;
 
   parseToDimensions(dimensionString: string): AccountDimensionsModel {
-    const capitalizeFirst = (input: string | null | undefined): string => {
-      if (!input) return input || '';
-      const lower = input.toLowerCase();
+    const capitalizeFirst = (input: any): string => {
+      if (input === null || input === undefined) return '';
+      const s = typeof input === 'string' ? input : String(input);
+      const lower = s.toLowerCase();
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     };
 
@@ -92,9 +94,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         parts.length > 3 ? capitalizeFirst(parts[3])?.trim() : undefined,
       location:
         parts.length > 4
-          ? parts[4].toLowerCase().includes('cai')
+          ? (String(parts[4]).toLowerCase().includes('cai')
             ? '002'
-            : parts[4].trim()
+            : String(parts[4]).trim())
           : undefined,
       customer:
         parts.length > 5 ? capitalizeFirst(parts[5])?.trim() : undefined,
@@ -139,7 +141,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       dimensionsModel.costCenter,
       dimensionsModel.activityName,
       dimensionsModel.businessUnit,
-      dimensionsModel.location === '002' ? 'cai' : dimensionsModel.location,
+      (String(dimensionsModel.location) === '002' ? 'cai' : dimensionsModel.location),
       dimensionsModel.customer,
       dimensionsModel.subCustomer,
       dimensionsModel.vendor,
@@ -156,7 +158,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       dimensionsModel.lease,
     ];
 
-    return parts.map((p) => p?.trim() || '').join('|');
+    const normalize = (v: any) => {
+      if (v === null || v === undefined) return '';
+      const s = typeof v === 'string' ? v : String(v);
+      return s.trim();
+    };
+
+    return parts.map((p) => normalize(p)).join('|');
   }
 
   protected prepareAccountReceivableLine(
@@ -164,24 +172,28 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     dimensions: AccountDimensionsModel,
     custLine: AccountReceivableFileModel,
     ledgerLine: AccountReceivableFileModel,
-    billingCode: IBillingCode | null,
+    billingCode: BillingCode | null,
     billingClassId: string,
   ): DynAccountReceivableLineDto {
+    const transDate = this.coerceToDate(custLine.TRANSDATE) as Date;
+    const dueDate = this.coerceToDate(custLine.DUEDATE);
+    const cashDiscountDate = this.coerceToDate(custLine.CASHDISCOUNTDATE);
     const termsOfPaymentDays =
-      custLine.DUEDATE && custLine.TRANSDATE
+      dueDate && transDate
         ? Math.ceil(
-            (custLine.DUEDATE.getTime() - custLine.TRANSDATE.getTime()) /
-              (1000 * 60 * 60 * 24),
-          )
+          (dueDate.getTime() - transDate.getTime()) /
+          (1000 * 60 * 60 * 24),
+        )
         : 0;
 
     const line = new DynAccountReceivableLineDto();
-    line.sourceIds = [custLine.UniqueId.toString()];
-    line.uniqueId = custLine.UniqueId;
-    line.customId = custLine.UniqueId;
+    const sourceId = this.buildSourceId(custLine, ledgerLine, lineNumber);
+    line.sourceIds = [sourceId];
+    line.uniqueId = typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
+    line.customId = typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.lineNumber = lineNumber;
     line.freeTextNumber = custLine.getFormattedInvoiceNumber();
-    line.documentDate = custLine.TRANSDATE;
+    line.documentDate = transDate;
     line.customerAccount = dimensions.subCustomer || '';
     line.headerDefaultDimensionDisplayValue =
       custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
@@ -197,14 +209,14 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     line.defaultDimensionDisplayValue =
       custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
     line.lineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
-    line.dueDate = custLine.DUEDATE;
+    line.dueDate = dueDate || undefined;
     line.cashDiscountCode = undefined;
-    line.cashDiscountDate = custLine.CASHDISCOUNTDATE;
+    line.cashDiscountDate = cashDiscountDate || undefined;
     line.customerReference = custLine.getFormattedInvoiceNumber();
     line.eInvoiceIsLineSpecific = 'No';
     line.inclTax = 'Yes';
     line.invoiceAccount = dimensions.customer || '';
-    line.invoiceDate = custLine.TRANSDATE;
+    line.invoiceDate = transDate || undefined;
     line.ledgerDimensionDisplayValue = dimensions.mainAccount || '';
     line.overrideSalesTax = 'No';
     line.postingProfile = 'Cust-PP';
@@ -245,6 +257,35 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         `The main account ${dimensionsModel.mainAccount} does not exist in the system.`,
       );
     }
+  }
+
+  protected coerceToDate(input: any): Date | null {
+    if (!input) return null;
+    if (input instanceof Date) return input;
+    if (typeof input === 'string') {
+      const d = new Date(input);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof input === 'number') {
+      const ms = Math.round((input - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  protected buildSourceId(
+    custLine: AccountReceivableFileModel,
+    ledgerLine: AccountReceivableFileModel,
+    lineNumber: number,
+  ): string {
+    if (custLine?.UniqueId !== undefined && custLine?.UniqueId !== null) {
+      return String(custLine.UniqueId);
+    }
+    const v = custLine?.VOUCHER || '';
+    const i = custLine?.INVOICE || '';
+    const candidate = `${v}_${i}_${lineNumber}`;
+    return candidate;
   }
 
   protected validateCustomerDimension(
@@ -690,7 +731,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    * Get all main accounts
    */
   protected async getAllMainAccounts() {
-    return this.queryBus.execute(new GetMainAccountsQuery());
+    return this.queryBus.execute(new GetMainAccountsQuery("coa"));
   }
 
   /**

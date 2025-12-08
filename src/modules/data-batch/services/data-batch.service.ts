@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import {
   DataBatchStatus,
@@ -23,6 +23,7 @@ import {
 
 @Injectable()
 export class DataBatchService {
+  private readonly logger = new Logger(DataBatchService.name);
   constructor(
     private readonly dataBatchRepo: DataBatchRepository,
     private readonly dataBatchErrorRepo: DataBatchErrorRepository,
@@ -42,8 +43,14 @@ export class DataBatchService {
     dynData: DynDataModel[],
     billingClassification?: string,
   ): Promise<IDataBatch> {
+    this.logger.log(
+      `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
+    );
     const successCount = dynData.filter((d) => d.errorCount === 0).length;
     const errorCount = dynData.filter((d) => d.errorCount > 0).length;
+    this.logger.debug(
+      `Counts computed: success=${successCount} error=${errorCount}`,
+    );
 
     // Create batch
     const dataBatch = await this.dataBatchRepo.create({
@@ -58,6 +65,7 @@ export class DataBatchService {
       status: DataBatchStatus.Pending,
       billingCodeId: billingClassification,
     });
+    this.logger.log(`Batch created: id=${dataBatch.id}`);
 
     // Bulk insert source records
     if (rawData.length > 0) {
@@ -66,6 +74,9 @@ export class DataBatchService {
         data: record,
       }));
       await this.dataSourceRecordRepo.insertMany(sourceRecords);
+      this.logger.debug(
+        `Inserted source records: count=${sourceRecords.length}`,
+      );
     }
 
     // Bulk insert enhanced records
@@ -78,6 +89,9 @@ export class DataBatchService {
         dataModelType: this.getDataModelType(record),
       }));
       await this.dataEnhancedRecordRepo.insertMany(enhancedRecords);
+      this.logger.debug(
+        `Inserted enhanced records: count=${enhancedRecords.length}`,
+      );
     }
 
     // Insert errors if any
@@ -91,8 +105,14 @@ export class DataBatchService {
         enhancedRecordIds: [record.lineNumber?.toString() || ''],
       }));
       await this.dataBatchErrorRepo.insertMany(batchErrors);
+      this.logger.debug(
+        `Inserted batch errors: count=${batchErrors.length}`,
+      );
     }
 
+    this.logger.log(
+      `Data batch finalized: id=${dataBatch.id} raw=${rawData.length} dyn=${dynData.length} errors=${errorRecords.length}`,
+    );
     return dataBatch;
   }
 

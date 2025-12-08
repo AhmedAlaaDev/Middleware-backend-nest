@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
@@ -17,6 +17,7 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
+  private readonly procLogger = new Logger(AccountReceivableTruckingEntryProcessor.name);
   readonly entryProcessorType = EntryProcessorTypes.AccountReceivableTrucking;
   readonly requiredDimensions = [
     'MainAccount',
@@ -58,6 +59,9 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       Object.assign(model, raw);
       return model;
     });
+
+    this.procLogger.debug(`AR mapped rows: ${arData.length}`);
+    this.procLogger.debug(`AR mapped sample: ${JSON.stringify(arData.slice(0, 5))}`);
 
     // Group by VOUCHER and INVOICE
     const invoiceGroups = new Map<string, AccountReceivableFileModel[]>();

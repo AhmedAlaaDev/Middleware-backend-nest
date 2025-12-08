@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
@@ -17,6 +17,7 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 
 @Injectable()
 export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
+  private readonly procLogger = new Logger(AccountReceivableFreightEntryProcessor.name);
   readonly entryProcessorType = EntryProcessorTypes.AccountReceivableFreight;
   readonly requiredDimensions = [
     'MainAccount',
@@ -125,7 +126,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
           //Get the Dims Billing code
           const billingCode =
             billingCodes.find((bc: any) =>
-              bc.BillingCode?.toLowerCase().includes(
+              bc.billingCode?.toLowerCase().includes(
                 accountDimensions.chargeType?.toLowerCase() || '',
               ),
             ) || null;
@@ -153,6 +154,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    const arData = data as DynAccountReceivableLineDto[];
     // Load dimensions and accounts
     const accounts = await this.getAllMainAccounts();
 
@@ -163,7 +165,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 
-    const arData = data as DynAccountReceivableLineDto[];
+
 
     // Get charge type dimensions from billing codes
     const chargeTypeDims: string[] = [];
@@ -206,7 +208,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         dimensionsMap.get('CoordinatorMan') || [],
       );
     }
-
+   this.procLogger.debug('data Validated');
     return data;
   }
 
