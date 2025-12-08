@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -26,6 +26,12 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
     const company = companyId || 'm-p';
     const rawData =
       await this.excelService.excelToJson<VendorFreightRawData>(fileBuffer);
+
+    const isFreight = rawData.every(
+      (d) => d.JOURNALNAME && d.JOURNALNAME.toLowerCase().includes('freight'),
+    );
+
+    if (!isFreight) throw new BadRequestException('Not a freight journal');
 
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.VendorFreight,
