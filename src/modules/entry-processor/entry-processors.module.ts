@@ -11,6 +11,7 @@ import { VendorFreightAdjustmentEntryProcessor } from '@/modules/entry-processor
 import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
 import { VendorTruckingAdjustmentEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-adjustment-entry.processor';
 import { VendorTruckingEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-entry.processor';
+import { FreightClosingEntryProcessor } from '@/modules/entry-processor/processors/freight-closing-entry.processor';
 import { TruckingClosingEntryProcessor } from '@/modules/entry-processor/processors/trucking-closing-entry.processor';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
@@ -24,6 +25,7 @@ const EntryProcessors = [
   VendorFreightAdjustmentEntryProcessor,
   VendorTruckingEntryProcessor,
   VendorTruckingAdjustmentEntryProcessor,
+  FreightClosingEntryProcessor,
   TruckingClosingEntryProcessor,
   // Add other processors here
 ];
