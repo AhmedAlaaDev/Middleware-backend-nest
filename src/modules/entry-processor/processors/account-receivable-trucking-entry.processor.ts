@@ -97,6 +97,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       let currentCustLine: AccountReceivableFileModel | null = null;
 
       for (const line of sortedLines) {
+        invLineCount++;
         if (line.ACCOUNTTYPE?.toLowerCase() === 'cust') {
           currentCustLine = line;
           continue;
