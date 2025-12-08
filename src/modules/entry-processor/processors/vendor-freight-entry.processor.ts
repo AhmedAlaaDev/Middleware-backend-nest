@@ -22,6 +22,7 @@ import { VendorFreightRawData } from '@/modules/vendor/models/vendor-freight-raw
 @Injectable()
 export class VendorFreightEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType = EntryProcessorTypes.VendorFreight;
+
   readonly requiredDimensions = [
     'MainAccount',
     'Activity',
@@ -45,218 +46,240 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     super(customerInvoiceService, queryBus, db);
   }
 
+  // --------------------------------------------------------------------------
+  // FORMAT & ENRICH
+  // --------------------------------------------------------------------------
+
   public async formatAndEnrichAsync(
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    const raw = data?.map((d) => {
-      return new VendorFreightRawData(d);
-    });
-
-    const sorted = raw.sort((a, b) => {
-      return a.UniqueId - b.UniqueId;
-    });
-
-    const groupedByUniqueId = new Map<string, VendorFreightRawData[]>();
-
-    for (const line of sorted) {
-      const uniqueId = line.UniqueId.toString();
-      if (!groupedByUniqueId.has(uniqueId)) {
-        groupedByUniqueId.set(uniqueId, []);
-      }
-      groupedByUniqueId.get(uniqueId)!.push(line);
-    }
+    const grouped = this.groupByUniqueId(
+      data.map((d) => new VendorFreightRawData(d)),
+    );
 
     const eData: IVendorFreightDFOLine[] = [];
+    let journalBatchNum = await this.getNextBatchNumber();
+    let voucherNum = await this.getNextVoucherNumber();
 
-    const currentBatchNum =
-      (
-        await this.queryBus.execute(
-          new GetSettingQuery('last.ledger.batch.number'),
-        )
-      )?.value ?? '0';
-    let journalBatchNum: number = Number(currentBatchNum) + 1;
-    const currentVoucherNum =
-      (
-        await this.queryBus.execute(
-          new GetSettingQuery('last.ledger.vendor.freight.voucher.number'),
-        )
-      )?.value ?? '0';
-    let voucherNum: number = Number(currentVoucherNum) + 1;
+    for (const [uniqueId, lines] of grouped.entries()) {
+      const headerLine = lines[0];
+      const dateString = headerLine.TRANSDATE;
+      const formattedDate = formatToMonthYear(dateString);
 
-    for (const [uniqueId, lines] of groupedByUniqueId.entries()) {
-      const header = lines[0];
-      const formattedDate = formatToMonthYear(header.TRANSDATE);
-      const { fromDate, toDate } = getMonthRange(header.TRANSDATE);
+      const exchangeRate = await this.getExchangeRate(
+        headerLine.CURRENCYCODE,
+        dateString,
+        true,
+      );
 
-      const exchangeRate =
-        header.CURRENCYCODE === 'EGP'
-          ? 1
-          : (
-              await this.queryBus.execute(
-                new GetExchangeRatesQuery(
-                  'default',
-                  header.CURRENCYCODE,
-                  'EGP',
-                  fromDate?.toDateString(),
-                  toDate?.toDateString(),
-                ),
-              )
-            )?.[0]?.rate;
+      const reportingRate = await this.getExchangeRate(
+        headerLine.CURRENCYCODE,
+        dateString,
+        false,
+      );
 
-      const reportingCurrencyExchange =
-        header.CURRENCYCODE === 'EGP'
-          ? 1
-          : (
-              await this.queryBus.execute(
-                new GetExchangeRatesQuery(
-                  'default',
-                  'EGP',
-                  header.CURRENCYCODE,
-                  fromDate?.toDateString(),
-                  toDate?.toDateString(),
-                ),
-              )
-            )?.[0]?.rate;
-
-      let journalTotalCredit = 0;
-      let journalTotalDebit = 0;
-
-      const dfoHeader = new IVendorFreightDFOHeader({
+      const header = new IVendorFreightDFOHeader({
         journalBatchNum,
         description: `Vendor Invoice Freight ${formattedDate}`,
-        isPosted: header.ISPOSTED,
-        journalName: header.JOURNALNAME,
-        journalTotalCredit,
-        journalTotalDebit,
+        isPosted: headerLine.ISPOSTED,
+        journalName: headerLine.JOURNALNAME,
+        journalTotalCredit: 0,
+        journalTotalDebit: 0,
         oversideSalesTax: false,
         salesTaxIncluded: true,
       });
 
-      const linesData: IVendorFreightDFOLine[] = lines.map((line) => {
-        journalTotalCredit += line.CREDITAMOUNT ?? 0;
-        journalTotalDebit += line.DEBITAMOUNT ?? 0;
+      const lineObjects = this.buildLines(
+        lines,
+        header,
+        company,
+        exchangeRate,
+        reportingRate,
+        uniqueId,
+        () => ++voucherNum,
+      );
 
-        const dimensionModel = this.parseToDimensions(
-          line.ISLEDGER
-            ? line.ACCOUNTDISPLAYVALUE
-            : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
-        );
+      header.journalTotalCredit = lineObjects.reduce(
+        (sum, l) => sum + (l.credit ?? 0),
+        0,
+      );
+      header.journalTotalDebit = lineObjects.reduce(
+        (sum, l) => sum + (l.debit ?? 0),
+        0,
+      );
 
-        voucherNum++;
-
-        return new IVendorFreightDFOLine({
-          header: dfoHeader,
-          journalBatchNum,
-          lineNumber: line.LINENUMBER,
-          accountType: line.ACCOUNTTYPE,
-          dimensionModel,
-          company: company,
-          credit: line.CREDITAMOUNT ?? 0,
-          currency: line.CURRENCYCODE,
-          date: line.TRANSDATE,
-          debit: line.DEBITAMOUNT,
-          description: line.TEXT,
-          document: line.DOCUMENT,
-          dueDate: line.DUEDATE,
-          exchangeRate: exchangeRate,
-          exchangeRateSecond: 1,
-          fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
-          invoice: line.INVOICE,
-          invoiceDate: line.DOCUMENTDATE,
-          isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
-          itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-          itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
-          methodOfPayment: line.PAYMENTMETHOD,
-          offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-          offsetAccountType: line.OFFSETACCOUNTTYPE,
-          offsetCompany: company,
-          offsetDefaultDimensionDisplayValue:
-            line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
-          offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
-          offsetTransactionText: line.OFFSETTEXT,
-          overrideSalesTax: line.OVERRIDESALESTAX,
-          payMid: Number(uniqueId),
-          postingProfile: line.POSTINGPROFILE,
-          reportingCurrencyExchange: reportingCurrencyExchange,
-          salesTaxGroup: line.SALESTAXGROUP || '',
-          taxExemptNumber: '',
-          termsOfPayment: '',
-          transactionType: 'vendor',
-          voucher: voucherNum,
-          sourceIds: [uniqueId],
-        });
-      });
-
-      eData.push(...linesData);
+      eData.push(...lineObjects);
       journalBatchNum++;
     }
 
     return eData as unknown as DynDataModel[];
   }
 
+  // --------------------------------------------------------------------------
+  // VALIDATE
+  // --------------------------------------------------------------------------
+
   public async validateAsync(
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
-    const arData = data as unknown as IVendorFreightDFOLine[];
+    const lines = data as unknown as IVendorFreightDFOLine[];
 
-    // Load dimensions and accounts
-    const accounts = await this.getAllMainAccounts();
-    const accountNumbers = accounts.map(({ accountNumber }) => ({
-      accountNumber,
-    }));
+    const dimensionsMap = await this.loadDimensionsMap();
+    const mainAccounts = (await this.getAllMainAccounts()).map(
+      ({ accountNumber }) => ({ accountNumber }),
+    );
 
-    type MapKey = (typeof this.requiredDimensions)[number];
+    for (const line of lines) {
+      this.validateMainAccount(line, mainAccounts);
+      this.validateActivityName(line, dimensionsMap.Activity);
+      this.validateCostCenter(line, dimensionsMap.CostCenters);
+      this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
+      this.validateLocation(line, dimensionsMap.Location);
+      this.validateSalesMan(line, dimensionsMap.SalesMan);
+      this.validateFreightType(line, dimensionsMap.FreightType);
+      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
+      this.validateDirection(line, dimensionsMap.Direction);
+      this.validateVendor(line, dimensionsMap.Vendor);
 
-    const dimensionsMap = new Map<MapKey, IFinancialDimensionValue[]>();
-
-    for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
-      dimensionsMap.set(dimensionKey, dimensionValues || []);
-    }
-
-    // Validate each line
-    for (const arLine of arData) {
-      // Validate main account
-      this.validateMainAccount(arLine, accountNumbers);
-      // Validate activity
-      this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
-      // Validate cost centers
-      this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
-      // Validate business unit
-      this.validateBusinessUnit(
-        arLine,
-        dimensionsMap.get('BusinessUnit') || [],
-      );
-      // Validate location
-      this.validateLocation(arLine, dimensionsMap.get('Location') || []);
-      // Validate charge type
-      // Validate sales man
-      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
-      // Validate freight type
-      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
-      // Validate coordinator man
-      this.validateCoordinatorMan(
-        arLine,
-        dimensionsMap.get('CoordinatorMan') || [],
-      );
-      // Validate direction
-      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
-      // Validate vendor
-      this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
-      // validate subvendor
-      if (arLine.dimensionModel.subVendor) {
-        this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
+      if (line.dimensionModel.subVendor) {
+        this.validateSubVendor(line, dimensionsMap.SubVendor);
       }
     }
 
     return data;
   }
 
-  public async insertIntoDynamicsAsync(
-    _data: DynDataModel[],
-    _company: string,
-  ): Promise<void> {}
+  // --------------------------------------------------------------------------
+  // PRIVATE HELPERS
+  // --------------------------------------------------------------------------
+
+  private groupByUniqueId(lines: VendorFreightRawData[]) {
+    const sorted = [...lines].sort((a, b) => a.UniqueId - b.UniqueId);
+    const grouped = new Map<string, VendorFreightRawData[]>();
+
+    sorted.forEach((line) => {
+      const id = line.UniqueId.toString();
+      if (!grouped.has(id)) grouped.set(id, []);
+      grouped.get(id)!.push(line);
+    });
+
+    return grouped;
+  }
+
+  private async getNextBatchNumber(): Promise<number> {
+    const value =
+      (
+        await this.queryBus.execute(
+          new GetSettingQuery('last.ledger.batch.number'),
+        )
+      )?.value ?? '0';
+
+    return Number(value) + 1;
+  }
+
+  private async getNextVoucherNumber(): Promise<number> {
+    const value =
+      (
+        await this.queryBus.execute(
+          new GetSettingQuery('last.ledger.vendor.freight.voucher.number'),
+        )
+      )?.value ?? '0';
+
+    return Number(value) + 1;
+  }
+
+  private async getExchangeRate(
+    currency: string,
+    date: string,
+    toEgp: boolean,
+  ) {
+    if (currency === 'EGP') return 1;
+
+    const dateRange = getMonthRange(date);
+
+    const from = dateRange?.fromDate?.toDateString();
+    const to = dateRange?.toDate?.toDateString();
+
+    const query = toEgp
+      ? new GetExchangeRatesQuery('default', currency, 'EGP', from, to)
+      : new GetExchangeRatesQuery('default', 'EGP', currency, from, to);
+
+    return (await this.queryBus.execute(query))?.[0]?.rate;
+  }
+
+  private buildLines(
+    lines: VendorFreightRawData[],
+    header: IVendorFreightDFOHeader,
+    company: string,
+    exchangeRate: number,
+    reportingRate: number,
+    uniqueId: string,
+    nextVoucher: () => number,
+  ): IVendorFreightDFOLine[] {
+    return lines.map((line) => {
+      const dimensionModel = this.parseToDimensions(
+        line.ISLEDGER
+          ? line.ACCOUNTDISPLAYVALUE
+          : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
+      );
+
+      return new IVendorFreightDFOLine({
+        header,
+        journalBatchNum: header.journalBatchNum,
+        lineNumber: line.LINENUMBER,
+        accountType: line.ACCOUNTTYPE,
+        dimensionModel,
+        company,
+        credit: line.CREDITAMOUNT ?? 0,
+        debit: line.DEBITAMOUNT,
+        currency: line.CURRENCYCODE,
+        date: line.TRANSDATE,
+        description: line.TEXT,
+        document: line.DOCUMENT,
+        dueDate: line.DUEDATE,
+        exchangeRate,
+        exchangeRateSecond: 1,
+        fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
+        invoice: line.INVOICE,
+        invoiceDate: line.DOCUMENTDATE,
+        isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
+        itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
+        itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+        methodOfPayment: line.PAYMENTMETHOD,
+        offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
+        offsetAccountType: line.OFFSETACCOUNTTYPE,
+        offsetCompany: company,
+        offsetDefaultDimensionDisplayValue:
+          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+        offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
+        offsetTransactionText: line.OFFSETTEXT,
+        overrideSalesTax: line.OVERRIDESALESTAX,
+        payMid: Number(uniqueId),
+        postingProfile: line.POSTINGPROFILE,
+        reportingCurrencyExchange: reportingRate,
+        salesTaxGroup: line.SALESTAXGROUP || '',
+        taxExemptNumber: '',
+        termsOfPayment: '',
+        transactionType: 'vendor',
+        voucher: nextVoucher(),
+        sourceIds: [uniqueId],
+      });
+    });
+  }
+
+  private async loadDimensionsMap() {
+    const map: Record<string, IFinancialDimensionValue[]> = {};
+
+    for (const key of this.requiredDimensions) {
+      map[key] = (await this.getFinancialDimensionValues(key)) || [];
+    }
+
+    return map;
+  }
+
+  public insertIntoDynamicsAsync(): Promise<void> {
+    return Promise.resolve();
+  }
 }
