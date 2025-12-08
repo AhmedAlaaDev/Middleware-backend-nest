@@ -62,6 +62,7 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
       errorMessages: doc.errorMessages || [],
       accountDimensionsModel: doc.accountDimensionsModel,
       enhancedRecordIds: doc.enhancedRecordIds || [],
+      enhancedData: doc.enhancedData,
     }));
   }
 

@@ -12,6 +12,7 @@ import {
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
 import {
   GetBatchErrorListHandler,
+  GetDataBatchByIdHandler,
   GetDataBatchListHandler,
 } from '@/modules/data-batch/queries/handlers';
 import {
@@ -47,7 +48,11 @@ const CommandHandlers = [
   DownloadBatchErrorHandler,
 ];
 
-const QueryHandlers = [GetDataBatchListHandler, GetBatchErrorListHandler];
+const QueryHandlers = [
+  GetDataBatchListHandler,
+  GetDataBatchByIdHandler,
+  GetBatchErrorListHandler,
+];
 
 @Module({
   imports: [

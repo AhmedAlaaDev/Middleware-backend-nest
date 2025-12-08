@@ -154,6 +154,9 @@ export class DataBatchService {
         errorMessages: error.errorMessages,
         accountDimensionsModel: error.accountDimensionsModel,
         enhancedRecordIds: error.enhancedRecordIds,
+        enhancedData: error.enhancedData
+          ? (error.enhancedData as unknown as Record<string, unknown>)
+          : undefined,
       }));
       await this.dataBatchErrorRepo.insertMany(storageErrors);
       this.logger.debug(`Inserted batch errors: count=${batchErrors.length}`);
