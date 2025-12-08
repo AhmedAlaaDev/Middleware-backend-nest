@@ -1,9 +1,9 @@
+import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
-export class DynAccountReceivableLineDto {
+export class DynAccountReceivableLineDto extends DynDataModel {
   customId: number;
   uniqueId?: number;
-  lineNumber?: number;
   freeTextNumber: string;
   documentDate: Date;
   dueDate?: Date;
@@ -39,27 +39,11 @@ export class DynAccountReceivableLineDto {
   currencyCode: string;
   transportationDocumentLineId?: string;
   creditNoteInvoiceRef?: string;
-  dimensionModel?: AccountDimensionsModel;
-  sourceIds: string[] = [];
-
-  private errors: Array<{ property: string; message: string }> = [];
-
-  get errorCount(): number {
-    return this.errors.length;
-  }
 
   get errorsText(): string {
-    if (this.errors.length === 0) {
+    if (this.errorCount === 0) {
       return '';
     }
-    return this.errors.map((e) => `${e.property}: ${e.message}`).join(';');
-  }
-
-  addError(property: string, message: string): void {
-    this.errors.push({ property, message });
-  }
-
-  getErrors(): string[] {
-    return this.errors.map((e) => `${e.property}: ${e.message}`);
+    return this.getErrors().join(';');
   }
 }
