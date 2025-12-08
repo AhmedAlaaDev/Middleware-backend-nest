@@ -6,12 +6,13 @@ export interface RawDataModel {
 }
 
 export interface DynDataModel {
-  lineNumber?: number;
-  errorCount: number;
-  dimensionModel?: AccountDimensionsModel;
-  sourceIds: string[];
-  getErrors(): string[];
-  addError(property: string, message: string): void;
+  LineNumber?: number;
+  ErrorCount: number;
+  ErrorsText: string;
+  DimensionModel?: AccountDimensionsModel;
+  SourceIds: string[];
+  GetErrors(): string[];
+  AddError(property: string, message: string): void;
   [key: string]: any;
 }
 

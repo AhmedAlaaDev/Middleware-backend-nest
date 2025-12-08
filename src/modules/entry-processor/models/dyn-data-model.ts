@@ -2,21 +2,28 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 import { DynDataModel as IDynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 
 export abstract class DynDataModel implements IDynDataModel {
-  lineNumber?: number;
-  dimensionModel?: AccountDimensionsModel;
-  sourceIds: string[] = [];
+  LineNumber?: number;
+  DimensionModel?: AccountDimensionsModel;
+  SourceIds: string[] = [];
 
   private errors: Array<{ property: string; message: string }> = [];
 
-  get errorCount(): number {
+  get ErrorCount(): number {
     return this.errors.length;
   }
 
-  getErrors(): string[] {
+  GetErrors(): string[] {
     return this.errors.map((e) => `${e.property}: ${e.message}`);
   }
 
-  addError(property: string, message: string): void {
+  get ErrorsText(): string {
+    if (this.ErrorCount === 0) {
+      return '';
+    }
+    return this.GetErrors().join(';');
+  }
+
+  AddError(property: string, message: string): void {
     this.errors.push({ property, message });
   }
 }

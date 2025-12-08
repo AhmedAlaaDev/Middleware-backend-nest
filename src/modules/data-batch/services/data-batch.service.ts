@@ -61,8 +61,8 @@ export class DataBatchService {
     this.logger.log(
       `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
     );
-    const successCount = dynData.filter((d) => d.errorCount === 0).length;
-    const errorCount = dynData.filter((d) => d.errorCount > 0).length;
+    const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
+    const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
@@ -131,7 +131,7 @@ export class DataBatchService {
     }
 
     // Insert errors if any
-    const errorRecords = dynData.filter((d) => d.errorCount > 0);
+    const errorRecords = dynData.filter((d) => d.ErrorCount > 0);
     if (errorRecords.length > 0) {
       const batchErrors: ICreateDataBatchError<TEnhancedData>[] =
         errorRecords.map((record) => ({
@@ -144,7 +144,7 @@ export class DataBatchService {
                 any
               >)
             : undefined,
-          enhancedRecordIds: [record.lineNumber?.toString() || ''],
+          enhancedRecordIds: [record.LineNumber?.toString() || ''],
           enhancedData: record,
         }));
       // Convert to storage format for repository

@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { ProcessARFreightCommand } from '../process-ar-freight.command';
+import { ProcessARTruckingCreditNoteCommand } from '../process-ar-trucking-credit-note.command';
 
-import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
@@ -12,20 +12,26 @@ import { AccountReceivableFileModel } from '@/modules/entry-processor/models/acc
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { ExcelService } from '@/modules/excel/excel.service';
 
-@CommandHandler(ProcessARFreightCommand)
+@CommandHandler(ProcessARTruckingCreditNoteCommand)
 @Injectable()
-export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreightCommand> {
-  private readonly logger = new Logger(ProcessARFreightHandler.name);
+export class ProcessARTruckingCreditNoteHandler
+  implements ICommandHandler<ProcessARTruckingCreditNoteCommand>
+{
+  private readonly logger = new Logger(ProcessARTruckingCreditNoteHandler.name);
+
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
     private readonly dataBatchService: DataBatchService,
   ) {}
 
-  public async execute(command: ProcessARFreightCommand): Promise<IDataBatch> {
+  public async execute(
+    command: ProcessARTruckingCreditNoteCommand,
+  ): Promise<IDataBatch> {
     this.logger.log(
-      `Start ProcessARFreight: company=${command.companyId}, billingCodeId=${command.billingCodeId}, bufferLength=${command.fileBuffer?.length || 0}`,
+      `Start ProcessARTruckingCreditNote: company=${command.companyId}, billingCodeId=${command.billingCodeId}, bufferLength=${command.fileBuffer?.length || 0}`,
     );
+
     const rawData =
       await this.excelService.excelToJson<AccountReceivableFileModel>(
         command.fileBuffer,
@@ -36,7 +42,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     }
 
     const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.AccountReceivableFreight,
+      EntryProcessorTypes.AccountReceivableTruckingCreditNote,
     );
 
     const enriched = await processor.formatAndEnrichAsync(
@@ -63,10 +69,10 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
       AccountReceivableFileModel,
       DynAccountReceivableLineDto
     >(
-      EntryProcessorTypes.AccountReceivableFreight,
-      ENTRY_PROCESSOR_NAMES.ACCOUNT_RECEIVABLE_FREIGHT,
+      EntryProcessorTypes.AccountReceivableTruckingCreditNote,
+      ENTRY_PROCESSOR_NAMES.ACCOUNT_RECEIVABLE_TRUCKING_CREDIT_NOTE,
       command.companyId,
-      `Account Receivable Freight ${command.billingCodeId} , ${Date.now()}`,
+      `Account Receivable Trucking Credit Note ${command.billingCodeId} , ${Date.now()}`,
       rawData,
       validated as DynAccountReceivableLineDto[],
       command.billingCodeId,
@@ -78,3 +84,4 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     return batch;
   }
 }
+

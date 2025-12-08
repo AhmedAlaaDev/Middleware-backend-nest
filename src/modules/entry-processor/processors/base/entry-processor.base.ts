@@ -189,48 +189,48 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     const line = new DynAccountReceivableLineDto();
     const sourceId = this.buildSourceId(custLine, ledgerLine, lineNumber);
-    line.sourceIds = [sourceId];
-    line.uniqueId =
+    line.SourceIds = [sourceId];
+    line.UniqueId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
-    line.customId =
+    line.CustomId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
-    line.lineNumber = lineNumber;
-    line.freeTextNumber = custLine.getFormattedInvoiceNumber();
-    line.documentDate = transDate;
-    line.customerAccount = dimensions.subCustomer || '';
-    line.headerDefaultDimensionDisplayValue =
+    line.LineNumber = lineNumber;
+    line.FreeTextNumber = custLine.getFormattedInvoiceNumber();
+    line.DocumentDate = transDate;
+    line.CustomerAccount = dimensions.subCustomer || '';
+    line.HeaderDefaultDimensionDisplayValue =
       custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
-    line.headerFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
-    line.invoiceTxt = dimensions.chargeType || '';
-    line.description = custLine.TEXT || '';
-    line.quantity = 1;
-    line.unitPrice = ledgerLine.CREDITAMOUNT;
-    line.amountCur = ledgerLine.CREDITAMOUNT;
-    line.currencyCode = ledgerLine.CURRENCYCODE || '';
-    line.salesTaxGroup = ledgerLine.getTaxGroup();
-    line.salesTaxItemGroup = ledgerLine.getTaxGroupItem();
-    line.defaultDimensionDisplayValue =
+    line.HeaderFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
+    line.InvoiceTxt = dimensions.chargeType || '';
+    line.Description = custLine.TEXT || '';
+    line.Quantity = 1;
+    line.UnitPrice = ledgerLine.CREDITAMOUNT;
+    line.AmountCur = ledgerLine.CREDITAMOUNT;
+    line.CurrencyCode = ledgerLine.CURRENCYCODE || '';
+    line.SalesTaxGroup = ledgerLine.getTaxGroup();
+    line.SalesTaxItemGroup = ledgerLine.getTaxGroupItem();
+    line.DefaultDimensionDisplayValue =
       custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
-    line.lineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
-    line.dueDate = dueDate || undefined;
-    line.cashDiscountCode = undefined;
-    line.cashDiscountDate = cashDiscountDate || undefined;
-    line.customerReference = custLine.getFormattedInvoiceNumber();
-    line.eInvoiceIsLineSpecific = 'No';
-    line.inclTax = 'Yes';
-    line.invoiceAccount = dimensions.customer || '';
-    line.invoiceDate = transDate || undefined;
-    line.ledgerDimensionDisplayValue = dimensions.mainAccount || '';
-    line.overrideSalesTax = 'No';
-    line.postingProfile = 'Cust-PP';
-    line.termsOfPayment = `${termsOfPaymentDays} Days`;
-    line.dimensionModel = dimensions;
-    line.billingClassification = billingClassId;
+    line.LineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
+    line.DueDate = dueDate || undefined;
+    line.CashDiscountCode = '';
+    line.CashDiscountDate = cashDiscountDate || undefined;
+    line.CustomerReference = custLine.getFormattedInvoiceNumber();
+    line.EInvoiceIsLineSpecific = 'No';
+    line.InclTax = 'Yes';
+    line.InvoiceAccount = dimensions.customer || '';
+    line.InvoiceDate = transDate || undefined;
+    line.LedgerDimensionDisplayValue = dimensions.mainAccount || '';
+    line.OverrideSalesTax = 'No';
+    line.PostingProfile = 'Cust-PP';
+    line.TermsOfPayment = `${termsOfPaymentDays} Days`;
+    line.DimensionModel = dimensions;
+    line.BillingClassification = billingClassId;
 
     if (billingCode) {
-      line.billingCode = billingCode.billingCode;
+      line.BillingCode = billingCode.billingCode;
     } else {
-      line.addError(
+      line.AddError(
         'BillingCode',
         `Could not found a billing code related to this charge type ${dimensions.chargeType}`,
       );
@@ -243,9 +243,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     accounts: Array<{ accountNumber: string }>,
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (!dimensionsModel?.mainAccount) {
-      ar.addError('MainAccount', 'Main Account is required');
+      ar.AddError('MainAccount', 'Main Account is required');
       return;
     }
     if (
@@ -255,7 +255,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.mainAccount?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'MainAccount',
         `The main account ${dimensionsModel.mainAccount} does not exist in the system.`,
       );
@@ -295,13 +295,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.customer ||
       dimensionsModel.customer === '000' ||
       dimensionsModel.customer.toLowerCase() === '000'
     ) {
-      ar.addError('CustomerDimensions', 'Customer is required');
+      ar.AddError('CustomerDimensions', 'Customer is required');
       return;
     }
     if (
@@ -311,7 +311,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.customer?.trim().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'CustomerDimensions',
         `The dimension ${dimensionsModel.customer} does not exist in the system.`,
       );
@@ -322,13 +322,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.subCustomer ||
       dimensionsModel.subCustomer === '000' ||
       dimensionsModel.subCustomer.toLowerCase() === '000'
     ) {
-      ar.addError('SubCustomerDimensions', 'SubCustomer is required');
+      ar.AddError('SubCustomerDimensions', 'SubCustomer is required');
       return;
     }
     if (
@@ -338,7 +338,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.subCustomer?.trimEnd().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'SubCustomerDimensions',
         `The dimension ${dimensionsModel.subCustomer} does not exist in the system.`,
       );
@@ -349,13 +349,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: string[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.chargeType ||
       dimensionsModel.chargeType === '000' ||
       dimensionsModel.chargeType.toLowerCase() === '000'
     ) {
-      ar.addError('ChargeTypeDimensions', 'ChargeType is required');
+      ar.AddError('ChargeTypeDimensions', 'ChargeType is required');
       return;
     }
     const normalizedChargeType =
@@ -369,7 +369,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         return normalizedDim === normalizedChargeType;
       })
     ) {
-      ar.addError(
+      ar.AddError(
         'ChargeTypeDimensions',
         `The dimension ${dimensionsModel.chargeType} does not exist in the system.`,
       );
@@ -380,13 +380,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.activityName ||
       dimensionsModel.activityName === '000' ||
       dimensionsModel.activityName.toLowerCase() === '000'
     ) {
-      ar.addError('ActivityNameDimensions', 'ActivityName is required');
+      ar.AddError('ActivityNameDimensions', 'ActivityName is required');
       return;
     }
     if (
@@ -396,7 +396,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.activityName?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'ActivityNameDimensions',
         `The dimension ${dimensionsModel.activityName} does not exist in the system.`,
       );
@@ -407,13 +407,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.costCenter ||
       dimensionsModel.costCenter === '000' ||
       dimensionsModel.costCenter.toLowerCase() === '000'
     ) {
-      ar.addError('CostCenterDimensions', 'CostCenter is required');
+      ar.AddError('CostCenterDimensions', 'CostCenter is required');
       return;
     }
     if (
@@ -423,7 +423,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.costCenter?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'CostCenterDimensions',
         `The dimension ${dimensionsModel.costCenter} does not exist in the system.`,
       );
@@ -434,13 +434,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.businessUnit ||
       dimensionsModel.businessUnit === '000' ||
       dimensionsModel.businessUnit.toLowerCase() === '000'
     ) {
-      ar.addError('BusinessUnitDimensions', 'BusinessUnit is required');
+      ar.AddError('BusinessUnitDimensions', 'BusinessUnit is required');
       return;
     }
     if (
@@ -450,7 +450,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.businessUnit?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'BusinessUnitDimensions',
         `The dimension ${dimensionsModel.businessUnit} does not exist in the system.`,
       );
@@ -461,13 +461,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.location ||
       dimensionsModel.location === '000' ||
       dimensionsModel.location.toLowerCase() === '000'
     ) {
-      ar.addError('LocationDimensions', 'Location is required');
+      ar.AddError('LocationDimensions', 'Location is required');
       return;
     }
     if (
@@ -477,7 +477,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.location?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'LocationDimensions',
         `The dimension ${dimensionsModel.location} does not exist in the system.`,
       );
@@ -488,13 +488,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.freightType ||
       dimensionsModel.freightType === '000' ||
       dimensionsModel.freightType.toLowerCase() === '000'
     ) {
-      ar.addError('FreightTypeDimensions', 'FreightType is required');
+      ar.AddError('FreightTypeDimensions', 'FreightType is required');
       return;
     }
     if (
@@ -504,7 +504,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.freightType?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'FreightTypeDimensions',
         `The dimension ${dimensionsModel.freightType} does not exist in the system.`,
       );
@@ -515,13 +515,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.salesMan ||
       dimensionsModel.salesMan === '000' ||
       dimensionsModel.salesMan.toLowerCase() === '000'
     ) {
-      ar.addError('SalesManDimensions', 'SalesMan is required');
+      ar.AddError('SalesManDimensions', 'SalesMan is required');
       return;
     }
     if (
@@ -531,7 +531,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.salesMan?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'SalesManDimensions',
         `The dimension ${dimensionsModel.salesMan} does not exist in the system.`,
       );
@@ -542,13 +542,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.truckerType ||
       dimensionsModel.truckerType === '000' ||
       dimensionsModel.truckerType.toLowerCase() === '000'
     ) {
-      ar.addError('TruckerTypeDimensions', 'TruckerType is required');
+      ar.AddError('TruckerTypeDimensions', 'TruckerType is required');
       return;
     }
     if (
@@ -558,7 +558,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.truckerType?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'TruckerTypeDimensions',
         `The dimension ${dimensionsModel.truckerType} does not exist in the system.`,
       );
@@ -569,13 +569,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.truckNumber ||
       dimensionsModel.truckNumber === '000' ||
       dimensionsModel.truckNumber.toLowerCase() === '000'
     ) {
-      ar.addError('TruckNumberDimensions', 'TruckNumber is required');
+      ar.AddError('TruckNumberDimensions', 'TruckNumber is required');
       return;
     }
     if (
@@ -585,7 +585,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.truckNumber?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'TruckNumberDimensions',
         `The dimension ${dimensionsModel.truckNumber} does not exist in the system.`,
       );
@@ -596,13 +596,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.direction ||
       dimensionsModel.direction === '000' ||
       dimensionsModel.direction.toLowerCase() === '000'
     ) {
-      ar.addError('DirectionDimensions', 'Direction is required');
+      ar.AddError('DirectionDimensions', 'Direction is required');
       return;
     }
     if (
@@ -612,7 +612,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.direction?.toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'DirectionDimensions',
         `The dimension ${dimensionsModel.direction} does not exist in the system.`,
       );
@@ -623,13 +623,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.coordinatorMan ||
       dimensionsModel.coordinatorMan === '000' ||
       dimensionsModel.coordinatorMan.toLowerCase() === '000'
     ) {
-      ar.addError('CoordinatorManDimensions', 'CoordinatorMan is required');
+      ar.AddError('CoordinatorManDimensions', 'CoordinatorMan is required');
       return;
     }
     if (
@@ -639,7 +639,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.coordinatorMan?.trim().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'CoordinatorManDimensions',
         `The dimension ${dimensionsModel.coordinatorMan} does not exist in the system.`,
       );
@@ -650,13 +650,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.vendor ||
       dimensionsModel.vendor === '000' ||
       dimensionsModel.vendor.toLowerCase() === '000'
     ) {
-      ar.addError('VendorDimensions', 'Vendor is required');
+      ar.AddError('VendorDimensions', 'Vendor is required');
       return;
     }
     if (
@@ -666,7 +666,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.vendor?.trim().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'VendorDimensions',
         `The dimension ${dimensionsModel.vendor} does not exist in the system.`,
       );
@@ -677,13 +677,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (
       !dimensionsModel?.subVendor ||
       dimensionsModel.subVendor === '000' ||
       dimensionsModel.subVendor.toLowerCase() === '000'
     ) {
-      ar.addError('SubVendorDimensions', 'SubVendor is required');
+      ar.AddError('SubVendorDimensions', 'SubVendor is required');
       return;
     }
     if (
@@ -693,7 +693,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.subVendor?.trim().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'SubVendorDimensions',
         `The dimension ${dimensionsModel.subVendor} does not exist in the system.`,
       );
@@ -704,9 +704,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
   ): void {
-    const dimensionsModel = ar.dimensionModel;
+    const dimensionsModel = ar.DimensionModel;
     if (!dimensionsModel?.worker) {
-      ar.addError('WorkerDimensions', 'Worker is required');
+      ar.AddError('WorkerDimensions', 'Worker is required');
       return;
     }
     if (
@@ -716,7 +716,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
           .includes(dimensionsModel.worker?.trim().toLowerCase() || ''),
       )
     ) {
-      ar.addError(
+      ar.AddError(
         'WorkerDimensions',
         `The dimension ${dimensionsModel.worker} does not exist in the system.`,
       );
