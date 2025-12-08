@@ -12,7 +12,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
     private readonly excelService: ExcelService,
   ) {}
 
-  public async execute(command: DownloadBatchErrorCommand): Promise<string> {
+  public async execute(command: DownloadBatchErrorCommand): Promise<Buffer> {
     const errors = await this.db.getErrorsAsync(command.batchId);
 
     if (errors.length === 0) {
@@ -25,10 +25,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
       'Error Messages': error.errorMessages?.join('; ') || '',
       'Dimension Model': JSON.stringify(error.accountDimensionsModel || {}),
     }));
-    const filePath = await this.excelService.writeObjectsToTempFile(
-      rows,
-      `batch-errors-${command.batchId}`,
-    );
-    return filePath;
+    const buffer = await this.excelService.jsonToExcel(rows);
+    return buffer;
   }
 }
