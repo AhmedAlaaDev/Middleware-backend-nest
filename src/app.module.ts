@@ -13,6 +13,7 @@ import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
+import { LedgerModule } from '@/modules/ledger/ledger.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
@@ -44,6 +45,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
 
     VendorModule,
     AccountsReceivableModule,
+    LedgerModule,
     ResilienceModule,
     DBModule,
     QueueModule,
