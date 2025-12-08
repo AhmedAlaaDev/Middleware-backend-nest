@@ -7,12 +7,12 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
 import { ExcelService } from '@/modules/excel/excel.service';
-import { ProcessVendorTruckingCommand } from '@/modules/vendor/commands/process-vendor-trucking.comand';
-import { VendorFreightRawData } from '@/modules/vendor/models/vendor-freight-raw-data.model';
+import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-freight-adjustment.comand';
+import { VendorFreightAdjustmentRawData } from '@/modules/vendor/models/vendor-freight-adjustment-raw-data.model';
 
-@CommandHandler(ProcessVendorTruckingCommand)
+@CommandHandler(ProcessVendorFreightAdjustmentCommand)
 @Injectable()
-export class ProcessVendorTruckingHandler implements ICommandHandler<ProcessVendorTruckingCommand> {
+export class ProcessVendorFreightAdjustmentHandler implements ICommandHandler<ProcessVendorFreightAdjustmentCommand> {
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
@@ -22,19 +22,21 @@ export class ProcessVendorTruckingHandler implements ICommandHandler<ProcessVend
   public async execute({
     companyId,
     fileBuffer,
-  }: ProcessVendorTruckingCommand): Promise<IDataBatch> {
+  }: ProcessVendorFreightAdjustmentCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
     const rawData =
-      await this.excelService.excelToJson<VendorFreightRawData>(fileBuffer);
+      await this.excelService.excelToJson<VendorFreightAdjustmentRawData>(
+        fileBuffer,
+      );
 
-    const isTrucking = rawData.every(
-      (d) => d.JOURNALNAME && d.JOURNALNAME.toLowerCase().includes('fleet'),
+    const isFreight = rawData.every(
+      (d) => d.JOURNALNAME && d.JOURNALNAME.toLowerCase().includes('freight'),
     );
 
-    if (!isTrucking) throw new BadRequestException('Not a trucking journal');
+    if (!isFreight) throw new BadRequestException('Not a freight journal');
 
     const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.VendorTrucking,
+      EntryProcessorTypes.VendorFreightAdjustment,
     );
 
     const enriched = await processor.formatAndEnrichAsync(rawData, company);
@@ -42,10 +44,10 @@ export class ProcessVendorTruckingHandler implements ICommandHandler<ProcessVend
     const validated = await processor.validateAsync(enriched, company);
 
     const dataBatch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.VendorTrucking,
-      ENTRY_PROCESSOR_NAMES.VENDOR_TRUCKING,
+      EntryProcessorTypes.VendorFreightAdjustment,
+      ENTRY_PROCESSOR_NAMES.VENDOR_FREIGHT_ADJUSTMENT,
       company,
-      `Vendor Trucking ${Date.now()}`,
+      `Vendor Freight Adjustment ${Date.now()}`,
       rawData,
       validated,
     );

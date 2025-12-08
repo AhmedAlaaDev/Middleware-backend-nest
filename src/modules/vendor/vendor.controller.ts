@@ -4,9 +4,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFile } from '@/common/decorators/excel-file.decorator';
+import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-freight-adjustment.comand';
 import { ProcessVendorFreightCommand } from '@/modules/vendor/commands/process-vendor-freight.comand';
+import { ProcessVendorTruckingAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-trucking-adjustment.comand';
 import { ProcessVendorTruckingCommand } from '@/modules/vendor/commands/process-vendor-trucking.comand';
+import { VendorFreightAdjustmentDocDto } from '@/modules/vendor/dtos/vendor-freight-adjustment-doc.dto';
 import { VendorFreightDocDto } from '@/modules/vendor/dtos/vendor-freight-doc.dto';
+import { VendorTruckingAdjustmentDocDto } from '@/modules/vendor/dtos/vendor-trucking-adjustment-doc.dto';
 import { VendorTruckingDocDto } from '@/modules/vendor/dtos/vendor-trucking-doc.dto';
 
 /**
@@ -38,6 +42,27 @@ export class VendorController {
   }
 
   /**
+   * Freight Document Adjustment
+   */
+  @Post('Freight-Document-Adjustment')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: VendorFreightAdjustmentDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async freightDocumentAdjustment(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: VendorFreightAdjustmentDocDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessVendorFreightAdjustmentCommand(file.buffer, companyId),
+    );
+
+    return result;
+  }
+
+  /**
    * Trucking Document
    */
   @Post('Trucking-Document')
@@ -53,6 +78,27 @@ export class VendorController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessVendorTruckingCommand(file.buffer, companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Trucking Document Adjustment
+   */
+  @Post('Trucking-Document-Adjustment')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: VendorTruckingAdjustmentDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async truckingDocumentAdjustment(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: VendorTruckingAdjustmentDocDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessVendorTruckingAdjustmentCommand(file.buffer, companyId),
     );
 
     return result;
