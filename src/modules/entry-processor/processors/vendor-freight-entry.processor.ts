@@ -188,6 +188,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         sourceIds: [uniqueId],
       });
 
+      // Set DimensionModel from the first line for validation purposes
+      if (linesData.length > 0 && linesData[0].dimensions) {
+        dfoData.DimensionModel = linesData[0].dimensions;
+      }
+
       eData.push(dfoData);
       journalBatchNum++;
     }

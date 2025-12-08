@@ -1,4 +1,5 @@
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 
 export class IVendorFreightDFOLine {
   journalBatchNum: number;
@@ -52,7 +53,7 @@ interface VendorFreightDFOData {
   sourceIds: string[];
 }
 
-export class IVendorFreightDFOData {
+export class IVendorFreightDFOData extends DynDataModel {
   journalBatchNum: number;
   description: string;
   isPosted: boolean;
@@ -62,11 +63,9 @@ export class IVendorFreightDFOData {
   oversideSalesTax: boolean;
   salesTaxIncluded: boolean;
   lines: IVendorFreightDFOLine[];
-  sourceIds: string[];
-
-  private errors: Array<{ property: string; message: string }> = [];
 
   constructor(data: VendorFreightDFOData) {
+    super();
     this.journalBatchNum = data.journalBatchNum;
     this.description = data.description;
     this.isPosted = data.isPosted;
@@ -76,25 +75,6 @@ export class IVendorFreightDFOData {
     this.oversideSalesTax = data.oversideSalesTax;
     this.salesTaxIncluded = data.salesTaxIncluded;
     this.lines = data.lines;
-    this.sourceIds = data.sourceIds;
-  }
-
-  get errorCount(): number {
-    return this.errors.length;
-  }
-
-  get errorsText(): string {
-    if (this.errors.length === 0) {
-      return '';
-    }
-    return this.errors.map((e) => `${e.property}: ${e.message}`).join(';');
-  }
-
-  addError(property: string, message: string): void {
-    this.errors.push({ property, message });
-  }
-
-  getErrors(): string[] {
-    return this.errors.map((e) => `${e.property}: ${e.message}`);
+    this.SourceIds = data.sourceIds;
   }
 }

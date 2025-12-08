@@ -226,7 +226,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     // Group by invoice number
     const invoiceGroups = new Map<string, DynAccountReceivableLineDto[]>();
     for (const line of arLines) {
-      const invoiceNum = line.freeTextNumber || '';
+      const invoiceNum = line.FreeTextNumber || '';
       if (!invoiceGroups.has(invoiceNum)) {
         invoiceGroups.set(invoiceNum, []);
       }

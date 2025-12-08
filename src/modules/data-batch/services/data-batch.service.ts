@@ -61,8 +61,8 @@ export class DataBatchService {
     this.logger.log(
       `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
     );
-    const successCount = dynData.filter((d) => d.errorCount === 0).length;
-    const errorCount = dynData.filter((d) => d.errorCount > 0).length;
+    const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
+    const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
@@ -106,13 +106,13 @@ export class DataBatchService {
       const enhancedRecords: ICreateDataEnhancedRecord<TEnhancedData>[] =
         dynData.map((record) => ({
           batchId: dataBatch.id,
-          dimensionModel: record.dimensionModel
-            ? (Object.assign(
-                {},
-                record.dimensionModel,
-              ) as unknown as Record<string, unknown>)
-            : undefined,
-          sourceIds: record.sourceIds || [],
+        dimensionModel: record.DimensionModel
+          ? (Object.assign(
+              {},
+              record.DimensionModel,
+            ) as unknown as Record<string, unknown>)
+          : undefined,
+        sourceIds: record.SourceIds || [],
           data: record,
           dataModelType: this.getDataModelType(record),
         }));
@@ -131,20 +131,20 @@ export class DataBatchService {
     }
 
     // Insert errors if any
-    const errorRecords = dynData.filter((d) => d.errorCount > 0);
+    const errorRecords = dynData.filter((d) => d.ErrorCount > 0);
     if (errorRecords.length > 0) {
       const batchErrors: ICreateDataBatchError<TEnhancedData>[] =
         errorRecords.map((record) => ({
           batchId: dataBatch.id,
-          sourceRecordIds: record.sourceIds || [],
-          errorMessages: record.getErrors(),
-          accountDimensionsModel: record.dimensionModel
+          sourceRecordIds: record.SourceIds || [],
+          errorMessages: record.GetErrors(),
+          accountDimensionsModel: record.DimensionModel
             ? (Object.assign(
                 {},
-                record.dimensionModel,
+                record.DimensionModel,
               ) as unknown as Record<string, any>)
             : undefined,
-          enhancedRecordIds: [record.lineNumber?.toString() || ''],
+          enhancedRecordIds: [record.LineNumber?.toString() || ''],
           enhancedData: record,
         }));
       // Convert to storage format for repository

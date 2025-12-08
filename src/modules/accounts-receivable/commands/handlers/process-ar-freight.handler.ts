@@ -44,7 +44,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
       command.companyId,
       command.billingCodeId || '',
     );
-    const enrichedErrors = enriched.filter((d) => d.errorCount > 0).length;
+    const enrichedErrors = enriched.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Enriched rows: ${enriched.length}, errors: ${enrichedErrors}`,
     );
@@ -54,7 +54,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
       command.companyId,
       command.billingCodeId || '',
     );
-    const validatedErrors = validated.filter((d) => d.errorCount > 0).length;
+    const validatedErrors = validated.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Validated rows: ${validated.length}, errors: ${validatedErrors}`,
     );
