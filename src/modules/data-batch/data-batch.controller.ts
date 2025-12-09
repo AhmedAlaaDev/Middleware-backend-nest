@@ -14,7 +14,13 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags, ApiProduces } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+  ApiProduces,
+} from '@nestjs/swagger';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
@@ -75,9 +81,10 @@ export class DataBatchController {
    * Get a data batch by ID
    */
   @Get(':batchId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get a data batch by ID',
-    description: 'Retrieves a single data batch with the specified ID. Returns 404 if not found.'
+    description:
+      'Retrieves a single data batch with the specified ID. Returns 404 if not found.',
   })
   @ApiParam({
     name: 'batchId',
@@ -93,9 +100,18 @@ export class DataBatchController {
       properties: {
         id: { type: 'string', example: '507f1f77bcf86cd799439011' },
         company: { type: 'string', example: 'm-p' },
-        entryProcessorType: { type: 'string', example: 'AccountReceivableFreight' },
-        entryProcessorName: { type: 'string', example: 'AccountReceivableFreightEntryProcessor' },
-        description: { type: 'string', example: 'Account Receivable Freight batch' },
+        entryProcessorType: {
+          type: 'string',
+          example: 'AccountReceivableFreight',
+        },
+        entryProcessorName: {
+          type: 'string',
+          example: 'AccountReceivableFreightEntryProcessor',
+        },
+        description: {
+          type: 'string',
+          example: 'Account Receivable Freight batch',
+        },
         status: { type: 'string', example: 'Pending' },
         successCount: { type: 'number', example: 100 },
         errorCount: { type: 'number', example: 5 },
@@ -114,7 +130,10 @@ export class DataBatchController {
       type: 'object',
       properties: {
         statusCode: { type: 'number', example: 404 },
-        message: { type: 'string', example: 'Data batch with ID 507f1f77bcf86cd799439011 not found' },
+        message: {
+          type: 'string',
+          example: 'Data batch with ID 507f1f77bcf86cd799439011 not found',
+        },
         error: { type: 'string', example: 'Not Found' },
       },
     },
@@ -122,7 +141,7 @@ export class DataBatchController {
   public async getDataBatchById(
     @Param('batchId') batchId: string,
   ): Promise<IDataBatch> {
-    return this.queryBus.execute(new GetDataBatchByIdQuery(batchId)) as Promise<IDataBatch>;
+    return this.queryBus.execute(new GetDataBatchByIdQuery(batchId));
   }
 
   /**
@@ -130,13 +149,25 @@ export class DataBatchController {
    */
   @Post('download-enhanced-record-list')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Download enhanced records as Excel file' })
-  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiOperation({
+    summary: 'Download enhanced records as Excel or zipped files',
+  })
+  @ApiProduces(
+    'application/zip',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
   @ApiResponse({
     status: 200,
-    description: 'Excel file with enhanced records',
+    description:
+      'Excel file with enhanced records, or a zip containing header and data sheets when applicable',
     content: {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      'application/zip': {
         schema: {
           type: 'string',
           format: 'binary',
@@ -148,16 +179,23 @@ export class DataBatchController {
     status: 404,
     description: 'No enhanced records found for this batch',
   })
-  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @Header('x-no-compression', 'true')
   public async downloadEnhancedRecordListAsync(
     @Body() { batchId }: BatchIdDto,
   ): Promise<StreamableFile> {
-    const buffer = await this.commandBus.execute(
+    const { buffer, isZip } = await this.commandBus.execute(
       new DownloadBatchEnhancedRecordCommand(batchId),
     );
+
+    const contentType = isZip
+      ? 'application/zip'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    const extension = isZip ? 'zip' : 'xlsx';
+
     return new StreamableFile(buffer, {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: `attachment; filename="enhanced-records-${batchId}.xlsx"`,
+      type: contentType,
+      disposition: `attachment; filename="enhanced-records-${batchId}.${extension}"`,
     });
   }
 
@@ -167,7 +205,9 @@ export class DataBatchController {
   @Post('download-batch-error-list')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Download batch errors as Excel file' })
-  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
   @ApiResponse({
     status: 200,
     description: 'Excel file with batch errors',
@@ -184,7 +224,11 @@ export class DataBatchController {
     status: 404,
     description: 'No errors found for this batch',
   })
-  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @Header(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @Header('x-no-compression', 'true')
   public async downloadErrorRecordListAsync(
     @Body() { batchId }: BatchIdDto,
   ): Promise<StreamableFile> {

@@ -1,6 +1,11 @@
 import { Command } from '@nestjs/cqrs';
 
-export class DownloadBatchEnhancedRecordCommand extends Command<Buffer> {
+export interface DownloadBatchEnhancedRecordResult {
+  buffer: Buffer;
+  isZip: boolean;
+}
+
+export class DownloadBatchEnhancedRecordCommand extends Command<DownloadBatchEnhancedRecordResult> {
   constructor(public readonly batchId: string) {
     super();
   }
