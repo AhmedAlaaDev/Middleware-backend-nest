@@ -734,7 +734,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    * Get all main accounts
    */
   protected async getAllMainAccounts() {
-    return this.queryBus.execute(new GetMainAccountsQuery('coa'));
+    return this.queryBus.execute(new GetMainAccountsQuery('Chart of Accounts'));
   }
 
   /**

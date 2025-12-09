@@ -90,15 +90,33 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         salesTaxIncluded: true,
       });
 
-      const lineObjects = this.buildLines(
-        lines,
-        header,
-        company,
-        exchangeRate,
-        reportingRate,
-        uniqueId,
-        () => ++voucherNum,
-      );
+      // Voucher tracking per invoice
+      const voucherMap = new Map<string, number>();
+
+      const lineObjects: IVendorFreightDFOLine[] = [];
+
+      for (const line of lines) {
+        const invoice = line.INVOICE || 'NO_INVOICE';
+
+        // Assign voucher only once per invoice
+        if (!voucherMap.has(invoice)) {
+          voucherMap.set(invoice, voucherNum++);
+        }
+
+        const voucher = voucherMap.get(invoice)!;
+
+        const obj = this.buildLine(
+          line,
+          header,
+          company,
+          exchangeRate,
+          reportingRate,
+          uniqueId,
+          voucher,
+        );
+
+        lineObjects.push(obj);
+      }
 
       header.journalTotalCredit = lineObjects.reduce(
         (sum, l) => sum + (l.credit ?? 0),
@@ -132,7 +150,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     );
 
     for (const line of lines) {
-      this.validateMainAccount(line, mainAccounts);
+      if (line.accountType === 'Ledger') {
+        this.validateMainAccount(line, mainAccounts);
+      }
       this.validateActivityName(line, dimensionsMap.Activity);
       this.validateCostCenter(line, dimensionsMap.CostCenters);
       this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
@@ -209,63 +229,61 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return (await this.queryBus.execute(query))?.[0]?.rate;
   }
 
-  private buildLines(
-    lines: VendorFreightRawData[],
+  private buildLine(
+    line: VendorFreightRawData,
     header: IVendorFreightDFOHeader,
     company: string,
     exchangeRate: number,
     reportingRate: number,
     uniqueId: string,
-    nextVoucher: () => number,
-  ): IVendorFreightDFOLine[] {
-    return lines.map((line) => {
-      const dimensionModel = this.parseToDimensions(
-        line.ISLEDGER
-          ? line.ACCOUNTDISPLAYVALUE
-          : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
-      );
+    voucherNum: number,
+  ): IVendorFreightDFOLine {
+    const dimensionModel = this.parseToDimensions(
+      line.ISLEDGER
+        ? line.ACCOUNTDISPLAYVALUE
+        : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    );
 
-      return new IVendorFreightDFOLine({
-        header,
-        journalBatchNum: header.journalBatchNum,
-        LineNumber: line.LINENUMBER,
-        accountType: line.ACCOUNTTYPE,
-        DimensionModel: dimensionModel,
-        company,
-        credit: line.CREDITAMOUNT ?? 0,
-        debit: line.DEBITAMOUNT,
-        currency: line.CURRENCYCODE,
-        date: line.TRANSDATE,
-        description: line.TEXT,
-        document: line.DOCUMENT,
-        dueDate: line.DUEDATE,
-        exchangeRate,
-        exchangeRateSecond: 1,
-        fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
-        invoice: line.INVOICE,
-        invoiceDate: line.DOCUMENTDATE,
-        isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
-        itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-        itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
-        methodOfPayment: line.PAYMENTMETHOD,
-        offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-        offsetAccountType: line.OFFSETACCOUNTTYPE,
-        offsetCompany: company,
-        offsetDefaultDimensionDisplayValue:
-          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
-        offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
-        offsetTransactionText: line.OFFSETTEXT,
-        overrideSalesTax: line.OVERRIDESALESTAX,
-        payMid: Number(uniqueId),
-        postingProfile: line.POSTINGPROFILE,
-        reportingCurrencyExchange: reportingRate,
-        salesTaxGroup: line.SALESTAXGROUP || '',
-        taxExemptNumber: '',
-        termsOfPayment: '',
-        transactionType: 'vendor',
-        voucher: nextVoucher(),
-        SourceIds: [uniqueId],
-      });
+    return new IVendorFreightDFOLine({
+      header,
+      journalBatchNum: header.journalBatchNum,
+      LineNumber: line.LINENUMBER,
+      accountType: line.ACCOUNTTYPE,
+      DimensionModel: dimensionModel,
+      company,
+      credit: line.CREDITAMOUNT ?? 0,
+      debit: line.DEBITAMOUNT,
+      currency: line.CURRENCYCODE,
+      date: line.TRANSDATE,
+      description: line.TEXT,
+      document: line.DOCUMENT,
+      dueDate: line.DUEDATE,
+      exchangeRate,
+      exchangeRateSecond: 1,
+      fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
+      invoice: line.INVOICE,
+      invoiceDate: line.DOCUMENTDATE,
+      isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
+      itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
+      itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+      methodOfPayment: line.PAYMENTMETHOD,
+      offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
+      offsetAccountType: line.OFFSETACCOUNTTYPE,
+      offsetCompany: company,
+      offsetDefaultDimensionDisplayValue:
+        line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+      offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
+      offsetTransactionText: line.OFFSETTEXT,
+      overrideSalesTax: line.OVERRIDESALESTAX,
+      payMid: Number(uniqueId),
+      postingProfile: line.POSTINGPROFILE,
+      reportingCurrencyExchange: reportingRate,
+      salesTaxGroup: line.SALESTAXGROUP || '',
+      taxExemptNumber: '',
+      termsOfPayment: '',
+      transactionType: 'vendor',
+      voucher: voucherNum,
+      SourceIds: [uniqueId],
     });
   }
 
