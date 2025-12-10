@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear, getMonthRange } from '@/lib/utils';
+import { formatToMonthYear, getMonthKey, getMonthRange } from '@/lib/utils';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
@@ -24,8 +24,13 @@ import { VendorFreightRawData } from '@/modules/vendor/models/vendor-freight-raw
 
 @Injectable()
 export class VendorFreightEntryProcessor extends EntryProcessorBase {
-  readonly entryProcessorType = EntryProcessorTypes.VendorFreight;
+  private readonly vendorLogger = new Logger(VendorFreightEntryProcessor.name);
 
+  // --------------------------------------------------------------------------
+  // CONSTANTS
+  // --------------------------------------------------------------------------
+  readonly entryProcessorType = EntryProcessorTypes.VendorFreight;
+  private readonly MAX_LINES_PER_BATCH = 1000;
   readonly requiredDimensions = [
     'MainAccount',
     'Activity',
@@ -57,89 +62,123 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    const custodyAccountNumbers = await this.getCustodyAccountNumbers(company);
-
-    const grouped = this.groupByUniqueId(
-      data
-        .map((d) => new VendorFreightRawData(d))
-        .filter((d) => {
-          if (d.ISLEDGER) return true;
-          return !custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
-        }),
+    const rawCount = data.length;
+    this.vendorLogger.debug(
+      `Starting formatAndEnrichAsync with ${rawCount} raw records`,
     );
 
+    // STEP 1: Filter raw data
+    const custodyAccountNumbers = await this.getCustodyAccountNumbers(company);
+    const filteredLines = this.filterRawData(data, custodyAccountNumbers);
+    this.logInitialStats(rawCount, filteredLines.length);
+
+    // STEP 2: Sort by month and invoice
+    const sortedLines = this.sortLinesByMonthAndInvoice(filteredLines);
+    this.vendorLogger.debug(
+      `Sorted ${sortedLines.length} lines by month and invoice`,
+    );
+
+    // STEP 3: Build month → invoice map
+    const monthInvoiceMap = this.buildMonthInvoiceMap(sortedLines);
+    const monthCount = monthInvoiceMap.size;
+    const invoiceCount = Array.from(monthInvoiceMap.values()).reduce(
+      (sum, invoiceMap) => sum + invoiceMap.size,
+      0,
+    );
+    this.vendorLogger.debug(
+      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${invoiceCount} invoices`,
+    );
+
+    // STEP 4: Initialize batch processing
     const eData: IVendorFreightDFOLine[] = [];
     let journalBatchNum = await this.getNextBatchNumber();
     let voucherNum = await this.getNextVoucherNumber();
+    let currentBatchLines: IVendorFreightDFOLine[] = [];
+    let currentBatchMonth: string | null = null;
+    let currentHeader: IVendorFreightDFOHeader | null = null;
+    let batchCount = 0;
 
-    for (const [uniqueId, lines] of grouped.entries()) {
-      const headerLine = lines[0];
-      const dateString = headerLine.TRANSDATE;
-      const formattedDate = formatToMonthYear(dateString);
+    // STEP 5: Process each month → invoice
+    for (const [monthKey, invoiceMap] of monthInvoiceMap.entries()) {
+      for (const [invoiceKey, invoiceLines] of invoiceMap.entries()) {
+        const headerLine = invoiceLines[0];
+        const invoiceCount = invoiceLines.length;
 
-      const exchangeRate = await this.getExchangeRate(
-        headerLine.CURRENCYCODE,
-        dateString,
-        true,
-      );
-
-      const reportingRate = await this.getExchangeRate(
-        headerLine.CURRENCYCODE,
-        dateString,
-        false,
-      );
-
-      const header = new IVendorFreightDFOHeader({
-        journalBatchNum,
-        description: `Vendor Invoice Freight ${formattedDate}`,
-        isPosted: headerLine.ISPOSTED,
-        journalName: headerLine.JOURNALNAME,
-        journalTotalCredit: 0,
-        journalTotalDebit: 0,
-        oversideSalesTax: false,
-        salesTaxIncluded: true,
-      });
-
-      // Voucher tracking per invoice
-      const voucherMap = new Map<string, number>();
-
-      const lineObjects: IVendorFreightDFOLine[] = [];
-
-      for (const line of lines) {
-        const invoice = line.INVOICE || 'NO_INVOICE';
-
-        // Assign voucher only once per invoice
-        if (!voucherMap.has(invoice)) {
-          voucherMap.set(invoice, voucherNum++);
+        if (invoiceCount === 0) {
+          this.vendorLogger.warn(
+            `Invoice ${invoiceKey} has zero lines, skipping`,
+          );
+          continue;
         }
 
-        const voucher = voucherMap.get(invoice)!;
+        const monthChanged = currentBatchMonth !== monthKey;
+        const wouldExceedLimit =
+          currentBatchLines.length + invoiceCount > this.MAX_LINES_PER_BATCH;
 
-        const obj = this.buildLine(
-          line,
-          header,
+        // Check if we need a new batch
+        if (monthChanged || wouldExceedLimit || currentHeader === null) {
+          // Close previous batch if it had lines
+          if (currentBatchLines.length > 0) {
+            journalBatchNum++;
+            this.flushBatch(currentHeader!, currentBatchLines, eData);
+            this.logBatchFlush(journalBatchNum - 1, currentBatchLines.length);
+            batchCount++;
+          }
+
+          currentBatchMonth = monthKey;
+          currentHeader = this.startNewBatch(
+            monthKey,
+            headerLine,
+            journalBatchNum,
+          );
+          currentBatchLines = [];
+          this.logBatchStart(
+            monthKey,
+            invoiceKey,
+            journalBatchNum,
+            currentBatchLines.length,
+            invoiceCount,
+          );
+        }
+
+        // Assign voucher per invoice
+        const voucher = voucherNum++;
+        this.vendorLogger.debug(
+          `Assigning voucher ${voucher} for invoice ${invoiceKey} (${invoiceCount} lines)`,
+        );
+
+        // Calculate exchange rates once per invoice
+        const { exchangeRate, reportingRate } =
+          await this.calculateExchangeRates(headerLine);
+
+        if (!currentHeader) {
+          this.vendorLogger.error('Current header is unexpectedly null');
+          throw new Error('Current header is unexpectedly null');
+        }
+
+        // Process invoice lines
+        const invoiceLineObjects = this.processInvoiceLines(
+          invoiceLines,
           company,
+          currentHeader,
           exchangeRate,
           reportingRate,
-          uniqueId,
           voucher,
         );
 
-        lineObjects.push(obj);
+        currentBatchLines.push(...invoiceLineObjects);
       }
-
-      header.journalTotalCredit = lineObjects.reduce(
-        (sum, l) => sum + (l.credit ?? 0),
-        0,
-      );
-      header.journalTotalDebit = lineObjects.reduce(
-        (sum, l) => sum + (l.debit ?? 0),
-        0,
-      );
-
-      eData.push(...lineObjects);
-      journalBatchNum++;
     }
+
+    // STEP 6: Final flush
+    if (currentBatchLines.length > 0 && currentHeader) {
+      batchCount++;
+      this.flushBatch(currentHeader, currentBatchLines, eData);
+      this.logBatchFlush(journalBatchNum, currentBatchLines.length);
+    }
+
+    // Final summary
+    this.logFinalStats(batchCount, eData.length);
 
     return eData as unknown as DynDataModel[];
   }
@@ -192,17 +231,266 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return custodyVendors.map((v) => v.vendorAccountNumber);
   }
 
-  private groupByUniqueId(lines: VendorFreightRawData[]) {
-    const sorted = [...lines].sort((a, b) => a.UniqueId - b.UniqueId);
-    const grouped = new Map<string, VendorFreightRawData[]>();
+  private filterRawData(
+    data: RawDataModel[],
+    custodyAccountNumbers: string[],
+  ): VendorFreightRawData[] {
+    this.vendorLogger.debug(
+      `Filtering ${data.length} raw records, excluding ${custodyAccountNumbers.length} custody accounts`,
+    );
 
-    sorted.forEach((line) => {
-      const id = line.UniqueId.toString();
-      if (!grouped.has(id)) grouped.set(id, []);
-      grouped.get(id)!.push(line);
+    const filtered = data
+      .map((d) => new VendorFreightRawData(d))
+      .filter((d) => {
+        if (d.ISLEDGER) return true;
+        const isCustody = custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
+        if (isCustody) {
+          this.vendorLogger.debug(
+            `Excluding custody account: ${d.ACCOUNTDISPLAYVALUE}`,
+          );
+        }
+        return !isCustody;
+      });
+
+    return filtered;
+  }
+
+  private sortLinesByMonthAndInvoice(
+    lines: VendorFreightRawData[],
+  ): VendorFreightRawData[] {
+    this.vendorLogger.debug(
+      `Sorting ${lines.length} lines by month and invoice`,
+    );
+
+    const sorted = [...lines].sort((a, b) => {
+      let monthA: string;
+      let monthB: string;
+
+      try {
+        monthA = getMonthKey(a.TRANSDATE);
+      } catch (_error) {
+        this.vendorLogger.warn(
+          `Invalid date format for line ${a.UniqueId}: ${a.TRANSDATE}`,
+        );
+        monthA = 'invalid-date';
+      }
+
+      try {
+        monthB = getMonthKey(b.TRANSDATE);
+      } catch (_error) {
+        this.vendorLogger.warn(
+          `Invalid date format for line ${b.UniqueId}: ${b.TRANSDATE}`,
+        );
+        monthB = 'invalid-date';
+      }
+
+      if (monthA !== monthB) {
+        return monthA.localeCompare(monthB);
+      }
+
+      const invA = a.INVOICE?.toLowerCase().trim() || 'no_invoice';
+      const invB = b.INVOICE?.toLowerCase().trim() || 'no_invoice';
+
+      return invA.localeCompare(invB);
     });
 
-    return grouped;
+    return sorted;
+  }
+
+  private buildMonthInvoiceMap(
+    sortedLines: VendorFreightRawData[],
+  ): Map<string, Map<string, VendorFreightRawData[]>> {
+    this.vendorLogger.debug(
+      `Building month → invoice map from ${sortedLines.length} sorted lines`,
+    );
+
+    const monthInvoiceMap = new Map<
+      string,
+      Map<string, VendorFreightRawData[]>
+    >();
+
+    for (const line of sortedLines) {
+      let monthKey: string;
+      try {
+        monthKey = getMonthKey(line.TRANSDATE);
+      } catch (_error) {
+        this.vendorLogger.warn(
+          `Invalid date format for line ${line.UniqueId}: ${line.TRANSDATE}`,
+        );
+        monthKey = 'invalid-date';
+      }
+
+      const invoiceKey = line.INVOICE?.toLowerCase().trim() || 'no_invoice';
+
+      if (!monthInvoiceMap.has(monthKey)) {
+        monthInvoiceMap.set(monthKey, new Map());
+      }
+
+      const invoiceMap = monthInvoiceMap.get(monthKey)!;
+
+      if (!invoiceMap.has(invoiceKey)) {
+        invoiceMap.set(invoiceKey, []);
+      }
+
+      invoiceMap.get(invoiceKey)!.push(line);
+    }
+
+    return monthInvoiceMap;
+  }
+
+  private startNewBatch(
+    monthKey: string,
+    headerLine: VendorFreightRawData,
+    journalBatchNum: number,
+  ): IVendorFreightDFOHeader {
+    this.vendorLogger.debug(
+      `Starting new batch #${journalBatchNum} for month ${monthKey}`,
+    );
+
+    const formattedDate = formatToMonthYear(headerLine.TRANSDATE);
+
+    const header = this.createBatchHeader(
+      headerLine,
+      journalBatchNum,
+      formattedDate,
+    );
+
+    this.vendorLogger.debug(
+      `Created batch header #${journalBatchNum} with description: ${header.description}`,
+    );
+
+    return header;
+  }
+
+  private flushBatch(
+    header: IVendorFreightDFOHeader,
+    batchLines: IVendorFreightDFOLine[],
+    eData: IVendorFreightDFOLine[],
+  ): void {
+    if (batchLines.length === 0) {
+      this.vendorLogger.debug('Skipping flush for empty batch');
+      return;
+    }
+
+    header.journalTotalCredit = batchLines.reduce(
+      (sum, l) => sum + (l.credit ?? 0),
+      0,
+    );
+    header.journalTotalDebit = batchLines.reduce(
+      (sum, l) => sum + (l.debit ?? 0),
+      0,
+    );
+
+    eData.push(...batchLines);
+
+    this.vendorLogger.debug(
+      `Flushed batch #${header.journalBatchNum}: ${batchLines.length} lines, credit=${header.journalTotalCredit}, debit=${header.journalTotalDebit}`,
+    );
+  }
+
+  private processInvoiceLines(
+    invoiceLines: VendorFreightRawData[],
+    company: string,
+    header: IVendorFreightDFOHeader,
+    exchangeRate: number,
+    reportingRate: number,
+    voucher: number,
+  ): IVendorFreightDFOLine[] {
+    const lineObjects: IVendorFreightDFOLine[] = [];
+
+    for (const line of invoiceLines) {
+      const obj = this.buildLine(
+        line,
+        header,
+        company,
+        exchangeRate,
+        reportingRate,
+        line.UniqueId.toString(),
+        voucher,
+      );
+      lineObjects.push(obj);
+    }
+
+    this.vendorLogger.debug(
+      `Processed ${lineObjects.length} lines for invoice with voucher ${voucher}`,
+    );
+
+    return lineObjects;
+  }
+
+  private async calculateExchangeRates(
+    headerLine: VendorFreightRawData,
+  ): Promise<{
+    exchangeRate: number;
+    reportingRate: number;
+  }> {
+    const dateString = headerLine.TRANSDATE;
+    const currency = headerLine.CURRENCYCODE;
+
+    this.vendorLogger.debug(
+      `Calculating exchange rates for ${currency} on ${dateString}`,
+    );
+
+    const exchangeRate = await this.getExchangeRate(currency, dateString, true);
+    const reportingRate = await this.getExchangeRate(
+      currency,
+      dateString,
+      false,
+    );
+
+    this.vendorLogger.debug(
+      `Exchange rate for ${currency} on ${dateString} = ${exchangeRate}, reporting = ${reportingRate}`,
+    );
+
+    return { exchangeRate, reportingRate };
+  }
+
+  private createBatchHeader(
+    headerLine: VendorFreightRawData,
+    journalBatchNum: number,
+    formattedDate: string,
+  ): IVendorFreightDFOHeader {
+    return new IVendorFreightDFOHeader({
+      journalBatchNum,
+      description: `Vendor Invoice Freight ${formattedDate}`,
+      isPosted: headerLine.ISPOSTED,
+      journalName: headerLine.JOURNALNAME,
+      journalTotalCredit: 0,
+      journalTotalDebit: 0,
+      oversideSalesTax: false,
+      salesTaxIncluded: true,
+    });
+  }
+
+  private logBatchStart(
+    monthKey: string,
+    invoiceKey: string,
+    batchNum: number,
+    currentCount: number,
+    invoiceCount: number,
+  ): void {
+    this.vendorLogger.debug(
+      `Starting new batch #${batchNum} for month ${monthKey}, invoice ${invoiceKey}, current batch has ${currentCount} lines, adding ${invoiceCount} lines`,
+    );
+  }
+
+  private logBatchFlush(batchNum: number, totalLines: number): void {
+    this.vendorLogger.debug(
+      `Flushing batch #${batchNum} with ${totalLines} lines`,
+    );
+  }
+
+  private logInitialStats(rawCount: number, filteredCount: number): void {
+    const excluded = rawCount - filteredCount;
+    this.vendorLogger.debug(
+      `Filtered ${rawCount} raw records → ${filteredCount} valid records (excluded ${excluded} custody accounts)`,
+    );
+  }
+
+  private logFinalStats(totalBatches: number, totalLines: number): void {
+    this.vendorLogger.debug(
+      `Final output = ${totalLines} enriched lines across ${totalBatches} batches`,
+    );
   }
 
   private async getNextBatchNumber(): Promise<number> {
