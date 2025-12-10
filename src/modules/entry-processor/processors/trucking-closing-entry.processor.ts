@@ -82,21 +82,40 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    // Load dependencies
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
     );
-
-    const costCenterDimensions = await this.getFinancialDimensionValues(
-      'CostCenters',
+    const costCenterDimensions = await this.loadCostCenterDimensions();
+    const sortedExchangeRates = await this.loadAndSortExchangeRates();
+    // Placeholder: cost center activities (if needed)
+    this.costCenters = [];
+    const { lastBatch, lastVoucher } = await this.loadCounters(company);
+    const ledgerData = this.filterAndMapLedgerData(data, accounts);
+    const groupedLedger = this.groupEntries(
+      ledgerData,
+      costCenterDimensions,
+      sortedExchangeRates,
     );
+    const dynData = this.processGroupedLedger(
+      groupedLedger,
+      lastVoucher,
+      lastBatch,
+    );
+    await this.finalizeCountersAndSettings(lastBatch, lastVoucher);
+    return dynData;
+  }
 
-    // Get exchange rates - get all rates
+  private async loadCostCenterDimensions(): Promise<
+    IFinancialDimensionValue[]
+  > {
+    return await this.getFinancialDimensionValues('CostCenters');
+  }
+
+  private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
     const exchangeRates = await this.queryBus.execute(
       new GetExchangeRatesQuery(),
     );
-    // Convert IExchangeRate to D365FOExchangeRate format for date handling
-    const d365foExchangeRates: D365FOExchangeRate[] = (
+    const d365foRates: D365FOExchangeRate[] = (
       (exchangeRates || []) as IExchangeRate[]
     ).map((rate) => ({
       RateTypeName: rate.rateTypeName || 'Default',
@@ -108,17 +127,15 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
       ConversionFactor: rate.conversionFactor?.toString(),
       RateTypeDescription: rate.rateTypeDescription,
     }));
-    const sortedExchangeRates = [...d365foExchangeRates].sort(
+    return [...d365foRates].sort(
       (a, b) =>
         new Date(b.StartDate).getTime() - new Date(a.StartDate).getTime(),
     );
+  }
 
-    // Get cost center activities - filter those starting with '2'
-    // Note: This would need a proper service, for now we'll use an empty array
-    // and filter in the grouping logic
-    this.costCenters = [];
-
-    // Get counters
+  private async loadCounters(
+    company: string,
+  ): Promise<{ lastBatch: any; lastVoucher: any }> {
     const lastBatch = await this.db.ledgerEntryBatchCounterModel.findOne({
       companyId: company,
     });
@@ -127,7 +144,6 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         `LedgerEntryBatchCounter not found for company: ${company}`,
       );
     }
-
     const lastVoucher = await this.db.ledgerVoucherCounterModel.findOne({
       companyId: company,
       journalName: this.journalName,
@@ -137,36 +153,36 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         `LedgerVoucherCounter not found for company: ${company}, journal: ${this.journalName}`,
       );
     }
+    return { lastBatch, lastVoucher };
+  }
 
-    // Prepare and group ledger data
-    const ledgerData = this.filterAndMapLedgerData(data, accounts);
-    const groupedLedger = this.groupEntries(
-      ledgerData,
-      costCenterDimensions,
-      sortedExchangeRates,
-    );
-
+  private processGroupedLedger(
+    groupedLedger: MonthGroup[],
+    lastVoucher: LedgerVoucherCounter,
+    lastBatch: LedgerEntryBatchCounter,
+  ): DynLedgerClosingJournalEntryDto[] {
     const dynData: DynLedgerClosingJournalEntryDto[] = [];
-
     for (const ledgerMonth of groupedLedger) {
       const sortedCostCenters = [...ledgerMonth.CostCenters].sort((a, b) => {
         const aNum = parseInt(a.CostCenterId, 10) || 0;
         const bNum = parseInt(b.CostCenterId, 10) || 0;
         return aNum - bNum;
       });
-
       for (const costCenter of sortedCostCenters) {
         const entries = [...costCenter.Entries];
         this.matchVouchersToEntryPairs(entries, lastVoucher);
         this.applyBatchNumbersAndAggregate(entries, lastBatch, dynData);
       }
     }
+    return dynData;
+  }
 
-    // Update counters
+  private async finalizeCountersAndSettings(
+    lastBatch: any,
+    lastVoucher: any,
+  ): Promise<void> {
     await lastBatch.save();
     await lastVoucher.save();
-
-    // Update settings
     await this.commandBus.execute(
       new UpdateSettingValueCommand(
         lastVoucher.relatedSettingLogicalName,
@@ -179,8 +195,6 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         lastBatch.lastBatchNumber.toString(),
       ),
     );
-
-    return dynData;
   }
 
   async validateAsync(
@@ -244,27 +258,32 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     company: string,
   ): Promise<void> {
-    const batches = (data as DynLedgerClosingJournalEntryDto[])
-      .reduce((acc, entry) => {
+    const batches = (data as DynLedgerClosingJournalEntryDto[]).reduce(
+      (acc, entry) => {
         const batchNum = entry.JournalBatchNumber;
         if (!acc[batchNum]) {
           acc[batchNum] = [];
         }
         acc[batchNum].push(entry);
         return acc;
-      }, {} as Record<string, DynLedgerClosingJournalEntryDto[]>);
+      },
+      {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+    );
 
     for (const [journalBatchNumber, entries] of Object.entries(batches)) {
       if (entries.length === 0) continue;
 
-      const batchResponse = await this.generalJournalService.createJournalHeader(
-        company,
-        entries[0],
-      );
+      const batchResponse =
+        await this.generalJournalService.createJournalHeader(
+          company,
+          entries[0],
+        );
 
       for (const entry of entries) {
-        const lineResponse =
-          await this.generalJournalService.createJournalLine(company, entry);
+        const lineResponse = await this.generalJournalService.createJournalLine(
+          company,
+          entry,
+        );
         if (!lineResponse) {
           throw new Error(
             `Failed to create journal line for batch ${journalBatchNumber}.`,
@@ -294,8 +313,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     if (source.CURRENCYCODE?.toUpperCase() !== 'EGP') {
       const rate = exchangeRates.find(
         (r) =>
-          r.FromCurrency.toUpperCase() ===
-            source.CURRENCYCODE?.toUpperCase() &&
+          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
           r.ToCurrency.toUpperCase() === 'EGP' &&
           transDate >= new Date(r.StartDate) &&
           transDate <= new Date(r.EndDate),
@@ -312,8 +330,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     ) {
       const rate = exchangeRates.find(
         (r) =>
-          r.FromCurrency.toUpperCase() ===
-            source.CURRENCYCODE?.toUpperCase() &&
+          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
           r.ToCurrency.toUpperCase() === 'USD' &&
           transDate >= new Date(r.StartDate) &&
           transDate <= new Date(r.EndDate),
@@ -423,16 +440,21 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         invoiceMappings.some((a: any) =>
           a.customerAccount
             ?.toLowerCase()
-            .includes(ledgerEntry.AccountDimensions?.customer?.toLowerCase() || ''),
+            .includes(
+              ledgerEntry.AccountDimensions?.customer?.toLowerCase() || '',
+            ),
         )
       ) {
         const mappingAccount = invoiceMappings.find((a: any) =>
           a.customerAccount
             ?.toLowerCase()
-            .includes(ledgerEntry.AccountDimensions?.subCustomer?.toLowerCase() || ''),
+            .includes(
+              ledgerEntry.AccountDimensions?.subCustomer?.toLowerCase() || '',
+            ),
         );
         if (mappingAccount) {
-          ledgerEntry.AccountDimensions!.subCustomer = mappingAccount.invoiceAccount;
+          ledgerEntry.AccountDimensions!.subCustomer =
+            mappingAccount.invoiceAccount;
         }
       }
 
@@ -441,8 +463,8 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
       );
 
       if (
-        !excludedEntries.some((c) =>
-          c === ledgerEntry.AccountDimensions?.costCenter,
+        !excludedEntries.some(
+          (c) => c === ledgerEntry.AccountDimensions?.costCenter,
         )
       ) {
         ledgerData.push(ledgerEntry);
@@ -457,55 +479,56 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     costCenters: IFinancialDimensionValue[],
     exchangeRates: D365FOExchangeRate[],
   ): MonthGroup[] {
-    const monthGroups = ledgerData.reduce((acc, entry) => {
-      const date = new Date(entry.TRANSDATE);
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      const key = `${year}-${month}`;
+    const monthGroups = ledgerData.reduce(
+      (acc, entry) => {
+        const date = new Date(entry.TRANSDATE);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const key = `${year}-${month}`;
 
-      if (!acc[key]) {
-        acc[key] = {
-          Year: year,
-          Month: month,
-          CostCenters: [],
-        };
-      }
+        if (!acc[key]) {
+          acc[key] = {
+            Year: year,
+            Month: month,
+            CostCenters: [],
+          };
+        }
 
-      const costCenterId = entry.AccountDimensions?.costCenter || '';
-      const costCenter = costCenters.find(
-        (c) => c.value === costCenterId,
-      );
+        const costCenterId = entry.AccountDimensions?.costCenter || '';
+        const costCenter = costCenters.find((c) => c.value === costCenterId);
 
-      let costCenterGroup = acc[key].CostCenters.find(
-        (cc) => cc.CostCenterId === costCenterId,
-      );
-
-      if (!costCenterGroup && costCenter) {
-        costCenterGroup = {
-          CostCenterId: costCenterId,
-          CostCenter: costCenter,
-          Entries: [],
-        };
-        acc[key].CostCenters.push(costCenterGroup);
-      }
-
-      if (costCenterGroup) {
-        const journalEntry = this.createJournalEntryDto(
-          entry.getLineNumber(),
-          '0',
-          '',
-          costCenter?.description || costCenter?.value || '',
-          entry,
-          entry.AccountDimensions!,
-          month,
-          year,
-          exchangeRates,
+        let costCenterGroup = acc[key].CostCenters.find(
+          (cc) => cc.CostCenterId === costCenterId,
         );
-        costCenterGroup.Entries.push(journalEntry);
-      }
 
-      return acc;
-    }, {} as Record<string, MonthGroup>);
+        if (!costCenterGroup && costCenter) {
+          costCenterGroup = {
+            CostCenterId: costCenterId,
+            CostCenter: costCenter,
+            Entries: [],
+          };
+          acc[key].CostCenters.push(costCenterGroup);
+        }
+
+        if (costCenterGroup) {
+          const journalEntry = this.createJournalEntryDto(
+            entry.getLineNumber(),
+            '0',
+            '',
+            costCenter?.description || costCenter?.value || '',
+            entry,
+            entry.AccountDimensions!,
+            month,
+            year,
+            exchangeRates,
+          );
+          costCenterGroup.Entries.push(journalEntry);
+        }
+
+        return acc;
+      },
+      {} as Record<string, MonthGroup>,
+    );
 
     // Sort entries within each cost center
     Object.values(monthGroups).forEach((monthGroup) => {
@@ -544,14 +567,17 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
   ): void {
     const groups = entries
       .filter((e) => !e.Voucher)
-      .reduce((acc, entry) => {
-        const sourceId = entry.SourceIds[0] || '';
-        if (!acc[sourceId]) {
-          acc[sourceId] = [];
-        }
-        acc[sourceId].push(entry);
-        return acc;
-      }, {} as Record<string, DynLedgerClosingJournalEntryDto[]>);
+      .reduce(
+        (acc, entry) => {
+          const sourceId = entry.SourceIds[0] || '';
+          if (!acc[sourceId]) {
+            acc[sourceId] = [];
+          }
+          acc[sourceId].push(entry);
+          return acc;
+        },
+        {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+      );
 
     for (const group of Object.values(groups)) {
       lastVoucher.lastNumber += 1;
@@ -571,14 +597,17 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     lastBatch.lastBatchNumber += 1;
     let batchLineNumber = 1;
 
-    const vouchers = entries.reduce((acc, entry) => {
-      const voucher = entry.Voucher;
-      if (!acc[voucher]) {
-        acc[voucher] = [];
-      }
-      acc[voucher].push(entry);
-      return acc;
-    }, {} as Record<string, DynLedgerClosingJournalEntryDto[]>);
+    const vouchers = entries.reduce(
+      (acc, entry) => {
+        const voucher = entry.Voucher;
+        if (!acc[voucher]) {
+          acc[voucher] = [];
+        }
+        acc[voucher].push(entry);
+        return acc;
+      },
+      {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+    );
 
     for (const voucherEntries of Object.values(vouchers)) {
       if (batchLineNumber + voucherEntries.length > 1000) {
@@ -597,4 +626,3 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     }
   }
 }
-
