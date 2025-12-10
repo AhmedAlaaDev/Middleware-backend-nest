@@ -57,12 +57,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    const custodyVendors = await this.queryBus.execute(
-      new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
-    );
-    const custodyAccountNumbers = custodyVendors.map(
-      (v) => v.vendorAccountNumber,
-    );
+    const custodyAccountNumbers = await this.getCustodyAccountNumbers(company);
 
     const grouped = this.groupByUniqueId(
       data
@@ -189,6 +184,13 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
+
+  private async getCustodyAccountNumbers(company: string): Promise<string[]> {
+    const custodyVendors = await this.queryBus.execute(
+      new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
+    );
+    return custodyVendors.map((v) => v.vendorAccountNumber);
+  }
 
   private groupByUniqueId(lines: VendorFreightRawData[]) {
     const sorted = [...lines].sort((a, b) => a.UniqueId - b.UniqueId);

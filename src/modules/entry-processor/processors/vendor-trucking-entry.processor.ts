@@ -11,7 +11,10 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
+import {
+  GetExchangeRatesQuery,
+  GetVendorsQuery,
+} from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
   IVendorTruckingDFOHeader,
@@ -57,8 +60,15 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
+    const custodyAccountNumbers = await this.getCustodyAccountNumbers(company);
+
     const grouped = this.groupByUniqueId(
-      data.map((d) => new VendorTruckingRawData(d)),
+      data
+        .map((d) => new VendorTruckingRawData(d))
+        .filter((d) => {
+          if (d.ISLEDGER) return true;
+          return !custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
+        }),
     );
 
     const eData: IVendorTruckingDFOLine[] = [];
@@ -93,15 +103,33 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         salesTaxIncluded: true,
       });
 
-      const lineObjects = this.buildLines(
-        lines,
-        header,
-        company,
-        exchangeRate,
-        reportingRate,
-        uniqueId,
-        () => ++voucherNum,
-      );
+      // Voucher tracking per invoice
+      const voucherMap = new Map<string, number>();
+
+      const lineObjects: IVendorTruckingDFOLine[] = [];
+
+      for (const line of lines) {
+        const invoice = line.INVOICE || 'NO_INVOICE';
+
+        // Assign voucher only once per invoice
+        if (!voucherMap.has(invoice)) {
+          voucherMap.set(invoice, voucherNum++);
+        }
+
+        const voucher = voucherMap.get(invoice)!;
+
+        const obj = this.buildLine(
+          line,
+          header,
+          company,
+          exchangeRate,
+          reportingRate,
+          uniqueId,
+          voucher,
+        );
+
+        lineObjects.push(obj);
+      }
 
       header.journalTotalCredit = lineObjects.reduce(
         (sum, l) => sum + (l.credit ?? 0),
@@ -130,12 +158,15 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     const lines = data as unknown as IVendorTruckingDFOLine[];
 
     const dimensionsMap = await this.loadDimensionsMap();
+
     const mainAccounts = (await this.getAllMainAccounts()).map(
       ({ accountNumber }) => ({ accountNumber }),
     );
 
     for (const line of lines) {
-      this.validateMainAccount(line, mainAccounts);
+      if (line.accountType === 'Ledger') {
+        this.validateMainAccount(line, mainAccounts);
+      }
       this.validateActivityName(line, dimensionsMap.Activity);
       this.validateCostCenter(line, dimensionsMap.CostCenters);
       this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
@@ -146,8 +177,12 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       this.validateDirection(line, dimensionsMap.Direction);
       this.validateVendor(line, dimensionsMap.Vendor);
       this.validateTruckerType(line, dimensionsMap.TruckerType);
-      this.validateTruckNumber(line, dimensionsMap.TruckNumber);
-      this.validateWorker(line, dimensionsMap.Worker);
+      if (
+        line.DimensionModel.truckerType === '11' ||
+        line.DimensionModel.truckerType === '12'
+      ) {
+        this.validateTruckNumber(line, dimensionsMap.TruckNumber);
+      }
 
       if (line.DimensionModel.subVendor) {
         this.validateSubVendor(line, dimensionsMap.SubVendor);
@@ -160,6 +195,13 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
+
+  private async getCustodyAccountNumbers(company: string): Promise<string[]> {
+    const custodyVendors = await this.queryBus.execute(
+      new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
+    );
+    return custodyVendors.map((v) => v.vendorAccountNumber);
+  }
 
   private groupByUniqueId(lines: VendorTruckingRawData[]) {
     const sorted = [...lines].sort((a, b) => a.UniqueId - b.UniqueId);
@@ -215,63 +257,61 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     return (await this.queryBus.execute(query))?.[0]?.rate;
   }
 
-  private buildLines(
-    lines: VendorTruckingRawData[],
+  private buildLine(
+    line: VendorTruckingRawData,
     header: IVendorTruckingDFOHeader,
     company: string,
     exchangeRate: number,
     reportingRate: number,
     uniqueId: string,
-    nextVoucher: () => number,
-  ): IVendorTruckingDFOLine[] {
-    return lines.map((line) => {
-      const dimensionModel = this.parseToDimensions(
-        line.ISLEDGER
-          ? line.ACCOUNTDISPLAYVALUE
-          : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
-      );
+    voucherNum: number,
+  ): IVendorTruckingDFOLine {
+    const dimensionModel = this.parseToDimensions(
+      line.ISLEDGER
+        ? line.ACCOUNTDISPLAYVALUE
+        : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    );
 
-      return new IVendorTruckingDFOLine({
-        header,
-        journalBatchNum: header.journalBatchNum,
-        LineNumber: line.LINENUMBER,
-        accountType: line.ACCOUNTTYPE,
-        DimensionModel: dimensionModel,
-        company,
-        credit: line.CREDITAMOUNT ?? 0,
-        debit: line.DEBITAMOUNT,
-        currency: line.CURRENCYCODE,
-        date: line.TRANSDATE,
-        description: line.TEXT,
-        document: line.DOCUMENT,
-        dueDate: line.DUEDATE,
-        exchangeRate,
-        exchangeRateSecond: 1,
-        fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
-        invoice: line.INVOICE,
-        invoiceDate: line.DOCUMENTDATE,
-        isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
-        itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-        itemWithholdingTaxGroupCode: '',
-        methodOfPayment: line.PAYMENTMETHOD,
-        offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-        offsetAccountType: line.OFFSETACCOUNTTYPE,
-        offsetCompany: company,
-        offsetDefaultDimensionDisplayValue:
-          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
-        offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
-        offsetTransactionText: line.OFFSETTEXT,
-        overrideSalesTax: line.OVERRIDESALESTAX,
-        payMid: Number(uniqueId),
-        postingProfile: line.POSTINGPROFILE,
-        reportingCurrencyExchange: reportingRate,
-        salesTaxGroup: line.SALESTAXGROUP || '',
-        taxExemptNumber: '',
-        termsOfPayment: '',
-        transactionType: 'vendor',
-        voucher: nextVoucher(),
-        SourceIds: [uniqueId],
-      });
+    return new IVendorTruckingDFOLine({
+      header,
+      journalBatchNum: header.journalBatchNum,
+      LineNumber: line.LINENUMBER,
+      accountType: line.ACCOUNTTYPE,
+      DimensionModel: dimensionModel,
+      company,
+      credit: line.CREDITAMOUNT ?? 0,
+      debit: line.DEBITAMOUNT,
+      currency: line.CURRENCYCODE,
+      date: line.TRANSDATE,
+      description: line.TEXT,
+      document: line.DOCUMENT,
+      dueDate: line.DUEDATE,
+      exchangeRate,
+      exchangeRateSecond: 1,
+      fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
+      invoice: line.INVOICE,
+      invoiceDate: line.DOCUMENTDATE,
+      isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
+      itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
+      itemWithholdingTaxGroupCode: '',
+      methodOfPayment: line.PAYMENTMETHOD,
+      offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
+      offsetAccountType: line.OFFSETACCOUNTTYPE,
+      offsetCompany: company,
+      offsetDefaultDimensionDisplayValue:
+        line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+      offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
+      offsetTransactionText: line.OFFSETTEXT,
+      overrideSalesTax: line.OVERRIDESALESTAX,
+      payMid: Number(uniqueId),
+      postingProfile: line.POSTINGPROFILE,
+      reportingCurrencyExchange: reportingRate,
+      salesTaxGroup: line.SALESTAXGROUP || '',
+      taxExemptNumber: '',
+      termsOfPayment: '',
+      transactionType: 'vendor',
+      voucher: voucherNum,
+      SourceIds: [uniqueId],
     });
   }
 
