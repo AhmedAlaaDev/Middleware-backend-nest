@@ -12,9 +12,9 @@ export class GetExchangeRatesHandler implements IQueryHandler<GetExchangeRatesQu
   constructor(private readonly masterDataService: MasterDataService) {}
 
   public async execute(query: GetExchangeRatesQuery): Promise<IExchangeRate[]> {
-    this.logger.log(
-      `Fetching exchange rates from database${query.rateType ? `, rateType: ${query.rateType}` : ''}${query.fromCurrency ? `, fromCurrency: ${query.fromCurrency}` : ''}${query.toCurrency ? `, toCurrency: ${query.toCurrency}` : ''}`,
-    );
+    // this.logger.log(
+    //   `Fetching exchange rates from database${query.rateType ? `, rateType: ${query.rateType}` : ''}${query.fromCurrency ? `, fromCurrency: ${query.fromCurrency}` : ''}${query.toCurrency ? `, toCurrency: ${query.toCurrency}` : ''}`,
+    // );
 
     const { items } = await this.masterDataService.getExchangeRatesAsync({
       rateTypeName: query.rateType,

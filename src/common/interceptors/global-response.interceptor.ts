@@ -21,6 +21,7 @@ import {
   Injectable,
   NestInterceptor,
   HttpStatus,
+  StreamableFile,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -75,6 +76,11 @@ export class GlobalResponseInterceptor<T> implements NestInterceptor<
 
     return next.handle().pipe(
       map((data: T): ApiResponse<T> => {
+        // ---- 1) Detect StreamableFile returned by controller ----
+        if (this.isStreamable(data)) {
+          return data as any;
+        }
+
         const statusCode = res.statusCode ?? HttpStatus.OK;
 
         // Handle 204 No Content → return envelope with null data
@@ -196,6 +202,10 @@ export class GlobalResponseInterceptor<T> implements NestInterceptor<
     }
 
     return false;
+  }
+
+  private isStreamable(data: any): boolean {
+    return data instanceof StreamableFile;
   }
 
   /**

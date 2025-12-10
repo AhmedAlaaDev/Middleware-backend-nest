@@ -1,51 +1,56 @@
+import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
 class VendorTruckingDFOLine {
   header: IVendorTruckingDFOHeader;
-  journalBatchNum: number;
   LineNumber: number;
-  DimensionModel: AccountDimensionsModel;
-  accountType: 'Vend' | 'Ledger';
-  company: string;
-  credit: number;
-  debit: number;
-  currency: string;
-  date: string;
-  description: string;
-  document: number;
-  dueDate: string;
-  exchangeRate: number;
-  exchangeRateSecond: number;
-  fineTagDisplayValue: any;
-  invoice: string;
-  invoiceDate: string;
-  isWithHoldingTaxCalculate: boolean;
-  itemSalesTaxGroup: string;
-  itemWithholdingTaxGroupCode: string;
-  methodOfPayment: string;
-  offsetAccountDisplayValue: string;
-  offsetAccountType: string;
-  offsetCompany: string;
-  offsetDefaultDimensionDisplayValue: string;
-  offsetFinTagDisplayValue: string;
-  offsetTransactionText: string;
-  overrideSalesTax: string;
-  payMid: number;
-  postingProfile: string;
-  reportingCurrencyExchange: number;
-  salesTaxGroup: string;
-  taxExemptNumber: string;
-  termsOfPayment: string;
-  transactionType: string;
-  voucher: number;
   SourceIds: string[];
+  DimensionModel: AccountDimensionsModel;
+
+  JOURNALBATCHNUM: string;
+  ACCOUNTTYPE: 'Vend' | 'Ledger';
+  COMPANY: string;
+  CREDIT: number;
+  DEBIT: number;
+  CURRENCY: string;
+  DATE: string;
+  DESCRIPTION: string;
+  DOCUMENT: number;
+  DUEDATE: string;
+  EXCHANGERATE: number;
+  EXCHANGERATESECOND: number;
+  FINETAGDISPLAYVALUE: any;
+  INVOICE: string;
+  INVOICEDATE: string;
+  ISWITHHOLDINGTAXCALCULATE: boolean;
+  ITEMSALESTAXGROUP: string;
+  ITEMWITHHOLDINGTAXGROUPCODE: string;
+  METHODOFPAYMENT: string;
+  OFFSETACCOUNTDISPLAYVALUE: string;
+  OFFSETACCOUNTTYPE: string;
+  OFFSETCOMPANY: string;
+  OFFSETDEFAULTDIMENSIONDISPLAYVALUE: string;
+  OFFSETFINTAGDISPLAYVALUE: string;
+  OFFSETTRANSACTIONTEXT: string;
+  OVERRIDESALESTAX: string;
+  PAYMID: number;
+  POSTINGPROFILE: string;
+  REPORTINGCURRENCYEXCHANGE: number;
+  SALESTAXGROUP: string;
+  TAXEXEMPTNUMBER: string;
+  TERMSOFPAYMENT: string;
+  TRANSACTIONTYPE: string;
+  VOUCHER: number | string;
 
   constructor(data: VendorTruckingDFOLine) {
     Object.assign(this, data);
   }
 }
 
-export class IVendorTruckingDFOLine extends VendorTruckingDFOLine {
+export class IVendorTruckingDFOLine
+  extends VendorTruckingDFOLine
+  implements DynDataModel
+{
   private errors: Array<{ property: string; message: string }> = [];
 
   constructor(data: VendorTruckingDFOLine) {
@@ -73,14 +78,14 @@ export class IVendorTruckingDFOLine extends VendorTruckingDFOLine {
 }
 
 export class IVendorTruckingDFOHeader {
-  journalBatchNum: number;
-  description: string;
-  isPosted: boolean;
-  journalName: string;
-  journalTotalCredit: number;
-  journalTotalDebit: number;
-  oversideSalesTax: boolean;
-  salesTaxIncluded: boolean;
+  JOURNALBATCHNUM: string;
+  DESCRIPTION: string;
+  ISPOSTED: boolean;
+  JOURNALNAME: string;
+  JOURNALTOTALCREDIT: number;
+  JOURNALTOTALDEBIT: number;
+  OVERSIDESALESTAX: boolean;
+  SALESTAXINCLUDED: boolean;
 
   constructor(data: IVendorTruckingDFOHeader) {
     Object.assign(this, data);

@@ -1,3 +1,5 @@
+import { VENDOR_GROUP_IDS } from '@/modules/master-data/constants/vendor';
+
 export class IVendor {
   id: string;
   company: string;
@@ -28,4 +30,5 @@ export type IUpdateVendor = Partial<ICreateVendor>;
 export interface IVendorListFilter {
   company?: string;
   accountNumbers?: string[];
+  vendorGroupIds?: (typeof VENDOR_GROUP_IDS)[number][];
 }

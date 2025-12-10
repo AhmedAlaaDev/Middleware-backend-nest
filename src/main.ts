@@ -64,7 +64,16 @@ async function bootstrap() {
   });
 
   app.use(helmet());
-  app.use(compression());
+  app.use(
+    compression({
+      filter: (req: Request, res: Response) => {
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    }),
+  );
 
   // use global prefix for all routes
   app.setGlobalPrefix(process.env.PREFIX ?? '');

@@ -34,3 +34,18 @@ export function getMonthRange(dateStr: string) {
     toDate,
   };
 }
+
+export function getMonthKey(dateStr: string): string {
+  if (!dateStr) return 'invalid-date';
+
+  const d = new Date(dateStr);
+
+  if (isNaN(d.getTime())) {
+    throw new Error(`Invalid date format: ${dateStr}`);
+  }
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+
+  return `${year}-${month}`; // always YYYY-MM
+}
