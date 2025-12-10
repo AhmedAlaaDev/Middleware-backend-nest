@@ -11,7 +11,10 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
+import {
+  GetExchangeRatesQuery,
+  GetVendorsQuery,
+} from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
   IVendorFreightDFOHeader,
@@ -54,8 +57,20 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
+    const custodyVendors = await this.queryBus.execute(
+      new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
+    );
+    const custodyAccountNumbers = custodyVendors.map(
+      (v) => v.vendorAccountNumber,
+    );
+
     const grouped = this.groupByUniqueId(
-      data.map((d) => new VendorFreightRawData(d)),
+      data
+        .map((d) => new VendorFreightRawData(d))
+        .filter((d) => {
+          if (d.ISLEDGER) return true;
+          return !custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
+        }),
     );
 
     const eData: IVendorFreightDFOLine[] = [];
