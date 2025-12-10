@@ -121,7 +121,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           if (currentBatchLines.length > 0) {
             journalBatchNum++;
             this.flushBatch(currentHeader!, currentBatchLines, eData);
-            this.logBatchFlush(journalBatchNum - 1, currentBatchLines.length);
             batchCount++;
           }
 
@@ -132,20 +131,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
             journalBatchNum,
           );
           currentBatchLines = [];
-          this.logBatchStart(
-            monthKey,
-            invoiceKey,
-            journalBatchNum,
-            currentBatchLines.length,
-            invoiceCount,
-          );
         }
 
         // Assign voucher per invoice
         const voucher = voucherNum++;
-        this.vendorLogger.debug(
-          `Assigning voucher ${voucher} for invoice ${invoiceKey} (${invoiceCount} lines)`,
-        );
 
         // Calculate exchange rates once per invoice
         const { exchangeRate, reportingRate } =
@@ -174,7 +163,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     if (currentBatchLines.length > 0 && currentHeader) {
       batchCount++;
       this.flushBatch(currentHeader, currentBatchLines, eData);
-      this.logBatchFlush(journalBatchNum, currentBatchLines.length);
     }
 
     // Final summary
@@ -199,7 +187,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     );
 
     for (const line of lines) {
-      if (line.accountType === 'Ledger') {
+      if (line.ACCOUNTTYPE === 'Ledger') {
         this.validateMainAccount(line, mainAccounts);
       }
       this.validateActivityName(line, dimensionsMap.Activity);
@@ -235,20 +223,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     custodyAccountNumbers: string[],
   ): VendorFreightRawData[] {
-    this.vendorLogger.debug(
-      `Filtering ${data.length} raw records, excluding ${custodyAccountNumbers.length} custody accounts`,
-    );
-
     const filtered = data
       .map((d) => new VendorFreightRawData(d))
       .filter((d) => {
         if (d.ISLEDGER) return true;
         const isCustody = custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
-        if (isCustody) {
-          this.vendorLogger.debug(
-            `Excluding custody account: ${d.ACCOUNTDISPLAYVALUE}`,
-          );
-        }
         return !isCustody;
       });
 
@@ -258,10 +237,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   private sortLinesByMonthAndInvoice(
     lines: VendorFreightRawData[],
   ): VendorFreightRawData[] {
-    this.vendorLogger.debug(
-      `Sorting ${lines.length} lines by month and invoice`,
-    );
-
     const sorted = [...lines].sort((a, b) => {
       let monthA: string;
       let monthB: string;
@@ -300,10 +275,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   private buildMonthInvoiceMap(
     sortedLines: VendorFreightRawData[],
   ): Map<string, Map<string, VendorFreightRawData[]>> {
-    this.vendorLogger.debug(
-      `Building month → invoice map from ${sortedLines.length} sorted lines`,
-    );
-
     const monthInvoiceMap = new Map<
       string,
       Map<string, VendorFreightRawData[]>
@@ -343,20 +314,12 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     headerLine: VendorFreightRawData,
     journalBatchNum: number,
   ): IVendorFreightDFOHeader {
-    this.vendorLogger.debug(
-      `Starting new batch #${journalBatchNum} for month ${monthKey}`,
-    );
-
     const formattedDate = formatToMonthYear(headerLine.TRANSDATE);
 
     const header = this.createBatchHeader(
       headerLine,
       journalBatchNum,
       formattedDate,
-    );
-
-    this.vendorLogger.debug(
-      `Created batch header #${journalBatchNum} with description: ${header.description}`,
     );
 
     return header;
@@ -368,24 +331,19 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     eData: IVendorFreightDFOLine[],
   ): void {
     if (batchLines.length === 0) {
-      this.vendorLogger.debug('Skipping flush for empty batch');
       return;
     }
 
-    header.journalTotalCredit = batchLines.reduce(
-      (sum, l) => sum + (l.credit ?? 0),
+    header.JOURNALTOTALCREDIT = batchLines.reduce(
+      (sum, l) => sum + (l.CREDIT ?? 0),
       0,
     );
-    header.journalTotalDebit = batchLines.reduce(
-      (sum, l) => sum + (l.debit ?? 0),
+    header.JOURNALTOTALDEBIT = batchLines.reduce(
+      (sum, l) => sum + (l.DEBIT ?? 0),
       0,
     );
 
     eData.push(...batchLines);
-
-    this.vendorLogger.debug(
-      `Flushed batch #${header.journalBatchNum}: ${batchLines.length} lines, credit=${header.journalTotalCredit}, debit=${header.journalTotalDebit}`,
-    );
   }
 
   private processInvoiceLines(
@@ -411,10 +369,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       lineObjects.push(obj);
     }
 
-    this.vendorLogger.debug(
-      `Processed ${lineObjects.length} lines for invoice with voucher ${voucher}`,
-    );
-
     return lineObjects;
   }
 
@@ -427,19 +381,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     const dateString = headerLine.TRANSDATE;
     const currency = headerLine.CURRENCYCODE;
 
-    this.vendorLogger.debug(
-      `Calculating exchange rates for ${currency} on ${dateString}`,
-    );
-
     const exchangeRate = await this.getExchangeRate(currency, dateString, true);
     const reportingRate = await this.getExchangeRate(
       currency,
       dateString,
       false,
-    );
-
-    this.vendorLogger.debug(
-      `Exchange rate for ${currency} on ${dateString} = ${exchangeRate}, reporting = ${reportingRate}`,
     );
 
     return { exchangeRate, reportingRate };
@@ -451,33 +397,15 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     formattedDate: string,
   ): IVendorFreightDFOHeader {
     return new IVendorFreightDFOHeader({
-      journalBatchNum,
-      description: `Vendor Invoice Freight ${formattedDate}`,
-      isPosted: headerLine.ISPOSTED,
-      journalName: headerLine.JOURNALNAME,
-      journalTotalCredit: 0,
-      journalTotalDebit: 0,
-      oversideSalesTax: false,
-      salesTaxIncluded: true,
+      JOURNALBATCHNUM: this.formatBatchNumber(journalBatchNum),
+      DESCRIPTION: `Vendor Invoice Freight ${formattedDate}`,
+      ISPOSTED: headerLine.ISPOSTED,
+      JOURNALNAME: headerLine.JOURNALNAME,
+      JOURNALTOTALCREDIT: 0,
+      JOURNALTOTALDEBIT: 0,
+      OVERSIDESALESTAX: false,
+      SALESTAXINCLUDED: true,
     });
-  }
-
-  private logBatchStart(
-    monthKey: string,
-    invoiceKey: string,
-    batchNum: number,
-    currentCount: number,
-    invoiceCount: number,
-  ): void {
-    this.vendorLogger.debug(
-      `Starting new batch #${batchNum} for month ${monthKey}, invoice ${invoiceKey}, current batch has ${currentCount} lines, adding ${invoiceCount} lines`,
-    );
-  }
-
-  private logBatchFlush(batchNum: number, totalLines: number): void {
-    this.vendorLogger.debug(
-      `Flushing batch #${batchNum} with ${totalLines} lines`,
-    );
   }
 
   private logInitialStats(rawCount: number, filteredCount: number): void {
@@ -551,43 +479,43 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
 
     return new IVendorFreightDFOLine({
       header,
-      journalBatchNum: header.journalBatchNum,
+      JOURNALBATCHNUM: header.JOURNALBATCHNUM,
       LineNumber: line.LINENUMBER,
-      accountType: line.ACCOUNTTYPE,
+      ACCOUNTTYPE: line.ACCOUNTTYPE,
       DimensionModel: dimensionModel,
-      company,
-      credit: line.CREDITAMOUNT ?? 0,
-      debit: line.DEBITAMOUNT,
-      currency: line.CURRENCYCODE,
-      date: line.TRANSDATE,
-      description: line.TEXT,
-      document: line.DOCUMENT,
-      dueDate: line.DUEDATE,
-      exchangeRate,
-      exchangeRateSecond: 1,
-      fineTagDisplayValue: line.FINTAGDISPLAYVALUE,
-      invoice: line.INVOICE,
-      invoiceDate: line.DOCUMENTDATE,
-      isWithHoldingTaxCalculate: line.ISWITHHOLDINGCALCULATIONENABLED,
-      itemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-      itemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
-      methodOfPayment: line.PAYMENTMETHOD,
-      offsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-      offsetAccountType: line.OFFSETACCOUNTTYPE,
-      offsetCompany: company,
-      offsetDefaultDimensionDisplayValue:
+      COMPANY: company,
+      CREDIT: line.CREDITAMOUNT ?? 0,
+      DEBIT: line.DEBITAMOUNT,
+      CURRENCY: line.CURRENCYCODE,
+      DATE: line.TRANSDATE,
+      DESCRIPTION: line.TEXT,
+      DOCUMENT: line.DOCUMENT,
+      DUEDATE: line.DUEDATE,
+      EXCHANGERATE: exchangeRate,
+      EXCHANGERATESECOND: 1,
+      FINETAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
+      INVOICE: line.INVOICE,
+      INVOICEDATE: line.DOCUMENTDATE,
+      ISWITHHOLDINGTAXCALCULATE: line.ISWITHHOLDINGCALCULATIONENABLED,
+      ITEMSALESTAXGROUP: line.ITEMSALESTAXGROUP || '',
+      ITEMWITHHOLDINGTAXGROUPCODE: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+      METHODOFPAYMENT: line.PAYMENTMETHOD,
+      OFFSETACCOUNTDISPLAYVALUE: line.OFFSETACCOUNTDISPLAYVALUE,
+      OFFSETACCOUNTTYPE: line.OFFSETACCOUNTTYPE,
+      OFFSETCOMPANY: company,
+      OFFSETDEFAULTDIMENSIONDISPLAYVALUE:
         line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
-      offsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
-      offsetTransactionText: line.OFFSETTEXT,
-      overrideSalesTax: line.OVERRIDESALESTAX,
-      payMid: Number(uniqueId),
-      postingProfile: line.POSTINGPROFILE,
-      reportingCurrencyExchange: reportingRate,
-      salesTaxGroup: line.SALESTAXGROUP || '',
-      taxExemptNumber: '',
-      termsOfPayment: '',
-      transactionType: 'vendor',
-      voucher: voucherNum,
+      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE,
+      OFFSETTRANSACTIONTEXT: line.OFFSETTEXT,
+      OVERRIDESALESTAX: line.OVERRIDESALESTAX,
+      PAYMID: Number(uniqueId),
+      POSTINGPROFILE: line.POSTINGPROFILE,
+      REPORTINGCURRENCYEXCHANGE: reportingRate,
+      SALESTAXGROUP: line.SALESTAXGROUP || '',
+      TAXEXEMPTNUMBER: '',
+      TERMSOFPAYMENT: '',
+      TRANSACTIONTYPE: 'vendor',
+      VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
       SourceIds: [uniqueId],
     });
   }

@@ -751,4 +751,12 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
     return [];
   }
+
+  protected formatVoucherNumber(voucher: number, prefix: string): string {
+    return `${prefix}-${String(voucher).padStart(9, '0')}`;
+  }
+
+  protected formatBatchNumber(batch: number, prefix?: string): string {
+    return `${prefix || 'Mesco'}-${String(batch).padStart(9, '0')}`;
+  }
 }
