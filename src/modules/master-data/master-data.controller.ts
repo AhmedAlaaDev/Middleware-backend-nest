@@ -272,8 +272,8 @@ export class MasterDataController {
     status: 200,
     description: 'Vendors retrieved successfully',
   })
-  public getVendorsAsync(@Query('company') company?: string) {
-    return this.queryBus.execute(new GetVendorsQuery(company));
+  public async getVendorsAsync(@Query('company') company?: string) {
+    return this.queryBus.execute(new GetVendorsQuery({ company }));
   }
 
   /**

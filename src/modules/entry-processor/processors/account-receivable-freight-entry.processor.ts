@@ -49,106 +49,35 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    // Load master data
+    // Load customer-account mappings for the Freight service
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
-
-    const arData = data.map((raw) => {
-      const model = new AccountReceivableFileModel();
-      Object.assign(model, raw);
-      return model;
-    });
-
-    // Group by VOUCHER and INVOICE
-    const invoiceGroups = new Map<string, AccountReceivableFileModel[]>();
-    for (const line of arData) {
-      const key = `${line.VOUCHER || ''}_${line.INVOICE || ''}`;
-      if (!invoiceGroups.has(key)) {
-        invoiceGroups.set(key, []);
-      }
-      invoiceGroups.get(key)!.push(line);
-    }
-
-    const accLines: DynAccountReceivableLineDto[] = [];
-
+    // Convert raw rows (Excel) into typed models we can safely work with
+    const arData = this.mapToModels(data);
+    // Group all lines by voucher+invoice to process each invoice cohesively
+    const groups = this.groupByVoucherInvoice(arData);
+    // Fetch billing codes for the given company (used to derive charge type)
     const billingCodes = await this.queryBus.execute(
       new GetBillingCodesQuery(company),
     );
-
+    // Cache billing classification codes, if provided, for downstream validation
     if (billingClassId) {
       this.billingClassifications.set(billingClassId, billingCodes);
     }
-
-    for (const [_key, lines] of invoiceGroups.entries()) {
-      // Sort lines by line number
-      const sortedLines = lines.sort((a, b) => {
-        try {
-          return a.getLineNumber() - b.getLineNumber();
-        } catch {
-          return 0;
-        }
-      });
-
-      let invLineCount = 1;
-      let currentCustLine: AccountReceivableFileModel | null = null;
-
-      for (const line of sortedLines) {
-        invLineCount++;
-        if (line.ACCOUNTTYPE?.toLowerCase() === 'cust') {
-          currentCustLine = line;
-          continue;
-        } else if (
-          line.ACCOUNTTYPE?.toLowerCase() === 'ledger' &&
-          currentCustLine !== null
-        ) {
-          // Preparing the Account Dims
-          const accountDimensions = this.parseToDimensions(
-            line.ACCOUNTDISPLAYVALUE || '',
-          );
-
-          // Apply account mapping if needed
-          const matchingAccount = accounts.find((a: any) =>
-            a.customerAccount
-              ?.toLowerCase()
-              .includes(accountDimensions.customer?.toLowerCase() || ''),
-          );
-          if (matchingAccount && accountDimensions.subCustomer) {
-            const mappingAccount = accounts.find((a: any) =>
-              a.customerAccount
-                ?.toLowerCase()
-                .includes(accountDimensions.subCustomer?.toLowerCase() || ''),
-            );
-            if (mappingAccount) {
-              accountDimensions.subCustomer = mappingAccount.invoiceAccount;
-            }
-          }
-
-          line.ACCOUNTDISPLAYVALUE =
-            this.convertToStringDimensions(accountDimensions);
-          //Get the Dims Billing code
-          const billingCode =
-            billingCodes.find((bc: any) =>
-              bc.billingCode
-                ?.toLowerCase()
-                .includes(accountDimensions.chargeType?.toLowerCase() || ''),
-            ) || null;
-
-          const arLine = this.prepareAccountReceivableLine(
-            invLineCount,
-            accountDimensions,
-            currentCustLine,
-            line,
-            billingCode,
-            billingClassId || '',
-          );
-
-          accLines.push(arLine);
-        }
-      }
+    // Enrich each grouped invoice into Account Receivable lines
+    const results: DynAccountReceivableLineDto[] = [];
+    for (const [, lines] of groups.entries()) {
+      const enriched = this.enrichGroup(
+        lines,
+        billingCodes,
+        billingClassId,
+        accounts,
+      );
+      results.push(...enriched);
     }
-
-    return accLines;
+    // Return the aggregated enriched AR lines
+    return results;
   }
 
   async validateAsync(
@@ -247,5 +176,99 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         );
       }
     }
+  }
+
+  private mapToModels(data: RawDataModel[]): AccountReceivableFileModel[] {
+    return data.map((raw) => {
+      const model = new AccountReceivableFileModel();
+      Object.assign(model, raw);
+      return model;
+    });
+  }
+
+  private groupByVoucherInvoice(
+    arData: AccountReceivableFileModel[],
+  ): Map<string, AccountReceivableFileModel[]> {
+    const invoiceGroups = new Map<string, AccountReceivableFileModel[]>();
+    for (const line of arData) {
+      const key = `${line.VOUCHER || ''}_${line.INVOICE || ''}`;
+      if (!invoiceGroups.has(key)) {
+        invoiceGroups.set(key, []);
+      }
+      invoiceGroups.get(key)!.push(line);
+    }
+    return invoiceGroups;
+  }
+
+  private enrichGroup(
+    lines: AccountReceivableFileModel[],
+    billingCodes: any[],
+    billingClassId: string | undefined,
+    accounts: any[],
+  ): DynAccountReceivableLineDto[] {
+    const sortedLines = lines.sort((a, b) => {
+      try {
+        return a.getLineNumber() - b.getLineNumber();
+      } catch {
+        return 0;
+      }
+    });
+    const accLines: DynAccountReceivableLineDto[] = [];
+    let invLineCount = 1;
+    let currentCustLine: AccountReceivableFileModel | null = null;
+    for (const line of sortedLines) {
+      const type = line.ACCOUNTTYPE?.toLowerCase();
+      if (type === 'cust') {
+        currentCustLine = line;
+        continue;
+      }
+      if (type === 'ledger' && currentCustLine !== null) {
+        const dims = this.parseToDimensions(line.ACCOUNTDISPLAYVALUE || '');
+        this.applySubCustomerMapping(dims, accounts);
+        line.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
+        const billingCode = this.findBillingCode(billingCodes, dims.chargeType);
+        const arLine = this.prepareAccountReceivableLine(
+          invLineCount,
+          dims,
+          currentCustLine,
+          line,
+          billingCode,
+          billingClassId || '',
+        );
+        invLineCount++;
+        accLines.push(arLine);
+      }
+    }
+    return accLines;
+  }
+
+  private applySubCustomerMapping(dims: any, accounts: any[]): void {
+    const matchingAccount = accounts.find((a: any) =>
+      a.customerAccount
+        ?.toLowerCase()
+        .includes(dims.customer?.toLowerCase() || ''),
+    );
+    if (matchingAccount && dims.subCustomer) {
+      const mappingAccount = accounts.find((a: any) =>
+        a.customerAccount
+          ?.toLowerCase()
+          .includes(dims.subCustomer?.toLowerCase() || ''),
+      );
+      if (mappingAccount) {
+        dims.subCustomer = mappingAccount.invoiceAccount;
+      }
+    }
+  }
+
+  private findBillingCode(
+    billingCodes: any[],
+    chargeType?: string,
+  ): any | null {
+    if (!chargeType) return null;
+    return (
+      billingCodes.find((bc: any) =>
+        bc.billingCode?.toLowerCase().includes(chargeType.toLowerCase()),
+      ) || null
+    );
   }
 }

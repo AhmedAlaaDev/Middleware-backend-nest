@@ -37,8 +37,12 @@ export class VendorMongoRepository implements VendorRepository {
     const q: Record<string, unknown> = {};
     if (filter.company) q['company'] = filter.company;
     if (filter.accountNumbers && filter.accountNumbers.length > 0) {
-      q['vendorAccountNumber'] = { $in: filter.accountNumbers } as unknown;
+      q['vendorAccountNumber'] = { $in: filter.accountNumbers };
     }
+    if (filter.vendorGroupIds && filter.vendorGroupIds.length > 0) {
+      q['vendorGroupId'] = { $in: filter.vendorGroupIds };
+    }
+
     let query = this.model.find(q).lean();
 
     if (options?.skipCount !== undefined) {

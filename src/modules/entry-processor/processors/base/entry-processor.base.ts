@@ -734,7 +734,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    * Get all main accounts
    */
   protected async getAllMainAccounts() {
-    return this.queryBus.execute(new GetMainAccountsQuery('coa'));
+    return this.queryBus.execute(new GetMainAccountsQuery('Chart of Accounts'));
   }
 
   /**
@@ -750,5 +750,13 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       return Values;
     }
     return [];
+  }
+
+  protected formatVoucherNumber(voucher: number, prefix: string): string {
+    return `${prefix}-${String(voucher).padStart(9, '0')}`;
+  }
+
+  protected formatBatchNumber(batch: number, prefix?: string): string {
+    return `${prefix || 'Mesco'}-${String(batch).padStart(9, '0')}`;
   }
 }

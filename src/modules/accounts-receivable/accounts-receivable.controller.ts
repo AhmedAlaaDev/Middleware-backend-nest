@@ -39,11 +39,7 @@ export class AccountsReceivableController {
     @Body() body: ARFreightDto,
   ) {
     const result = await this.commandBus.execute(
-      new ProcessARFreightCommand(
-        file.buffer,
-        body.companyId,
-        body.billingCodeId,
-      ),
+      new ProcessARFreightCommand(file.buffer, body.companyId, ''),
     );
 
     return result;
@@ -64,11 +60,7 @@ export class AccountsReceivableController {
     @Body() body: ARFreightDto,
   ) {
     const result = await this.commandBus.execute(
-      new ProcessARFreightCreditNoteCommand(
-        file.buffer,
-        body.companyId,
-        body.billingCodeId,
-      ),
+      new ProcessARFreightCreditNoteCommand(file.buffer, body.companyId, ''),
     );
 
     return result;

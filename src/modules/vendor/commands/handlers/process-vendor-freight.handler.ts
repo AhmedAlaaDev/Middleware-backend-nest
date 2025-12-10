@@ -41,6 +41,12 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
 
     const validated = await processor.validateAsync(enriched, company);
 
+    // return validated.slice(0, 20).map((d) => ({
+    //   journalBatchNum: d.journalBatchNum,
+    //   invoice: d.invoice,
+    //   voucher: d.voucher,
+    // })) as unknown as IDataBatch;
+
     const dataBatch = await this.dataBatchService.createAsync(
       EntryProcessorTypes.VendorFreight,
       ENTRY_PROCESSOR_NAMES.VENDOR_FREIGHT,

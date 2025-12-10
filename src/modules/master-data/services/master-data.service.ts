@@ -69,15 +69,15 @@ export class MasterDataService {
   ) {}
 
   async getVendorsAsync(
-    filter: IVendorListFilter,
+    filter?: IVendorListFilter,
     skipCount?: number,
     maxCount?: number,
   ): Promise<{ items: IVendor[]; total: number }> {
-    const items = await this.vendorRepo.getList(filter, {
+    const items = await this.vendorRepo.getList(filter ?? {}, {
       skipCount,
       maxCount,
     });
-    const total = await this.vendorRepo.getCount(filter);
+    const total = await this.vendorRepo.getCount(filter ?? {});
     return { items, total };
   }
 
