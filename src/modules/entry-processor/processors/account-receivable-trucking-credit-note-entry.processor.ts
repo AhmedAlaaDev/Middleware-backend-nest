@@ -54,118 +54,128 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    // Load master data
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
     );
+    const arData = this.mapToModels(data);
+    const groups = this.groupByVoucherInvoice(arData);
+    await this.primeTruckingBillingClassifications(company);
+    const results: DynAccountReceivableLineDto[] = [];
+    for (const [, lines] of groups.entries()) {
+      const enriched = this.enrichCreditNoteGroup(lines, accounts);
+      results.push(...enriched);
+    }
+    return results;
+  }
 
-    const arData = data.map((raw) => {
+  private mapToModels(data: RawDataModel[]): AccountReceivableFileModel[] {
+    return data.map((raw) => {
       const model = new AccountReceivableFileModel();
       Object.assign(model, raw);
       return model;
     });
+  }
 
-    // Group by VOUCHER and INVOICE
-    const invoiceGroups = new Map<string, AccountReceivableFileModel[]>();
+  private groupByVoucherInvoice(
+    arData: AccountReceivableFileModel[],
+  ): Map<string, AccountReceivableFileModel[]> {
+    const groups = new Map<string, AccountReceivableFileModel[]>();
     for (const line of arData) {
       const key = `${line.VOUCHER || ''}_${line.INVOICE || ''}`;
-      if (!invoiceGroups.has(key)) {
-        invoiceGroups.set(key, []);
-      }
-      invoiceGroups.get(key)!.push(line);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(line);
     }
+    return groups;
+  }
 
-    const accLines: DynAccountReceivableLineDto[] = [];
-
-    // Get billing codes for different classifications
-    const invBillingCodes = await this.queryBus.execute(
+  private async primeTruckingBillingClassifications(
+    company: string,
+  ): Promise<void> {
+    const inv = await this.queryBus.execute(
       new GetBillingCodesQuery(company, 'INV-TR'),
     );
-    const orBillingCodes = await this.queryBus.execute(
+    const orc = await this.queryBus.execute(
       new GetBillingCodesQuery(company, 'OR-TR'),
     );
+    this.billingClassifications.set('inv-tr', inv || []);
+    this.billingClassifications.set('or-tr', orc || []);
+  }
 
-    this.billingClassifications.set('inv-tr', invBillingCodes || []);
-    this.billingClassifications.set('or-tr', orBillingCodes || []);
-
-    for (const [_key, lines] of invoiceGroups.entries()) {
-      // Get customer lines and ledger lines
-      const custLines = lines
-        .filter((l) => l.ACCOUNTTYPE?.toLowerCase() === 'cust')
-        .sort((a, b) => {
-          try {
-            return a.getLineNumber() - b.getLineNumber();
-          } catch {
-            return 0;
-          }
-        });
-
-      const ledgerLines = lines.filter(
-        (l) => l.ACCOUNTTYPE?.toLowerCase() === 'ledger',
-      );
-
-      let invLineCount = 1;
-
-      for (const custLine of custLines) {
-        for (const ledgerLine of ledgerLines) {
-          const accountDimensions = this.parseToDimensions(
-            ledgerLine.ACCOUNTDISPLAYVALUE || '',
-          );
-
-          // Apply account mapping if needed
-          if (
-            accounts.some((a: any) =>
-              a.customerAccount
-                ?.toLowerCase()
-                .includes(accountDimensions.customer?.toLowerCase() || ''),
-            )
-          ) {
-            const mappingAccount = accounts.find((a: any) =>
-              a.customerAccount
-                ?.toLowerCase()
-                .includes(accountDimensions.subCustomer?.toLowerCase() || ''),
-            );
-            if (mappingAccount) {
-              accountDimensions.subCustomer = mappingAccount.invoiceAccount;
-            }
-          }
-
-          ledgerLine.ACCOUNTDISPLAYVALUE =
-            this.convertToStringDimensions(accountDimensions);
-
-          // Determine billing classification from invoice/journal
-          const billingClassification =
-            this.getInvoiceBillingClassificationCode(custLine);
-
-          // Get billing codes for this classification
-          const classificationBillingCodes =
-            this.billingClassifications.get(
-              billingClassification?.toLowerCase() || '',
-            ) || [];
-
-          // Find matching billing code
-          const billingCode = classificationBillingCodes.find((bc: IBillingCode) =>
-            bc.billingCode
-              ?.toLowerCase()
-              .includes(accountDimensions.chargeType?.toLowerCase() || ''),
-          );
-
-          const arLine = this.prepareAccountReceivableLine(
-            invLineCount,
-            accountDimensions,
-            custLine,
-            ledgerLine,
-            billingCode || null,
-            billingClassification || '',
-          );
-
-          accLines.push(arLine);
-          invLineCount++;
+  private enrichCreditNoteGroup(
+    lines: AccountReceivableFileModel[],
+    accounts: any[],
+  ): DynAccountReceivableLineDto[] {
+    const custLines = lines
+      .filter((l) => l.ACCOUNTTYPE?.toLowerCase() === 'cust')
+      .sort((a, b) => {
+        try {
+          return a.getLineNumber() - b.getLineNumber();
+        } catch {
+          return 0;
         }
+      });
+    const ledgerLines = lines.filter(
+      (l) => l.ACCOUNTTYPE?.toLowerCase() === 'ledger',
+    );
+    const out: DynAccountReceivableLineDto[] = [];
+    let invLineCount = 1;
+    for (const custLine of custLines) {
+      for (const ledgerLine of ledgerLines) {
+        const dims = this.parseToDimensions(
+          ledgerLine.ACCOUNTDISPLAYVALUE || '',
+        );
+        this.applySubCustomerMapping(dims, accounts);
+        ledgerLine.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
+        const classification =
+          this.getInvoiceBillingClassificationCode(custLine);
+        const codes =
+          this.billingClassifications.get(
+            classification?.toLowerCase() || '',
+          ) || [];
+        const billingCode = this.findBillingCodeFromClassification(
+          codes,
+          dims.chargeType,
+        );
+        const arLine = this.prepareAccountReceivableLine(
+          invLineCount,
+          dims,
+          custLine,
+          ledgerLine,
+          billingCode || null,
+          classification || '',
+        );
+        out.push(arLine);
+        invLineCount++;
       }
     }
+    return out;
+  }
 
-    return accLines;
+  private applySubCustomerMapping(dims: any, accounts: any[]): void {
+    if (
+      accounts.some((a: any) =>
+        a.customerAccount
+          ?.toLowerCase()
+          .includes(dims.customer?.toLowerCase() || ''),
+      )
+    ) {
+      const mapping = accounts.find((a: any) =>
+        a.customerAccount
+          ?.toLowerCase()
+          .includes(dims.subCustomer?.toLowerCase() || ''),
+      );
+      if (mapping) dims.subCustomer = mapping.invoiceAccount;
+    }
+  }
+
+  private findBillingCodeFromClassification(
+    codes: IBillingCode[],
+    chargeType?: string,
+  ): IBillingCode | undefined {
+    if (!chargeType) return undefined;
+    return codes.find((bc) =>
+      bc.billingCode?.toLowerCase().includes(chargeType.toLowerCase()),
+    );
   }
 
   async validateAsync(
@@ -188,7 +198,9 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     const chargeTypeDims: string[] = [];
     for (const billingCodes of this.billingClassifications.values()) {
       chargeTypeDims.push(
-        ...billingCodes.map((bc: IBillingCode) => bc.billingCode).filter((bc) => bc),
+        ...billingCodes
+          .map((bc: IBillingCode) => bc.billingCode)
+          .filter((bc) => bc),
       );
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
@@ -234,7 +246,9 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     _company: string,
   ): Promise<void> {
     // Not implemented for credit notes
-    throw new Error('InsertIntoDynamicsAsync is not implemented for credit notes');
+    throw new Error(
+      'InsertIntoDynamicsAsync is not implemented for credit notes',
+    );
   }
 
   /**
@@ -383,4 +397,3 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     return line;
   }
 }
-
