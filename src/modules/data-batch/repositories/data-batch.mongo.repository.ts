@@ -8,13 +8,13 @@ import {
   IUpdateDataBatch,
 } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchRepository } from '@/modules/data-batch/repositories/interfaces/data-batch-repository';
-import { DataBatch } from '@/modules/data-batch/schemas';
+import { DataBatch, DataBatchDocument } from '@/modules/data-batch/schemas';
 
 @Injectable()
 export class DataBatchMongoRepository extends DataBatchRepository {
   constructor(
     @InjectModel(DataBatch.name)
-    private readonly model: Model<DataBatch>,
+    private readonly model: Model<DataBatchDocument>,
   ) {
     super();
   }
@@ -33,6 +33,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       totalUploadedCount: doc.totalUploadedCount,
       status: doc.status,
       billingCodeId: doc.billingCodeId,
+      creationDate: (doc as any).created_at ?? null,
     };
   }
 
@@ -57,6 +58,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       totalUploadedCount: doc.totalUploadedCount,
       status: doc.status,
       billingCodeId: doc.billingCodeId,
+      creationDate: (doc as any).created_at ?? null,
     };
   }
 
@@ -84,7 +86,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
     const limit = options?.maxCount ?? 150;
     const res = await this.model
       .find(q)
-      .sort({ createdAt: -1 })
+      .sort({ created_at: -1 })
       .skip(skip)
       .limit(limit)
       .lean()
@@ -102,6 +104,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       totalUploadedCount: doc.totalUploadedCount,
       status: doc.status,
       billingCodeId: doc.billingCodeId,
+      creationDate: (doc as any).created_at ?? null,
     }));
   }
 

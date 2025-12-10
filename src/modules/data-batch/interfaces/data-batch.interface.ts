@@ -30,6 +30,7 @@ export class IDataBatch {
   totalUploadedCount: number;
   status: DataBatchStatus;
   billingCodeId?: string;
+  creationDate: Date | null;
 }
 
 export interface IDataBatchListFilter {
