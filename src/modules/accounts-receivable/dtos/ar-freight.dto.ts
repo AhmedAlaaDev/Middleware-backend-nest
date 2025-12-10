@@ -6,10 +6,6 @@ export class ARFreightDto {
   @IsString()
   companyId: string;
 
-  @IsNotEmpty()
-  @IsString()
-  billingCodeId: string;
-
   @ApiProperty({
     type: 'string',
     format: 'binary',
