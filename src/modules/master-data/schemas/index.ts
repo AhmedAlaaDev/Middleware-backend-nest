@@ -7,3 +7,4 @@ export * from './exchange-rate.schema';
 export * from './financial-dimension.schema';
 export * from './financial-dimension-value.schema';
 export * from './account-customer-invoice-mapping.schema';
+export * from './sync-job.schema';

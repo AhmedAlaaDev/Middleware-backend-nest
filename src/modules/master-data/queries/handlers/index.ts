@@ -6,4 +6,6 @@ export * from './get-exchange-rates.handler';
 export * from './get-financial-dimension-with-values.handler';
 export * from './get-financial-dimensions.handler';
 export * from './get-main-accounts.handler';
+export * from './get-sync-jobs.handler';
+export * from './get-sync-status.handler';
 export * from './get-vendors.handler';

@@ -4,6 +4,12 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import {
+  CreateSyncBillingDataJobHandler,
+  CreateSyncCustomersJobHandler,
+  CreateSyncExchangeRatesJobHandler,
+  CreateSyncFinancialDimensionsJobHandler,
+  CreateSyncMainAccountsJobHandler,
+  CreateSyncVendorsJobHandler,
   SaveAccountMappingsHandler,
   SyncBillingDataHandler,
   SyncCustomersHandler,
@@ -22,6 +28,8 @@ import {
   GetFinancialDimensionsHandler,
   GetFinancialDimensionWithValueHandler,
   GetMainAccountsHandler,
+  GetSyncJobsHandler,
+  GetSyncStatusHandler,
   GetVendorsHandler,
 } from '@/modules/master-data/queries/handlers';
 import {
@@ -33,6 +41,7 @@ import {
   FinancialDimensionMongoRepository,
   FinancialDimensionValueMongoRepository,
   MainAccountMongoRepository,
+  SyncJobMongoRepository,
   VendorMongoRepository,
 } from '@/modules/master-data/repositories';
 import {
@@ -44,6 +53,7 @@ import {
   FinancialDimensionRepository,
   FinancialDimensionValueRepository,
   MainAccountRepository,
+  SyncJobRepository,
   VendorRepository,
 } from '@/modules/master-data/repositories/interfaces';
 import {
@@ -63,12 +73,20 @@ import {
   FinancialDimensionValueSchema,
   MainAccount,
   MainAccountSchema,
+  SyncJob,
+  SyncJobSchema,
   Vendor,
   VendorSchema,
 } from '@/modules/master-data/schemas';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 const CommandHandlers = [
+  CreateSyncCustomersJobHandler,
+  CreateSyncFinancialDimensionsJobHandler,
+  CreateSyncBillingDataJobHandler,
+  CreateSyncMainAccountsJobHandler,
+  CreateSyncVendorsJobHandler,
+  CreateSyncExchangeRatesJobHandler,
   SyncFinancialDimensionsHandler,
   SyncBillingDataHandler,
   SyncMainAccountsHandler,
@@ -88,6 +106,8 @@ const QueryHandlers = [
   GetCustomersHandler,
   GetVendorsHandler,
   GetExchangeRatesHandler,
+  GetSyncJobsHandler,
+  GetSyncStatusHandler,
 ];
 
 @Module({
@@ -113,6 +133,7 @@ const QueryHandlers = [
         name: AccountCustomerInvoiceMapping.name,
         schema: AccountCustomerInvoiceMappingSchema,
       },
+      { name: SyncJob.name, schema: SyncJobSchema },
     ]),
   ],
   controllers: [MasterDataController],
@@ -139,9 +160,13 @@ const QueryHandlers = [
       provide: AccountCustomerInvoiceMappingRepository,
       useClass: AccountCustomerInvoiceMappingMongoRepository,
     },
+    {
+      provide: SyncJobRepository,
+      useClass: SyncJobMongoRepository,
+    },
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [MasterDataService],
+  exports: [MasterDataService, SyncJobRepository],
 })
 export class MasterDataModule {}

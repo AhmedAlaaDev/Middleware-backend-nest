@@ -5,4 +5,5 @@ export * from './customer.mongo.repository';
 export * from './exchange-rate.mongo.repository';
 export * from './financial-dimension.mongo.repository';
 export * from './main-account.mongo.repository';
+export * from './sync-job.mongo.repository';
 export * from './vendor.mongo.repository';

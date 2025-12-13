@@ -10,9 +10,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
-import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entry.dto';
 import { ProcessFreightClosingEntryCommand } from '@/modules/ledger/commands/process-freight-closing-entry.command';
 import { ProcessTruckingClosingEntryCommand } from '@/modules/ledger/commands/process-trucking-closing-entry.command';
+import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entry.dto';
 
 /**
  * Data Migration - Ledger Closing Entries
@@ -63,4 +63,3 @@ export class LedgerController {
     return result;
   }
 }
-

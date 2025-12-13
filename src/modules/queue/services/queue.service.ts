@@ -13,6 +13,8 @@ export class QueueService {
   constructor(
     @InjectQueue(QUEUES.DFO)
     private readonly dfoQueue: Queue,
+    @InjectQueue(QUEUES.MASTER_DATA_SYNC)
+    private readonly masterDataSyncQueue: Queue,
   ) {}
 
   /** 🧠 Helper to return the Queue instance dynamically */
@@ -20,6 +22,8 @@ export class QueueService {
     switch (queueName) {
       case QUEUES.DFO:
         return this.dfoQueue;
+      case QUEUES.MASTER_DATA_SYNC:
+        return this.masterDataSyncQueue;
       default:
         throw new Error(`Queue is not registered`);
     }

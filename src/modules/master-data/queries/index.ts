@@ -6,4 +6,6 @@ export * from './get-exchange-rates.query';
 export * from './get-financial-dimension-with-values.query';
 export * from './get-financial-dimensions.query';
 export * from './get-main-accounts.query';
+export * from './get-sync-jobs.query';
+export * from './get-sync-status.query';
 export * from './get-vendors.query';

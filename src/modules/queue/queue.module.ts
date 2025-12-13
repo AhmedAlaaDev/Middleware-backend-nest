@@ -1,17 +1,20 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { IConfig, RedisConfig } from '@/config';
+import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QUEUES } from '@/modules/queue/constants/queues';
+import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
 import { PostBatchDFOProcessor } from '@/modules/queue/processors/post-batch-dfo.processor';
 import { QueueService } from '@/modules/queue/services/queue.service';
 
-const processors = [PostBatchDFOProcessor];
+const processors = [PostBatchDFOProcessor, MasterDataSyncProcessor];
 
 @Global()
 @Module({
   imports: [
+    forwardRef(() => MasterDataModule),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService<IConfig>) => {

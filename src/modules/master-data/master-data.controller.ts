@@ -12,27 +12,43 @@ import { ApiResponse, ApiBody } from '@nestjs/swagger';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
-import { SaveAccountMappingsCommand } from '@/modules/master-data/commands/save-account-mappings.command';
-import { SyncBillingDataCommand } from '@/modules/master-data/commands/sync-billing-data.command';
-import { SyncCustomersCommand } from '@/modules/master-data/commands/sync-customers.command';
-import { SyncExchangeRatesCommand } from '@/modules/master-data/commands/sync-exchange-rates.command';
-import { SyncFinancialDimensionsCommand } from '@/modules/master-data/commands/sync-financial-dimensions.command';
-import { SyncMainAccountsCommand } from '@/modules/master-data/commands/sync-main-accounts.command';
-import { SyncVendorsCommand } from '@/modules/master-data/commands/sync-vendors.command';
-import { GetExchangeRatesDto } from '@/modules/master-data/dtos/get-exchange-rates.dto';
-import { GetFinancialDimensionDto } from '@/modules/master-data/dtos/get-financial-dimension.dto';
-import { SaveAccountMappingDto } from '@/modules/master-data/dtos/save-account-mapping.dto';
-import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { ICreateAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
-import { IFinancialDimension } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
-import { GetBillingClassificationsQuery } from '@/modules/master-data/queries/get-billing-classifications.query';
-import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
-import { GetCustomersQuery } from '@/modules/master-data/queries/get-customers.query';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
-import { GetFinancialDimensionsQuery } from '@/modules/master-data/queries/get-financial-dimensions.query';
-import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
-import { GetVendorsQuery } from '@/modules/master-data/queries/get-vendors.query';
+import {
+  CreateSyncBillingDataJobCommand,
+  CreateSyncCustomersJobCommand,
+  CreateSyncExchangeRatesJobCommand,
+  CreateSyncFinancialDimensionsJobCommand,
+  CreateSyncMainAccountsJobCommand,
+  CreateSyncVendorsJobCommand,
+  SaveAccountMappingsCommand,
+} from '@/modules/master-data/commands';
+import {
+  GetExchangeRatesDto,
+  GetFinancialDimensionDto,
+  SaveAccountMappingDto,
+  SyncBillingDataDto,
+  SyncCustomersDto,
+  SyncExchangeRatesDto,
+  SyncFinancialDimensionsDto,
+  SyncMainAccountsDto,
+  SyncStatusDto,
+  SyncVendorsDto,
+} from '@/modules/master-data/dtos';
+import { ServiceTypes } from '@/modules/master-data/enums';
+import {
+  ICreateAccountCustomerInvoiceMapping,
+  IFinancialDimension,
+} from '@/modules/master-data/interfaces';
+import {
+  GetAccountMappingsQuery,
+  GetBillingClassificationsQuery,
+  GetBillingCodesQuery,
+  GetCustomersQuery,
+  GetExchangeRatesQuery,
+  GetFinancialDimensionsQuery,
+  GetMainAccountsQuery,
+  GetSyncStatusQuery,
+  GetVendorsQuery,
+} from '@/modules/master-data/queries';
 
 /**
  * Finance - Master Data
@@ -66,10 +82,16 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Customers synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncCustomersAsync(@Query('company') company: string) {
-    return this.commandBus.execute(new SyncCustomersCommand(company));
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncCustomersAsync(@Query() dto: SyncCustomersDto) {
+    return this.commandBus.execute(
+      new CreateSyncCustomersJobCommand(dto.company),
+    );
   }
 
   /**
@@ -92,10 +114,18 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Financial dimensions synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncFinancialDimensionsAsync(@Query('company') company?: string) {
-    return this.commandBus.execute(new SyncFinancialDimensionsCommand(company));
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncFinancialDimensionsAsync(
+    @Query() dto: SyncFinancialDimensionsDto,
+  ) {
+    return this.commandBus.execute(
+      new CreateSyncFinancialDimensionsJobCommand(dto.company),
+    );
   }
 
   /**
@@ -134,10 +164,16 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Billing data synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncBillingDataAsync(@Query('company') company: string) {
-    return this.commandBus.execute(new SyncBillingDataCommand(company));
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncBillingDataAsync(@Query() dto: SyncBillingDataDto) {
+    return this.commandBus.execute(
+      new CreateSyncBillingDataJobCommand(dto.company),
+    );
   }
 
   /**
@@ -161,13 +197,15 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Main accounts synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncMainAccountsAsync(
-    @Query('chartOfAccounts') chartOfAccounts: string,
-  ) {
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncMainAccountsAsync(@Query() dto: SyncMainAccountsDto) {
     return this.commandBus.execute(
-      new SyncMainAccountsCommand(chartOfAccounts),
+      new CreateSyncMainAccountsJobCommand(dto.chartOfAccounts),
     );
   }
 
@@ -283,10 +321,16 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Vendors synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncVendorsAsync(@Query('company') company: string) {
-    return this.commandBus.execute(new SyncVendorsCommand(company));
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncVendorsAsync(@Query() dto: SyncVendorsDto) {
+    return this.commandBus.execute(
+      new CreateSyncVendorsJobCommand(dto.company),
+    );
   }
 
   /**
@@ -318,14 +362,30 @@ export class MasterDataController {
   @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: 200,
-    description: 'Exchange rates synced successfully',
+    description: 'Sync job created successfully',
   })
-  public syncExchangeRatesAsync(
-    @Query('company') company: string,
-    @Query('rateType') rateType?: string,
-  ) {
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncExchangeRatesAsync(@Query() dto: SyncExchangeRatesDto) {
     return this.commandBus.execute(
-      new SyncExchangeRatesCommand(company, rateType),
+      new CreateSyncExchangeRatesJobCommand(dto.company, dto.rateType),
     );
+  }
+
+  /**
+   * Get sync status for all master data sync types
+   * Returns a static list of sync types with their current status
+   * Frontend should poll this endpoint every 30 seconds if any job is pending or processing
+   */
+  @Get('sync-status')
+  @ApiResponse({
+    status: 200,
+    description: 'Sync status retrieved successfully',
+    type: [SyncStatusDto],
+  })
+  public async getSyncStatusAsync(): Promise<SyncStatusDto[]> {
+    return this.queryBus.execute(new GetSyncStatusQuery());
   }
 }
