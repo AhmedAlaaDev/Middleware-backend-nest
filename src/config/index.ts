@@ -25,10 +25,10 @@ export const ConfigSchema = Joi.object<IConfig>({
   }),
 
   auth: Joi.object<AuthConfig>({
-    jwtSecret: Joi.string().required(),
-    jwtExpiresIn: Joi.string().default('15d'),
-    jwtAudience: Joi.string().default('mg-d365fo-middleware'),
-    jwtIssuer: Joi.string().default('mg-d365fo-middleware'),
+    accessSecret: Joi.string().required(),
+    accessTtl: Joi.string().required(),
+    refreshSecret: Joi.string().required(),
+    refreshTtl: Joi.string().required(),
   }),
 
   d365fo: Joi.object<D365FOConfig>({
