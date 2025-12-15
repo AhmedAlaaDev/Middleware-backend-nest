@@ -6,8 +6,10 @@ class VendorFreightAdjustmentDFOLine {
   LineNumber: number;
   DimensionModel: AccountDimensionsModel;
 
-  JOURNALBATCHNUM: string;
+  JOURNALBATCHNUMBER: string;
   ACCOUNTTYPE: 'Vend' | 'Ledger';
+  ACCOUNTDISPLAYVALUE: string;
+  DEFAULTDIMENSIONDISPLAYVALUE?: string;
   COMPANY: string;
   CREDIT: number;
   DEBIT: number;
@@ -16,12 +18,12 @@ class VendorFreightAdjustmentDFOLine {
   DESCRIPTION: string;
   DOCUMENT: number;
   DUEDATE: string;
-  EXCHANGERATE: number;
-  EXCHANGERATESECOND: number;
-  FINETAGDISPLAYVALUE: any;
+  EXCHRATE: number;
+  EXCHRATESECOND: number;
+  FINTAGDISPLAYVALUE: any;
   INVOICE: string;
   INVOICEDATE: string;
-  ISWITHHOLDINGTAXCALCULATE: boolean;
+  ISWITHHOLDINGTAXCALCULATE: string;
   ITEMSALESTAXGROUP: string;
   ITEMWITHHOLDINGTAXGROUPCODE: string;
   METHODOFPAYMENT: string;
@@ -34,7 +36,7 @@ class VendorFreightAdjustmentDFOLine {
   OVERRIDESALESTAX: string;
   PAYMID: number;
   POSTINGPROFILE: string;
-  REPORTINGCURRENCYEXCHANGE: number;
+  REPORTINGCURRENCYEXCHRATE: number;
   SALESTAXGROUP: string;
   TAXEXEMPTNUMBER: string;
   TERMSOFPAYMENT: string;
@@ -78,7 +80,7 @@ export class IVendorFreightAdjustmentDFOLine
 }
 
 export class IVendorFreightAdjustmentDFOHeader {
-  JOURNALBATCHNUM: string;
+  JOURNALBATCHNUMBER: string;
   DESCRIPTION: string;
   ISPOSTED: boolean;
   JOURNALNAME: string;

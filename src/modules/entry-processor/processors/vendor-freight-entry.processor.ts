@@ -73,20 +73,20 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     this.logInitialStats(rawCount, filteredLines.length);
 
     // STEP 2: Sort by month and invoice
-    const sortedLines = this.sortLinesByMonthAndInvoice(filteredLines);
+    const sortedLines = this.sortLinesByLineNumber(filteredLines);
     this.vendorLogger.debug(
-      `Sorted ${sortedLines.length} lines by month and invoice`,
+      `Sorted ${sortedLines.length} lines by line number`,
     );
 
     // STEP 3: Build month → invoice map
-    const monthInvoiceMap = this.buildMonthInvoiceMap(sortedLines);
-    const monthCount = monthInvoiceMap.size;
-    const invoiceCount = Array.from(monthInvoiceMap.values()).reduce(
-      (sum, invoiceMap) => sum + invoiceMap.size,
+    const monthVoucherMap = this.buildVoucherMap(sortedLines);
+    const monthCount = monthVoucherMap.size;
+    const voucherCount = Array.from(monthVoucherMap.values()).reduce(
+      (sum, voucherMap) => sum + voucherMap.size,
       0,
     );
     this.vendorLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${invoiceCount} invoices`,
+      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
     );
 
     // STEP 4: Initialize batch processing
@@ -99,21 +99,22 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     let batchCount = 0;
 
     // STEP 5: Process each month → invoice
-    for (const [monthKey, invoiceMap] of monthInvoiceMap.entries()) {
-      for (const [invoiceKey, invoiceLines] of invoiceMap.entries()) {
-        const headerLine = invoiceLines[0];
-        const invoiceCount = invoiceLines.length;
 
-        if (invoiceCount === 0) {
+    for (const [monthKey, voucherMap] of monthVoucherMap.entries()) {
+      for (const [voucherKey, lines] of voucherMap.entries()) {
+        const headerLine = lines[0];
+        const lineCount = lines.length;
+
+        if (lineCount === 0) {
           this.vendorLogger.warn(
-            `Invoice ${invoiceKey} has zero lines, skipping`,
+            `Voucher ${voucherKey} has zero lines, skipping`,
           );
           continue;
         }
 
         const monthChanged = currentBatchMonth !== monthKey;
         const wouldExceedLimit =
-          currentBatchLines.length + invoiceCount > this.MAX_LINES_PER_BATCH;
+          currentBatchLines.length + lineCount > this.MAX_LINES_PER_BATCH;
 
         // Check if we need a new batch
         if (monthChanged || wouldExceedLimit || currentHeader === null) {
@@ -146,8 +147,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         }
 
         // Process invoice lines
-        const invoiceLineObjects = this.processInvoiceLines(
-          invoiceLines,
+        const invoiceLineObjects = await this.processInvoiceLines(
+          lines,
           company,
           currentHeader,
           exchangeRate,
@@ -219,6 +220,25 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return custodyVendors.map((v) => v.vendorAccountNumber);
   }
 
+  private async getVendorTaxNumberAndTermsOfPayment(
+    company: string,
+    vendorAccountNumber: string,
+  ): Promise<{ taxNumber: string; termsOfPayment: string }> {
+    const vendor = await this.queryBus.execute(
+      new GetVendorsQuery({ company, accountNumbers: [vendorAccountNumber] }),
+    );
+
+    if (!vendor || vendor.length === 0) {
+      return { taxNumber: '', termsOfPayment: '' };
+    }
+
+    // regesteriation id
+    const taxNumber = vendor[0].salesTaxGroupCode || '';
+    const termsOfPayment = vendor[0].defaultPaymentTermsName || '';
+
+    return { taxNumber, termsOfPayment };
+  }
+
   private filterRawData(
     data: RawDataModel[],
     custodyAccountNumbers: string[],
@@ -232,6 +252,12 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       });
 
     return filtered;
+  }
+
+  private sortLinesByLineNumber(
+    lines: VendorFreightRawData[],
+  ): VendorFreightRawData[] {
+    return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
   }
 
   private sortLinesByMonthAndInvoice(
@@ -270,6 +296,44 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     });
 
     return sorted;
+  }
+
+  private buildVoucherMap(
+    sortedLines: VendorFreightRawData[],
+  ): Map<string, Map<string, VendorFreightRawData[]>> {
+    const monthInvoiceMap = new Map<
+      string,
+      Map<string, VendorFreightRawData[]>
+    >();
+
+    for (const line of sortedLines) {
+      let monthKey: string;
+
+      try {
+        monthKey = getMonthKey(line.TRANSDATE);
+      } catch (_error) {
+        this.vendorLogger.warn(
+          `Invalid date format for line ${line.UniqueId}: ${line.TRANSDATE}`,
+        );
+        monthKey = 'invalid-date';
+      }
+
+      const voucherKey = line.VOUCHER;
+
+      if (!monthInvoiceMap.has(monthKey)) {
+        monthInvoiceMap.set(monthKey, new Map());
+      }
+
+      const voucherMap = monthInvoiceMap.get(monthKey)!;
+
+      if (!voucherMap.has(voucherKey)) {
+        voucherMap.set(voucherKey, []);
+      }
+
+      voucherMap.get(voucherKey)!.push(line);
+    }
+
+    return monthInvoiceMap;
   }
 
   private buildMonthInvoiceMap(
@@ -346,18 +410,18 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     eData.push(...batchLines);
   }
 
-  private processInvoiceLines(
+  private async processInvoiceLines(
     invoiceLines: VendorFreightRawData[],
     company: string,
     header: IVendorFreightDFOHeader,
     exchangeRate: number,
     reportingRate: number,
     voucher: number,
-  ): IVendorFreightDFOLine[] {
+  ): Promise<IVendorFreightDFOLine[]> {
     const lineObjects: IVendorFreightDFOLine[] = [];
 
     for (const line of invoiceLines) {
-      const obj = this.buildLine(
+      const obj = await this.buildLine(
         line,
         header,
         company,
@@ -397,7 +461,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     formattedDate: string,
   ): IVendorFreightDFOHeader {
     return new IVendorFreightDFOHeader({
-      JOURNALBATCHNUM: this.formatBatchNumber(journalBatchNum),
+      JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
       DESCRIPTION: `Vendor Invoice Freight ${formattedDate}`,
       ISPOSTED: headerLine.ISPOSTED,
       JOURNALNAME: headerLine.JOURNALNAME,
@@ -455,14 +519,16 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     const from = dateRange?.fromDate?.toDateString();
     const to = dateRange?.toDate?.toDateString();
 
-    const query = toEgp
-      ? new GetExchangeRatesQuery('default', currency, 'EGP', from, to)
-      : new GetExchangeRatesQuery('default', 'EGP', currency, from, to);
+    const rate = (
+      await this.queryBus.execute(
+        new GetExchangeRatesQuery('default', currency, 'EGP', from, to),
+      )
+    )?.[0]?.rate;
 
-    return (await this.queryBus.execute(query))?.[0]?.rate;
+    return toEgp ? (rate ?? 1) : 1 / (rate ?? 1);
   }
 
-  private buildLine(
+  private async buildLine(
     line: VendorFreightRawData,
     header: IVendorFreightDFOHeader,
     company: string,
@@ -470,18 +536,27 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     uniqueId: string,
     voucherNum: number,
-  ): IVendorFreightDFOLine {
+  ): Promise<IVendorFreightDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
+    const { taxNumber, termsOfPayment } = line.ISVENDOR
+      ? await this.getVendorTaxNumberAndTermsOfPayment(
+          company,
+          line.ACCOUNTDISPLAYVALUE,
+        )
+      : { taxNumber: '', termsOfPayment: '' };
+
     return new IVendorFreightDFOLine({
       header,
-      JOURNALBATCHNUM: header.JOURNALBATCHNUM,
+      JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
       LineNumber: line.LINENUMBER,
       ACCOUNTTYPE: line.ACCOUNTTYPE,
+      ACCOUNTDISPLAYVALUE: line.ACCOUNTDISPLAYVALUE,
+      DEFAULTDIMENSIONDISPLAYVALUE: line.DEFAULTDIMENSIONDISPLAYVALUE,
       DimensionModel: dimensionModel,
       COMPANY: company,
       CREDIT: line.CREDITAMOUNT ?? 0,
@@ -491,12 +566,14 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       DESCRIPTION: line.TEXT,
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
-      EXCHANGERATE: exchangeRate,
-      EXCHANGERATESECOND: 1,
-      FINETAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
+      EXCHRATE: exchangeRate,
+      EXCHRATESECOND: 1,
+      FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
       INVOICEDATE: line.DOCUMENTDATE,
-      ISWITHHOLDINGTAXCALCULATE: line.ISWITHHOLDINGCALCULATIONENABLED,
+      ISWITHHOLDINGTAXCALCULATE: line.ISWITHHOLDINGCALCULATIONENABLED
+        ? 'Yes'
+        : 'No',
       ITEMSALESTAXGROUP: line.ITEMSALESTAXGROUP || '',
       ITEMWITHHOLDINGTAXGROUPCODE: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
       METHODOFPAYMENT: line.PAYMENTMETHOD,
@@ -510,10 +587,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       OVERRIDESALESTAX: line.OVERRIDESALESTAX,
       PAYMID: Number(uniqueId),
       POSTINGPROFILE: line.POSTINGPROFILE,
-      REPORTINGCURRENCYEXCHANGE: reportingRate,
+      REPORTINGCURRENCYEXCHRATE: reportingRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
-      TAXEXEMPTNUMBER: '',
-      TERMSOFPAYMENT: '',
+      TAXEXEMPTNUMBER: taxNumber,
+      TERMSOFPAYMENT: termsOfPayment,
       TRANSACTIONTYPE: 'vendor',
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
       SourceIds: [uniqueId],
