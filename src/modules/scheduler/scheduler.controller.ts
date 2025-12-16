@@ -73,6 +73,58 @@ export class SchedulerController {
     return this.schedulerService.triggerTokenCleanup();
   }
 
+  @Post('cleanup-temp-files')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Manually trigger temp file cleanup job',
+    description:
+      'Triggers immediate cleanup of old temporary files created by the Excel service. ' +
+      'This is useful for testing or when you need to free up disk space immediately. ' +
+      'Requires admin API key authentication.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Temp file cleanup completed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        deletedCount: {
+          type: 'number',
+          description: 'Number of files deleted',
+          example: 15,
+        },
+        totalSize: {
+          type: 'number',
+          description: 'Total size of deleted files in bytes',
+          example: 5242880,
+        },
+        filesChecked: {
+          type: 'number',
+          description: 'Total number of files checked',
+          example: 20,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing API key',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: 'Invalid API Key' },
+      },
+    },
+  })
+  async triggerTempFileCleanup(): Promise<{
+    deletedCount: number;
+    totalSize: number;
+    filesChecked: number;
+  }> {
+    return this.schedulerService.triggerTempFileCleanup();
+  }
+
   @Get('health')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -91,7 +143,7 @@ export class SchedulerController {
         jobs: {
           type: 'array',
           items: { type: 'string' },
-          example: ['token-cleanup'],
+          example: ['token-cleanup', 'temp-file-cleanup'],
         },
       },
     },

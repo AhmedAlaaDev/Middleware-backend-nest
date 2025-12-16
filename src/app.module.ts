@@ -19,6 +19,7 @@ import { LedgerModule } from '@/modules/ledger/ledger.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
+import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { UserModule } from '@/modules/user/user.module';
 import { VendorModule } from '@/modules/vendor/vendor.module';
@@ -58,6 +59,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     QueueModule,
     D365FOModule,
     UserModule,
+    SchedulerModule,
   ],
 })
 export class AppModule {}

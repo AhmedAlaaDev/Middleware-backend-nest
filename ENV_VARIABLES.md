@@ -4,71 +4,81 @@ This document lists all environment variables used in the application and their 
 
 ## Application Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | Node environment (development/production/test) |
-| `PORT` | `3000` | Application port |
-| `PREFIX` | `` | API prefix (empty by default) |
-| `ALLOWED_CORS_ORIGINS` | `*` (dev) / `` (prod) | Comma-separated list of allowed CORS origins |
+| Variable               | Default               | Description                                    |
+| ---------------------- | --------------------- | ---------------------------------------------- |
+| `NODE_ENV`             | `development`         | Node environment (development/production/test) |
+| `PORT`                 | `3000`                | Application port                               |
+| `PREFIX`               | ``                    | API prefix (empty by default)                  |
+| `ALLOWED_CORS_ORIGINS` | `*` (dev) / `` (prod) | Comma-separated list of allowed CORS origins   |
 
 ## Database Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MONGODB_URI` | `mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin` | MongoDB connection string |
-| `MONGODB_MAX_POOL_SIZE` | `5` | Maximum MongoDB connection pool size |
+| Variable                | Default                                                       | Description                          |
+| ----------------------- | ------------------------------------------------------------- | ------------------------------------ |
+| `MONGODB_URI`           | `mongodb://root:sp3awi@mongodb:27017/d365fo?authSource=admin` | MongoDB connection string            |
+| `MONGODB_MAX_POOL_SIZE` | `5`                                                           | Maximum MongoDB connection pool size |
 
 ## Redis Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REDIS_HOST` | `redis` (Docker) / `localhost` (local) | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `REDIS_PASSWORD` | `` | Redis password (optional) |
-| `REDIS_DB` | `0` | Redis database number |
-| `REDIS_MAX_RETRIES_PER_REQUEST` | `3` | Maximum retries per request |
-| `REDIS_ENABLE_READY_CHECK` | `true` | Enable Redis ready check |
-| `REDIS_LAZY_CONNECT` | `false` | Lazy connect to Redis |
+| Variable                        | Default                                | Description                 |
+| ------------------------------- | -------------------------------------- | --------------------------- |
+| `REDIS_HOST`                    | `redis` (Docker) / `localhost` (local) | Redis host                  |
+| `REDIS_PORT`                    | `6379`                                 | Redis port                  |
+| `REDIS_PASSWORD`                | ``                                     | Redis password (optional)   |
+| `REDIS_DB`                      | `0`                                    | Redis database number       |
+| `REDIS_MAX_RETRIES_PER_REQUEST` | `3`                                    | Maximum retries per request |
+| `REDIS_ENABLE_READY_CHECK`      | `true`                                 | Enable Redis ready check    |
+| `REDIS_LAZY_CONNECT`            | `false`                                | Lazy connect to Redis       |
 
 ## Authentication Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JWT_SECRET` | `` | JWT secret key (required) |
-| `JWT_EXPIRES_IN` | `15d` | JWT expiration time |
-| `JWT_AUDIENCE` | `mg-d365fo-middleware` | JWT audience |
-| `JWT_ISSUER` | `mg-d365fo-middleware` | JWT issuer |
+| Variable         | Default                | Description               |
+| ---------------- | ---------------------- | ------------------------- |
+| `JWT_SECRET`     | ``                     | JWT secret key (required) |
+| `JWT_EXPIRES_IN` | `15d`                  | JWT expiration time       |
+| `JWT_AUDIENCE`   | `mg-d365fo-middleware` | JWT audience              |
+| `JWT_ISSUER`     | `mg-d365fo-middleware` | JWT issuer                |
 
 ## D365FO Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `D365FO_TENANT_ID` | `` | Azure AD tenant ID (required) |
-| `D365FO_CLIENT_ID` | `` | Azure AD client ID (required) |
-| `D365FO_CLIENT_SECRET` | `` | Azure AD client secret (required) |
-| `D365FO_RESOURCE` | `` | D365FO instance URL (required) |
-| `D365FO_AUTHORITY` | `` | Azure AD authority URL (required) |
+| Variable               | Default | Description                       |
+| ---------------------- | ------- | --------------------------------- |
+| `D365FO_TENANT_ID`     | ``      | Azure AD tenant ID (required)     |
+| `D365FO_CLIENT_ID`     | ``      | Azure AD client ID (required)     |
+| `D365FO_CLIENT_SECRET` | ``      | Azure AD client secret (required) |
+| `D365FO_RESOURCE`      | ``      | D365FO instance URL (required)    |
+| `D365FO_AUTHORITY`     | ``      | Azure AD authority URL (required) |
 
 ## Resilience Configuration
 
 ### Circuit Breaker
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CIRCUIT_BREAKER_TIMEOUT` | `30000` | Circuit breaker timeout in milliseconds |
-| `CIRCUIT_BREAKER_RESET_TIMEOUT` | `30000` | Circuit breaker reset timeout in milliseconds |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Number of failures before opening circuit |
-| `CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE` | `50` | Error percentage threshold |
-| `CIRCUIT_BREAKER_ENABLED` | `true` | Enable/disable circuit breaker |
+| Variable                                     | Default | Description                                   |
+| -------------------------------------------- | ------- | --------------------------------------------- |
+| `CIRCUIT_BREAKER_TIMEOUT`                    | `30000` | Circuit breaker timeout in milliseconds       |
+| `CIRCUIT_BREAKER_RESET_TIMEOUT`              | `30000` | Circuit breaker reset timeout in milliseconds |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD`          | `5`     | Number of failures before opening circuit     |
+| `CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE` | `50`    | Error percentage threshold                    |
+| `CIRCUIT_BREAKER_ENABLED`                    | `true`  | Enable/disable circuit breaker                |
 
 ### Cache
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CACHE_L1_TTL` | `5` | L1 cache TTL in minutes |
-| `CACHE_L2_TTL` | `30` | L2 cache TTL in minutes |
-| `CACHE_L3_TTL` | `120` | L3 cache TTL in minutes |
+| Variable        | Default | Description              |
+| --------------- | ------- | ------------------------ |
+| `CACHE_L1_TTL`  | `5`     | L1 cache TTL in minutes  |
+| `CACHE_L2_TTL`  | `30`    | L2 cache TTL in minutes  |
+| `CACHE_L3_TTL`  | `120`   | L3 cache TTL in minutes  |
 | `REDIS_ENABLED` | `false` | Enable Redis for caching |
+
+## Scheduler Configuration
+
+| Variable                            | Default     | Description                                           |
+| ----------------------------------- | ----------- | ----------------------------------------------------- |
+| `SCHEDULER_ENABLED`                 | `true`      | Enable/disable all scheduled jobs                     |
+| `TOKEN_CLEANUP_CRON`                | `0 0 * * *` | Cron expression for token cleanup (daily at midnight) |
+| `TOKEN_CLEANUP_RETENTION_DAYS`      | `30`        | How many days to keep revoked tokens before deletion  |
+| `TEMP_FILE_CLEANUP_CRON`            | `0 * * * *` | Cron expression for temp file cleanup (every hour)    |
+| `TEMP_FILE_CLEANUP_RETENTION_HOURS` | `24`        | How many hours to keep temp files before deletion     |
 
 ## Example .env.development File
 
@@ -117,6 +127,13 @@ CACHE_L1_TTL=5
 CACHE_L2_TTL=30
 CACHE_L3_TTL=120
 REDIS_ENABLED=false
+
+# Scheduler
+SCHEDULER_ENABLED=true
+TOKEN_CLEANUP_CRON=0 0 * * *
+TOKEN_CLEANUP_RETENTION_DAYS=30
+TEMP_FILE_CLEANUP_CRON=0 * * * *
+TEMP_FILE_CLEANUP_RETENTION_HOURS=24
 ```
 
 ## Required Variables
@@ -153,4 +170,3 @@ docker compose -f docker-compose.dev.yml exec app printenv
 docker compose -f docker-compose.dev.yml exec app printenv | Select-String -Pattern "D365FO"
 docker compose -f docker-compose.dev.yml exec app printenv | Select-String -Pattern "JWT"
 ```
-

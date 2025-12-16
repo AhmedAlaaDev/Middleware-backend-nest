@@ -76,6 +76,8 @@ export const ConfigSchema = Joi.object<IConfig>({
     enabled: Joi.boolean().default(true),
     tokenCleanupCron: Joi.string().default('0 0 * * *'),
     tokenCleanupRetentionDays: Joi.number().default(30),
+    tempFileCleanupCron: Joi.string().default('0 * * * *'),
+    tempFileCleanupRetentionHours: Joi.number().default(24),
   }),
 });
 

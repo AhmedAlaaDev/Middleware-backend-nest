@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
 
 import { AuthService } from '@/modules/auth/auth.service';
+import { RequireApiKey } from '@/modules/auth/decorators/api-key.decorator';
 import { Auth } from '@/modules/auth/decorators/auth.decorator';
 import { Public } from '@/modules/auth/decorators/public.decorator';
 import { CreateUserDto } from '@/modules/auth/dtos/create-user.dto';
@@ -52,8 +53,18 @@ export class AuthController {
   /**
    * Create a new user
    */
+  @RequireApiKey()
   @Public()
   @Post('register')
+  @ApiHeader({
+    name: 'X-API-Key',
+    description: 'Admin API key for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'your-super-secret-api-key-here',
+    },
+  })
   public async register(
     @Body() createUserDto: CreateUserDto,
   ): Promise<AuthResponse> {
