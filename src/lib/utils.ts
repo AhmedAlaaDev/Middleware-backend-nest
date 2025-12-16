@@ -9,10 +9,6 @@ export function formatToMonthYear(dateStr: string): string {
   return `${month} ${year}`;
 }
 
-export function capitalize(str: string): string {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
 export function getMonthRange(dateStr: string) {
   if (!dateStr) {
     return {
@@ -49,3 +45,15 @@ export function getMonthKey(dateStr: string): string {
 
   return `${year}-${month}`; // always YYYY-MM
 }
+
+export const capitalize = (string: string): string => {
+  return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+};
+
+export const titleCase = (str: string): string => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};

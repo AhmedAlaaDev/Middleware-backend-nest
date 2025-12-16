@@ -5,6 +5,7 @@ export interface AppConfig {
   prefix: string;
   environment: 'development' | 'production' | 'test';
   allowedCorsOrigins: string[];
+  adminApiKey: string;
 }
 
 export const appConfig = registerAs(
@@ -15,5 +16,6 @@ export const appConfig = registerAs(
     environment:
       (process.env.NODE_ENV as AppConfig['environment']) ?? 'development',
     allowedCorsOrigins: process.env.ALLOWED_CORS_ORIGINS?.split(',') ?? [],
+    adminApiKey: process.env.ADMIN_API_KEY ?? '',
   }),
 );

@@ -22,6 +22,7 @@ export const ConfigSchema = Joi.object<IConfig>({
     prefix: Joi.string().default('api'),
     environment: Joi.string().default('development'),
     allowedCorsOrigins: Joi.array().default([]),
+    adminApiKey: Joi.string().optional(),
   }),
 
   auth: Joi.object<AuthConfig>({

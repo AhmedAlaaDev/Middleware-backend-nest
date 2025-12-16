@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { AuthController } from '@/modules/auth/auth.controller';
+import { AuthService } from '@/modules/auth/auth.service';
+import { ApiKeyGuard } from '@/modules/auth/guards/api-key.guard';
+import { AuthGuard } from '@/modules/auth/guards/auth.guard';
 import {
   RefreshToken,
   RefreshTokenSchema,
@@ -21,6 +26,20 @@ import { UserModule } from '@/modules/user/user.module';
     ]),
     UserModule,
   ],
-  providers: [TokenService, HashingService, SessionService],
+  providers: [
+    TokenService,
+    HashingService,
+    SessionService,
+    AuthService,
+    {
+      provide: APP_GUARD,
+      useClass: ApiKeyGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
+    },
+  ],
+  controllers: [AuthController],
 })
 export class AuthModule {}

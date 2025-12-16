@@ -10,7 +10,8 @@ export type RefreshErrorCode =
   | 'INVALID_TYPE'
   | 'NOT_FOUND_REUSE_DETECTED'
   | 'EXPIRED_OR_REVOKED'
-  | 'HASH_MISMATCH';
+  | 'HASH_MISMATCH'
+  | 'USER_NOT_FOUND';
 
 export type RefreshResult =
   | {

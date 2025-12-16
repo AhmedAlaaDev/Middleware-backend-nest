@@ -14,12 +14,18 @@ export class UserService {
   ) {}
 
   public async createUser(user: ICreateUser): Promise<IUser> {
-    const newUser = await this.userModel.create(user);
+    const newUser = await this.userModel.create({
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      passwordHash: user.passwordHash,
+    });
     return this.toInterface(newUser);
   }
 
   public async findUserByEmail(email: string): Promise<IUser | null> {
     const user = await this.userModel.findOne({ email }).lean().exec();
+
     return user ? this.toInterface(user) : null;
   }
 
