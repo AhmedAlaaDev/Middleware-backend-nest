@@ -12,4 +12,3 @@ export class LedgerClosingEntryDto {
   })
   dataFile: any;
 }
-

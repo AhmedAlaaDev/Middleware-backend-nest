@@ -15,4 +15,5 @@ export abstract class DataBatchErrorRepository {
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IDataBatchError[]>;
   public abstract getCount(filter: IDataBatchErrorListFilter): Promise<number>;
+  public abstract getListStream(filter: IDataBatchErrorListFilter): any;
 }

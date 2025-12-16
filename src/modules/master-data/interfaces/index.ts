@@ -7,4 +7,3 @@ export * from './financial-dimension.interface';
 export * from './main-account.interface';
 export * from './sync-job.interface';
 export * from './vendor.interface';
-

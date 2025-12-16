@@ -6,14 +6,10 @@ import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-bat
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 
 @QueryHandler(GetDataBatchByIdQuery)
-export class GetDataBatchByIdHandler
-  implements IQueryHandler<GetDataBatchByIdQuery>
-{
+export class GetDataBatchByIdHandler implements IQueryHandler<GetDataBatchByIdQuery> {
   constructor(private readonly dataBatchService: DataBatchService) {}
 
-  public async execute(
-    query: GetDataBatchByIdQuery,
-  ): Promise<IDataBatch> {
+  public async execute(query: GetDataBatchByIdQuery): Promise<IDataBatch> {
     const batch = await this.dataBatchService.getByIdAsync(query.batchId);
 
     if (!batch) {
@@ -25,4 +21,3 @@ export class GetDataBatchByIdHandler
     return batch;
   }
 }
-

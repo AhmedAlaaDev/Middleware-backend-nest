@@ -2,16 +2,16 @@ import { Injectable } from '@nestjs/common';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
 import { AccountReceivableFreightCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-credit-note-entry.processor';
+import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
+import { AccountReceivableTruckingCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-credit-note-entry.processor';
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
+import { FreightClosingEntryProcessor } from '@/modules/entry-processor/processors/freight-closing-entry.processor';
+import { TruckingClosingEntryProcessor } from '@/modules/entry-processor/processors/trucking-closing-entry.processor';
 import { VendorFreightAdjustmentEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-adjustment-entry.processor';
 import { VendorFreightEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-entry.processor';
 import { VendorTruckingAdjustmentEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-adjustment-entry.processor';
 import { VendorTruckingEntryProcessor } from '@/modules/entry-processor/processors/vendor-trucking-entry.processor';
-import { AccountReceivableTruckingCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-credit-note-entry.processor';
-import { FreightClosingEntryProcessor } from '@/modules/entry-processor/processors/freight-closing-entry.processor';
-import { TruckingClosingEntryProcessor } from '@/modules/entry-processor/processors/trucking-closing-entry.processor';
 
 @Injectable()
 export class EntryProcessorFactory {

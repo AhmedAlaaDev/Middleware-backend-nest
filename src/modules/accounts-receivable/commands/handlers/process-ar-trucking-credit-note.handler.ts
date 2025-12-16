@@ -3,8 +3,8 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessARTruckingCreditNoteCommand } from '../process-ar-trucking-credit-note.command';
 
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
@@ -14,9 +14,7 @@ import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessARTruckingCreditNoteCommand)
 @Injectable()
-export class ProcessARTruckingCreditNoteHandler
-  implements ICommandHandler<ProcessARTruckingCreditNoteCommand>
-{
+export class ProcessARTruckingCreditNoteHandler implements ICommandHandler<ProcessARTruckingCreditNoteCommand> {
   private readonly logger = new Logger(ProcessARTruckingCreditNoteHandler.name);
 
   constructor(
@@ -84,4 +82,3 @@ export class ProcessARTruckingCreditNoteHandler
     return batch;
   }
 }
-

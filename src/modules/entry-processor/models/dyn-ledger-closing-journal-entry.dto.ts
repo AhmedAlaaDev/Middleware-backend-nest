@@ -1,5 +1,5 @@
-import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 
 export class DynLedgerClosingJournalEntryDto extends DynDataModel {
   CustomId: number;
@@ -51,4 +51,3 @@ export class DynLedgerClosingJournalEntryDto extends DynDataModel {
   PostingLayer: string;
   IsPosted: string;
 }
-

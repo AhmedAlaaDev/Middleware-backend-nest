@@ -210,6 +210,13 @@ export class DataBatchService {
   }
 
   /**
+   * Get enhanced records stream for a batch (memory-efficient)
+   */
+  public getEnhancedRecordsStream(batchId: string): any {
+    return this.dataEnhancedRecordRepo.getListStream(batchId);
+  }
+
+  /**
    * Update batch status
    */
   public async updateStatusAsync(
@@ -228,6 +235,13 @@ export class DataBatchService {
   ): Promise<IDataBatchError<TEnhancedData>[]> {
     const errors = await this.dataBatchErrorRepo.getList({ batchId });
     return errors as IDataBatchError<TEnhancedData>[];
+  }
+
+  /**
+   * Get data batch errors stream (memory-efficient)
+   */
+  public getErrorsStream(batchId: string): any {
+    return this.dataBatchErrorRepo.getListStream({ batchId });
   }
 
   public async getDataBatchListAsync(

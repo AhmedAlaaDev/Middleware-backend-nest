@@ -8,4 +8,3 @@ export class ProcessFreightClosingEntryCommand extends Command<any> {
     super();
   }
 }
-

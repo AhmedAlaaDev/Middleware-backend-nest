@@ -9,4 +9,3 @@ export class ProcessARFreightCreditNoteCommand extends Command<any> {
     super();
   }
 }
-

@@ -3,20 +3,18 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessTruckingClosingEntryCommand } from '../process-trucking-closing-entry.command';
 
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
-import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
+import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessTruckingClosingEntryCommand)
 @Injectable()
-export class ProcessTruckingClosingEntryHandler
-  implements ICommandHandler<ProcessTruckingClosingEntryCommand>
-{
+export class ProcessTruckingClosingEntryHandler implements ICommandHandler<ProcessTruckingClosingEntryCommand> {
   private readonly logger = new Logger(ProcessTruckingClosingEntryHandler.name);
 
   constructor(
@@ -81,4 +79,3 @@ export class ProcessTruckingClosingEntryHandler
     return batch;
   }
 }
-

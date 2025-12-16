@@ -64,7 +64,10 @@ export class LedgerClosingEntryModel {
     if (!this.DEFAULTDIMENSIONDISPLAYVALUE) {
       return '';
     }
-    return this.DEFAULTDIMENSIONDISPLAYVALUE.toLowerCase().replace('cai', '002');
+    return this.DEFAULTDIMENSIONDISPLAYVALUE.toLowerCase().replace(
+      'cai',
+      '002',
+    );
   }
 
   getTaxGroup(): string {
@@ -72,10 +75,7 @@ export class LedgerClosingEntryModel {
       return 'Non-Taxabl';
     }
 
-    if (
-      this.ITEMSALESTAXGROUP &&
-      this.ITEMSALESTAXGROUP.includes('VAT-0%')
-    ) {
+    if (this.ITEMSALESTAXGROUP && this.ITEMSALESTAXGROUP.includes('VAT-0%')) {
       return 'Non-Taxabl';
     }
 
@@ -102,4 +102,3 @@ export class LedgerClosingEntryModel {
     return this.ITEMSALESTAXGROUP;
   }
 }
-

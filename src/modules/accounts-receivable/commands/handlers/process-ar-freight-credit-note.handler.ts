@@ -3,8 +3,8 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessARFreightCreditNoteCommand } from '../process-ar-freight-credit-note.command';
 
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
@@ -14,9 +14,7 @@ import { ExcelService } from '@/modules/excel/excel.service';
 
 @CommandHandler(ProcessARFreightCreditNoteCommand)
 @Injectable()
-export class ProcessARFreightCreditNoteHandler
-  implements ICommandHandler<ProcessARFreightCreditNoteCommand>
-{
+export class ProcessARFreightCreditNoteHandler implements ICommandHandler<ProcessARFreightCreditNoteCommand> {
   private readonly logger = new Logger(ProcessARFreightCreditNoteHandler.name);
 
   constructor(
@@ -84,4 +82,3 @@ export class ProcessARFreightCreditNoteHandler
     return batch;
   }
 }
-

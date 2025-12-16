@@ -17,7 +17,9 @@ import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-
 
 @Injectable()
 export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(AccountReceivableTruckingEntryProcessor.name);
+  private readonly procLogger = new Logger(
+    AccountReceivableTruckingEntryProcessor.name,
+  );
   readonly entryProcessorType = EntryProcessorTypes.AccountReceivableTrucking;
   readonly requiredDimensions = [
     'MainAccount',
@@ -166,7 +168,10 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     }
   }
 
-  private findBillingCode(billingCodes: any[], chargeType?: string): any | null {
+  private findBillingCode(
+    billingCodes: any[],
+    chargeType?: string,
+  ): any | null {
     if (!chargeType) return null;
     return (
       billingCodes.find((bc: any) =>

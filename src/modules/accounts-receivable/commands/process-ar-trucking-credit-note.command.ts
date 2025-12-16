@@ -9,4 +9,3 @@ export class ProcessARTruckingCreditNoteCommand extends Command<any> {
     super();
   }
 }
-

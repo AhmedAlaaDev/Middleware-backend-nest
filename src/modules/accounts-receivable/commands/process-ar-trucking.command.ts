@@ -9,4 +9,3 @@ export class ProcessARTruckingCommand extends Command<any> {
     super();
   }
 }
-

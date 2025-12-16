@@ -16,4 +16,3 @@ export class ARTruckingDto {
   })
   dataFile: any;
 }
-

@@ -7,4 +7,3 @@ export class GetDataBatchByIdQuery extends Query<IDataBatch> {
     super();
   }
 }
-

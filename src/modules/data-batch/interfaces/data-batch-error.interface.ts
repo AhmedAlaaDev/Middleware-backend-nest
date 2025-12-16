@@ -7,12 +7,14 @@ export class IDataBatchError<TEnhancedData = Record<string, unknown>> {
   errorMessages: string[];
   accountDimensionsModel?: Record<string, any>;
   enhancedRecordIds: string[];
-  
+
   @ApiHideProperty()
   enhancedData?: TEnhancedData;
 }
 
-export interface ICreateDataBatchError<TEnhancedData = Record<string, unknown>> {
+export interface ICreateDataBatchError<
+  TEnhancedData = Record<string, unknown>,
+> {
   batchId: string;
   sourceRecordIds: string[];
   errorMessages: string[];

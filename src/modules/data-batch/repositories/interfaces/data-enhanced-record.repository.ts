@@ -11,4 +11,6 @@ export abstract class DataEnhancedRecordRepository {
   public abstract deleteMany(batchId: string): Promise<void>;
 
   public abstract getList(batchId?: string): Promise<IDataEnhancedRecord[]>;
+
+  public abstract getListStream(batchId?: string): any;
 }

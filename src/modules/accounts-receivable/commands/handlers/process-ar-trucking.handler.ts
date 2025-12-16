@@ -3,8 +3,8 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessARTruckingCommand } from '../process-ar-trucking.command';
 
-import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';

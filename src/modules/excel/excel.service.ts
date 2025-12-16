@@ -30,6 +30,18 @@ export class ExcelService {
     return filePath;
   }
 
+  async writeObjectsToTempFileStream<T extends object>(
+    dataStream: AsyncIterable<T>,
+    fileNamePrefix: string,
+    headers?: string[],
+  ): Promise<string> {
+    const dir = join(process.cwd(), 'temp');
+    await fs.mkdir(dir, { recursive: true });
+    const filePath = join(dir, `${fileNamePrefix}-${Date.now()}.xlsx`);
+    await this.adapter.writeStream(dataStream, filePath, headers);
+    return filePath;
+  }
+
   public async createZipFile(
     batchId: string,
     files: { filePath: string; nameInZip: string }[],

@@ -76,4 +76,15 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
     }
     return this.model.countDocuments(filterQuery).exec();
   }
+
+  /**
+   * Get batch errors stream (memory-efficient)
+   */
+  public getListStream(filter: IDataBatchErrorListFilter): any {
+    const filterQuery: Record<string, any> = {};
+    if (filter?.batchId) {
+      filterQuery.batchId = filter.batchId;
+    }
+    return this.model.find(filterQuery).sort({ createdAt: -1 }).lean().cursor();
+  }
 }

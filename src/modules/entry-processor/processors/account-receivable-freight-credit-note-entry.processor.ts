@@ -86,7 +86,9 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     return groups;
   }
 
-  private async primeFreightBillingClassifications(company: string): Promise<void> {
+  private async primeFreightBillingClassifications(
+    company: string,
+  ): Promise<void> {
     const inv = await this.queryBus.execute(
       new GetBillingCodesQuery(company, 'INV-FW'),
     );
@@ -121,13 +123,21 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     let invLineCount = 1;
     for (const custLine of custLines) {
       for (const ledgerLine of ledgerLines) {
-        const dims = this.parseToDimensions(ledgerLine.ACCOUNTDISPLAYVALUE || '');
+        const dims = this.parseToDimensions(
+          ledgerLine.ACCOUNTDISPLAYVALUE || '',
+        );
         this.applySubCustomerMapping(dims, accounts);
         ledgerLine.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
-        const classification = this.getInvoiceBillingClassificationCode(custLine);
+        const classification =
+          this.getInvoiceBillingClassificationCode(custLine);
         const codes =
-          this.billingClassifications.get(classification?.toLowerCase() || '') || [];
-        const billingCode = this.findBillingCodeFromClassification(codes, dims.chargeType);
+          this.billingClassifications.get(
+            classification?.toLowerCase() || '',
+          ) || [];
+        const billingCode = this.findBillingCodeFromClassification(
+          codes,
+          dims.chargeType,
+        );
         const arLine = this.prepareAccountReceivableLine(
           invLineCount,
           dims,
@@ -146,11 +156,15 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
   private applySubCustomerMapping(dims: any, accounts: any[]): void {
     if (
       accounts.some((a: any) =>
-        a.customerAccount?.toLowerCase().includes(dims.customer?.toLowerCase() || ''),
+        a.customerAccount
+          ?.toLowerCase()
+          .includes(dims.customer?.toLowerCase() || ''),
       )
     ) {
       const mapping = accounts.find((a: any) =>
-        a.customerAccount?.toLowerCase().includes(dims.subCustomer?.toLowerCase() || ''),
+        a.customerAccount
+          ?.toLowerCase()
+          .includes(dims.subCustomer?.toLowerCase() || ''),
       );
       if (mapping) dims.subCustomer = mapping.invoiceAccount;
     }
@@ -186,7 +200,9 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     const chargeTypeDims: string[] = [];
     for (const billingCodes of this.billingClassifications.values()) {
       chargeTypeDims.push(
-        ...billingCodes.map((bc: IBillingCode) => bc.billingCode).filter((bc) => bc),
+        ...billingCodes
+          .map((bc: IBillingCode) => bc.billingCode)
+          .filter((bc) => bc),
       );
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
@@ -230,7 +246,9 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     _company: string,
   ): Promise<void> {
     // Not implemented for credit notes
-    throw new Error('InsertIntoDynamicsAsync is not implemented for credit notes');
+    throw new Error(
+      'InsertIntoDynamicsAsync is not implemented for credit notes',
+    );
   }
 
   /**
@@ -380,4 +398,3 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     return line;
   }
 }
-

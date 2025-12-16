@@ -8,4 +8,3 @@ export class ProcessTruckingClosingEntryCommand extends Command<any> {
     super();
   }
 }
-

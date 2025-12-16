@@ -1,4 +1,7 @@
+import { createWriteStream } from 'fs';
+
 import { Workbook } from 'exceljs';
+import * as Excel from 'exceljs';
 
 import { IExcelAdapter } from '@/modules/excel/interfaces/excel-adapter.interface';
 
@@ -40,5 +43,49 @@ export class ExcelJsAdapter extends IExcelAdapter {
     });
     const buf = await workbook.xlsx.writeBuffer();
     return Buffer.from(buf);
+  }
+
+  public async writeStream<T extends object = { [key: string]: any }>(
+    dataStream: AsyncIterable<T>,
+    filePath: string,
+    headers?: string[],
+  ): Promise<void> {
+    const output = createWriteStream(filePath);
+    const workbook = new Excel.stream.xlsx.WorkbookWriter({
+      stream: output,
+    });
+    const worksheet = workbook.addWorksheet('Sheet1');
+
+    let isFirstRow = true;
+    let detectedHeaders: string[] | undefined = headers;
+    let columnKeys: string[] = [];
+
+    for await (const item of dataStream) {
+      if (isFirstRow) {
+        if (!detectedHeaders) {
+          detectedHeaders = Object.keys(item);
+        }
+        columnKeys = detectedHeaders;
+        worksheet.columns = columnKeys.map((h) => ({
+          header: h,
+          key: h,
+        }));
+        // Note: worksheet.columns automatically creates the header row, so we don't need to add it manually
+        isFirstRow = false;
+      }
+
+      // Add data row - ensure all column keys are present
+      const rowData = columnKeys.reduce(
+        (acc, key) => {
+          acc[key] = (item as any)[key] ?? '';
+          return acc;
+        },
+        {} as Record<string, any>,
+      );
+      const row = worksheet.addRow(rowData);
+      row.commit();
+    }
+
+    await workbook.commit();
   }
 }

@@ -5,21 +5,21 @@ import { GeneralJournalService } from '@/modules/d365fo/services/general-journal
 import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
+import { LedgerEntryBatchCounter } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
+import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counter.schema';
 import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
+import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
+import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
-import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
-import { LedgerEntryBatchCounter } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
-import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counter.schema';
 
 interface MonthGroup {
   Year: number;
@@ -103,18 +103,18 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     const exchangeRates = await this.queryBus.execute(
       new GetExchangeRatesQuery(),
     );
-    const d365foRates: D365FOExchangeRate[] = (
-      (exchangeRates || []) as IExchangeRate[]
-    ).map((rate) => ({
-      RateTypeName: rate.rateTypeName || 'Default',
-      FromCurrency: rate.fromCurrency || '',
-      ToCurrency: rate.toCurrency || '',
-      StartDate: rate.startDate || new Date().toISOString(),
-      EndDate: rate.endDate || new Date().toISOString(),
-      Rate: rate.rate || 0,
-      ConversionFactor: rate.conversionFactor?.toString(),
-      RateTypeDescription: rate.rateTypeDescription,
-    }));
+    const d365foRates: D365FOExchangeRate[] = (exchangeRates || []).map(
+      (rate) => ({
+        RateTypeName: rate.rateTypeName || 'Default',
+        FromCurrency: rate.fromCurrency || '',
+        ToCurrency: rate.toCurrency || '',
+        StartDate: rate.startDate || new Date().toISOString(),
+        EndDate: rate.endDate || new Date().toISOString(),
+        Rate: rate.rate || 0,
+        ConversionFactor: rate.conversionFactor?.toString(),
+        RateTypeDescription: rate.rateTypeDescription,
+      }),
+    );
     return [...d365foRates].sort(
       (a, b) =>
         new Date(b.StartDate).getTime() - new Date(a.StartDate).getTime(),
@@ -438,13 +438,13 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
             ),
         );
         if (mappingAccount) {
-          ledgerEntry.AccountDimensions!.subCustomer =
+          ledgerEntry.AccountDimensions.subCustomer =
             mappingAccount.invoiceAccount;
         }
       }
 
       ledgerEntry.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(
-        ledgerEntry.AccountDimensions!,
+        ledgerEntry.AccountDimensions,
       );
 
       if (
