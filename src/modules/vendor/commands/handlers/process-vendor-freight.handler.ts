@@ -54,6 +54,8 @@ export class ProcessVendorFreightHandler implements ICommandHandler<ProcessVendo
       `Vendor Freight ${Date.now()}`,
       rawData,
       validated,
+      undefined,
+      'last.ledger.vendor.freight.voucher.number',
     );
 
     return dataBatch;

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { CommandBus } from '@nestjs/cqrs';
 
 import {
   DataBatchStatus,
@@ -30,6 +31,7 @@ import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 
 @Injectable()
 export class DataBatchService {
@@ -39,6 +41,7 @@ export class DataBatchService {
     private readonly dataBatchErrorRepo: DataBatchErrorRepository,
     private readonly dataSourceRecordRepo: DataSourceRecordRepository,
     private readonly dataEnhancedRecordRepo: DataEnhancedRecordRepository,
+    private readonly commandBus: CommandBus,
   ) {}
 
   /**
@@ -57,6 +60,7 @@ export class DataBatchService {
     rawData: TRawData[],
     dynData: TEnhancedData[],
     billingClassification?: string,
+    voucherNumberSettingLogicalName?: string,
   ): Promise<IDataBatch> {
     this.logger.log(
       `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
@@ -165,6 +169,18 @@ export class DataBatchService {
     this.logger.log(
       `Data batch finalized: id=${dataBatch.id} raw=${rawData.length} dyn=${dynData.length} errors=${errorRecords.length}`,
     );
+
+    // Update settings asynchronously (batch number always, voucher number if provided)
+    this.updateBatchSettingsAsync(
+      dynData,
+      voucherNumberSettingLogicalName,
+    ).catch((error) => {
+      this.logger.error(
+        `Failed to update batch settings: ${error.message}`,
+        error.stack,
+      );
+    });
+
     return dataBatch;
   }
 
@@ -285,5 +301,134 @@ export class DataBatchService {
       return 'DynVendorInvoiceJournalDto';
     }
     return 'DynLedgerVendorJournalEntryDto';
+  }
+
+  /**
+   * Update batch settings (batch number always, voucher number if setting name provided) asynchronously
+   * Extracts the latest values from enriched data and updates settings without awaiting
+   */
+  private updateBatchSettingsAsync(
+    dynData: DynDataModel[],
+    voucherNumberSettingLogicalName?: string,
+  ): Promise<void> {
+    if (dynData.length === 0) {
+      return Promise.resolve();
+    }
+
+    let latestBatchNumber: number | null = null;
+    let latestVoucherNumber: number | null = null;
+
+    // Extract batch numbers and voucher numbers from enriched data
+    for (const record of dynData) {
+      // Extract batch number from JOURNALBATCHNUMBER field
+      if (record.JOURNALBATCHNUMBER) {
+        const batchNum = this.parseBatchNumber(
+          record.JOURNALBATCHNUMBER as string,
+        );
+        if (batchNum !== null) {
+          if (latestBatchNumber === null || batchNum > latestBatchNumber) {
+            latestBatchNumber = batchNum;
+          }
+        }
+      }
+
+      // Extract voucher number from VOUCHER field (only if setting name is provided)
+      if (
+        voucherNumberSettingLogicalName &&
+        record.VOUCHER !== undefined &&
+        record.VOUCHER !== null
+      ) {
+        const voucherNum = this.parseVoucherNumber(record.VOUCHER);
+        if (voucherNum !== null) {
+          if (
+            latestVoucherNumber === null ||
+            voucherNum > latestVoucherNumber
+          ) {
+            latestVoucherNumber = voucherNum;
+          }
+        }
+      }
+    }
+
+    // Update batch number setting asynchronously (fire and forget) - always update
+    if (latestBatchNumber !== null) {
+      this.commandBus
+        .execute(
+          new UpdateSettingValueCommand(
+            'last.ledger.batch.number',
+            String(latestBatchNumber),
+          ),
+        )
+        .catch((error) => {
+          this.logger.error(
+            `Failed to update batch number setting: ${error.message}`,
+            error.stack,
+          );
+        });
+    }
+
+    // Update voucher number setting asynchronously (fire and forget) - only if setting name provided
+    if (voucherNumberSettingLogicalName && latestVoucherNumber !== null) {
+      this.commandBus
+        .execute(
+          new UpdateSettingValueCommand(
+            voucherNumberSettingLogicalName,
+            String(latestVoucherNumber),
+          ),
+        )
+        .catch((error) => {
+          this.logger.error(
+            `Failed to update voucher number setting: ${error.message}`,
+            error.stack,
+          );
+        });
+    }
+
+    return Promise.resolve();
+  }
+
+  /**
+   * Parse batch number from formatted string (e.g., "Mesco-000000123" -> 123)
+   */
+  private parseBatchNumber(formattedBatch: string): number | null {
+    try {
+      // Format is: "Mesco-000000123" or "prefix-000000123"
+      const parts = formattedBatch.split('-');
+      if (parts.length < 2) {
+        return null;
+      }
+      const numberPart = parts[parts.length - 1];
+      const parsed = parseInt(numberPart, 10);
+      return isNaN(parsed) ? null : parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Parse voucher number from formatted string or number
+   * Format can be: "prefix-000000123" or just a number
+   */
+  private parseVoucherNumber(voucher: number | string): number | null {
+    try {
+      if (typeof voucher === 'number') {
+        return voucher;
+      }
+      if (typeof voucher === 'string') {
+        // Format is: "prefix-000000123"
+        const parts = voucher.split('-');
+        if (parts.length < 2) {
+          // Try parsing as direct number
+          const parsed = parseInt(voucher, 10);
+          return isNaN(parsed) ? null : parsed;
+        }
+        const numberPart = parts[parts.length - 1];
+        const parsed = parseInt(numberPart, 10);
+        return isNaN(parsed) ? null : parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 }

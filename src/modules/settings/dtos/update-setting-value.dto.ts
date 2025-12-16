@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumberString } from 'class-validator';
 
 export class UpdateSettingValueDto {
-  @ApiProperty({ description: 'Value of the setting' })
+  @ApiProperty({ description: 'Value as number string' })
   @IsNotEmpty()
-  @IsString()
+  @IsNumberString({}, { message: 'Value must be a valid number string' })
   value: string;
 }
