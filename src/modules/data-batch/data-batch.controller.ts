@@ -236,10 +236,10 @@ export class DataBatchController {
   public async downloadErrorRecordListAsync(
     @Body() { batchId }: BatchIdDto,
   ): Promise<StreamableFile> {
-    const buffer = await this.commandBus.execute(
+    const filePath = await this.commandBus.execute(
       new DownloadBatchErrorCommand(batchId),
     );
-    return new StreamableFile(buffer, {
+    return new StreamableFile(createReadStream(filePath), {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       disposition: `attachment; filename="batch-errors-${batchId}.xlsx"`,
     });

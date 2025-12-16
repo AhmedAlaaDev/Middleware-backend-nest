@@ -97,6 +97,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     let currentBatchMonth: string | null = null;
     let currentHeader: IVendorFreightDFOHeader | null = null;
     let batchCount = 0;
+    let lineNumber = 1;
 
     // STEP 5: Process each month → invoice
 
@@ -123,14 +124,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
             journalBatchNum++;
             this.flushBatch(currentHeader!, currentBatchLines, eData);
             batchCount++;
+            lineNumber = 0;
           }
 
           currentBatchMonth = monthKey;
-          currentHeader = this.startNewBatch(
-            monthKey,
-            headerLine,
-            journalBatchNum,
-          );
+          currentHeader = this.startNewBatch(headerLine, journalBatchNum);
           currentBatchLines = [];
         }
 
@@ -154,6 +152,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           exchangeRate,
           reportingRate,
           voucher,
+          () => lineNumber++,
         );
 
         currentBatchLines.push(...invoiceLineObjects);
@@ -374,7 +373,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   }
 
   private startNewBatch(
-    monthKey: string,
     headerLine: VendorFreightRawData,
     journalBatchNum: number,
   ): IVendorFreightDFOHeader {
@@ -398,15 +396,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       return;
     }
 
-    header.JOURNALTOTALCREDIT = batchLines.reduce(
-      (sum, l) => sum + (l.CREDIT ?? 0),
-      0,
-    );
-    header.JOURNALTOTALDEBIT = batchLines.reduce(
-      (sum, l) => sum + (l.DEBIT ?? 0),
-      0,
-    );
-
     eData.push(...batchLines);
   }
 
@@ -417,6 +406,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     exchangeRate: number,
     reportingRate: number,
     voucher: number,
+    lineNumber: () => number,
   ): Promise<IVendorFreightDFOLine[]> {
     const lineObjects: IVendorFreightDFOLine[] = [];
 
@@ -429,6 +419,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         reportingRate,
         line.UniqueId.toString(),
         voucher,
+        lineNumber(),
       );
       lineObjects.push(obj);
     }
@@ -463,12 +454,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return new IVendorFreightDFOHeader({
       JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
       DESCRIPTION: `Vendor Invoice Freight ${formattedDate}`,
-      ISPOSTED: headerLine.ISPOSTED,
       JOURNALNAME: headerLine.JOURNALNAME,
-      JOURNALTOTALCREDIT: 0,
-      JOURNALTOTALDEBIT: 0,
-      OVERSIDESALESTAX: false,
-      SALESTAXINCLUDED: true,
+      OVERRIDESALESTAX: 'No',
+      SALESTAXINCLUDED: 'Yes',
     });
   }
 
@@ -536,6 +524,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     uniqueId: string,
     voucherNum: number,
+    lineNumber: number,
   ): Promise<IVendorFreightDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
@@ -553,7 +542,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return new IVendorFreightDFOLine({
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
-      LineNumber: line.LINENUMBER,
+      LineNumber: lineNumber,
+      LINENUMBER: lineNumber.toString(),
       ACCOUNTTYPE: line.ACCOUNTTYPE,
       ACCOUNTDISPLAYVALUE: line.ACCOUNTDISPLAYVALUE,
       DEFAULTDIMENSIONDISPLAYVALUE: line.DEFAULTDIMENSIONDISPLAYVALUE,

@@ -6,6 +6,7 @@ class VendorFreightDFOLine {
   LineNumber: number;
   DimensionModel: AccountDimensionsModel;
 
+  LINENUMBER: string;
   JOURNALBATCHNUMBER: string;
   ACCOUNTTYPE: 'Vend' | 'Ledger';
   ACCOUNTDISPLAYVALUE: string;
@@ -82,12 +83,9 @@ export class IVendorFreightDFOLine
 export class IVendorFreightDFOHeader {
   JOURNALBATCHNUMBER: string;
   DESCRIPTION: string;
-  ISPOSTED: boolean;
   JOURNALNAME: string;
-  JOURNALTOTALCREDIT: number;
-  JOURNALTOTALDEBIT: number;
-  OVERSIDESALESTAX: boolean;
-  SALESTAXINCLUDED: boolean;
+  OVERRIDESALESTAX: string;
+  SALESTAXINCLUDED: string;
 
   constructor(data: IVendorFreightDFOHeader) {
     Object.assign(this, data);
