@@ -1,7 +1,7 @@
 import { Command } from '@nestjs/cqrs';
 
 export interface DownloadBatchEnhancedRecordResult {
-  buffer: Buffer;
+  filePath: string;
   isZip: boolean;
 }
 

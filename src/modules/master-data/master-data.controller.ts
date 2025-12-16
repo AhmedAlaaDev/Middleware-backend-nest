@@ -8,7 +8,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
@@ -53,6 +53,7 @@ import {
 /**
  * Finance - Master Data
  */
+@ApiBearerAuth()
 @Controller('Finance/MasterData')
 export class MasterDataController {
   constructor(

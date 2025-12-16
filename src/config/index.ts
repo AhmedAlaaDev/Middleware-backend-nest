@@ -6,6 +6,7 @@ import { D365FOConfig } from '@/config/d365fo.config';
 import { DBConfig } from '@/config/db.config';
 import { RedisConfig } from '@/config/redis.config';
 import { ResilienceConfig } from '@/config/resilience.config';
+import { SchedulerConfig } from '@/config/scheduler.config';
 
 export interface IConfig {
   app: AppConfig;
@@ -14,6 +15,7 @@ export interface IConfig {
   db: DBConfig;
   redis: RedisConfig;
   resilience: ResilienceConfig;
+  scheduler: SchedulerConfig;
 }
 
 export const ConfigSchema = Joi.object<IConfig>({
@@ -69,6 +71,12 @@ export const ConfigSchema = Joi.object<IConfig>({
       l3Ttl: Joi.number().default(2 * 60 * 60 * 1000),
     }),
   }),
+
+  scheduler: Joi.object<SchedulerConfig>({
+    enabled: Joi.boolean().default(true),
+    tokenCleanupCron: Joi.string().default('0 0 * * *'),
+    tokenCleanupRetentionDays: Joi.number().default(30),
+  }),
 });
 
 export * from './app.config';
@@ -77,3 +85,4 @@ export * from './d365fo.config';
 export * from './db.config';
 export * from './redis.config';
 export * from './resilience.config';
+export * from './scheduler.config';

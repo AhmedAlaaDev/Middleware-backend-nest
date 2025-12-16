@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
 import { ProcessFreightClosingEntryCommand } from '@/modules/ledger/commands/process-freight-closing-entry.command';
@@ -17,6 +17,7 @@ import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entr
 /**
  * Data Migration - Ledger Closing Entries
  */
+@ApiBearerAuth()
 @Controller('DataMigration/Ledger')
 export class LedgerController {
   constructor(private readonly commandBus: CommandBus) {}

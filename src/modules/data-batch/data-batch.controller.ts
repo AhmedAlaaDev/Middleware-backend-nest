@@ -1,3 +1,5 @@
+import { createReadStream } from 'fs';
+
 import {
   Controller,
   Get,
@@ -20,6 +22,7 @@ import {
   ApiResponse,
   ApiTags,
   ApiProduces,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
@@ -38,6 +41,7 @@ import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-bat
 /**
  * Data Migration - Data Batches
  */
+@ApiBearerAuth()
 @ApiTags('Data Migration - Data Batches')
 @Controller('DataMigration/DataBatch')
 @UseInterceptors(ClassSerializerInterceptor)
@@ -183,7 +187,7 @@ export class DataBatchController {
   public async downloadEnhancedRecordListAsync(
     @Body() { batchId }: BatchIdDto,
   ): Promise<StreamableFile> {
-    const { buffer, isZip } = await this.commandBus.execute(
+    const { filePath, isZip } = await this.commandBus.execute(
       new DownloadBatchEnhancedRecordCommand(batchId),
     );
 
@@ -193,7 +197,7 @@ export class DataBatchController {
 
     const extension = isZip ? 'zip' : 'xlsx';
 
-    return new StreamableFile(buffer, {
+    return new StreamableFile(createReadStream(filePath), {
       type: contentType,
       disposition: `attachment; filename="enhanced-records-${batchId}.${extension}"`,
     });

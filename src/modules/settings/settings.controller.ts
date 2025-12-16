@@ -1,6 +1,11 @@
 import { Controller, Get, Put, Param, Body } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiResponse, ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiResponse,
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 
 import { UpdateSettingValueCommand } from './commands/update-setting-value.command';
 import { ReadSettingDto } from './dtos/read-setting.dto';
@@ -9,6 +14,7 @@ import { UpdateSettingValueDto } from './dtos/update-setting-value.dto';
 import { GetAllSettingsQuery } from './queries/get-all-settings.query';
 import { GetSettingQuery } from './queries/get-setting.query';
 
+@ApiBearerAuth()
 @ApiTags('Settings')
 @Controller('settings')
 export class SettingsController {

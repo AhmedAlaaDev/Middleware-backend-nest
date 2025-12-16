@@ -1,6 +1,5 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
-import JSZip from 'jszip';
 
 import {
   DownloadBatchEnhancedRecordCommand,
@@ -40,15 +39,19 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
     );
 
     const data = enhancedRecords.map((r) => r.data);
+
     const hasHeader = data.some(
       (record) => record && typeof record === 'object' && record.header,
     );
 
     if (!hasHeader) {
       this.logger.log('No headers detected → generating single Excel file.');
-      const buffer = await this.excelService.jsonToExcel(data);
+      const excelPath = await this.excelService.writeObjectsToTempFile(
+        data,
+        `batch-${batchId}-lines`,
+      );
       this.logger.log('Excel file generated successfully.');
-      return { buffer, isZip: false };
+      return { filePath: excelPath, isZip: false };
     }
 
     this.logger.log('Headers detected → splitting header + data…');
@@ -68,17 +71,23 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
     );
 
     this.logger.log('Generating Excel sheets…');
-    const headerBuffer = await this.excelService.jsonToExcel(uniqueHeaders);
-    const dataBuffer = await this.excelService.jsonToExcel(dataWithoutHeader);
+    const headersPath = await this.excelService.writeObjectsToTempFile(
+      uniqueHeaders,
+      `batch-${batchId}-headers`,
+    );
+    const linesPath = await this.excelService.writeObjectsToTempFile(
+      dataWithoutHeader,
+      `batch-${batchId}-lines`,
+    );
 
-    this.logger.log('Building ZIP archive…');
-    const zipBuffer = await this.createZip({
-      'headers.xlsx': headerBuffer,
-      'lines.xlsx': dataBuffer,
-    });
+    this.logger.log('Building ZIP (streaming)…');
+    const zipPath = await this.excelService.createZipFile(batchId, [
+      { filePath: headersPath, nameInZip: 'headers.xlsx' },
+      { filePath: linesPath, nameInZip: 'lines.xlsx' },
+    ]);
 
     this.logger.log('ZIP archive created successfully.');
-    return { buffer: zipBuffer, isZip: true };
+    return { filePath: zipPath, isZip: true };
   }
 
   // ------------------------------------------
@@ -100,18 +109,5 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
       }
     }
     return result;
-  }
-
-  private async createZip(files: Record<string, Buffer>): Promise<Buffer> {
-    const zip = new JSZip();
-
-    for (const [filename, content] of Object.entries(files)) {
-      zip.file(filename, content);
-    }
-
-    return await zip.generateAsync({
-      type: 'nodebuffer',
-      compression: 'DEFLATE',
-    });
   }
 }

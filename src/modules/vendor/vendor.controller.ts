@@ -1,7 +1,7 @@
 import { Body, Controller, Post, UseInterceptors } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFile } from '@/common/decorators/excel-file.decorator';
 import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-freight-adjustment.comand';
@@ -16,6 +16,7 @@ import { VendorTruckingDocDto } from '@/modules/vendor/dtos/vendor-trucking-doc.
 /**
  * Data Migration - Vendor
  */
+@ApiBearerAuth()
 @Controller('DataMigration/Vendor')
 export class VendorController {
   constructor(private readonly commandBus: CommandBus) {}
