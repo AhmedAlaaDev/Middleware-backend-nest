@@ -46,18 +46,18 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
       ],
     }),
 
+    AuthModule,
     VendorModule,
-    AccountsReceivableModule,
     LedgerModule,
+    AccountsReceivableModule,
+    DataBatchModule,
+    MasterDataModule,
+    SettingsModule,
     ResilienceModule,
     DBModule,
     QueueModule,
     D365FOModule,
-    MasterDataModule,
-    DataBatchModule,
-    SettingsModule,
     UserModule,
-    AuthModule,
   ],
 })
 export class AppModule {}

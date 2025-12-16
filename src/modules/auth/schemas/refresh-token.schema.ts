@@ -20,7 +20,7 @@ export class RefreshToken {
   @Prop({ required: true })
   hashedToken: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: Date })
   expiresAt: Date;
 
   @Prop()
@@ -41,3 +41,10 @@ export const RefreshTokenSchema = SchemaFactory.createForClass(RefreshToken);
 // indexes (equivalent to Prisma @@index)
 RefreshTokenSchema.index({ userId: 1 });
 RefreshTokenSchema.index({ familyId: 1 });
+
+RefreshTokenSchema.index(
+  { expiresAt: 1 },
+  {
+    expireAfterSeconds: 60 * 60 * 24 * 30, // 30 days
+  },
+);
