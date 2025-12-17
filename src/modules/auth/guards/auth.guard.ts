@@ -61,7 +61,9 @@ export class AuthGuard implements CanActivate {
     accessToken: string,
   ): Promise<UserPayload> {
     try {
-      return this.tokenService.verifyAccess(accessToken);
+      const payload = await this.tokenService.verifyAccess(accessToken);
+
+      return payload;
     } catch {
       throw new UnauthorizedException('Invalid token.');
     }
@@ -70,11 +72,15 @@ export class AuthGuard implements CanActivate {
   private async getUserByIdOrThrow(
     userId: string,
   ): Promise<Omit<IUser, 'passwordHash'>> {
-    const user = await this.userService.findUserById(userId);
-    if (!user) throw new UnauthorizedException('User not found.');
+    try {
+      const user = await this.userService.findUserById(userId);
+      if (!user) throw new UnauthorizedException('User not found.');
 
-    const { passwordHash, ...userData } = user;
+      const { passwordHash, ...userData } = user;
 
-    return userData;
+      return userData;
+    } catch {
+      throw new UnauthorizedException('User not found.');
+    }
   }
 }
