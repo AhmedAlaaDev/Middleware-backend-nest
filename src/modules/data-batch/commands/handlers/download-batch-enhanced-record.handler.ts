@@ -35,11 +35,12 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
 
     // First pass: detect if headers exist and collect unique headers
     let hasHeader = false;
+    let hasSettled = false;
     const uniqueHeaderKeys = new Set<string>();
     const headerMap = new Map<string, Record<string, unknown>>();
     let recordCount = 0;
 
-    // Process records to detect headers and collect unique ones
+    // Process records to detect header/settled and collect unique headers
     for await (const record of recordsStream) {
       recordCount++;
       const data = record.data;
@@ -52,6 +53,14 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
           headerMap.set(headerKey, header);
         }
       }
+      if (
+        data &&
+        typeof data === 'object' &&
+        'settled' in data &&
+        data.settled
+      ) {
+        hasSettled = true;
+      }
     }
 
     if (recordCount === 0) {
@@ -62,12 +71,17 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
       `Fetched ${recordCount} enhanced record(s) for batch ${batchId}`,
     );
 
-    if (!hasHeader) {
-      this.logger.log('No headers detected → generating single Excel file.');
+    if (!hasHeader && !hasSettled) {
+      this.logger.log(
+        'No headers/settled detected → generating single Excel file.',
+      );
       // Stream all records to single Excel file
       const cursor2 = this.batchService.getEnhancedRecordsStream(batchId);
       const recordsStream2 = this.cursorToAsyncIterable(cursor2);
-      const dataStream = this.extractDataStream(recordsStream2, false);
+      const dataStream = this.extractDataStream(recordsStream2, {
+        removeHeader: false,
+        removeSettled: false,
+      });
       const excelPath = await this.excelService.writeObjectsToTempFileStream(
         dataStream,
         `batch-${batchId}-lines`,
@@ -76,34 +90,65 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
       return { filePath: excelPath, isZip: false };
     }
 
-    this.logger.log('Headers detected → splitting header + data…');
+    this.logger.log(
+      `Nested objects detected (header=${hasHeader}, settled=${hasSettled}) → splitting…`,
+    );
 
     const uniqueHeaders = Array.from(headerMap.values());
-    this.logger.log(`Collected ${uniqueHeaderKeys.size} unique header(s)`);
+    if (hasHeader) {
+      this.logger.log(`Collected ${uniqueHeaderKeys.size} unique header(s)`);
+    }
 
     this.logger.log('Generating Excel sheets…');
 
-    // Stream headers to Excel file
-    const headersStream = this.arrayToAsyncIterable(uniqueHeaders);
-    const headersPath = await this.excelService.writeObjectsToTempFileStream(
-      headersStream,
-      `batch-${batchId}-headers`,
-    );
+    // Stream headers to Excel file (if present)
+    let headersPath: string | null = null;
+    if (hasHeader) {
+      const headersStream = this.arrayToAsyncIterable(uniqueHeaders);
+      headersPath = await this.excelService.writeObjectsToTempFileStream(
+        headersStream,
+        `batch-${batchId}-headers`,
+      );
+    }
 
-    // Stream data (without headers) to Excel file
+    // Stream settled to Excel file (if present)
+    let settledPath: string | null = null;
+    if (hasSettled) {
+      const cursorSettled = this.batchService.getEnhancedRecordsStream(batchId);
+      const recordsStreamSettled = this.cursorToAsyncIterable(cursorSettled);
+      const settledStream = this.extractNestedStream(
+        recordsStreamSettled,
+        'settled',
+      );
+      settledPath = await this.excelService.writeObjectsToTempFileStream(
+        settledStream,
+        `batch-${batchId}-settled`,
+      );
+    }
+
+    // Stream data (without header/settled) to Excel file
     const cursor3 = this.batchService.getEnhancedRecordsStream(batchId);
     const recordsStream3 = this.cursorToAsyncIterable(cursor3);
-    const dataStream = this.extractDataStream(recordsStream3, true);
+    const dataStream = this.extractDataStream(recordsStream3, {
+      removeHeader: true,
+      removeSettled: true,
+    });
     const linesPath = await this.excelService.writeObjectsToTempFileStream(
       dataStream,
       `batch-${batchId}-lines`,
     );
 
     this.logger.log('Building ZIP (streaming)…');
-    const zipPath = await this.excelService.createZipFile(batchId, [
-      { filePath: headersPath, nameInZip: 'headers.xlsx' },
-      { filePath: linesPath, nameInZip: 'lines.xlsx' },
-    ]);
+    const files: Array<{ filePath: string; nameInZip: string }> = [];
+    if (headersPath) {
+      files.push({ filePath: headersPath, nameInZip: 'headers.xlsx' });
+    }
+    if (settledPath) {
+      files.push({ filePath: settledPath, nameInZip: 'settled.xlsx' });
+    }
+    files.push({ filePath: linesPath, nameInZip: 'lines.xlsx' });
+
+    const zipPath = await this.excelService.createZipFile(batchId, files);
 
     this.logger.log('ZIP archive created successfully.');
     return { filePath: zipPath, isZip: true };
@@ -142,26 +187,53 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
   }
 
   /**
-   * Extracts data from records, optionally removing header property
+   * Extracts data from records, optionally removing nested properties
    */
   private async *extractDataStream(
     recordsStream: AsyncIterable<IDataEnhancedRecord>,
-    removeHeader: boolean,
+    opts: { removeHeader: boolean; removeSettled: boolean },
   ): AsyncIterable<Record<string, unknown>> {
     for await (const record of recordsStream) {
       const data = record.data;
-      if (
-        removeHeader &&
-        data &&
-        typeof data === 'object' &&
-        'header' in data &&
-        data.header
-      ) {
-        const { header, ...rest } = data;
-        yield rest;
-      } else {
-        yield data;
+      if (!data || typeof data !== 'object') {
+        yield data as any;
+        continue;
       }
+
+      const obj = data;
+      if (!opts.removeHeader && !opts.removeSettled) {
+        yield obj;
+        continue;
+      }
+
+      // Remove nested objects that we export separately
+      const { header, settled, ...rest } = obj as any;
+
+      const withoutHeader = opts.removeHeader ? rest : { header, ...rest };
+      if (!opts.removeSettled) {
+        yield { settled, ...withoutHeader } as Record<string, unknown>;
+      } else {
+        yield withoutHeader as Record<string, unknown>;
+      }
+    }
+  }
+
+  /**
+   * Extracts a nested object stream (e.g. `settled`) from records.
+   * Skips records where nested object is missing.
+   */
+  private async *extractNestedStream(
+    recordsStream: AsyncIterable<IDataEnhancedRecord>,
+    nestedKey: 'settled',
+  ): AsyncIterable<Record<string, unknown>> {
+    for await (const record of recordsStream) {
+      const data = record.data;
+      if (!data || typeof data !== 'object') continue;
+
+      const nested = (data as any)?.[nestedKey];
+      if (!nested || typeof nested !== 'object') continue;
+
+      yield nested as Record<string, unknown>;
     }
   }
 

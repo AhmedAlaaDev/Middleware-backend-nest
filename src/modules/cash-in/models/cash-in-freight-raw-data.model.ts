@@ -74,6 +74,7 @@ export class CashInFreightRawData {
   ISCUSTOMER: boolean;
   ISPETTYCASH: boolean;
   ISBANK: boolean;
+  ISLEDGER: boolean;
 
   constructor(data: RawDataModel) {
     Object.assign(this, {
@@ -110,6 +111,7 @@ export class CashInFreightRawData {
       ISCUSTOMER: this.isAccountType(data?.ACCOUNTTYPE, 'cust'),
       ISPETTYCASH: this.isAccountType(data?.ACCOUNTTYPE, 'petty cash'),
       ISBANK: this.isAccountType(data?.ACCOUNTTYPE, 'bank'),
+      ISLEDGER: this.isAccountType(data?.ACCOUNTTYPE, 'ledger'),
     });
   }
 

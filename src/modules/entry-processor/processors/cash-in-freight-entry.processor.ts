@@ -98,12 +98,12 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
         }
 
         const dims = this.parseToDimensions(
-          line.DEFAULTDIMENSIONDISPLAYVALUE ||
-            line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE ||
-            '',
+          line.ISLEDGER
+            ? line.ACCOUNTDISPLAYVALUE || ''
+            : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
         );
 
-        const amount = Number(line.DEBITAMOUNT || line.CREDITAMOUNT || 0);
+        const amount = Number(line.CREDITAMOUNT || 0);
 
         const settled = new CashInFreightDFOSettled({
           JOURNALLINECOMPANY: company,
@@ -113,11 +113,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           INVOICECOMPANY: company,
           INVOICEDUEDATE: '',
           ACCOUNTDISPLAYVALUE: String(line.ACCOUNTDISPLAYVALUE || ''),
-          CASHDISCOUNTTOTAKEININVOICECURRENCY: Number(
-            line.CASHDISCOUNTAMOUNT || 0,
-          ),
-          INVOICEACCOUNT: String(line.ACCOUNTDISPLAYVALUE || ''),
-          INVOICETOPAYMENTCROSSRATE: Number(line.EXCHANGERATE || 1),
+          CASHDISCOUNTTOTAKEININVOICECURRENCY: 0,
+          INVOICEACCOUNT: String(line.ACCOUNTTYPE || ''),
+          INVOICETOPAYMENTCROSSRATE: 0,
           SETTLEMENTAMOUNTININVOICECURRENCY: amount,
           SourceIds: [String(line.UniqueId)],
         });
@@ -134,10 +132,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           ACCOUNTDISPLAYVALUE: String(line.ACCOUNTDISPLAYVALUE || ''),
           ACCOUNTTYPE: String(line.ACCOUNTTYPE || ''),
 
-          BANKTRANSACTIONTYPE: '',
-          CALCULATEWITHHOLDINGTAX: line.ISWITHHOLDINGCALCULATIONENABLED
-            ? 'Yes'
-            : 'No',
+          BANKTRANSACTIONTYPE: line.VoucherType || '',
+          CALCULATEWITHHOLDINGTAX: 'No',
 
           CENTRALBANKIMPORTDATE: '',
           CENTRALBANKPURPOSECODE: '',
@@ -146,9 +142,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           COMPANY: company,
 
           CREDITAMOUNT: Number(line.CREDITAMOUNT || 0),
-          CURRENCYCODE: String(line.CURRENCYCODE || 'EGP'),
+          CURRENCYCODE: String(line.CURRENCYCODE || ''),
 
-          CUSTOMERNAME: '',
+          CUSTOMERNAME: '', // TODO: add customer name
 
           DEBITAMOUNT: Number(line.DEBITAMOUNT || 0),
 
@@ -165,13 +161,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
           FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
 
-          ISPREPAYMENT:
-            String(line.PREPAYMENT || '').toLowerCase() === 'yes'
-              ? 'Yes'
-              : 'No',
+          ISPREPAYMENT: 'No',
 
-          ITEMWITHHOLDINGTAXGROUP: '',
-
+          ITEMWITHHOLDINGTAXGROUP: '', // TODO: add item with holding tax group
           MARKEDINVOICE: String(line.INVOICE || ''),
           MARKEDINVOICECOMPANY: company,
 
@@ -183,21 +175,19 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           NACHAIATORIGINATINGDFIQUALIFIER: '',
           NACHAIATRECEIVINGDFIQUALIFIER: '',
 
-          OFFSETACCOUNTDISPLAYVALUE: String(
-            line.OFFSETACCOUNTDISPLAYVALUE || '',
-          ),
-          OFFSETACCOUNTTYPE: String(line.OFFSETACCOUNTTYPE || ''),
+          OFFSETACCOUNTDISPLAYVALUE: String(line.ACCOUNTDISPLAYVALUE || ''),
+          OFFSETACCOUNTTYPE: String(line.ACCOUNTTYPE || ''),
           OFFSETCOMPANY: company,
 
-          OFFSETFINTAGDISPLAYVALUE: String(line.OFFSETFINTAGDISPLAYVALUE || ''),
-          OFFSETTRANSACTIONTEXT: String(line.OFFSETTEXT || ''),
+          OFFSETFINTAGDISPLAYVALUE: String(line.FINTAGDISPLAYVALUE || ''),
+          OFFSETTRANSACTIONTEXT: String(line.TEXT || ''),
 
-          OVERRIDESALESTAX: String(line.OVERRIDESALESTAX || 'No'),
+          OVERRIDESALESTAX: '',
 
-          PAYMENTID: String(line.PAYMENTID || ''),
-          PAYMENTMETHODNAME: String(line.PAYMENTMETHOD || ''),
+          PAYMENTID: String(line.UniqueId || ''),
+          PAYMENTMETHODNAME: String(line.VoucherType || ''),
           PAYMENTNOTES: '',
-          PAYMENTREFERENCE: '',
+          PAYMENTREFERENCE: line.DESCRIPTION || '',
           PAYMENTSPECIFICATION: '',
 
           POSTDATEDCHECKBANKBRANCH: '',
@@ -213,25 +203,21 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           POSTDATEDCHECKSALESPERSONDISPLAYVALUE: '',
           POSTDATEDCHECKSTOPPAYMENT: '',
 
-          POSTINGPROFILE: String(line.POSTINGPROFILE || ''),
+          POSTINGPROFILE: 'Cust-PP',
 
-          REPORTINGCURRENCYEXCHRATE: String(
-            line.REPORTINGCURRENCYEXCHRATE || '',
-          ),
-          REPORTINGCURRENCYEXCHRATESECONDARY: Number(
-            line.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
-          ),
+          REPORTINGCURRENCYEXCHRATE: '',
+          REPORTINGCURRENCYEXCHRATESECONDARY: '',
 
-          SECONDARYEXCHANGERATE: String(line.EXCHANGERATESECONDARY || ''),
+          SECONDARYEXCHANGERATE: '',
           SETTLEVOUCHER: '',
 
-          TAXGROUP: String(line.SALESTAXGROUP || ''),
-          TAXITEMGROUP: String(line.SALESTAXCODE || ''),
+          TAXGROUP: '',
+          TAXITEMGROUP: '',
 
           THIRDPARTYBANKACCOUNTID: '',
 
           TRANSACTIONDATE: String(line.TRANSDATE || ''),
-          TRANSACTIONTEXT: String(line.TEXT || line.DESCRIPTION || ''),
+          TRANSACTIONTEXT: '',
           VOUCHER: this.formatVoucherNumber(
             assignedVoucherNum,
             String(line.JOURNALNAME || 'CashIn'),
@@ -332,7 +318,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
       DESCRIPTION: `Customer Collection Freight ${formattedDate}`,
       ISPOSTED: 'No',
-      JOURNALNAME: String(line.JOURNALNAME || 'Cust-Pay'),
+      JOURNALNAME: 'Cust-Pay',
       OVERRIDESALESTAX: 'No',
     });
   }

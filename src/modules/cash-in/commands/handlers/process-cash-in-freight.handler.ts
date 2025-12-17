@@ -32,16 +32,6 @@ export class ProcessCashInFreightHandler implements ICommandHandler<ProcessCashI
       throw new BadRequestException('Empty file');
     }
 
-    const looksLikeFreight = rawData.some((d) =>
-      [d.JOURNALNAME, d.DESCRIPTION, d.TEXT]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes('freight')),
-    );
-
-    if (!looksLikeFreight) {
-      throw new BadRequestException('Not a cash-in freight journal');
-    }
-
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.CashInFreight,
     );
