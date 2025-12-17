@@ -26,7 +26,12 @@ async function bootstrap() {
     origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Version'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Api-Version',
+      'X-Refresh-Token',
+    ],
     exposedHeaders: ['Content-Disposition'],
   });
 
