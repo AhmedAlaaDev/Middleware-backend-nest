@@ -225,27 +225,28 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
 
   private async getCustodyAccountNumbers(company: string): Promise<string[]> {
-    const custodyVendors = await this.queryBus.execute(
+    const custodyVendorsRes = await this.queryBus.execute(
       new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
     );
-    return custodyVendors.map((v) => v.vendorAccountNumber);
+    return (custodyVendorsRes?.items ?? []).map((v) => v.vendorAccountNumber);
   }
 
   private async getVendorTaxNumberAndTermsOfPayment(
     company: string,
     vendorAccountNumber: string,
   ): Promise<{ taxNumber: string; termsOfPayment: string }> {
-    const vendor = await this.queryBus.execute(
+    const vendorRes = await this.queryBus.execute(
       new GetVendorsQuery({ company, accountNumbers: [vendorAccountNumber] }),
     );
 
-    if (!vendor || vendor.length === 0) {
+    const vendors = vendorRes?.items ?? [];
+    if (vendors.length === 0) {
       return { taxNumber: '', termsOfPayment: '' };
     }
 
     // regesteriation id
-    const taxNumber = vendor[0].salesTaxGroupCode || '';
-    const termsOfPayment = vendor[0].defaultPaymentTermsName || '';
+    const taxNumber = vendors[0].salesTaxGroupCode || '';
+    const termsOfPayment = vendors[0].defaultPaymentTermsName || '';
 
     return { taxNumber, termsOfPayment };
   }
@@ -527,14 +528,24 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
 
     const dateRange = getMonthRange(date);
 
-    const from = dateRange?.fromDate?.toDateString();
-    const to = dateRange?.toDate?.toDateString();
+    const fromDate = dateRange?.fromDate;
+    const toDate = dateRange?.toDate;
 
     const rate = (
       await this.queryBus.execute(
-        new GetExchangeRatesQuery('default', currency, 'EGP', from, to),
+        new GetExchangeRatesQuery(
+          {
+            rateTypeName: 'default',
+            fromCurrency: currency,
+            toCurrency: 'EGP',
+            fromDate,
+            toDate,
+          },
+          undefined,
+          undefined,
+        ),
       )
-    )?.[0]?.rate;
+    )?.items?.[0]?.rate;
 
     return toEgp ? (rate ?? 1) : 1 / (rate ?? 1);
   }

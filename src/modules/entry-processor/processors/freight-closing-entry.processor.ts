@@ -100,9 +100,10 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   }
 
   private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
-    const exchangeRates = await this.queryBus.execute(
-      new GetExchangeRatesQuery(),
+    const exchangeRatesRes = await this.queryBus.execute(
+      new GetExchangeRatesQuery({}, undefined, undefined),
     );
+    const exchangeRates = exchangeRatesRes?.items ?? [];
     const d365foRates: D365FOExchangeRate[] = (exchangeRates || []).map(
       (rate) => ({
         RateTypeName: rate.rateTypeName || 'Default',

@@ -1,11 +1,12 @@
 import { Query } from '@nestjs/cqrs';
 
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import {
   IVendor,
   IVendorListFilter,
 } from '@/modules/master-data/interfaces/vendor.interface';
 
-export class GetVendorsQuery extends Query<IVendor[]> {
+export class GetVendorsQuery extends Query<IPaginatedRes<IVendor>> {
   constructor(
     public readonly filter?: IVendorListFilter,
     public readonly skipCount?: number,

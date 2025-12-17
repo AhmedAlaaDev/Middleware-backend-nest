@@ -1,6 +1,8 @@
 import { IsOptional, IsString } from 'class-validator';
 
-export class GetExchangeRatesDto {
+import { PaginatedDto } from '@/common/dtos/paginated.dto';
+
+export class GetExchangeRatesDto extends PaginatedDto {
   /**
    * Rate type
    * @example default

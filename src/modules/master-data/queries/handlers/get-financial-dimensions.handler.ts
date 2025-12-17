@@ -12,8 +12,8 @@ export class GetFinancialDimensionsHandler implements IQueryHandler<GetFinancial
   public async execute(
     query: GetFinancialDimensionsQuery,
   ): Promise<IPaginatedRes<IFinancialDimension>> {
-    const skipCount = query.skipCount ?? 0;
-    const maxCount = query.maxCount ?? 150;
+    const skipCount = query.skipCount;
+    const maxCount = query.maxCount;
 
     const { count, items } =
       await this.masterDataService.getFinancialDimensionsWithValuesAsync(

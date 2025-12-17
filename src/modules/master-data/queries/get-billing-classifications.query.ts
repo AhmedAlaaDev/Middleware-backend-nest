@@ -1,11 +1,19 @@
 import { Query } from '@nestjs/cqrs';
 
-import { IBillingClassification } from '@/modules/master-data/interfaces/billing-classification.interface';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
+import {
+  IBillingClassification,
+  IBillingClassificationListFilter,
+} from '@/modules/master-data/interfaces/billing-classification.interface';
 
 export class GetBillingClassificationsQuery extends Query<
-  IBillingClassification[]
+  IPaginatedRes<IBillingClassification>
 > {
-  constructor(public readonly company?: string) {
+  constructor(
+    public readonly filter: IBillingClassificationListFilter,
+    public readonly skipCount?: number,
+    public readonly maxCount?: number,
+  ) {
     super();
   }
 }

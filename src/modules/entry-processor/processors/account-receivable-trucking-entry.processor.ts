@@ -64,9 +64,13 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     // Group all lines by voucher+invoice to process each invoice cohesively
     const groups = this.groupByVoucherInvoice(arData);
     // Fetch billing codes for the given company (used to derive charge type)
-    const billingCodes = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, billingClassId || ''),
+    const billingCodesRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({
+        company,
+        billingClassification: billingClassId || '',
+      }),
     );
+    const billingCodes = billingCodesRes.items;
     // Cache billing classification codes, if provided, for downstream validation
     if (billingClassId) {
       this.billingClassifications.set(billingClassId, billingCodes);

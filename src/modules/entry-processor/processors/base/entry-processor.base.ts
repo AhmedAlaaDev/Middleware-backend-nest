@@ -727,14 +727,20 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
    * Get account customer invoice mappings by service type
    */
   protected async getAccountCustomerInvoiceMappings(serviceType: ServiceTypes) {
-    return this.queryBus.execute(new GetAccountMappingsQuery(serviceType));
+    const res = await this.queryBus.execute(
+      new GetAccountMappingsQuery({ serviceType }),
+    );
+    return res.items;
   }
 
   /**
    * Get all main accounts
    */
   protected async getAllMainAccounts() {
-    return this.queryBus.execute(new GetMainAccountsQuery('Chart of Accounts'));
+    const res = await this.queryBus.execute(
+      new GetMainAccountsQuery({ chartNumber: 'Chart of Accounts' }),
+    );
+    return res.items;
   }
 
   /**

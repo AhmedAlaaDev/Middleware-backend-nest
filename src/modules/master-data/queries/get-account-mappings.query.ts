@@ -1,12 +1,19 @@
 import { Query } from '@nestjs/cqrs';
 
-import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { IAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
+import {
+  IAccountCustomerInvoiceMapping,
+  IAccountCustomerInvoiceMappingFilter,
+} from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
 
 export class GetAccountMappingsQuery extends Query<
-  IAccountCustomerInvoiceMapping[]
+  IPaginatedRes<IAccountCustomerInvoiceMapping>
 > {
-  constructor(public readonly serviceType?: ServiceTypes) {
+  constructor(
+    public readonly filter: IAccountCustomerInvoiceMappingFilter,
+    public readonly skipCount?: number,
+    public readonly maxCount?: number,
+  ) {
     super();
   }
 }

@@ -91,14 +91,14 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
   private async primeTruckingBillingClassifications(
     company: string,
   ): Promise<void> {
-    const inv = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, 'INV-TR'),
+    const invRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({ company, billingClassification: 'INV-TR' }),
     );
-    const orc = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, 'OR-TR'),
+    const orcRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({ company, billingClassification: 'OR-TR' }),
     );
-    this.billingClassifications.set('inv-tr', inv || []);
-    this.billingClassifications.set('or-tr', orc || []);
+    this.billingClassifications.set('inv-tr', invRes?.items ?? []);
+    this.billingClassifications.set('or-tr', orcRes?.items ?? []);
   }
 
   private enrichCreditNoteGroup(

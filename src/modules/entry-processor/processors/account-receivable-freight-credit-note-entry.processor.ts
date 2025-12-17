@@ -89,18 +89,18 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
   private async primeFreightBillingClassifications(
     company: string,
   ): Promise<void> {
-    const inv = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, 'INV-FW'),
+    const invRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({ company, billingClassification: 'INV-FW' }),
     );
-    const orc = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, 'OR-FW'),
+    const orcRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({ company, billingClassification: 'OR-FW' }),
     );
-    const of = await this.queryBus.execute(
-      new GetBillingCodesQuery(company, 'OF-FW'),
+    const ofRes = await this.queryBus.execute(
+      new GetBillingCodesQuery({ company, billingClassification: 'OF-FW' }),
     );
-    this.billingClassifications.set('inv-fw', inv || []);
-    this.billingClassifications.set('or-fw', orc || []);
-    this.billingClassifications.set('of-fw', of || []);
+    this.billingClassifications.set('inv-fw', invRes?.items ?? []);
+    this.billingClassifications.set('or-fw', orcRes?.items ?? []);
+    this.billingClassifications.set('of-fw', ofRes?.items ?? []);
   }
 
   private enrichCreditNoteGroup(

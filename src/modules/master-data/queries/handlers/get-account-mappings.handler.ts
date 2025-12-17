@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { IAccountCustomerInvoiceMapping } from '@/modules/master-data/interfaces/account-customer-invoice-mapping.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
@@ -13,15 +14,21 @@ export class GetAccountMappingsHandler implements IQueryHandler<GetAccountMappin
 
   public async execute(
     query: GetAccountMappingsQuery,
-  ): Promise<IAccountCustomerInvoiceMapping[]> {
+  ): Promise<IPaginatedRes<IAccountCustomerInvoiceMapping>> {
+    const skipCount = query.skipCount;
+    const maxCount = query.maxCount;
+
     this.logger.log(
-      `Fetching account mappings from database${query.serviceType ? ` for service type: ${query.serviceType}` : ''}`,
+      `Fetching account mappings from database${query.filter?.serviceType ? ` for service type: ${query.filter.serviceType}` : ''}`,
     );
 
-    const { items } = await this.masterDataService.getAccountMappingsAsync({
-      serviceType: query.serviceType,
-    });
+    const { items, total } =
+      await this.masterDataService.getAccountMappingsAsync(
+        query.filter ?? {},
+        skipCount,
+        maxCount,
+      );
 
-    return items;
+    return new IPaginatedRes(items, total, maxCount, skipCount);
   }
 }

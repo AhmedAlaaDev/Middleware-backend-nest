@@ -22,8 +22,14 @@ import {
   SaveAccountMappingsCommand,
 } from '@/modules/master-data/commands';
 import {
+  GetAccountMappingsDto,
+  GetBillingClassificationsDto,
+  GetBillingCodesDto,
+  GetCustomersDto,
   GetExchangeRatesDto,
   GetFinancialDimensionDto,
+  GetMainAccountsDto,
+  GetVendorsDto,
   SaveAccountMappingDto,
   SyncBillingDataDto,
   SyncCustomersDto,
@@ -33,10 +39,16 @@ import {
   SyncStatusDto,
   SyncVendorsDto,
 } from '@/modules/master-data/dtos';
-import { ServiceTypes } from '@/modules/master-data/enums';
 import {
+  IAccountCustomerInvoiceMapping,
   ICreateAccountCustomerInvoiceMapping,
+  IBillingClassification,
+  IBillingCode,
+  ICustomer,
   IFinancialDimension,
+  IExchangeRate,
+  IMainAccount,
+  IVendor,
 } from '@/modules/master-data/interfaces';
 import {
   GetAccountMappingsQuery,
@@ -69,11 +81,17 @@ export class MasterDataController {
     status: 200,
     description: 'Customers retrieved successfully',
   })
+  @ApiPaginatedResponse(ICustomer)
   public getCustomersAsync(
-    @Query('company') company?: string,
-    @Query('searchTerm') searchTerm?: string,
-  ) {
-    return this.queryBus.execute(new GetCustomersQuery(company, searchTerm));
+    @Query() query: GetCustomersDto,
+  ): Promise<IPaginatedRes<ICustomer>> {
+    return this.queryBus.execute(
+      new GetCustomersQuery(
+        { company: query.company, searchTerm: query.searchTerm },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
   }
 
   /**
@@ -137,8 +155,17 @@ export class MasterDataController {
     status: 200,
     description: 'Billing classifications retrieved successfully',
   })
-  public getBillingClassificationsAsync(@Query('company') company?: string) {
-    return this.queryBus.execute(new GetBillingClassificationsQuery(company));
+  @ApiPaginatedResponse(IBillingClassification)
+  public getBillingClassificationsAsync(
+    @Query() query: GetBillingClassificationsDto,
+  ): Promise<IPaginatedRes<IBillingClassification>> {
+    return this.queryBus.execute(
+      new GetBillingClassificationsQuery(
+        { company: query.company },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
   }
 
   /**
@@ -149,12 +176,19 @@ export class MasterDataController {
     status: 200,
     description: 'Billing codes retrieved successfully',
   })
+  @ApiPaginatedResponse(IBillingCode)
   public getBillingCodesAsync(
-    @Query('company') company?: string,
-    @Query('billingClassification') billingClassification?: string,
-  ) {
+    @Query() query: GetBillingCodesDto,
+  ): Promise<IPaginatedRes<IBillingCode>> {
     return this.queryBus.execute(
-      new GetBillingCodesQuery(company, billingClassification),
+      new GetBillingCodesQuery(
+        {
+          company: query.company,
+          billingClassification: query.billingClassification,
+        },
+        query.skipCount,
+        query.maxCount,
+      ),
     );
   }
 
@@ -185,10 +219,17 @@ export class MasterDataController {
     status: 200,
     description: 'Main accounts retrieved successfully',
   })
+  @ApiPaginatedResponse(IMainAccount)
   public getMainAccountsAsync(
-    @Query('chartOfAccounts') chartOfAccounts?: string,
-  ) {
-    return this.queryBus.execute(new GetMainAccountsQuery(chartOfAccounts));
+    @Query() query: GetMainAccountsDto,
+  ): Promise<IPaginatedRes<IMainAccount>> {
+    return this.queryBus.execute(
+      new GetMainAccountsQuery(
+        { chartNumber: query.chartOfAccounts },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
   }
 
   /**
@@ -218,10 +259,17 @@ export class MasterDataController {
     status: 200,
     description: 'Account mappings retrieved successfully',
   })
+  @ApiPaginatedResponse(IAccountCustomerInvoiceMapping)
   public getAccountMappingsAsync(
-    @Query('serviceType') serviceType?: ServiceTypes,
-  ) {
-    return this.queryBus.execute(new GetAccountMappingsQuery(serviceType));
+    @Query() query: GetAccountMappingsDto,
+  ): Promise<IPaginatedRes<IAccountCustomerInvoiceMapping>> {
+    return this.queryBus.execute(
+      new GetAccountMappingsQuery(
+        { serviceType: query.serviceType },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
   }
 
   /**
@@ -311,8 +359,17 @@ export class MasterDataController {
     status: 200,
     description: 'Vendors retrieved successfully',
   })
-  public async getVendorsAsync(@Query('company') company?: string) {
-    return this.queryBus.execute(new GetVendorsQuery({ company }));
+  @ApiPaginatedResponse(IVendor)
+  public async getVendorsAsync(
+    @Query() query: GetVendorsDto,
+  ): Promise<IPaginatedRes<IVendor>> {
+    return this.queryBus.execute(
+      new GetVendorsQuery(
+        { company: query.company },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
   }
 
   /**
@@ -342,16 +399,25 @@ export class MasterDataController {
     status: 200,
     description: 'Exchange rates retrieved successfully',
   })
+  @ApiPaginatedResponse(IExchangeRate)
   public getExchangeRatesAsync(
     @Query() getExchangeRatesDto: GetExchangeRatesDto,
-  ) {
+  ): Promise<IPaginatedRes<IExchangeRate>> {
     return this.queryBus.execute(
       new GetExchangeRatesQuery(
-        getExchangeRatesDto.rateType,
-        getExchangeRatesDto.fromCurrency,
-        getExchangeRatesDto.toCurrency,
-        getExchangeRatesDto.fromDate,
-        getExchangeRatesDto.toDate,
+        {
+          rateTypeName: getExchangeRatesDto.rateType,
+          fromCurrency: getExchangeRatesDto.fromCurrency,
+          toCurrency: getExchangeRatesDto.toCurrency,
+          fromDate: getExchangeRatesDto.fromDate
+            ? new Date(getExchangeRatesDto.fromDate)
+            : undefined,
+          toDate: getExchangeRatesDto.toDate
+            ? new Date(getExchangeRatesDto.toDate)
+            : undefined,
+        },
+        getExchangeRatesDto.skipCount,
+        getExchangeRatesDto.maxCount,
       ),
     );
   }

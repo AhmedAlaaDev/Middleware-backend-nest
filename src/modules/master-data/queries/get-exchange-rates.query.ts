@@ -1,14 +1,16 @@
 import { Query } from '@nestjs/cqrs';
 
-import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
+import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
+import {
+  IExchangeRate,
+  IExchangeRateListFilter,
+} from '@/modules/master-data/interfaces/exchange-rate.interface';
 
-export class GetExchangeRatesQuery extends Query<IExchangeRate[]> {
+export class GetExchangeRatesQuery extends Query<IPaginatedRes<IExchangeRate>> {
   constructor(
-    public readonly rateType?: string,
-    public readonly fromCurrency?: string,
-    public readonly toCurrency?: string,
-    public readonly fromDate?: string,
-    public readonly toDate?: string,
+    public readonly filter: IExchangeRateListFilter,
+    public readonly skipCount?: number,
+    public readonly maxCount?: number,
   ) {
     super();
   }
