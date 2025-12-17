@@ -6,6 +6,7 @@ import { AccountReceivableFreightCreditNoteEntryProcessor } from '@/modules/entr
 import { AccountReceivableFreightEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-freight-entry.processor';
 import { AccountReceivableTruckingCreditNoteEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-credit-note-entry.processor';
 import { AccountReceivableTruckingEntryProcessor } from '@/modules/entry-processor/processors/account-receivable-trucking-entry.processor';
+import { CashInFreightEntryProcessor } from '@/modules/entry-processor/processors/cash-in-freight-entry.processor';
 import { FreightClosingEntryProcessor } from '@/modules/entry-processor/processors/freight-closing-entry.processor';
 import { TruckingClosingEntryProcessor } from '@/modules/entry-processor/processors/trucking-closing-entry.processor';
 import { VendorFreightAdjustmentEntryProcessor } from '@/modules/entry-processor/processors/vendor-freight-adjustment-entry.processor';
@@ -27,6 +28,7 @@ export class EntryProcessorFactory {
     private readonly vendorTruckingProcessor: VendorTruckingEntryProcessor,
     private readonly vendorFreightAdjustmentProcessor: VendorFreightAdjustmentEntryProcessor,
     private readonly vendorTruckingAdjustmentProcessor: VendorTruckingAdjustmentEntryProcessor,
+    private readonly cashInFreightProcessor: CashInFreightEntryProcessor,
     private readonly freightClosingProcessor: FreightClosingEntryProcessor,
     private readonly truckingClosingProcessor: TruckingClosingEntryProcessor,
     // Add other processors here
@@ -74,6 +76,10 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.LedgerTruckingClosingEntry,
       this.truckingClosingProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.CashInFreight,
+      this.cashInFreightProcessor,
     );
     // Register other processors
   }

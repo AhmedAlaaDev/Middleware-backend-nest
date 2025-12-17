@@ -95,6 +95,14 @@ export class SettingsSeedService implements OnModuleInit {
         hasAction: false,
         order: 10,
       },
+      {
+        displayName: 'Last Ledger Voucher Cash In Freight',
+        logicalName: 'last.ledger.voucher.cash.in.freight',
+        value: '0',
+        groupName: 'Ledger',
+        hasAction: false,
+        order: 11,
+      },
     ];
 
     let created = 0;

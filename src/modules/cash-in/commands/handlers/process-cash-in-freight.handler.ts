@@ -1,0 +1,65 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+import { ProcessCashInFreightCommand } from '@/modules/cash-in/commands/process-cash-in-freight.comand';
+import { CashInFreightRawData } from '@/modules/cash-in/models/cash-in-freight-raw-data.model';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
+import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/enums/entry-processor-names.constant';
+import { ExcelService } from '@/modules/excel/excel.service';
+
+@CommandHandler(ProcessCashInFreightCommand)
+@Injectable()
+export class ProcessCashInFreightHandler implements ICommandHandler<ProcessCashInFreightCommand> {
+  constructor(
+    private readonly excelService: ExcelService,
+    private readonly processorFactory: EntryProcessorFactory,
+    private readonly dataBatchService: DataBatchService,
+  ) {}
+
+  public async execute({
+    companyId,
+    fileBuffer,
+  }: ProcessCashInFreightCommand): Promise<IDataBatch> {
+    const company = companyId || 'm-p';
+
+    const rawData =
+      await this.excelService.excelToJson<CashInFreightRawData>(fileBuffer);
+
+    if (!rawData || rawData.length === 0) {
+      throw new BadRequestException('Empty file');
+    }
+
+    const looksLikeFreight = rawData.some((d) =>
+      [d.JOURNALNAME, d.DESCRIPTION, d.TEXT]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes('freight')),
+    );
+
+    if (!looksLikeFreight) {
+      throw new BadRequestException('Not a cash-in freight journal');
+    }
+
+    const processor = this.processorFactory.getProcessorByName(
+      EntryProcessorTypes.CashInFreight,
+    );
+
+    const enriched = await processor.formatAndEnrichAsync(rawData, company);
+    const validated = await processor.validateAsync(enriched, company);
+
+    const dataBatch = await this.dataBatchService.createAsync(
+      EntryProcessorTypes.CashInFreight,
+      ENTRY_PROCESSOR_NAMES.CASH_IN_FREIGHT,
+      company,
+      `Cash-In Freight ${Date.now()}`,
+      rawData,
+      validated,
+      undefined,
+      'last.ledger.voucher.cash.in.freight',
+    );
+
+    return dataBatch;
+  }
+}

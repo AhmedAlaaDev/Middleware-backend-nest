@@ -436,11 +436,15 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     const dateString = headerLine.TRANSDATE;
     const currency = headerLine.CURRENCYCODE;
 
-    const exchangeRate = await this.getExchangeRate(currency, dateString, true);
+    const exchangeRate = await this.getExchangeRate(
+      currency,
+      dateString,
+      'EGP',
+    );
     const reportingRate = await this.getExchangeRate(
       currency,
       dateString,
-      false,
+      'USD',
     );
 
     return { exchangeRate, reportingRate };
@@ -498,9 +502,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   private async getExchangeRate(
     currency: string,
     date: string,
-    toEgp: boolean,
+    toCurrency: 'EGP' | 'USD',
   ) {
-    if (currency === 'EGP') return 1;
+    if (currency === toCurrency) return 1;
 
     const dateRange = getMonthRange(date);
 
@@ -509,11 +513,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
 
     const rate = (
       await this.queryBus.execute(
-        new GetExchangeRatesQuery('default', currency, 'EGP', from, to),
+        new GetExchangeRatesQuery('default', currency, toCurrency, from, to),
       )
     )?.[0]?.rate;
 
-    return toEgp ? (rate ?? 1) : 1 / (rate ?? 1);
+    return rate ?? 1;
   }
 
   private async buildLine(

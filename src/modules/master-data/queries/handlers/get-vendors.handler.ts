@@ -12,9 +12,9 @@ export class GetVendorsHandler implements IQueryHandler<GetVendorsQuery> {
   constructor(private readonly masterDataService: MasterDataService) {}
 
   public async execute(query: GetVendorsQuery): Promise<IVendor[]> {
-    this.logger.log(
-      `Fetching vendors from database${query.filter?.company ? ` for company: ${query.filter.company}` : ''}`,
-    );
+    // this.logger.log(
+    //   `Fetching vendors from database${query.filter?.company ? ` for company: ${query.filter.company}` : ''}`,
+    // );
 
     const { items } = await this.masterDataService.getVendorsAsync(
       query.filter,
