@@ -70,6 +70,10 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
     private readonly model: Model<FinancialDimensionValue>,
   ) {}
 
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   async upsertMany(values: ICreateFinancialDimensionValue[]): Promise<void> {
     const ops = values.map((v) => ({
       updateOne: {
@@ -93,6 +97,13 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
     const q: Record<string, unknown> = {};
     if (filter.financialDimensionKey)
       q['financialDimensionKey'] = filter.financialDimensionKey;
+    if (filter.value) {
+      // Case-insensitive partial match to support UI filtering/search
+      q['value'] = {
+        $regex: this.escapeRegExp(filter.value),
+        $options: 'i',
+      };
+    }
     let query = this.model.find(q).lean();
 
     if (options?.skipCount !== undefined) {

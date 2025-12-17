@@ -15,7 +15,7 @@ import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
-import { GetFinancialDimensionWithValueQuery } from '@/modules/master-data/queries/get-financial-dimension-with-values.query';
+import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
 
@@ -749,13 +749,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected async getFinancialDimensionValues(
     financialKey: string,
   ): Promise<IFinancialDimensionValue[]> {
-    const { FinancialDimension, Values } = await this.queryBus.execute(
-      new GetFinancialDimensionWithValueQuery(financialKey),
+    const values = await this.queryBus.execute(
+      new GetFinancialDimensionValueQuery(financialKey),
     );
-    if (FinancialDimension) {
-      return Values;
-    }
-    return [];
+
+    return values;
   }
 
   protected formatVoucherNumber(voucher: number, prefix: string): string {

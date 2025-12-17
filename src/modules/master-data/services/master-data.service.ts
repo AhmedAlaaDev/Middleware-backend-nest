@@ -181,19 +181,16 @@ export class MasterDataService {
     };
   }
 
-  async getFinancialDimensionWithValuesAsync(financialKey: string): Promise<{
-    FinancialDimension: IFinancialDimension | null;
-    Values: IFinancialDimensionValue[];
-  }> {
-    const dim = await this.finDimRepo.findByKey(financialKey);
-    if (!dim) return { FinancialDimension: null, Values: [] };
+  async getFinancialDimensionWithValuesAsync(
+    financialKey: string,
+    filter?: { value?: string },
+  ): Promise<IFinancialDimensionValue[]> {
     const values = await this.finDimValRepo.getList({
       financialDimensionKey: financialKey,
+      value: filter?.value,
     });
-    return {
-      FinancialDimension: { ...dim, dimensionValues: values },
-      Values: values,
-    };
+
+    return values;
   }
 
   async upsertVendorsAsync(

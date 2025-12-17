@@ -28,4 +28,9 @@ export type IUpdateFinancialDimension = Partial<ICreateFinancialDimension>;
 
 export interface IFinancialDimensionValueListFilter {
   financialDimensionKey?: string;
+  value?: string;
+}
+
+export interface IGetFinancialDimensionValueFilter {
+  value?: string;
 }

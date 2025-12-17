@@ -28,6 +28,7 @@ import {
   GetCustomersDto,
   GetExchangeRatesDto,
   GetFinancialDimensionDto,
+  GetFinancialDimensionWithValuesDto,
   GetMainAccountsDto,
   GetVendorsDto,
   SaveAccountMappingDto,
@@ -46,6 +47,7 @@ import {
   IBillingCode,
   ICustomer,
   IFinancialDimension,
+  IFinancialDimensionValue,
   IExchangeRate,
   IMainAccount,
   IVendor,
@@ -56,6 +58,7 @@ import {
   GetBillingCodesQuery,
   GetCustomersQuery,
   GetExchangeRatesQuery,
+  GetFinancialDimensionValueQuery,
   GetFinancialDimensionsQuery,
   GetMainAccountsQuery,
   GetSyncStatusQuery,
@@ -123,6 +126,25 @@ export class MasterDataController {
   ): Promise<IPaginatedRes<IFinancialDimension>> {
     return this.queryBus.execute(
       new GetFinancialDimensionsQuery(query.maxCount, query.skipCount),
+    );
+  }
+
+  /**
+   * Get a single financial dimension with its values (Query)
+   * Optional filtering by value (case-insensitive partial match)
+   */
+  @Get('financial-dimensions/values')
+  @ApiResponse({
+    status: 200,
+    description: 'Financial dimension with values retrieved successfully',
+  })
+  public getFinancialDimensionWithValuesAsync(
+    @Query() query: GetFinancialDimensionWithValuesDto,
+  ): Promise<IFinancialDimensionValue[]> {
+    return this.queryBus.execute(
+      new GetFinancialDimensionValueQuery(query.financialKey, {
+        value: query.value,
+      }),
     );
   }
 

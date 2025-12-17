@@ -186,6 +186,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       ({ accountNumber }) => ({ accountNumber }),
     );
 
+    this.vendorLogger.debug(
+      `Dimensions map: ${JSON.stringify(dimensionsMap.SubVendor, null, 2)}`,
+    );
+
     for (const line of lines) {
       if (line.ACCOUNTTYPE === 'Ledger') {
         this.validateMainAccount(line, mainAccounts);
@@ -201,6 +205,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       this.validateVendor(line, dimensionsMap.Vendor);
 
       if (line.DimensionModel.subVendor) {
+        this.vendorLogger.debug(
+          `Validating sub vendor ${line.DimensionModel.subVendor}`,
+        );
+
         this.validateSubVendor(line, dimensionsMap.SubVendor);
       }
     }
@@ -547,7 +555,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
-    const { taxNumber, termsOfPayment } = line.ISVENDOR
+    const { taxNumber: _tax, termsOfPayment } = line.ISVENDOR
       ? await this.getVendorTaxNumberAndTermsOfPayment(
           company,
           line.ACCOUNTDISPLAYVALUE,
@@ -594,7 +602,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       POSTINGPROFILE: line.POSTINGPROFILE,
       REPORTINGCURRENCYEXCHRATE: reportingRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
-      TAXEXEMPTNUMBER: taxNumber,
+      TAXEXEMPTNUMBER: '',
       TERMSOFPAYMENT: termsOfPayment,
       TRANSACTIONTYPE: 'vendor',
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),

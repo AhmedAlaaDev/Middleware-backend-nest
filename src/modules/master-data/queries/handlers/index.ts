@@ -3,7 +3,7 @@ export * from './get-billing-classifications.handler';
 export * from './get-billing-codes.handler';
 export * from './get-customers.handler';
 export * from './get-exchange-rates.handler';
-export * from './get-financial-dimension-with-values.handler';
+export * from './get-financial-dimension-values.handler';
 export * from './get-financial-dimensions.handler';
 export * from './get-main-accounts.handler';
 export * from './get-sync-jobs.handler';

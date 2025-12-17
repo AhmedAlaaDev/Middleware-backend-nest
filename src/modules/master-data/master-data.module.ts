@@ -26,7 +26,7 @@ import {
   GetCustomersHandler,
   GetExchangeRatesHandler,
   GetFinancialDimensionsHandler,
-  GetFinancialDimensionWithValueHandler,
+  GetFinancialDimensionValueHandler,
   GetMainAccountsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
@@ -98,7 +98,7 @@ const CommandHandlers = [
 
 const QueryHandlers = [
   GetFinancialDimensionsHandler,
-  GetFinancialDimensionWithValueHandler,
+  GetFinancialDimensionValueHandler,
   GetBillingClassificationsHandler,
   GetBillingCodesHandler,
   GetMainAccountsHandler,

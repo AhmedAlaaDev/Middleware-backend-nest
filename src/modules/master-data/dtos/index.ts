@@ -4,6 +4,7 @@ export * from './get-billing-classifications.dto';
 export * from './get-billing-codes.dto';
 export * from './get-customers.dto';
 export * from './get-financial-dimension.dto';
+export * from './get-financial-dimension-with-values.dto';
 export * from './get-main-accounts.dto';
 export * from './get-vendors.dto';
 export * from './save-account-mapping.dto';

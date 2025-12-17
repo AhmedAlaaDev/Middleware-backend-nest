@@ -3,7 +3,7 @@ export * from './get-billing-classifications.query';
 export * from './get-billing-codes.query';
 export * from './get-customers.query';
 export * from './get-exchange-rates.query';
-export * from './get-financial-dimension-with-values.query';
+export * from './get-financial-dimension-values.query';
 export * from './get-financial-dimensions.query';
 export * from './get-main-accounts.query';
 export * from './get-sync-jobs.query';
