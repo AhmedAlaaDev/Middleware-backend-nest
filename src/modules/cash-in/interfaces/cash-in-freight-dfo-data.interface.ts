@@ -46,7 +46,7 @@ export class CashInFreightDFOSettled {
 
 /* ------------------------------ LINE ------------------------------ */
 
-class CashInFreightDFOLineBase {
+export class CashInFreightDFOLineBase {
   header: CashInFreightDFOHeader;
   settled: CashInFreightDFOSettled;
   LineNumber: number;
