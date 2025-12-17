@@ -18,6 +18,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { GetCustomersQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
 type MonthVoucherMap = Map<string, Map<string, CashInFreightRawData[]>>;
@@ -137,7 +138,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
         const voucher = voucherNum++;
 
         for (const rawLine of voucherLines) {
-          const enrichedLine = this.buildLine({
+          const enrichedLine = await this.buildLine({
             rawLine,
             header: currentHeader,
             company,
@@ -275,13 +276,13 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     eData.push(...batchLines);
   }
 
-  private buildLine(args: {
+  private async buildLine(args: {
     rawLine: CashInFreightRawData;
     header: CashInFreightDFOHeader;
     company: string;
     voucher: number;
     lineNumber: number;
-  }): CashInFreightDFOLine {
+  }): Promise<CashInFreightDFOLine> {
     const { rawLine, header, company, voucher, lineNumber } = args;
 
     const dims = this.parseToDimensions(
@@ -307,6 +308,12 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       SourceIds: [String(rawLine.UniqueId)],
     });
 
+    const customerName = await this.getCustomerName(
+      rawLine.ACCOUNTTYPE,
+      rawLine.ACCOUNTDISPLAYVALUE,
+      company,
+    );
+
     const payload: CashInFreightDFOLineBase = {
       header,
       settled,
@@ -331,7 +338,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       CREDITAMOUNT: Number(rawLine.CREDITAMOUNT || 0),
       CURRENCYCODE: String(rawLine.CURRENCYCODE || ''),
 
-      CUSTOMERNAME: '',
+      CUSTOMERNAME: customerName,
 
       DEBITAMOUNT: Number(rawLine.DEBITAMOUNT || 0),
 
@@ -418,6 +425,23 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     };
 
     return new CashInFreightDFOLine(payload);
+  }
+
+  private async getCustomerName(
+    accountType: string,
+    accountDisplayValue: string,
+    company: string,
+  ): Promise<string> {
+    if (accountType.toLowerCase() !== 'cust') return '';
+
+    const customers = await this.queryBus.execute(
+      new GetCustomersQuery({
+        company: company,
+        searchTerm: accountDisplayValue,
+      }),
+    );
+
+    return customers?.items[0]?.name || '';
   }
 
   private createBatchHeader(

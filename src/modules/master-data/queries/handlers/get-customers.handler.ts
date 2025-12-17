@@ -18,9 +18,9 @@ export class GetCustomersHandler implements IQueryHandler<GetCustomersQuery> {
     const skipCount = query.skipCount;
     const maxCount = query.maxCount;
 
-    this.logger.log(
-      `Fetching customers from database${query.filter?.company ? ` for company: ${query.filter.company}` : ''}${query.filter?.searchTerm ? `, search term: ${query.filter.searchTerm}` : ''}`,
-    );
+    // this.logger.log(
+    //   `Fetching customers from database${query.filter?.company ? ` for company: ${query.filter.company}` : ''}${query.filter?.searchTerm ? `, search term: ${query.filter.searchTerm}` : ''}`,
+    // );
 
     const { items, total } = await this.masterDataService.getCustomersAsync(
       query.filter ?? {},
