@@ -572,7 +572,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
       EXCHRATE: exchangeRate,
-      EXCHRATESECOND: 1,
+      EXCHRATESECOND: 0,
       FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
       INVOICEDATE: line.DOCUMENTDATE,

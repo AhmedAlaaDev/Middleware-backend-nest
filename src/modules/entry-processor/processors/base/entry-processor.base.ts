@@ -740,7 +740,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const res = await this.queryBus.execute(
       new GetMainAccountsQuery({ chartNumber: 'Chart of Accounts' }),
     );
-    return res.items;
+    return res?.items || [];
   }
 
   /**

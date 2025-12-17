@@ -185,21 +185,22 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     }
 
     for (const line of lines) {
-      this.validateMainAccount(line, mainAccounts);
+      if (line.ACCOUNTTYPE === 'Ledger') {
+        this.validateMainAccount(line, mainAccounts);
+      }
       this.validateActivityName(line, dimensionsMap.Activity);
       this.validateCostCenter(line, dimensionsMap.CostCenters);
       this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
       this.validateLocation(line, dimensionsMap.Location);
-      this.validateCustomerDimension(line, dimensionsMap.Customer);
-      this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
-      this.validateChargeTypeDimension(
-        line,
-        dimensionsMap.ChargeType.map((d) => d.value || '').filter(Boolean),
-      );
       this.validateSalesMan(line, dimensionsMap.SalesMan);
-      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
       this.validateFreightType(line, dimensionsMap.FreightType);
+      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
       this.validateDirection(line, dimensionsMap.Direction);
+      this.validateCustomerDimension(line, dimensionsMap.Customer);
+
+      if (line.DimensionModel.subCustomer) {
+        this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
+      }
     }
 
     return data;
