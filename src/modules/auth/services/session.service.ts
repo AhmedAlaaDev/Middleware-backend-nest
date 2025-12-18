@@ -72,32 +72,21 @@ export class SessionService {
   ) {
     const hashedNew = await this.hashingService.hash(newToken.raw);
 
-    const session = await this.refreshTokenModel.db.startSession();
-    try {
-      await session.withTransaction(async () => {
-        await this.refreshTokenModel.updateOne(
-          { _id: old._id },
-          { revokedAt: new Date(), replacedById: newToken.jti },
-          { session },
-        );
-        await this.refreshTokenModel.create(
-          [
-            {
-              _id: newToken.jti,
-              familyId: old.familyId,
-              userId: old.userId,
-              hashedToken: hashedNew,
-              expiresAt: newToken.exp,
-              ip: ctx.ip,
-              userAgent: ctx.ua,
-            },
-          ],
-          { session },
-        );
-      });
-    } finally {
-      await session.endSession();
-    }
+    await Promise.all([
+      this.refreshTokenModel.updateOne(
+        { _id: old._id },
+        { revokedAt: new Date(), replacedById: newToken.jti },
+      ),
+      this.refreshTokenModel.create({
+        _id: newToken.jti,
+        familyId: old.familyId,
+        userId: old.userId,
+        hashedToken: hashedNew,
+        expiresAt: newToken.exp,
+        ip: ctx.ip,
+        userAgent: ctx.ua,
+      }),
+    ]);
   }
 
   /**

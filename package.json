@@ -30,7 +30,7 @@
     "docker:prod:down:v": "docker compose -f docker-compose.production.yml down -v",
     "docker:prod:restart": "pnpm docker:prod:down && pnpm docker:prod:up",
     "docker:prod:logs": "docker compose -f docker-compose.production.yml logs app -f",
-    "docker:prod:build": "docker build --no-cache --target production -t moatazali/middleware-app:1.0.2 .",
+    "docker:prod:build": "docker build --target production -t moatazali/middleware-app:1.0.2 .",
     "docker:prod:push": "docker push moatazali/middleware-app:1.0.2"
   },
   "dependencies": {
