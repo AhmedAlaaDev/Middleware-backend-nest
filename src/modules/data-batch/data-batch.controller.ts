@@ -31,6 +31,7 @@ import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.c
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
+import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
 import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
@@ -76,9 +77,11 @@ export class DataBatchController {
   @ApiOperation({ summary: 'Get list of errors for a batch' })
   @ApiPaginatedResponse(IDataBatchError)
   public async getBatchErrorListAsync(
-    @Query() { batchId }: BatchIdDto,
+    @Query() { batchId, maxCount, skipCount }: DataBatchErrorListDto,
   ): Promise<IPaginatedRes<IDataBatchError>> {
-    return this.queryBus.execute(new GetBatchErrorListQuery(batchId));
+    return this.queryBus.execute(
+      new GetBatchErrorListQuery(batchId, skipCount, maxCount),
+    );
   }
 
   /**
