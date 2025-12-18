@@ -1,0 +1,12 @@
+export { AccountReceivableFreightEntryProcessor } from './account-receivable-freight-entry.processor';
+export { AccountReceivableFreightCreditNoteEntryProcessor } from './account-receivable-freight-credit-note-entry.processor';
+export { AccountReceivableTruckingEntryProcessor } from './account-receivable-trucking-entry.processor';
+export { AccountReceivableTruckingCreditNoteEntryProcessor } from './account-receivable-trucking-credit-note-entry.processor';
+export { CashInFreightEntryProcessor } from './cash-in-freight-entry.processor';
+export { CashOutFreightEntryProcessor } from './cash-out-freight-entry.processor';
+export { FreightClosingEntryProcessor } from './freight-closing-entry.processor';
+export { TruckingClosingEntryProcessor } from './trucking-closing-entry.processor';
+export { VendorFreightAdjustmentEntryProcessor } from './vendor-freight-adjustment-entry.processor';
+export { VendorFreightEntryProcessor } from './vendor-freight-entry.processor';
+export { VendorTruckingAdjustmentEntryProcessor } from './vendor-trucking-adjustment-entry.processor';
+export { VendorTruckingEntryProcessor } from './vendor-trucking-entry.processor';

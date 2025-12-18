@@ -13,6 +13,7 @@ import {
 import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { CashInModule } from '@/modules/cash-in/cash-in.module';
+import { CashOutModule } from '@/modules/cash-out/cash-out.module';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
@@ -51,6 +52,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     AuthModule,
     VendorModule,
     CashInModule,
+    CashOutModule,
     LedgerModule,
     AccountsReceivableModule,
     DataBatchModule,
