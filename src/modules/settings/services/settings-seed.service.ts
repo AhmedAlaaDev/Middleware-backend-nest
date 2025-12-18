@@ -20,7 +20,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.batch.number',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 1,
       },
       {
@@ -28,7 +28,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.trucking.voucher.number',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 2,
       },
       {
@@ -36,7 +36,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.vendor.freight.voucher.number',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 3,
       },
       {
@@ -44,7 +44,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.freight.voucher.number',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 4,
       },
       {
@@ -52,7 +52,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.vendor.trucking.voucher.number',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 5,
       },
       {
@@ -60,7 +60,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.custody.freight',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 6,
       },
       {
@@ -68,7 +68,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.custody.trucking',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 7,
       },
       {
@@ -76,7 +76,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.cash.out',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 8,
       },
       {
@@ -84,7 +84,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.bank.out',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 9,
       },
       {
@@ -92,7 +92,7 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.visa.out',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 10,
       },
       {
@@ -100,8 +100,16 @@ export class SettingsSeedService implements OnModuleInit {
         logicalName: 'last.ledger.voucher.cash.in.freight',
         value: '0',
         groupName: 'Ledger',
-        hasAction: false,
+        hasAction: true,
         order: 11,
+      },
+      {
+        displayName: 'Last Ledger Voucher Cash Out Freight',
+        logicalName: 'last.ledger.voucher.cash.out.freight',
+        value: '0',
+        groupName: 'Ledger',
+        hasAction: true,
+        order: 12,
       },
     ];
 
