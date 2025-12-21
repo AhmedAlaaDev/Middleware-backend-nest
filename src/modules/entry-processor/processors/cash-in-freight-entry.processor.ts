@@ -286,12 +286,14 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   }): Promise<CashInFreightDFOLine> {
     const { rawLine, header, company, voucher, lineNumber } = args;
 
+    // ---------- Dimensions ----------
     const dims = this.parseToDimensions(
       rawLine.ISLEDGER
         ? rawLine.ACCOUNTDISPLAYVALUE || ''
         : rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
+    // ---------- Settled ----------
     const settlementAmount = Number(rawLine.CREDITAMOUNT || 0);
 
     const settled = new CashInFreightDFOSettled({
@@ -309,11 +311,15 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       SourceIds: [String(rawLine.UniqueId)],
     });
 
+    // ---------- Master Data ----------
     const customerName = await this.getCustomerName(
       rawLine.ACCOUNTTYPE,
       rawLine.ACCOUNTDISPLAYVALUE,
       company,
     );
+
+    // ---------- Type Overrides (based on your 5 templates) ----------
+    const ov = this.buildTypeOverrides(rawLine);
 
     const payload: CashInFreightDFOLineBase = {
       header,
@@ -356,7 +362,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
       FINTAGDISPLAYVALUE: rawLine.FINTAGDISPLAYVALUE,
 
-      ISPREPAYMENT: 'No',
+      ISPREPAYMENT: ov.ISPREPAYMENT as 'No' | 'Yes',
 
       ITEMWITHHOLDINGTAXGROUP: '',
 
@@ -371,27 +377,30 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       NACHAIATORIGINATINGDFIQUALIFIER: '',
       NACHAIATRECEIVINGDFIQUALIFIER: '',
 
-      OFFSETACCOUNTDISPLAYVALUE: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
-      OFFSETACCOUNTTYPE: String(rawLine.ACCOUNTTYPE || ''),
+      OFFSETACCOUNTDISPLAYVALUE: String(
+        rawLine.OFFSETACCOUNTDISPLAYVALUE || '',
+      ),
+      OFFSETACCOUNTTYPE: String(rawLine.OFFSETACCOUNTTYPE || ''),
       OFFSETCOMPANY: company,
 
-      OFFSETFINTAGDISPLAYVALUE: String(rawLine.FINTAGDISPLAYVALUE || ''),
-      OFFSETTRANSACTIONTEXT: String(rawLine.TEXT || ''),
+      OFFSETFINTAGDISPLAYVALUE: String(rawLine.OFFSETFINTAGDISPLAYVALUE || ''),
+      OFFSETTRANSACTIONTEXT: String(rawLine.OFFSETTEXT || rawLine.TEXT || ''),
 
       OVERRIDESALESTAX: '',
 
       PAYMENTID: String(rawLine.UniqueId || ''),
-      PAYMENTMETHODNAME: String(rawLine.VoucherType || ''),
+
+      PAYMENTMETHODNAME: ov.PAYMENTMETHODNAME,
       PAYMENTNOTES: '',
-      PAYMENTREFERENCE: rawLine.DESCRIPTION || '',
+      PAYMENTREFERENCE: ov.PAYMENTREFERENCE,
       PAYMENTSPECIFICATION: '',
 
-      POSTDATEDCHECKBANKBRANCH: '',
-      POSTDATEDCHECKBANKNAME: '',
+      POSTDATEDCHECKBANKBRANCH: ov.POSTDATEDCHECKBANKBRANCH,
+      POSTDATEDCHECKBANKNAME: ov.POSTDATEDCHECKBANKNAME,
       POSTDATEDCHECKCASHIERDISPLAYVALUE: '',
       POSTDATEDCHECKISREPLACEMENTCHECK: '',
-      POSTDATEDCHECKMATURITYDATE: '',
-      POSTDATEDCHECKNUMBER: '',
+      POSTDATEDCHECKMATURITYDATE: ov.POSTDATEDCHECKMATURITYDATE,
+      POSTDATEDCHECKNUMBER: ov.POSTDATEDCHECKNUMBER,
       POSTDATEDCHECKORIGINALCHECKNUMBER: '',
       POSTDATEDCHECKREASONFORSTOP: '',
       POSTDATEDCHECKRECEIVEDDATE: '',
@@ -399,7 +408,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       POSTDATEDCHECKSALESPERSONDISPLAYVALUE: '',
       POSTDATEDCHECKSTOPPAYMENT: '',
 
-      POSTINGPROFILE: 'Cust-PP',
+      POSTINGPROFILE: ov.POSTINGPROFILE,
 
       REPORTINGCURRENCYEXCHRATE: '',
       REPORTINGCURRENCYEXCHRATESECONDARY: '',
@@ -426,6 +435,76 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     };
 
     return new CashInFreightDFOLine(payload);
+  }
+
+  private resolvePayType(raw: CashInFreightRawData): string {
+    // Priority matters if more than one flag is true
+    if (raw.ISPREPAYMENT) return 'PrePayment';
+    if (raw.ISCHEQUE) return 'Check';
+    if (raw.ISDEPOSIT) return 'Deposit';
+    if (raw.ISPOS) return 'POS';
+    return 'Cash';
+  }
+
+  private buildTypeOverrides(raw: CashInFreightRawData) {
+    const type = this.resolvePayType(raw);
+
+    if (!type) {
+      this.procLogger.warn(
+        `Unable to resolve pay type for UniqueId=${raw.UniqueId}`,
+      );
+    }
+
+    const isCheckLike = type === 'Check' || type === 'PrePayment';
+
+    const PAYMENTMETHODNAME =
+      type === 'Cash'
+        ? '' // template says blank
+        : type === 'Deposit'
+          ? 'Deposit'
+          : type === 'POS'
+            ? 'POS'
+            : 'Check'; // Check + PrePayment
+
+    // Template rules:
+    // - Check + PrePayment => 33 (PAYMENTREFERENCE field)
+    // - Cash/Deposit/POS   => 5  (DESCRIPTION field)
+    const PAYMENTREFERENCE = isCheckLike
+      ? String(raw.PAYMENTREFERENCE || '')
+      : String(raw.DESCRIPTION || '');
+
+    const ISPREPAYMENT = type === 'PrePayment' ? 'Yes' : 'No';
+    const POSTINGPROFILE = type === 'PrePayment' ? 'Perpayment' : 'Cust-PP';
+
+    // NOTE:
+    // You didn't provide raw keys for check bank/branch/maturity/check number.
+    // So we keep them blank by default.
+    // If you *do* have them (e.g. raw.CHECKBANKNAME, raw.CHECKNUMBER, ...),
+    // map them here.
+    const POSTDATEDCHECKBANKBRANCH = isCheckLike
+      ? String(raw.OFFSETFINTAGDISPLAYVALUE || '')
+      : '';
+    const POSTDATEDCHECKBANKNAME = isCheckLike
+      ? String(raw.OFFSETTEXT || '')
+      : '';
+    const POSTDATEDCHECKMATURITYDATE = isCheckLike
+      ? String(raw.DOCUMENTDATE || '')
+      : '';
+    const POSTDATEDCHECKNUMBER = isCheckLike
+      ? String(raw.PAYMENTREFERENCE || '')
+      : '';
+
+    return {
+      type,
+      PAYMENTMETHODNAME,
+      PAYMENTREFERENCE,
+      ISPREPAYMENT,
+      POSTINGPROFILE,
+      POSTDATEDCHECKBANKBRANCH,
+      POSTDATEDCHECKBANKNAME,
+      POSTDATEDCHECKMATURITYDATE,
+      POSTDATEDCHECKNUMBER,
+    };
   }
 
   private async getCustomerName(

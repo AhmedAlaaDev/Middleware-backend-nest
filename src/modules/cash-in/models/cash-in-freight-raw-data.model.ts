@@ -35,13 +35,18 @@ export class CashInFreightRawData {
 
   PREPAYMENT?: string;
   SALESTAXGROUP?: string;
+  ITEMSALESTAXGROUP?: string;
   TAXEXEMPTNUMBER?: string;
 
   ISWITHHOLDINGCALCULATIONENABLED: boolean;
+  ITEMWITHHOLDINGTAXGROUPCODE?: string;
 
   DOCUMENT?: string;
+  DOCUMENTDATE?: string;
+  DUEDATE?: string;
   INVOICE?: string;
   PAYMENTMETHOD?: string;
+  PAYMENTREFERENCE?: string;
 
   CASHDISCOUNT: number;
   CASHDISCOUNTAMOUNT: number;
@@ -73,8 +78,13 @@ export class CashInFreightRawData {
   // handy flags (optional)
   ISCUSTOMER: boolean;
   ISPETTYCASH: boolean;
-  ISBANK: boolean;
   ISLEDGER: boolean;
+
+  ISCASH: boolean;
+  ISCHEQUE: boolean;
+  ISDEPOSIT: boolean;
+  ISPOS: boolean;
+  ISPREPAYMENT: boolean;
 
   constructor(data: RawDataModel) {
     Object.assign(this, {
@@ -110,8 +120,15 @@ export class CashInFreightRawData {
       // quick flags based on ACCOUNTTYPE in your data: Petty cash / Cust / Bank
       ISCUSTOMER: this.isAccountType(data?.ACCOUNTTYPE, 'cust'),
       ISPETTYCASH: this.isAccountType(data?.ACCOUNTTYPE, 'petty cash'),
-      ISBANK: this.isAccountType(data?.ACCOUNTTYPE, 'bank'),
       ISLEDGER: this.isAccountType(data?.ACCOUNTTYPE, 'ledger'),
+
+      ISCASH: this.isAccountType(data?.VoucherType, 'cash'),
+      ISCHEQUE: this.isAccountType(data?.VoucherType, 'cheque'),
+      ISDEPOSIT: this.isAccountType(data?.VoucherType, 'deposit'),
+      ISPOS: this.isAccountType(data?.VoucherType, 'pos'),
+      ISPREPAYMENT:
+        this.toBoolean(data?.PREPAYMENT) ||
+        this.isAccountType(data?.POSTINGPROFILE, 'perpayment'),
     });
   }
 
