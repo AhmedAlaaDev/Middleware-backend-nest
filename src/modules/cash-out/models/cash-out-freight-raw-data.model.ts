@@ -35,7 +35,9 @@ export class CashOutFreightRawData {
 
   PREPAYMENT?: string;
   SALESTAXGROUP?: string;
+  ITEMSALESTAXGROUP?: string;
   TAXEXEMPTNUMBER?: string;
+  ITEMWITHHOLDINGTAXGROUPCODE?: string;
 
   ISWITHHOLDINGCALCULATIONENABLED: boolean;
 
@@ -78,6 +80,11 @@ export class CashOutFreightRawData {
   ISPETTYCASH: boolean;
   ISLEDGER: boolean;
 
+  ISDIRECT: boolean;
+  ISCUSTODYISSUE: boolean;
+  ISCUSTODYSETTLEMENT: boolean;
+  ISVENDORPAYMENT: boolean;
+
   constructor(data: RawDataModel) {
     Object.assign(this, {
       ...data,
@@ -113,6 +120,13 @@ export class CashOutFreightRawData {
       ISVENDOR: this.isAccountType(data?.ACCOUNTTYPE, 'vend'),
       ISPETTYCASH: this.isAccountType(data?.ACCOUNTTYPE, 'petty cash'),
       ISLEDGER: this.isAccountType(data?.ACCOUNTTYPE, 'ledger'),
+      ISDIRECT: this.isAccountType(data?.SafeType, 'direct'),
+      ISCUSTODYISSUE: this.isAccountType(data?.SafeType, 'custody issue'),
+      ISCUSTODYSETTLEMENT: this.isAccountType(
+        data?.SafeType,
+        'custody settlement',
+      ),
+      ISVENDORPAYMENT: this.isAccountType(data?.SafeType, 'vendor payment'),
     });
   }
 

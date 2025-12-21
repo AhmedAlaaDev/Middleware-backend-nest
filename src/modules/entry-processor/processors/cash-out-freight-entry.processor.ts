@@ -286,12 +286,14 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
   }): Promise<CashOutFreightDFOLine> {
     const { rawLine, header, company, voucher, lineNumber } = args;
 
+    // ---------- Dimensions ----------
     const dims = this.parseToDimensions(
       rawLine.ISLEDGER
         ? rawLine.ACCOUNTDISPLAYVALUE || ''
         : rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
+    // ---------- Settled ----------
     const settlementAmount = Number(rawLine.CREDITAMOUNT || 0);
 
     const settled = new CashOutFreightDFOSettled({
@@ -309,14 +311,20 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       SourceIds: [String(rawLine.UniqueId)],
     });
 
+    // ---------- Master Data ----------
     const vendorName = await this.getVendorName(
       rawLine.ACCOUNTTYPE,
       rawLine.ACCOUNTDISPLAYVALUE,
       company,
     );
 
-    const paymentReference =
-      rawLine.PAYMENTREFERENCE || rawLine.DESCRIPTION || '';
+    // ---------- Type Overrides (Direct / Custody Issue / Custody Settlement / Vendor Payment) ----------
+    const ov = this.buildSafeTypeOverrides(rawLine, company);
+
+    // ---------- Base fallbacks ----------
+    const paymentReference = String(
+      rawLine.PAYMENTREFERENCE || rawLine.DESCRIPTION || '',
+    );
 
     const payload: CashOutFreightDFOLineBase = {
       header,
@@ -361,18 +369,20 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       ERRORCODEPAYMENT: '',
 
       EXCHANGERATE: Number(rawLine.EXCHANGERATE || 1),
-      FINTAGDISPLAYVALUE: rawLine.FINTAGDISPLAYVALUE,
+      FINTAGDISPLAYVALUE: String(rawLine.FINTAGDISPLAYVALUE || ''),
 
       FULLPRIMARYREMITTANCEADDRESS: '',
 
       ISPREPAYMENT: 'No',
 
-      ITEMWITHHOLDINGTAXGROUPCODE: '',
+      ITEMWITHHOLDINGTAXGROUPCODE: String(
+        rawLine.ITEMWITHHOLDINGTAXGROUPCODE || '',
+      ),
 
       LOCALINSTRUMENT: '',
 
-      MARKEDINVOICE: String(rawLine.INVOICE || ''),
-      MARKEDINVOICECOMPANY: company,
+      MARKEDINVOICE: ov.MARKEDINVOICE,
+      MARKEDINVOICECOMPANY: ov.MARKEDINVOICECOMPANY,
 
       NACHAIATFOREIGNEXCHANGEINDICATOR: '',
       NACHAIATFOREIGNEXCHANGEREFERENCE: '',
@@ -385,19 +395,15 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       NEWJOURNALBATCHNUMBER: '',
 
       OFFSETACCOUNTDISPLAYVALUE: String(
-        rawLine.OFFSETACCOUNTDISPLAYVALUE || rawLine.ACCOUNTDISPLAYVALUE || '',
+        rawLine.OFFSETACCOUNTDISPLAYVALUE || '',
       ),
-      OFFSETACCOUNTTYPE: String(
-        rawLine.OFFSETACCOUNTTYPE || rawLine.ACCOUNTTYPE || '',
-      ),
+      OFFSETACCOUNTTYPE: String(rawLine.OFFSETACCOUNTTYPE || ''),
       OFFSETCOMPANY: company,
 
-      OFFSETFINTAGDISPLAYVALUE: String(
-        rawLine.OFFSETFINTAGDISPLAYVALUE || rawLine.FINTAGDISPLAYVALUE || '',
-      ),
+      OFFSETFINTAGDISPLAYVALUE: String(rawLine.OFFSETFINTAGDISPLAYVALUE || ''),
       OFFSETTRANSACTIONTEXT: String(rawLine.OFFSETTEXT || rawLine.TEXT || ''),
 
-      OVERRIDESALESTAX: '',
+      OVERRIDESALESTAX: String(rawLine.OVERRIDESALESTAX || ''),
 
       PAYMENTID: String(rawLine.UniqueId || ''),
       PAYMENTMETHODNAME: String(rawLine.PAYMENTMETHOD || ''),
@@ -418,7 +424,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       POSTDATEDCHECKSALESPERSONDISPLAYVALUE: '',
       POSTDATEDCHECKSTOPPAYMENT: '',
 
-      POSTINGPROFILE: String(rawLine.POSTINGPROFILE || ''),
+      POSTINGPROFILE: ov.POSTINGPROFILE,
 
       REMITTANCEADDRESSCITY: '',
       REMITTANCEADDRESSCOUNTRY: '',
@@ -436,22 +442,23 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       REMITTANCEADDRESSZIPCODE: '',
       REMITTANCELOCATIONID: '',
 
-      REPORTINGCURRENCYEXCHRATE: '',
-      REPORTINGCURRENCYEXCHRATESECONDARY: '',
-      SECONDARYEXCHANGERATE: '',
+      REPORTINGCURRENCYEXCHRATE: '', // template says Auto
+      REPORTINGCURRENCYEXCHRATESECONDARY: '', // Auto
+      SECONDARYEXCHANGERATE: '', // Auto
 
       SERVICELEVEL: '',
 
-      SETTLEVOUCHER: '',
+      SETTLEVOUCHER: '', // Auto in template
 
       TAXGROUP: String(rawLine.SALESTAXGROUP || ''),
-      TAXITEMGROUP: '',
-      TAXWITHHOLDGROUP: '',
+      TAXITEMGROUP: String(rawLine.ITEMSALESTAXGROUP || ''),
+      TAXWITHHOLDGROUP: String(rawLine.ITEMWITHHOLDINGTAXGROUPCODE || ''),
 
       THIRDPARTYBANKACCOUNTID: '',
 
       TRANSACTIONDATE: String(rawLine.TRANSDATE || ''),
       TRANSACTIONTEXT: String(rawLine.TEXT || ''),
+
       VOUCHER: this.formatVoucherNumber(
         voucher,
         String(rawLine.JOURNALNAME || 'CashOut'),
@@ -465,6 +472,22 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     };
 
     return new CashOutFreightDFOLine(payload);
+  }
+
+  /**
+   * Builds the per-safe-type differences based on your templates:
+   * - Direct: MARKEDINVOICE blank
+   * - Custody Issue / Custody Settlement: MARKEDINVOICE = INVOICE, MARKEDINVOICECOMPANY = company
+   * - Posting profile always from raw 46
+   */
+  private buildSafeTypeOverrides(raw: CashOutFreightRawData, company: string) {
+    const isCustody = raw.ISCUSTODYISSUE || raw.ISCUSTODYSETTLEMENT;
+
+    return {
+      MARKEDINVOICE: isCustody ? String(raw.INVOICE || '') : '',
+      MARKEDINVOICECOMPANY: isCustody ? company : '',
+      POSTINGPROFILE: String(raw.POSTINGPROFILE || ''),
+    };
   }
 
   private async getVendorName(
