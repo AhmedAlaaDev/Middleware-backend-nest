@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Receivable Processors - Technical Documentation</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary-color: #64748b;
+            --success-color: #16a34a;
+            --warning-color: #d97706;
+            --error-color: #dc2626;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-color: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding-bottom: 30px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+
+        .toc {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .toc h2 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .toc ul {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 10px;
+        }
+
+        .toc a {
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 8px 15px;
+            display: block;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .toc a:hover {
+            background: var(--bg-color);
+            color: var(--primary-color);
+        }
+
+        section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 35px;
+            margin-bottom: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        section h2 {
+            color: var(--primary-color);
+            font-size: 1.6rem;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        section h3 {
+            color: var(--text-color);
+            font-size: 1.25rem;
+            margin: 25px 0 15px 0;
+        }
+
+        section h4 {
+            color: var(--secondary-color);
+            font-size: 1.1rem;
+            margin: 20px 0 12px 0;
+        }
+
+        p {
+            margin-bottom: 15px;
+        }
+
+        .processor-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+
+        .badge-trucking {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-freight {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .badge-credit {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .badge-invoice {
+            background: #e0e7ff;
+            color: #4338ca;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.95rem;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-color);
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .required {
+            color: var(--error-color);
+            font-weight: bold;
+        }
+
+        .optional {
+            color: var(--secondary-color);
+        }
+
+        .code {
+            background: #f1f5f9;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: var(--primary-dark);
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            margin: 15px 0;
+        }
+
+        .code-block .comment {
+            color: #6b7280;
+        }
+
+        .code-block .string {
+            color: #34d399;
+        }
+
+        .code-block .keyword {
+            color: #f472b6;
+        }
+
+        .info-box {
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .info-box.note {
+            background: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .info-box.warning {
+            background: #fffbeb;
+            border-left: 4px solid var(--warning-color);
+        }
+
+        .info-box.success {
+            background: #f0fdf4;
+            border-left: 4px solid var(--success-color);
+        }
+
+        .info-box.error {
+            background: #fef2f2;
+            border-left: 4px solid var(--error-color);
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 25px 0;
+            padding: 20px;
+            background: var(--bg-color);
+            border-radius: 8px;
+        }
+
+        .flow-step {
+            background: var(--primary-color);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            text-align: center;
+            min-width: 140px;
+        }
+
+        .flow-arrow {
+            color: var(--secondary-color);
+            font-size: 1.5rem;
+        }
+
+        .validation-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .validation-item {
+            background: var(--bg-color);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .validation-item h5 {
+            color: var(--text-color);
+            margin-bottom: 8px;
+        }
+
+        .validation-item p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .comparison-table {
+            margin: 20px 0;
+        }
+
+        .comparison-table th {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .check {
+            color: var(--success-color);
+            font-weight: bold;
+        }
+
+        .cross {
+            color: var(--error-color);
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            margin-top: 40px;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            
+            section {
+                box-shadow: none;
+                border: 1px solid var(--border-color);
+                page-break-inside: avoid;
+            }
+            
+            .toc {
+                page-break-after: always;
+            }
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+            
+            section {
+                padding: 20px;
+            }
+            
+            table {
+                font-size: 0.85rem;
+            }
+            
+            th, td {
+                padding: 8px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Account Receivable Processors</h1>
+            <p>D365FO Middleware - Technical Documentation</p>
+            <p style="margin-top: 10px; font-size: 0.9rem;">Version 1.0 | Last Updated: January 2026</p>
+        </header>
+
+        <nav class="toc">
+            <h2>Table of Contents</h2>
+            <ul>
+                <li><a href="#overview">1. Overview</a></li>
+                <li><a href="#processors">2. Available Processors</a></li>
+                <li><a href="#input-mapping">3. Input File Mapping</a></li>
+                <li><a href="#dimensions">4. Dimension String Format</a></li>
+                <li><a href="#output-mapping">5. Output Mapping (D365FO)</a></li>
+                <li><a href="#validation">6. Validation Rules</a></li>
+                <li><a href="#processing-flow">7. Processing Flow</a></li>
+                <li><a href="#billing-codes">8. Billing Classifications</a></li>
+                <li><a href="#credit-notes">9. Credit Note Processing</a></li>
+                <li><a href="#special-behaviors">10. Special Behaviors</a></li>
+                <li><a href="#error-handling">11. Error Handling</a></li>
+                <li><a href="#examples">12. Examples</a></li>
+            </ul>
+        </nav>
+
+        <!-- Section 1: Overview -->
+        <section id="overview">
+            <h2>1. Overview</h2>
+            <p>The Account Receivable Processors are responsible for transforming raw Excel/file data into structured D365 Finance & Operations (D365FO) customer invoice entries. These processors handle the complete lifecycle of data processing including:</p>
+            <ul style="margin-left: 20px; margin-bottom: 15px;">
+                <li>Data mapping and enrichment</li>
+                <li>Financial dimension parsing and validation</li>
+                <li>Billing code assignment</li>
+                <li>Customer account mapping</li>
+                <li>Invoice creation in D365FO</li>
+            </ul>
+            
+            <div class="info-box note">
+                <strong>Key Concept</strong>
+                Each processor is specialized for a specific service type (Trucking or Freight) and document type (Invoice or Credit Note), ensuring accurate processing based on business requirements.
+            </div>
+        </section>
+
+        <!-- Section 2: Available Processors -->
+        <section id="processors">
+            <h2>2. Available Processors</h2>
+            <p>The system includes four specialized processors for Account Receivable operations:</p>
+            
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Processor</th>
+                        <th>Service Type</th>
+                        <th>Document Type</th>
+                        <th>Can Insert to D365</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+                            <span class="processor-badge badge-trucking">Trucking</span>
+                            <span class="processor-badge badge-invoice">Invoice</span>
+                        </td>
+                        <td>Trucking</td>
+                        <td>Invoice</td>
+                        <td><span class="check">Yes</span></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="processor-badge badge-trucking">Trucking</span>
+                            <span class="processor-badge badge-credit">Credit Note</span>
+                        </td>
+                        <td>Trucking</td>
+                        <td>Credit Note</td>
+                        <td><span class="cross">No*</span></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="processor-badge badge-freight">Freight</span>
+                            <span class="processor-badge badge-invoice">Invoice</span>
+                        </td>
+                        <td>Freight</td>
+                        <td>Invoice</td>
+                        <td><span class="check">Yes</span></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="processor-badge badge-freight">Freight</span>
+                            <span class="processor-badge badge-credit">Credit Note</span>
+                        </td>
+                        <td>Freight</td>
+                        <td>Credit Note</td>
+                        <td><span class="cross">No*</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="info-box warning">
+                <strong>*Credit Note Limitation</strong>
+                Credit Note processors do not directly insert into D365FO. They prepare and validate the data for manual processing or future integration.
+            </div>
+
+            <h3>Required Financial Dimensions by Processor</h3>
+            
+            <h4>Trucking Processors (Invoice & Credit Note)</h4>
+            <div class="validation-list">
+                <div class="validation-item"><h5>MainAccount</h5><p>General ledger account number</p></div>
+                <div class="validation-item"><h5>Activity</h5><p>Activity/project identifier</p></div>
+                <div class="validation-item"><h5>CostCenters</h5><p>Cost center code</p></div>
+                <div class="validation-item"><h5>BusinessUnit</h5><p>Business unit identifier</p></div>
+                <div class="validation-item"><h5>Location</h5><p>Physical location code</p></div>
+                <div class="validation-item"><h5>Customer</h5><p>Customer dimension</p></div>
+                <div class="validation-item"><h5>SubCustomer</h5><p>Sub-customer dimension</p></div>
+                <div class="validation-item"><h5>ChargeType</h5><p>Type of charge/billing</p></div>
+                <div class="validation-item"><h5>SalesMan</h5><p>Sales representative</p></div>
+                <div class="validation-item"><h5>CoordinatorMan</h5><p>Coordinator reference</p></div>
+                <div class="validation-item"><h5>FreightType</h5><p>Type of freight service</p></div>
+                <div class="validation-item"><h5>TruckerType</h5><p>Trucker classification</p></div>
+                <div class="validation-item"><h5>TruckNumber</h5><p>Truck identifier</p></div>
+                <div class="validation-item"><h5>Direction</h5><p>Transport direction</p></div>
+            </div>
+
+            <h4>Freight Processors (Invoice & Credit Note)</h4>
+            <p>Same as Trucking, <strong>excluding</strong>:</p>
+            <ul style="margin-left: 20px;">
+                <li><span class="code">TruckerType</span> - Not applicable for freight</li>
+                <li><span class="code">TruckNumber</span> - Not applicable for freight</li>
+            </ul>
+        </section>
+
+        <!-- Section 3: Input File Mapping -->
+        <section id="input-mapping">
+            <h2>3. Input File Mapping</h2>
+            <p>The processors expect data from an Excel file with the following column structure. Each row represents either a <strong>Customer (CUST)</strong> line or a <strong>Ledger</strong> line.</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Column Name</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">LINENUMBER</span></td>
+                        <td>Number</td>
+                        <td class="optional">Optional</td>
+                        <td>Line sequence number for ordering</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">JOURNALBATCHNUMBER</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Journal batch identifier</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">JOURNALNAME</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Journal name (used for billing classification)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">VOUCHER</span></td>
+                        <td>String</td>
+                        <td class="required">Required</td>
+                        <td>Voucher number for grouping lines</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">TRANSDATE</span></td>
+                        <td>Date</td>
+                        <td class="required">Required</td>
+                        <td>Transaction date</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">ACCOUNTTYPE</span></td>
+                        <td>String</td>
+                        <td class="required">Required</td>
+                        <td>Either <span class="code">Cust</span> or <span class="code">Ledger</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">ACCOUNTDISPLAYVALUE</span></td>
+                        <td>String</td>
+                        <td class="required">Required</td>
+                        <td>Pipe-separated dimension string (see Section 4)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DEFAULTDIMENSIONDISPLAYVALUE</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Header default dimension display value</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">FINTAGDISPLAYVALUE</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Financial tag display value</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">TEXT</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Line description/text</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DEBITAMOUNT</span></td>
+                        <td>Number</td>
+                        <td class="required">Required*</td>
+                        <td>Debit amount (used for credit notes)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CREDITAMOUNT</span></td>
+                        <td>Number</td>
+                        <td class="required">Required*</td>
+                        <td>Credit amount (used for invoices)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CURRENCYCODE</span></td>
+                        <td>String</td>
+                        <td class="required">Required</td>
+                        <td>Currency code (e.g., USD, EUR, EGP)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">SALESTAXGROUP</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Sales tax group code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">ITEMSALESTAXGROUP</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Item sales tax group code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DOCUMENT</span></td>
+                        <td>String</td>
+                        <td class="optional">Optional</td>
+                        <td>Document reference number</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DUEDATE</span></td>
+                        <td>Date</td>
+                        <td class="optional">Optional</td>
+                        <td>Payment due date</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">INVOICE</span></td>
+                        <td>String</td>
+                        <td class="required">Required</td>
+                        <td>Invoice number for grouping</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CASHDISCOUNTDATE</span></td>
+                        <td>Date</td>
+                        <td class="optional">Optional</td>
+                        <td>Cash discount date</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="info-box note">
+                <strong>Line Grouping</strong>
+                Lines are grouped by <span class="code">VOUCHER</span> + <span class="code">INVOICE</span> combination. Each group should contain one <span class="code">Cust</span> line (header) and one or more <span class="code">Ledger</span> lines (detail).
+            </div>
+        </section>
+
+        <!-- Section 4: Dimension String Format -->
+        <section id="dimensions">
+            <h2>4. Dimension String Format</h2>
+            <p>The <span class="code">ACCOUNTDISPLAYVALUE</span> column contains a pipe-separated (<span class="code">|</span>) string with financial dimensions in a specific order:</p>
+            
+            <div class="code-block">
+<span class="comment">// Format:</span>
+MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|Vendor|SubVendor|ChargeType|SalesMan|CoordinatorMan|FreightType|TruckerType|TruckNumber|Direction|Worker|FixedAsset|Lease
+
+<span class="comment">// Example:</span>
+<span class="string">401001|CC001|ACT-001|BU-TRUCK|CAI|CUST001|SUBCUST001||||||SM001|COORD001|Payable|TT001|TRK-123|Import|||</span>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Position</th>
+                        <th>Dimension</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>0</td><td>MainAccount</td><td><span class="code">401001</span></td></tr>
+                    <tr><td>1</td><td>CostCenter</td><td><span class="code">CC001</span></td></tr>
+                    <tr><td>2</td><td>ActivityName</td><td><span class="code">ACT-001</span></td></tr>
+                    <tr><td>3</td><td>BusinessUnit</td><td><span class="code">BU-TRUCK</span></td></tr>
+                    <tr><td>4</td><td>Location</td><td><span class="code">CAI</span> or <span class="code">002</span></td></tr>
+                    <tr><td>5</td><td>Customer</td><td><span class="code">CUST001</span></td></tr>
+                    <tr><td>6</td><td>SubCustomer</td><td><span class="code">SUBCUST001</span></td></tr>
+                    <tr><td>7</td><td>Vendor</td><td><span class="code">VEND001</span></td></tr>
+                    <tr><td>8</td><td>SubVendor</td><td><span class="code">SUBVEND001</span></td></tr>
+                    <tr><td>9</td><td>ChargeType</td><td><span class="code">FREIGHT</span></td></tr>
+                    <tr><td>10</td><td>SalesMan</td><td><span class="code">SM001</span></td></tr>
+                    <tr><td>11</td><td>CoordinatorMan</td><td><span class="code">COORD001</span></td></tr>
+                    <tr><td>12</td><td>FreightType</td><td><span class="code">Payable</span> (default)</td></tr>
+                    <tr><td>13</td><td>TruckerType</td><td><span class="code">TT001</span></td></tr>
+                    <tr><td>14</td><td>TruckNumber</td><td><span class="code">TRK-123</span></td></tr>
+                    <tr><td>15</td><td>Direction</td><td><span class="code">Import</span> / <span class="code">Export</span></td></tr>
+                    <tr><td>16</td><td>Worker</td><td><span class="code">W001</span></td></tr>
+                    <tr><td>17</td><td>FixedAsset</td><td><span class="code">FA001</span></td></tr>
+                    <tr><td>18</td><td>Lease</td><td><span class="code">L001</span></td></tr>
+                </tbody>
+            </table>
+
+            <div class="info-box warning">
+                <strong>Location Transformation</strong>
+                The value <span class="code">CAI</span> (case-insensitive) is automatically converted to <span class="code">002</span> during processing and vice versa when converting back to string format.
+            </div>
+
+            <div class="info-box note">
+                <strong>FreightType Default</strong>
+                If <span class="code">FreightType</span> (position 12) is empty, it defaults to <span class="code">Payable</span>.
+            </div>
+        </section>
+
+        <!-- Section 5: Output Mapping -->
+        <section id="output-mapping">
+            <h2>5. Output Mapping (D365FO)</h2>
+            <p>After processing, each line is transformed into a <span class="code">DynAccountReceivableLineDto</span> object for D365FO integration:</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Output Field</th>
+                        <th>Source</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">FreeTextNumber</span></td>
+                        <td>Formatted INVOICE</td>
+                        <td>9-digit padded invoice number</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DocumentDate</span></td>
+                        <td>TRANSDATE</td>
+                        <td>Transaction/document date</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">DueDate</span></td>
+                        <td>DUEDATE</td>
+                        <td>Payment due date</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CustomerAccount</span></td>
+                        <td>SubCustomer dimension</td>
+                        <td>Customer account for billing</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">InvoiceAccount</span></td>
+                        <td>Customer dimension</td>
+                        <td>Invoice account reference</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">HeaderDefaultDimensionDisplayValue</span></td>
+                        <td>Modified DEFAULTDIMENSIONDISPLAYVALUE</td>
+                        <td>Header dimensions with location normalized</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">InvoiceTxt</span></td>
+                        <td>ChargeType dimension</td>
+                        <td>Invoice text/description</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">Description</span></td>
+                        <td>TEXT</td>
+                        <td>Line description</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">Quantity</span></td>
+                        <td>Fixed: 1</td>
+                        <td>Always set to 1</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">UnitPrice</span></td>
+                        <td>CREDITAMOUNT (Invoice) or -DEBITAMOUNT (Credit Note)</td>
+                        <td>Unit price amount</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">AmountCur</span></td>
+                        <td>Same as UnitPrice</td>
+                        <td>Amount in transaction currency</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CurrencyCode</span></td>
+                        <td>CURRENCYCODE</td>
+                        <td>Currency code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">SalesTaxGroup</span></td>
+                        <td>Derived from SALESTAXGROUP</td>
+                        <td>Sales tax group (see special rules)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">SalesTaxItemGroup</span></td>
+                        <td>Derived from ITEMSALESTAXGROUP</td>
+                        <td>Item tax group (see special rules)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">LedgerDimensionDisplayValue</span></td>
+                        <td>MainAccount dimension</td>
+                        <td>Ledger account number</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">BillingClassification</span></td>
+                        <td>Input parameter or derived</td>
+                        <td>Billing classification code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">BillingCode</span></td>
+                        <td>Matched from ChargeType</td>
+                        <td>Specific billing code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">PostingProfile</span></td>
+                        <td>Fixed: "Cust-PP"</td>
+                        <td>Customer posting profile</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">TermsOfPayment</span></td>
+                        <td>Calculated from dates (Invoice) or TRANSDATE (Credit Note)</td>
+                        <td>Payment terms</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CreditNoteInvoiceRef</span></td>
+                        <td>DOCUMENT (Credit Notes only)</td>
+                        <td>Reference to original invoice</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Section 6: Validation Rules -->
+        <section id="validation">
+            <h2>6. Validation Rules</h2>
+            <p>Each line is validated against D365FO master data. Validation errors are collected and attached to each line for reporting.</p>
+            
+            <h3>Dimension Validations</h3>
+            <p>All required dimensions are validated to ensure they exist in the D365FO system:</p>
+            
+            <div class="validation-list">
+                <div class="validation-item">
+                    <h5>MainAccount</h5>
+                    <p><span class="required">Required</span> - Must exist in Chart of Accounts. Cannot be empty or "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>Activity</h5>
+                    <p><span class="required">Required</span> - Must exist in Activity dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>CostCenters</h5>
+                    <p><span class="required">Required</span> - Must exist in Cost Center dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>BusinessUnit</h5>
+                    <p><span class="required">Required</span> - Must exist in Business Unit dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>Location</h5>
+                    <p><span class="required">Required</span> - Must exist in Location dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>Customer</h5>
+                    <p><span class="required">Required</span> - Must exist in Customer dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>SubCustomer</h5>
+                    <p><span class="required">Required</span> - Must exist in SubCustomer dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>ChargeType</h5>
+                    <p><span class="required">Required</span> - Must match a billing code in the billing classification.</p>
+                </div>
+                <div class="validation-item">
+                    <h5>SalesMan</h5>
+                    <p><span class="required">Required</span> - Must exist in SalesMan dimension. Cannot be "000".</p>
+                </div>
+                <div class="validation-item">
+                    <h5>CoordinatorMan</h5>
+                    <p><span class="required">Required</span> - Must exist in CoordinatorMan dimension.</p>
+                </div>
+                <div class="validation-item">
+                    <h5>FreightType</h5>
+                    <p><span class="required">Required</span> - Must exist in FreightType dimension.</p>
+                </div>
+                <div class="validation-item">
+                    <h5>Direction</h5>
+                    <p><span class="required">Required</span> - Must exist in Direction dimension.</p>
+                </div>
+            </div>
+
+            <h4>Additional Validations for Trucking</h4>
+            <div class="validation-list">
+                <div class="validation-item">
+                    <h5>TruckerType</h5>
+                    <p><span class="required">Required</span> - Must exist in TruckerType dimension.</p>
+                </div>
+                <div class="validation-item">
+                    <h5>TruckNumber</h5>
+                    <p><span class="required">Required</span> - Must exist in TruckNumber dimension.</p>
+                </div>
+            </div>
+
+            <h3>Billing Code Validation</h3>
+            <p>The <span class="code">ChargeType</span> dimension is matched against billing codes from the billing classification. If no matching billing code is found, an error is added:</p>
+            <div class="code-block">
+<span class="string">"Could not found a billing code related to this charge type [ChargeType]"</span>
+            </div>
+
+            <div class="info-box error">
+                <strong>Validation Error Format</strong>
+                Errors are stored with a key (dimension name) and message. Example: <br>
+                Key: <span class="code">MainAccount</span><br>
+                Message: <span class="code">"The main account 999999 does not exist in the system."</span>
+            </div>
+        </section>
+
+        <!-- Section 7: Processing Flow -->
+        <section id="processing-flow">
+            <h2>7. Processing Flow</h2>
+            <p>The processing follows a three-stage pipeline:</p>
+            
+            <div class="flow-diagram">
+                <div class="flow-step">1. Format & Enrich</div>
+                <span class="flow-arrow">&#8594;</span>
+                <div class="flow-step">2. Validate</div>
+                <span class="flow-arrow">&#8594;</span>
+                <div class="flow-step">3. Insert to D365</div>
+            </div>
+
+            <h3>Stage 1: Format and Enrich (<span class="code">formatAndEnrichAsync</span>)</h3>
+            <ol style="margin-left: 20px; margin-bottom: 20px;">
+                <li>Load customer-account mappings for the service type (Trucking/Freight)</li>
+                <li>Convert raw Excel rows to typed <span class="code">AccountReceivableFileModel</span> objects</li>
+                <li>Group lines by <span class="code">VOUCHER</span> + <span class="code">INVOICE</span> combination</li>
+                <li>Fetch billing codes for the company</li>
+                <li>For each group:
+                    <ul style="margin-left: 20px;">
+                        <li>Sort lines by line number</li>
+                        <li>Identify Customer (CUST) and Ledger lines</li>
+                        <li>Parse dimension string from <span class="code">ACCOUNTDISPLAYVALUE</span></li>
+                        <li>Apply SubCustomer mapping (lookup invoice account)</li>
+                        <li>Match billing code from charge type</li>
+                        <li>Create <span class="code">DynAccountReceivableLineDto</span> for each ledger line</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Stage 2: Validate (<span class="code">validateAsync</span>)</h3>
+            <ol style="margin-left: 20px; margin-bottom: 20px;">
+                <li>Load all main accounts from D365FO</li>
+                <li>Load financial dimension values for each required dimension</li>
+                <li>Collect charge type dimensions from billing codes</li>
+                <li>For each AR line, validate all required dimensions</li>
+                <li>Attach validation errors to each line</li>
+            </ol>
+
+            <h3>Stage 3: Insert to Dynamics (<span class="code">insertIntoDynamicsAsync</span>)</h3>
+            <ol style="margin-left: 20px;">
+                <li>Group validated lines by invoice number</li>
+                <li>For each invoice group:
+                    <ul style="margin-left: 20px;">
+                        <li>Create invoice header using the first line</li>
+                        <li>Create invoice lines for each detail line</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <div class="info-box warning">
+                <strong>Credit Note Exception</strong>
+                Credit Note processors throw an error at the Insert stage. They are designed for validation and data preparation only.
+            </div>
+        </section>
+
+        <!-- Section 8: Billing Classifications -->
+        <section id="billing-codes">
+            <h2>8. Billing Classifications</h2>
+            <p>Billing classifications determine which billing codes are available for charge type matching.</p>
+            
+            <h3>Trucking Classifications</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Classification Code</th>
+                        <th>Description</th>
+                        <th>Credit Note Prefix</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">INV-TR</span></td>
+                        <td>Trucking Invoice</td>
+                        <td>CN (Credit Note)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">OR-TR</span></td>
+                        <td>Trucking Order Receipt</td>
+                        <td>CR (Credit Receipt)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Freight Classifications</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Classification Code</th>
+                        <th>Description</th>
+                        <th>Credit Note Prefix</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">INV-FW</span></td>
+                        <td>Freight Invoice</td>
+                        <td>CN (Credit Note)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">OR-FW</span></td>
+                        <td>Freight Order Receipt</td>
+                        <td>CR (Credit Receipt)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">OF-FW</span></td>
+                        <td>Freight Ocean Freight</td>
+                        <td>CN (Credit Note)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Classification Detection (Credit Notes)</h3>
+            <p>For credit notes, the billing classification is automatically determined from the <span class="code">JOURNALNAME</span> or <span class="code">INVOICE</span> fields:</p>
+            
+            <div class="code-block">
+<span class="comment">// Trucking Credit Note Detection Logic:</span>
+<span class="keyword">if</span> (journalName.includes(<span class="string">'or-tr'</span>) || invoice.includes(<span class="string">'or'</span>)) <span class="keyword">return</span> <span class="string">'OR-TR'</span>;
+<span class="keyword">if</span> (journalName.includes(<span class="string">'inv-tr'</span>) || invoice.includes(<span class="string">'inv'</span>)) <span class="keyword">return</span> <span class="string">'INV-TR'</span>;
+<span class="comment">// Default: INV-TR</span>
+
+<span class="comment">// Freight Credit Note Detection Logic:</span>
+<span class="keyword">if</span> (journalName.includes(<span class="string">'or-fw'</span>) || invoice.includes(<span class="string">'or'</span>)) <span class="keyword">return</span> <span class="string">'OR-FW'</span>;
+<span class="keyword">if</span> (journalName.includes(<span class="string">'of-fw'</span>) || invoice.includes(<span class="string">'of'</span>)) <span class="keyword">return</span> <span class="string">'OF-FW'</span>;
+<span class="keyword">if</span> (journalName.includes(<span class="string">'inv-fw'</span>) || invoice.includes(<span class="string">'inv'</span>)) <span class="keyword">return</span> <span class="string">'INV-FW'</span>;
+<span class="comment">// Default: INV-FW</span>
+            </div>
+        </section>
+
+        <!-- Section 9: Credit Note Processing -->
+        <section id="credit-notes">
+            <h2>9. Credit Note Processing</h2>
+            <p>Credit notes have special processing rules that differ from regular invoices:</p>
+            
+            <h3>Key Differences</h3>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>Invoice</th>
+                        <th>Credit Note</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Amount Source</td>
+                        <td><span class="code">CREDITAMOUNT</span></td>
+                        <td><span class="code">-DEBITAMOUNT</span> (negative)</td>
+                    </tr>
+                    <tr>
+                        <td>Invoice Number Format</td>
+                        <td>9-digit padded</td>
+                        <td><span class="code">CN-XXXXX</span> or <span class="code">CR-XXXXX</span></td>
+                    </tr>
+                    <tr>
+                        <td>Terms of Payment</td>
+                        <td>Calculated days from TRANSDATE to DUEDATE</td>
+                        <td>TRANSDATE as ISO string</td>
+                    </tr>
+                    <tr>
+                        <td>Credit Note Reference</td>
+                        <td>Not applicable</td>
+                        <td>8-digit padded DOCUMENT number</td>
+                    </tr>
+                    <tr>
+                        <td>D365 Insert</td>
+                        <td><span class="check">Supported</span></td>
+                        <td><span class="cross">Not implemented</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Invoice Number Formatting</h3>
+            <div class="code-block">
+<span class="comment">// Trucking Credit Notes:</span>
+<span class="string">'INV-TR'</span> → Prefix: <span class="string">'CN'</span>  (e.g., CN-00001)
+<span class="string">'OR-TR'</span>  → Prefix: <span class="string">'CR'</span>  (e.g., CR-00001)
+
+<span class="comment">// Freight Credit Notes:</span>
+<span class="string">'OR-FW'</span>  → Prefix: <span class="string">'CR'</span>  (e.g., CR-00001)
+Other     → Prefix: <span class="string">'CN'</span>  (e.g., CN-00001)
+            </div>
+
+            <h3>Document Number Formatting</h3>
+            <p>The <span class="code">DOCUMENT</span> field is formatted to 8 digits for the <span class="code">CreditNoteInvoiceRef</span>:</p>
+            <div class="code-block">
+<span class="comment">// Input: "123/2024"  → Output: "00000123"</span>
+<span class="comment">// Input: "45"        → Output: "00000045"</span>
+<span class="comment">// Input: ""          → Output: "00000000"</span>
+            </div>
+        </section>
+
+        <!-- Section 10: Special Behaviors -->
+        <section id="special-behaviors">
+            <h2>10. Special Behaviors</h2>
+            
+            <h3>Tax Group Derivation</h3>
+            <p>The <span class="code">SalesTaxGroup</span> and <span class="code">SalesTaxItemGroup</span> are derived with special rules:</p>
+            
+            <div class="code-block">
+<span class="comment">// SalesTaxGroup Logic:</span>
+<span class="keyword">if</span> (!SALESTAXGROUP || !ITEMSALESTAXGROUP) <span class="keyword">return</span> <span class="string">'Non-Taxabl'</span>;
+<span class="keyword">if</span> (ITEMSALESTAXGROUP.includes(<span class="string">'VAT-0%'</span>)) <span class="keyword">return</span> <span class="string">'Non-Taxabl'</span>;
+<span class="keyword">return</span> SALESTAXGROUP;
+
+<span class="comment">// SalesTaxItemGroup Logic:</span>
+<span class="keyword">if</span> (!ITEMSALESTAXGROUP) <span class="keyword">return</span> <span class="string">''</span>;
+<span class="keyword">if</span> (ITEMSALESTAXGROUP.includes(<span class="string">'14%SUPPLIE'</span>) || ITEMSALESTAXGROUP.includes(<span class="string">'14'</span>)) <span class="keyword">return</span> <span class="string">'VAT-14%'</span>;
+<span class="keyword">if</span> (ITEMSALESTAXGROUP.includes(<span class="string">'VAT-0%'</span>)) <span class="keyword">return</span> <span class="string">''</span>;
+<span class="keyword">return</span> ITEMSALESTAXGROUP;
+            </div>
+
+            <h3>SubCustomer Mapping</h3>
+            <p>When processing, the SubCustomer dimension value is mapped to the corresponding <span class="code">invoiceAccount</span> from the customer-account mapping master data:</p>
+            <ol style="margin-left: 20px;">
+                <li>Check if the Customer dimension exists in the account mappings</li>
+                <li>If found, look up the SubCustomer in the same mappings</li>
+                <li>If a match is found, replace SubCustomer with the <span class="code">invoiceAccount</span> value</li>
+            </ol>
+
+            <h3>Location Normalization</h3>
+            <p>Location values are normalized during processing:</p>
+            <ul style="margin-left: 20px;">
+                <li><span class="code">CAI</span> (case-insensitive) is converted to <span class="code">002</span></li>
+                <li>When converting back to string, <span class="code">002</span> is converted to <span class="code">cai</span></li>
+            </ul>
+
+            <h3>Date Coercion</h3>
+            <p>The processors handle multiple date formats:</p>
+            <ul style="margin-left: 20px;">
+                <li><strong>Date object:</strong> Used as-is</li>
+                <li><strong>String:</strong> Parsed using JavaScript Date constructor</li>
+                <li><strong>Number (Excel serial):</strong> Converted using formula: <span class="code">(value - 25569) * 86400 * 1000</span> milliseconds</li>
+            </ul>
+
+            <h3>Terms of Payment Calculation</h3>
+            <p>For invoices, payment terms are calculated as the number of days between <span class="code">TRANSDATE</span> and <span class="code">DUEDATE</span>:</p>
+            <div class="code-block">
+<span class="comment">// Result format: "X Days"</span>
+termsOfPaymentDays = Math.ceil((DUEDATE - TRANSDATE) / (1000 * 60 * 60 * 24));
+TermsOfPayment = <span class="string">`${termsOfPaymentDays} Days`</span>;
+            </div>
+        </section>
+
+        <!-- Section 11: Error Handling -->
+        <section id="error-handling">
+            <h2>11. Error Handling</h2>
+            <p>Errors are handled at multiple levels and collected for reporting:</p>
+            
+            <h3>Validation Errors</h3>
+            <p>Each <span class="code">DynAccountReceivableLineDto</span> can accumulate validation errors via the <span class="code">AddError(key, message)</span> method. These errors do not stop processing but are attached to the line for reporting.</p>
+            
+            <h4>Common Validation Error Messages</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Error Key</th>
+                        <th>Message Pattern</th>
+                        <th>Cause</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">MainAccount</span></td>
+                        <td>"Main Account is required"</td>
+                        <td>Missing or empty value</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">MainAccount</span></td>
+                        <td>"The main account {value} does not exist in the system."</td>
+                        <td>Value not in Chart of Accounts</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CustomerDimensions</span></td>
+                        <td>"Customer is required"</td>
+                        <td>Missing, empty, or "000"</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CustomerDimensions</span></td>
+                        <td>"The dimension {value} does not exist in the system."</td>
+                        <td>Value not in Customer dimension</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">BillingCode</span></td>
+                        <td>"Could not found a billing code related to this charge type {chargeType}"</td>
+                        <td>No matching billing code for ChargeType</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Processing Errors</h3>
+            <div class="info-box error">
+                <strong>Credit Note Insert Attempt</strong>
+                Calling <span class="code">insertIntoDynamicsAsync</span> on a credit note processor throws:<br>
+                <span class="code">"InsertIntoDynamicsAsync is not implemented for credit notes"</span>
+            </div>
+        </section>
+
+        <!-- Section 12: Examples -->
+        <section id="examples">
+            <h2>12. Examples</h2>
+            
+            <h3>Example 1: Trucking Invoice Input</h3>
+            <div class="code-block">
+<span class="comment">// Row 1 (Customer Line):</span>
+LINENUMBER: 1
+VOUCHER: <span class="string">"V00001"</span>
+INVOICE: <span class="string">"1234/2024"</span>
+ACCOUNTTYPE: <span class="string">"Cust"</span>
+TRANSDATE: <span class="string">"2024-01-15"</span>
+DUEDATE: <span class="string">"2024-02-15"</span>
+TEXT: <span class="string">"Trucking Service Invoice"</span>
+DEFAULTDIMENSIONDISPLAYVALUE: <span class="string">"CC001|ACT001|BU001|CAI|..."</span>
+
+<span class="comment">// Row 2 (Ledger Line):</span>
+LINENUMBER: 2
+VOUCHER: <span class="string">"V00001"</span>
+INVOICE: <span class="string">"1234/2024"</span>
+ACCOUNTTYPE: <span class="string">"Ledger"</span>
+ACCOUNTDISPLAYVALUE: <span class="string">"401001|CC001|ACT001|BU001|CAI|CUST001|SUBCUST001|||FREIGHT|SM001|COORD001|Payable|TT001|TRK001|Import|||"</span>
+CREDITAMOUNT: 5000.00
+CURRENCYCODE: <span class="string">"EGP"</span>
+SALESTAXGROUP: <span class="string">"VAT-14%"</span>
+ITEMSALESTAXGROUP: <span class="string">"14%SUPPLIE"</span>
+            </div>
+
+            <h3>Example 2: Expected Output</h3>
+            <div class="code-block">
+{
+  <span class="string">"FreeTextNumber"</span>: <span class="string">"000001234"</span>,
+  <span class="string">"DocumentDate"</span>: <span class="string">"2024-01-15T00:00:00.000Z"</span>,
+  <span class="string">"DueDate"</span>: <span class="string">"2024-02-15T00:00:00.000Z"</span>,
+  <span class="string">"CustomerAccount"</span>: <span class="string">"SUBCUST001"</span>,
+  <span class="string">"InvoiceAccount"</span>: <span class="string">"CUST001"</span>,
+  <span class="string">"InvoiceTxt"</span>: <span class="string">"Freight"</span>,
+  <span class="string">"Description"</span>: <span class="string">"Trucking Service Invoice"</span>,
+  <span class="string">"Quantity"</span>: 1,
+  <span class="string">"UnitPrice"</span>: 5000.00,
+  <span class="string">"AmountCur"</span>: 5000.00,
+  <span class="string">"CurrencyCode"</span>: <span class="string">"EGP"</span>,
+  <span class="string">"SalesTaxGroup"</span>: <span class="string">"VAT-14%"</span>,
+  <span class="string">"SalesTaxItemGroup"</span>: <span class="string">"VAT-14%"</span>,
+  <span class="string">"LedgerDimensionDisplayValue"</span>: <span class="string">"401001"</span>,
+  <span class="string">"PostingProfile"</span>: <span class="string">"Cust-PP"</span>,
+  <span class="string">"TermsOfPayment"</span>: <span class="string">"31 Days"</span>,
+  <span class="string">"BillingClassification"</span>: <span class="string">"INV-TR"</span>,
+  <span class="string">"BillingCode"</span>: <span class="string">"FREIGHT"</span>
+}
+            </div>
+
+            <h3>Example 3: Credit Note with Negative Amount</h3>
+            <div class="code-block">
+<span class="comment">// Input (Ledger Line):</span>
+ACCOUNTTYPE: <span class="string">"Ledger"</span>
+DEBITAMOUNT: 1000.00  <span class="comment">// Original debit</span>
+
+<span class="comment">// Output:</span>
+<span class="string">"UnitPrice"</span>: -1000.00,  <span class="comment">// Negated for credit note</span>
+<span class="string">"AmountCur"</span>: -1000.00,
+<span class="string">"FreeTextNumber"</span>: <span class="string">"CN-01234"</span>,  <span class="comment">// Credit Note prefix</span>
+<span class="string">"CreditNoteInvoiceRef"</span>: <span class="string">"00005678"</span>  <span class="comment">// Reference to original invoice</span>
+            </div>
+        </section>
+
+        <footer>
+            <p>D365FO Middleware - Account Receivable Processors Documentation</p>
+            <p>Generated for internal use | Contact: Development Team</p>
+        </footer>
+    </div>
+</body>
+</html>
