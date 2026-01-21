@@ -161,6 +161,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return { status: rawStatus, userMessage, developerMessage, errorCode };
     }
 
+    // Check for custom validation error structure (from post-ar-batch-to-dfo handler)
+    if (this.isCustomValidationErrorObject(raw)) {
+      developerMessage = raw.message || 'Validation failed';
+      userMessage = 'Some fields are invalid. Please review and try again.';
+      errorCode = 'VAL_001';
+      validationErrors = this.coerceCustomValidationErrors(raw.errors);
+      return {
+        status: rawStatus,
+        userMessage,
+        developerMessage,
+        errorCode,
+        validationErrors,
+      };
+    }
+
     // Typical ValidationPipe response or custom objects
     if (this.isBasicErrorObject(raw)) {
       const msg = raw.message;
@@ -274,6 +289,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   // ────────────────────────────────────────────────────────────────────────────────
 
   /**
+   * Guards for custom validation error structure from post-ar-batch-to-dfo handler
+   */
+  private isCustomValidationErrorObject(raw: unknown): raw is {
+    message?: string;
+    errors: Array<{
+      invoiceIndex?: number;
+      lineNumber?: number;
+      missingFields: string[];
+    }>;
+    details?: string;
+  } {
+    return (
+      !!raw &&
+      typeof raw === 'object' &&
+      'errors' in (raw as any) &&
+      Array.isArray((raw as any).errors) &&
+      (raw as any).errors.length > 0 &&
+      typeof (raw as any).errors[0] === 'object' &&
+      'missingFields' in (raw as any).errors[0]
+    );
+  }
+
+  /**
    * Guards a typical shape returned by ValidationPipe or custom HttpExceptions.
    */
   private isBasicErrorObject(raw: unknown): raw is {
@@ -284,7 +322,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return (
       !!raw &&
       typeof raw === 'object' &&
-      ('message' in (raw as any) || 'error' in (raw as any))
+      ('message' in (raw as any) || 'error' in (raw as any)) &&
+      !this.isCustomValidationErrorObject(raw)
     );
   }
 
@@ -322,6 +361,37 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       (acc[key] ||= []).push(msg);
       return acc;
     }, {});
+  }
+
+  /**
+   * Converts custom validation errors from post-ar-batch-to-dfo handler to ValidationErrors format
+   */
+  private coerceCustomValidationErrors(
+    errors: Array<{
+      invoiceIndex?: number;
+      lineNumber?: number;
+      missingFields: string[];
+    }>,
+  ): ValidationErrors {
+    const map: ValidationErrors = {};
+
+    errors.forEach((error) => {
+      if (error.lineNumber !== undefined) {
+        // Line validation error
+        const key = `Invoice[${error.invoiceIndex ?? '?'}].Line[${error.lineNumber}]`;
+        map[key] = error.missingFields.map(
+          (field) => `Missing required field: ${field}`,
+        );
+      } else {
+        // Header validation error
+        const key = `Invoice[${error.invoiceIndex ?? '?'}].Header`;
+        map[key] = error.missingFields.map(
+          (field) => `Missing required field: ${field}`,
+        );
+      }
+    });
+
+    return map;
   }
 
   /**

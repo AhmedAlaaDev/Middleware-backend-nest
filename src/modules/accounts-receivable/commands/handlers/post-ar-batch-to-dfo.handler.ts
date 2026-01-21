@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import {
@@ -47,18 +52,14 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     );
 
     this.validateInvoices(groupedInvoices);
-    Logger.debug('groupedInvoices', groupedInvoices);
-
-    return {
-      jobId: '',
-      message: '',
-    };
 
     await this.prepareBatchForPosting(batchId);
 
-    return await this.enqueuePostingJob(batchId, batch.company, [
-      groupedInvoices[0],
-    ]);
+    return await this.enqueuePostingJob(
+      batchId,
+      batch.company,
+      groupedInvoices,
+    );
   }
 
   /**
@@ -189,6 +190,19 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       CustomerReference: firstLine.CustomerReference,
       DefaultDimensionDisplayValue:
         firstLine.HeaderDefaultDimensionDisplayValue,
+      PostingProfile: firstLine.PostingProfile,
+      SalesTaxGroupId: firstLine.SalesTaxGroup,
+      SalesTaxItemGroupId: firstLine.SalesTaxItemGroup,
+      // LanguageId: undefined, // Not in DTO
+      // InvoiceName: undefined, // Not in DTO
+      CustomerRequisition: firstLine.CustomerRequisition,
+      EInvoiceAccountCode: firstLine.EInvoiceAccountCode,
+      EInvoiceIsLineSpecific: firstLine.EInvoiceIsLineSpecific,
+      OverrideSalesTax: firstLine.OverrideSalesTax,
+      InclTax: firstLine.InclTax,
+      CashDiscountCode: firstLine.CashDiscountCode,
+      DirectDebitMandateReference: firstLine.DirectDebitMandateId,
+      TransportationDocumentLineId: firstLine.TransportationDocumentLineId,
     };
   }
 
@@ -211,12 +225,19 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         CurrencyCode: line.CurrencyCode,
         UnitPrice: line.UnitPrice,
         DefaultDimensionDisplayValue: line.DefaultDimensionDisplayValue,
+        Quantity: line.Quantity,
+        SalesTaxGroupId: line.SalesTaxGroup,
+        SalesTaxItemGroupId: line.SalesTaxItemGroup,
+        InvoiceText: line.InvoiceTxt,
+        OverrideSalesTax: line.OverrideSalesTax,
+        EInvoiceAccountCode: line.EInvoiceAccountCode,
+        TransportationDocumentLineId: line.TransportationDocumentLineId,
       };
     });
   }
 
   /**
-   * Validates that all invoices have required header fields
+   * Validates that all invoices have required header and line fields
    */
   private validateInvoices(
     groupedInvoices: Array<{
@@ -224,24 +245,147 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       lines: D365FOFreeTextInvoiceLineRequest[];
     }>,
   ): void {
-    for (const invoice of groupedInvoices) {
-      if (!this.isHeaderValid(invoice.header)) {
-        throw new Error(
-          `Invalid invoice data: missing required header fields for invoice: ${JSON.stringify(invoice.header, null, 2)}`,
-        );
+    const validationErrors: Array<{
+      invoiceIndex?: number;
+      lineNumber?: number;
+      missingFields: string[];
+    }> = [];
+
+    groupedInvoices.forEach((invoice, invoiceIndex) => {
+      // Validate header
+      const headerErrors = this.validateHeader(invoice.header);
+      if (headerErrors.length > 0) {
+        validationErrors.push({
+          invoiceIndex,
+          missingFields: headerErrors,
+        });
       }
+
+      // Validate lines
+      invoice.lines.forEach((line) => {
+        const lineErrors = this.validateLine(line);
+        if (lineErrors.length > 0) {
+          validationErrors.push({
+            invoiceIndex,
+            lineNumber: line.LineNumber,
+            missingFields: lineErrors,
+          });
+        }
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      const errorMessages = validationErrors.map((error) => {
+        if (error.lineNumber !== undefined) {
+          return `Line ${error.lineNumber}: missing fields [${error.missingFields.join(', ')}]`;
+        }
+        return `Invoice header (index ${error.invoiceIndex}): missing fields [${error.missingFields.join(', ')}]`;
+      });
+
+      throw new BadRequestException({
+        message: 'Validation failed for invoice data',
+        errors: validationErrors,
+        details: errorMessages.join('; '),
+      });
     }
   }
 
   /**
-   * Checks if a header has all required fields
+   * Validates header fields and returns array of missing field names
    */
-  private isHeaderValid(header: D365FOFreeTextInvoiceHeaderRequest): boolean {
-    return !!(
-      header.InvoiceAccount &&
-      header.CustomerAccount &&
-      header.DocumentDate &&
-      header.InvoiceDate
+  private validateHeader(header: D365FOFreeTextInvoiceHeaderRequest): string[] {
+    const missingFields: string[] = [];
+
+    // Required fields - check for empty strings as well
+    if (!header.DefaultDimensionDisplayValue?.trim()) {
+      missingFields.push('DefaultDimensionDisplayValue');
+    }
+    if (!header.PostingProfile?.trim()) {
+      missingFields.push('PostingProfile');
+    }
+    if (!header.InvoiceAccount?.trim()) {
+      missingFields.push('InvoiceAccount');
+    }
+    if (!header.CustomerAccount?.trim()) {
+      missingFields.push('CustomerAccount');
+    }
+    if (!header.SalesTaxGroupId?.trim()) {
+      missingFields.push('SalesTaxGroupId');
+    }
+    if (!header.TermsOfPayment?.trim()) {
+      missingFields.push('TermsOfPayment');
+    }
+    if (!header.BillingClassification?.trim()) {
+      missingFields.push('BillingClassification');
+    }
+
+    // SalesTaxItemGroupId is required only if SalesTaxGroupId is not "NonTaxable" or similar
+    if (
+      header.SalesTaxGroupId?.trim() &&
+      !this.isNonTaxable(header.SalesTaxGroupId) &&
+      !header.SalesTaxItemGroupId?.trim()
+    ) {
+      missingFields.push('SalesTaxItemGroupId');
+    }
+
+    return missingFields;
+  }
+
+  /**
+   * Validates line fields and returns array of missing field names
+   */
+  private validateLine(line: D365FOFreeTextInvoiceLineRequest): string[] {
+    const missingFields: string[] = [];
+
+    // Required fields - check for empty strings and null/undefined
+    if (line.LineNumber === undefined || line.LineNumber === null) {
+      missingFields.push('LineNumber');
+    }
+    if (!line.BillingCode?.trim()) {
+      missingFields.push('BillingCode');
+    }
+    if (!line.Description?.trim()) {
+      missingFields.push('Description');
+    }
+    if (line.UnitPrice === undefined || line.UnitPrice === null) {
+      missingFields.push('UnitPrice');
+    }
+    if (line.Quantity === undefined || line.Quantity === null) {
+      missingFields.push('Quantity');
+    }
+    if (!line.MainAccountDisplayValue?.trim()) {
+      missingFields.push('MainAccountDisplayValue');
+    }
+    if (!line.DefaultDimensionDisplayValue?.trim()) {
+      missingFields.push('DefaultDimensionDisplayValue');
+    }
+    if (!line.SalesTaxGroupId?.trim()) {
+      missingFields.push('SalesTaxGroupId');
+    }
+
+    // SalesTaxItemGroupId is required only if SalesTaxGroupId is not "NonTaxable" or similar
+    if (
+      line.SalesTaxGroupId?.trim() &&
+      !this.isNonTaxable(line.SalesTaxGroupId) &&
+      !line.SalesTaxItemGroupId?.trim()
+    ) {
+      missingFields.push('SalesTaxItemGroupId');
+    }
+
+    return missingFields;
+  }
+
+  /**
+   * Checks if a sales tax group is non-taxable
+   */
+  private isNonTaxable(salesTaxGroupId: string): boolean {
+    if (!salesTaxGroupId) return false;
+    const lower = salesTaxGroupId.toLowerCase();
+    return (
+      lower.includes('non') ||
+      lower.includes('exempt') ||
+      lower === 'nontaxable' ||
+      lower === 'non-taxable'
     );
   }
 
