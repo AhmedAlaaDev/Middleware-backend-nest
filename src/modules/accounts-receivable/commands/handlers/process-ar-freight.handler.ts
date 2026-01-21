@@ -42,7 +42,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     const enriched = await processor.formatAndEnrichAsync(
       rawData,
       command.companyId,
-      command.billingCodeId || '',
+      command.billingCodeId,
     );
     const enrichedErrors = enriched.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
@@ -52,7 +52,7 @@ export class ProcessARFreightHandler implements ICommandHandler<ProcessARFreight
     const validated = await processor.validateAsync(
       enriched,
       command.companyId,
-      command.billingCodeId || '',
+      command.billingCodeId,
     );
     const validatedErrors = validated.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(

@@ -40,7 +40,11 @@ export class AccountsReceivableController {
     @Body() body: ARFreightDto,
   ) {
     const result = await this.commandBus.execute(
-      new ProcessARFreightCommand(file.buffer, body.companyId, ''),
+      new ProcessARFreightCommand(
+        file.buffer,
+        body.companyId,
+        body.billingCodeId,
+      ),
     );
 
     return result;
