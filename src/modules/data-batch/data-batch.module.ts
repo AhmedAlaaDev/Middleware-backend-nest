@@ -3,6 +3,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import {
+  AddDfoIdsHandler,
   CreateDataBatchHandler,
   DeleteBatchHandler,
   DownloadBatchEnhancedRecordHandler,
@@ -41,6 +42,7 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { ExcelModule } from '@/modules/excel/excel.module';
 
 const CommandHandlers = [
+  AddDfoIdsHandler,
   CreateDataBatchHandler,
   PostBatchInDFOHandler,
   DeleteBatchHandler,

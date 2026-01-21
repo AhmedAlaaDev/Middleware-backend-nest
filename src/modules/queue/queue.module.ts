@@ -3,6 +3,8 @@ import { Global, Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { IConfig, RedisConfig } from '@/config';
+import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
+import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
@@ -15,6 +17,8 @@ const processors = [PostBatchDFOProcessor, MasterDataSyncProcessor];
 @Module({
   imports: [
     forwardRef(() => MasterDataModule),
+    forwardRef(() => DataBatchModule),
+    forwardRef(() => D365FOModule),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService<IConfig>) => {

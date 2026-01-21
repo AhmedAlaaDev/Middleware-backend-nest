@@ -243,6 +243,33 @@ export class DataBatchService {
   }
 
   /**
+   * Update batch with DFO-created header IDs
+   */
+  public async updateDfoIdsAsync(
+    batchId: string,
+    dfoIds: string[],
+  ): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, { dfoIds });
+  }
+
+  /**
+   * Update batch with DFO posting error messages
+   */
+  public async updateDfoPostingErrorsAsync(
+    batchId: string,
+    errors: string[],
+  ): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, { dfoPostingErrors: errors });
+  }
+
+  /**
+   * Clear DFO posting errors (useful when retrying)
+   */
+  public async clearDfoPostingErrorsAsync(batchId: string): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, { dfoPostingErrors: [] });
+  }
+
+  /**
    * Get data batch errors
    * @template TEnhancedData - Type of enhanced data in errors
    */

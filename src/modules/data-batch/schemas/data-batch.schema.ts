@@ -42,6 +42,12 @@ export class DataBatch {
 
   @Prop()
   billingCodeId?: string;
+
+  @Prop({ type: [String], default: [] })
+  dfoIds?: string[];
+
+  @Prop({ type: [String], default: [] })
+  dfoPostingErrors?: string[];
 }
 export const DataBatchSchema = SchemaFactory.createForClass(DataBatch);
 DataBatchSchema.index({ company: 1, entryProcessorType: 1 });

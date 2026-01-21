@@ -14,6 +14,8 @@ export interface ICreateDataBatch {
   totalUploadedCount: number;
   status: DataBatchStatus;
   billingCodeId: string | undefined;
+  dfoIds?: string[];
+  dfoPostingErrors?: string[];
 }
 
 export type IUpdateDataBatch = Partial<ICreateDataBatch>;
@@ -30,6 +32,8 @@ export class IDataBatch {
   totalUploadedCount: number;
   status: DataBatchStatus;
   billingCodeId?: string;
+  dfoIds?: string[];
+  dfoPostingErrors?: string[];
   creationDate: Date | null;
 }
 
