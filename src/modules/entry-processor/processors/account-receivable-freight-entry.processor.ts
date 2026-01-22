@@ -261,10 +261,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     }
   }
 
-  private findBillingCode(
-    billingCodes: any[],
-    chargeType?: string,
-  ): any | null {
+  private findBillingCode(billingCodes: any[], chargeType?: string): any {
     if (!chargeType) return null;
     return (
       billingCodes.find((bc: any) =>
