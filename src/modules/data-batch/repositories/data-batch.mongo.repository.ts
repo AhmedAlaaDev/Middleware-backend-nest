@@ -58,6 +58,8 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       totalUploadedCount: doc.totalUploadedCount,
       status: doc.status,
       billingCodeId: doc.billingCodeId,
+      dfoIds: doc.dfoIds,
+      dfoPostingErrors: doc.dfoPostingErrors,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -104,6 +106,8 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       totalUploadedCount: doc.totalUploadedCount,
       status: doc.status,
       billingCodeId: doc.billingCodeId,
+      dfoIds: doc.dfoIds,
+      dfoPostingErrors: doc.dfoPostingErrors,
       creationDate: (doc as any).created_at ?? null,
     }));
   }
