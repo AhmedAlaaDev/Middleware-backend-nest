@@ -195,7 +195,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     line.CustomId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.LineNumber = lineNumber;
-    line.FreeTextNumber = custLine.getFormattedInvoiceNumber();
+    line.FreeTextNumber = this.formatFreeTextNumberWithSuffix(
+      custLine.INVOICE || '',
+      billingClassId,
+      false, // Base implementation is for invoices, not credit notes
+    );
     line.DocumentDate = transDate;
     line.CustomerAccount = dimensions.subCustomer || '';
     line.HeaderDefaultDimensionDisplayValue =
@@ -215,7 +219,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     line.DueDate = dueDate || undefined;
     line.CashDiscountCode = '';
     line.CashDiscountDate = cashDiscountDate || undefined;
-    line.CustomerReference = custLine.getFormattedInvoiceNumber();
+    line.CustomerReference = this.formatFreeTextNumberWithSuffix(
+      custLine.INVOICE || '',
+      billingClassId,
+      false, // Base implementation is for invoices, not credit notes
+    );
     line.EInvoiceIsLineSpecific = 'No';
     line.InclTax = 'Yes';
     line.InvoiceAccount = dimensions.customer || '';
@@ -762,5 +770,86 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected formatBatchNumber(batch: number, prefix?: string): string {
     return `${prefix || 'Mesco'}-${String(batch).padStart(9, '0')}`;
+  }
+
+  /**
+   * Formats FreeTextNumber as "9 digits/suffix" based on billing classification and invoice type
+   * @param invoiceNumber - The invoice number (may contain existing suffix)
+   * @param billingClassId - The billing classification (e.g., "INV-FW", "INV-TR", "OR-FW", "OR-TR", "OF-FW")
+   * @param isCreditNote - Whether this is a credit note (true) or invoice (false)
+   * @returns Formatted string like "000052619/CN-FW" or "000052619/Invoice"
+   */
+  protected formatFreeTextNumberWithSuffix(
+    invoiceNumber: string,
+    billingClassId: string,
+    isCreditNote: boolean,
+  ): string {
+    // Extract numeric part from invoice number (handle cases where it might already have a suffix)
+    let numberPart = invoiceNumber || '';
+    if (numberPart.includes('/')) {
+      numberPart = numberPart.split('/')[0];
+    }
+    // Remove any non-numeric characters from the beginning
+    numberPart = numberPart.replace(/^[^0-9]*/, '');
+
+    // Parse and pad to 9 digits
+    const number = parseInt(numberPart, 10);
+    const paddedNumber = !isNaN(number)
+      ? number.toString().padStart(9, '0')
+      : '000000000';
+
+    // Determine suffix based on isCreditNote and billingClassId
+    const normalizedBillingClass = (billingClassId || '').toLowerCase().trim();
+    let suffix: string;
+
+    if (isCreditNote) {
+      // For Credit Notes (FREETEXTTYPE = "CN")
+      switch (normalizedBillingClass) {
+        case 'inv-fw':
+          suffix = 'CN-FW';
+          break;
+        case 'inv-tr':
+          suffix = 'CN-TR';
+          break;
+        case 'of-fw':
+          suffix = 'CN-FW';
+          break;
+        case 'or-fw':
+          suffix = 'CN-FW';
+          break;
+        case 'or-tr':
+          suffix = 'CN-TR';
+          break;
+        default:
+          // Default for credit notes
+          suffix = 'CN-FW';
+          break;
+      }
+    } else {
+      // For Invoices (FREETEXTTYPE = "INV")
+      switch (normalizedBillingClass) {
+        case 'inv-fw':
+          suffix = 'Invoice';
+          break;
+        case 'inv-tr':
+          suffix = 'Invoice';
+          break;
+        case 'of-fw':
+          suffix = 'OF-FW';
+          break;
+        case 'or-fw':
+          suffix = 'OR-FW';
+          break;
+        case 'or-tr':
+          suffix = 'OR-TR';
+          break;
+        default:
+          // Default for invoices
+          suffix = 'Invoice';
+          break;
+      }
+    }
+
+    return `${paddedNumber}/${suffix}`;
   }
 }

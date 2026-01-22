@@ -343,9 +343,10 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.CustomId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.LineNumber = lineNumber;
-    line.FreeTextNumber = this.formatInvoiceNumber(
+    line.FreeTextNumber = this.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
+      true, // This is a credit note
     );
     line.DocumentDate = transDate;
     line.CustomerAccount = dimensions.subCustomer || '';
@@ -366,9 +367,10 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.DueDate = dueDate || undefined;
     line.CashDiscountCode = '';
     line.CashDiscountDate = cashDiscountDate || undefined;
-    line.CustomerReference = this.formatInvoiceNumber(
+    line.CustomerReference = this.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
+      true, // This is a credit note
     );
     line.EInvoiceIsLineSpecific = 'No';
     line.InclTax = 'Yes';
