@@ -4,28 +4,28 @@ overview: Implement a PostToDFO endpoint for vendor module that posts vendor inv
 todos:
   - id: "1"
     content: Create PostToDFODto in vendor/dtos
-    status: pending
+    status: completed
   - id: "2"
     content: Create PostVendorBatchToDFOCommand and result interface
-    status: pending
+    status: completed
   - id: "3"
     content: Create D365FO vendor invoice journal types (header and line requests)
-    status: pending
+    status: completed
   - id: "4"
     content: Create VendorInvoiceJournalService with post/delete methods
-    status: pending
+    status: completed
   - id: "5"
     content: Create PostVendorBatchToDFOHandler with grouping and mapping logic
-    status: pending
+    status: completed
   - id: "6"
     content: Extend queue processor to handle vendor journals
-    status: pending
+    status: completed
   - id: "7"
     content: Add PostToDFO endpoint to vendor controller
-    status: pending
+    status: completed
   - id: "8"
     content: Register handler in vendor module and service in d365fo module
-    status: pending
+    status: completed
 ---
 
 # Vendor PostToDFO Implementation Plan
@@ -58,7 +58,7 @@ Controller → Command → Handler → Queue → Processor → D365FO Service �
 ### 3. Handler
 
 - **File**: `src/modules/vendor/commands/handlers/post-vendor-batch-to-dfo.handler.ts`
-  - Group enhanced records by `VOUCHER` (similar to AR grouping by `FreeTextNumber`)
+  - Group enhanced records by `JOURNALBATCHNUMBER` (similar to AR grouping by `FreeTextNumber`)
   - Map vendor data to D365FO request types
   - Validate header and line data
   - Enqueue job to queue processor
@@ -75,7 +75,10 @@ Controller → Command → Handler → Queue → Processor → D365FO Service �
 - **File**: `src/modules/d365fo/services/vendor-invoice-journal.service.ts`
   - Create `VendorInvoiceJournalService` class
   - Implement `postHeader()` method (POST to `/data/VendInvoiceJournalHeaders`)
+    - Returns response with `JournalBatchNumber`, `IsPosted`, `JournalTotalCredit`, `JournalTotalDebit` (these are not in request)
   - Implement `postLine()` method (POST to `/data/VendInvoiceJournalLines`)
+    - Lines reference header via `JournalBatchNumber` (not `ParentRecId`)
+    - Remove `FullPrimaryRemittanceAddress` from line body before posting
   - Implement `postHeadersBatch()` method (batch posting with chunking)
   - Implement `postLinesBatch()` method (batch posting with chunking)
   - Implement `deleteHeader()` method (for rollback)
@@ -85,7 +88,10 @@ Controller → Command → Handler → Queue → Processor → D365FO Service �
 - **File**: `src/modules/queue/processors/post-batch-dfo.processor.ts`
   - Extend `PostBatchDFOJobData` interface to support vendor journals
   - Add logic to detect job type (AR vs Vendor)
-  - Add vendor journal posting logic (similar to AR invoice posting)
+  - Add vendor journal posting logic:
+    - Post headers first (returns `JournalBatchNumber` in response)
+    - Post lines with `JournalBatchNumber` already set (no need to update `ParentRecId` like AR)
+    - Remove `FullPrimaryRemittanceAddress` from each line before posting
   - Handle vendor-specific rollback logic
 
 ### 7. Controller
@@ -116,16 +122,19 @@ Controller → Command → Handler → Queue → Processor → D365FO Service �
 
 ### Data Grouping
 
-- Group vendor enhanced records by `VOUCHER` field
+- Group vendor enhanced records by `JOURNALBATCHNUMBER` field
 - Each group represents one journal header with multiple lines
 - Similar to AR's grouping by `FreeTextNumber`
+- Lines connect to headers through `JournalBatchNumber` (not `ParentRecId` like AR)
 
 ### Mapping Logic
 
 - Map from vendor DFO data interfaces (`IVendorFreightDFOLine`, `IVendorFreightDFOHeader`, etc.) to D365FO API request types
 - Extract header information from first line in each group (or from `header` property if available)
 - Map all required fields according to user-provided body structures
-- **Note**: Header does NOT include `IsPosted`, `JournalTotalCredit`, or `JournalTotalDebit` fields
+- **Note**: Header REQUEST body does NOT include `IsPosted`, `JournalTotalCredit`, or `JournalTotalDebit` fields (these are returned in the RESPONSE)
+- Lines connect to headers via `JournalBatchNumber` field (not `ParentRecId` like AR invoices)
+- Remove `FullPrimaryRemittanceAddress` from line body
 
 ### Validation
 
@@ -168,15 +177,15 @@ After mapping, validate that ALL line fields exist and are not empty/null:
 
 - Use same queue (`QUEUES.DFO`) and processor (`PostBatchDFOProcessor`)
 - Add job type detection to differentiate AR invoices from vendor journals
-- Post headers first, then lines with proper `JournalBatchNumber` reference
+- Post headers first, then lines with proper `JournalBatchNumber` reference (lines connect via `JournalBatchNumber`, not `ParentRecId`)
 - Handle errors and rollback (delete created headers if posting fails)
 
 ## Data Flow
 
 1. **Controller** receives POST request with `batchId`
-2. **Handler** validates batch, groups records by `VOUCHER`, maps to D365FO types
+2. **Handler** validates batch, groups records by `JOURNALBATCHNUMBER`, maps to D365FO types
 3. **Handler** enqueues job with grouped journals
-4. **Queue Processor** posts headers in batches, then lines
+4. **Queue Processor** posts headers in batches, then lines (lines reference headers via `JournalBatchNumber`)
 5. **D365FO Service** makes HTTP POST requests to D365FO API
 6. **Processor** updates batch status and stores created IDs
 
@@ -200,13 +209,29 @@ Header body structure:
 Mapping:
 
 - `dataAreaId` → from company/batch company
-- `JournalBatchNumber` → from `JOURNALBATCHNUMBER` (from first line in voucher group)
-- `JournalName` → from `JOURNALNAME` (from first line in voucher group)
+- `JournalBatchNumber` → from `JOURNALBATCHNUMBER` (from first line in journal batch group)
+- `JournalName` → from `JOURNALNAME` (from first line in journal batch group)
 - `OverrideSalesTax` → from `OVERRIDESALESTAX` (convert to "Yes"/"No", from header or first line)
 - `Description` → from `DESCRIPTION` (from header or first line)
 - `SalesTaxIncluded` → from `SALESTAXINCLUDED` (convert to "Yes"/"No", from header or first line)
 
-**Note**: Header does NOT include `IsPosted`, `JournalTotalCredit`, or `JournalTotalDebit` fields.
+**Note**: Header REQUEST body does NOT include `IsPosted`, `JournalTotalCredit`, or `JournalTotalDebit` fields. These fields are returned in the RESPONSE:
+
+```json
+{
+    "@odata.context": "...",
+    "@odata.etag": "...",
+    "dataAreaId": "m-p",
+    "JournalBatchNumber": "Mesco-000099999",
+    "JournalName": "V-Freight",
+    "OverrideSalesTax": "No",
+    "Description": "Vendor Invoice Freight January 2025",
+    "IsPosted": "No",
+    "SalesTaxIncluded": "Yes",
+    "JournalTotalCredit": 0,
+    "JournalTotalDebit": 0
+}
+```
 
 ### Line Mapping
 
@@ -214,6 +239,8 @@ Mapping:
 - Ensure proper date formatting (ISO 8601)
 - Handle optional fields appropriately
 - Map dimension display values correctly
+- **Important**: Lines connect to headers via `JournalBatchNumber` field (not `ParentRecId` like AR invoices)
+- **Important**: Remove `FullPrimaryRemittanceAddress` from line body before posting
 
 ## Error Handling
 

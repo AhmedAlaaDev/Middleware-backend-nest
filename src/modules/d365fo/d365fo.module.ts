@@ -11,6 +11,7 @@ import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.ser
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
+import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
 
 @Module({
@@ -27,6 +28,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     GeneralJournalService,
     ChartOfAccountsService,
     VendorService,
+    VendorInvoiceJournalService,
   ],
   exports: [
     D365FOAuthService,
@@ -41,6 +43,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     GeneralJournalService,
     ChartOfAccountsService,
     VendorService,
+    VendorInvoiceJournalService,
   ],
 })
 export class D365FOModule {}
