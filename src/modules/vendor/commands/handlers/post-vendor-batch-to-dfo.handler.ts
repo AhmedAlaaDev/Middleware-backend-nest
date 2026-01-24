@@ -104,12 +104,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
     this.validateJournals(groupedJournals);
 
-    // console.log(groupedJournals);
-    // return {
-    //   jobId: '123',
-    //   message: 'Batch queued for posting to D365FO. Job ID: 123',
-    // };
-
     await this.prepareBatchForPosting(batchId);
 
     return await this.enqueuePostingJob(

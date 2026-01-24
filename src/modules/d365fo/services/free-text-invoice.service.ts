@@ -93,28 +93,149 @@ export class FreeTextInvoiceService {
    * Post multiple free text invoice lines in chunks
    * @param lines Array of line requests
    * @param chunkSize Number of lines to post per chunk (default: 20)
+   * @returns Array of successfully posted line identifiers
+   * @throws Error if any line fails - caller should rollback headers and successfully posted lines
    */
   public async postLinesBatch(
     lines: D365FOFreeTextInvoiceLineRequest[],
     chunkSize: number = 20,
-  ): Promise<void> {
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     this.logger.debug(
       `Posting ${lines.length} lines in chunks of ${chunkSize}`,
     );
 
+    const successfullyPosted: Array<{
+      headerId: string;
+      lineNumber: number;
+    }> = [];
+
     // Process in chunks
     for (let i = 0; i < lines.length; i += chunkSize) {
       const chunk = lines.slice(i, i + chunkSize);
+      const chunkNumber = Math.floor(i / chunkSize) + 1;
+      const totalChunks = Math.ceil(lines.length / chunkSize);
+
       this.logger.debug(
-        `Posting chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(lines.length / chunkSize)} (${chunk.length} lines)`,
+        `Posting chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
       );
 
-      // Post lines in parallel within chunk
-      const chunkPromises = chunk.map((line) => this.postLine(line));
-      await Promise.all(chunkPromises);
+      try {
+        // Post lines in parallel within chunk, tracking successes
+        const chunkPromises = chunk.map(async (line) => {
+          try {
+            await this.postLine(line);
+            return {
+              headerId: String(line.ParentRecId),
+              lineNumber: line.LineNumber,
+            };
+          } catch (error) {
+            // If this line fails, we'll throw after processing all in chunk
+            throw error;
+          }
+        });
+
+        const chunkResults = await Promise.all(chunkPromises);
+        successfullyPosted.push(...chunkResults);
+
+        this.logger.debug(
+          `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
+        );
+      } catch (error) {
+        const errorDetails = this.extractErrorDetails(error);
+
+        // Log full error response for debugging
+        if (error?.response?.data) {
+          this.logger.error(
+            `D365FO error response: ${JSON.stringify(error.response.data)}`,
+          );
+        }
+
+        this.logger.error(
+          `Failed to post chunk ${chunkNumber} of ${totalChunks}: ${errorDetails}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+
+        // Build error message based on what was actually posted
+        let errorMessage = `Failed to post lines in chunk ${chunkNumber}: ${errorDetails}`;
+
+        if (successfullyPosted.length > 0) {
+          errorMessage += `. ${successfullyPosted.length} lines were posted successfully before failure. Rollback required.`;
+          this.logger.warn(
+            `Successfully posted ${successfullyPosted.length} lines before failure. Rollback required.`,
+          );
+        } else {
+          errorMessage += `. No lines were posted successfully.`;
+          this.logger.warn(
+            `No lines were posted successfully in chunk ${chunkNumber}. Only headers need rollback.`,
+          );
+        }
+
+        // Re-throw to trigger rollback in processor
+        throw new Error(errorMessage);
+      }
     }
 
-    this.logger.debug(`Successfully posted ${lines.length} lines`);
+    this.logger.debug(
+      `Successfully posted all ${lines.length} lines (${successfullyPosted.length} tracked)`,
+    );
+
+    return successfullyPosted;
+  }
+
+  /**
+   * Extracts detailed error message from D365FO API error response
+   */
+  private extractErrorDetails(error: any): string {
+    // Check for D365FO OData error format
+    if (error?.response?.data?.error) {
+      const d365foError = error.response.data.error;
+
+      // OData error format: { code: "...", message: "...", innererror: { message: "..." } }
+      if (typeof d365foError === 'object') {
+        // Prioritize innererror.message as it contains the detailed error message
+        const innerErrorMessage = d365foError.innererror?.message;
+        const genericMessage = d365foError.message;
+        const code = d365foError.code;
+
+        // Use innererror message if available (more detailed), otherwise fallback to generic message
+        const message = innerErrorMessage || genericMessage || d365foError.code;
+
+        if (message) {
+          return code ? `[${code}] ${message}` : message;
+        }
+
+        // If message is not directly available, try to stringify the error object
+        try {
+          return JSON.stringify(d365foError);
+        } catch {
+          return String(d365foError);
+        }
+      }
+
+      // If error is a string
+      if (typeof d365foError === 'string') {
+        return d365foError;
+      }
+    }
+
+    // Fallback to standard error message extraction
+    if (error?.response?.data?.error_description) {
+      return error.response.data.error_description;
+    }
+
+    if (error?.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error?.message) {
+      return error.message;
+    }
+
+    if (error?.response?.statusText) {
+      return `HTTP ${error.response.status}: ${error.response.statusText}`;
+    }
+
+    return String(error);
   }
 
   /**
@@ -133,6 +254,117 @@ export class FreeTextInvoiceService {
     // D365FO uses InvoiceIdentifier for deletion
     // Format: /data/FreeTextInvoiceHeaders(dataAreaId='m-p',InvoiceIdentifier=5637743016)
     const endpoint = `/data/FreeTextInvoiceHeaders(dataAreaId='${dataAreaId}',InvoiceIdentifier=${headerId})`;
-    await this.d365foClient.delete(endpoint);
+    const response = await this.d365foClient.delete(endpoint);
+
+    // Verify deletion response (should be empty or 204)
+    if (response !== undefined && response !== null) {
+      this.logger.debug(`Header ${headerId} deleted successfully`);
+    }
+  }
+
+  /**
+   * Delete a free text invoice line (for rollback)
+   * @param headerId The InvoiceIdentifier of the header
+   * @param lineNumber The LineNumber of the line to delete
+   * @param dataAreaId The company data area ID
+   * @note Endpoint format is assumed and needs to be tested
+   */
+  public async deleteLine(
+    headerId: string,
+    lineNumber: number,
+    dataAreaId: string,
+  ): Promise<void> {
+    this.logger.debug(
+      `Deleting free text invoice line ${lineNumber} for invoice ${headerId} in company: ${dataAreaId}`,
+    );
+
+    // Assumed format based on vendor invoice journal pattern:
+    // /data/FreeTextInvoiceLines(dataAreaId='m-p',InvoiceIdentifier=5637743016,LineNumber=1)?cross-company=true
+    // This format needs to be verified through testing
+    const endpoint = `/data/FreeTextInvoiceLines(dataAreaId='${dataAreaId}',InvoiceIdentifier=${headerId},LineNumber=${lineNumber})?cross-company=true`;
+    const response = await this.d365foClient.delete(endpoint);
+
+    // Verify deletion response (should be empty or 204)
+    if (response !== undefined && response !== null) {
+      this.logger.debug(
+        `Line ${lineNumber} for invoice ${headerId} deleted successfully`,
+      );
+    }
+  }
+
+  /**
+   * Delete multiple free text invoice lines in chunks
+   * @param lines Array of line identifiers to delete
+   * @param dataAreaId The company data area ID
+   * @param chunkSize Number of lines to delete per chunk (default: 20)
+   * @returns Array of results indicating success/failure for each line
+   */
+  public async deleteLinesBatch(
+    lines: Array<{ headerId: string; lineNumber: number }>,
+    dataAreaId: string,
+    chunkSize: number = 20,
+  ): Promise<
+    Array<{
+      headerId: string;
+      lineNumber: number;
+      success: boolean;
+      error?: string;
+    }>
+  > {
+    this.logger.debug(
+      `Deleting ${lines.length} lines in chunks of ${chunkSize}`,
+    );
+
+    const results: Array<{
+      headerId: string;
+      lineNumber: number;
+      success: boolean;
+      error?: string;
+    }> = [];
+
+    // Process in chunks
+    for (let i = 0; i < lines.length; i += chunkSize) {
+      const chunk = lines.slice(i, i + chunkSize);
+      const chunkNumber = Math.floor(i / chunkSize) + 1;
+      const totalChunks = Math.ceil(lines.length / chunkSize);
+
+      this.logger.debug(
+        `Deleting chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
+      );
+
+      // Delete lines in parallel within chunk
+      const deletePromises = chunk.map(async (line) => {
+        try {
+          await this.deleteLine(line.headerId, line.lineNumber, dataAreaId);
+          return {
+            headerId: line.headerId,
+            lineNumber: line.lineNumber,
+            success: true,
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
+          );
+          return {
+            headerId: line.headerId,
+            lineNumber: line.lineNumber,
+            success: false,
+            error: errorMessage,
+          };
+        }
+      });
+
+      const chunkResults = await Promise.all(deletePromises);
+      results.push(...chunkResults);
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    this.logger.debug(
+      `Line deletion completed: ${successCount} succeeded, ${results.length - successCount} failed`,
+    );
+
+    return results;
   }
 }
