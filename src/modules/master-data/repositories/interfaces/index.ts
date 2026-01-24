@@ -5,5 +5,6 @@ export * from './customer.repository';
 export * from './exchange-rate.repository';
 export * from './financial-dimension.repository';
 export * from './main-account.repository';
+export * from './payment-term.repository';
 export * from './sync-job.repository';
 export * from './vendor.repository';

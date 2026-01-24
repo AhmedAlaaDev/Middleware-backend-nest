@@ -18,6 +18,7 @@ import {
   CreateSyncExchangeRatesJobCommand,
   CreateSyncFinancialDimensionsJobCommand,
   CreateSyncMainAccountsJobCommand,
+  CreateSyncPaymentTermsJobCommand,
   CreateSyncVendorsJobCommand,
   SaveAccountMappingsCommand,
 } from '@/modules/master-data/commands';
@@ -30,6 +31,7 @@ import {
   GetFinancialDimensionDto,
   GetFinancialDimensionWithValuesDto,
   GetMainAccountsDto,
+  GetPaymentTermsDto,
   GetVendorsDto,
   SaveAccountMappingDto,
   SyncBillingDataDto,
@@ -37,6 +39,7 @@ import {
   SyncExchangeRatesDto,
   SyncFinancialDimensionsDto,
   SyncMainAccountsDto,
+  SyncPaymentTermsDto,
   SyncStatusDto,
   SyncVendorsDto,
 } from '@/modules/master-data/dtos';
@@ -50,6 +53,7 @@ import {
   IFinancialDimensionValue,
   IExchangeRate,
   IMainAccount,
+  IPaymentTerm,
   IVendor,
 } from '@/modules/master-data/interfaces';
 import {
@@ -61,6 +65,7 @@ import {
   GetFinancialDimensionValueQuery,
   GetFinancialDimensionsQuery,
   GetMainAccountsQuery,
+  GetPaymentTermsQuery,
   GetSyncStatusQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
@@ -460,6 +465,46 @@ export class MasterDataController {
   public async syncExchangeRatesAsync(@Query() dto: SyncExchangeRatesDto) {
     return this.commandBus.execute(
       new CreateSyncExchangeRatesJobCommand(dto.company, dto.rateType),
+    );
+  }
+
+  /**
+   * Get payment terms from database (Query)
+   */
+  @Get('payment-terms')
+  @ApiResponse({
+    status: 200,
+    description: 'Payment terms retrieved successfully',
+  })
+  @ApiPaginatedResponse(IPaymentTerm)
+  public getPaymentTermsAsync(
+    @Query() query: GetPaymentTermsDto,
+  ): Promise<IPaginatedRes<IPaymentTerm>> {
+    return this.queryBus.execute(
+      new GetPaymentTermsQuery(
+        { company: query.company, name: query.name },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
+  }
+
+  /**
+   * Sync payment terms from D365FO (insert if not exist, update if exists)
+   */
+  @Post('payment-terms/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Sync job created successfully',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncPaymentTermsAsync(@Query() dto: SyncPaymentTermsDto) {
+    return this.commandBus.execute(
+      new CreateSyncPaymentTermsJobCommand(dto.company),
     );
   }
 

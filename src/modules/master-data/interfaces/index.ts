@@ -5,5 +5,6 @@ export * from './customer.interface';
 export * from './exchange-rate.interface';
 export * from './financial-dimension.interface';
 export * from './main-account.interface';
+export * from './payment-term.interface';
 export * from './sync-job.interface';
 export * from './vendor.interface';

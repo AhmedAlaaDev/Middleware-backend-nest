@@ -9,6 +9,7 @@ import {
   CreateSyncExchangeRatesJobHandler,
   CreateSyncFinancialDimensionsJobHandler,
   CreateSyncMainAccountsJobHandler,
+  CreateSyncPaymentTermsJobHandler,
   CreateSyncVendorsJobHandler,
   SaveAccountMappingsHandler,
   SyncBillingDataHandler,
@@ -16,6 +17,7 @@ import {
   SyncExchangeRatesHandler,
   SyncFinancialDimensionsHandler,
   SyncMainAccountsHandler,
+  SyncPaymentTermsHandler,
   SyncVendorsHandler,
 } from '@/modules/master-data/commands/handlers';
 import { MasterDataController } from '@/modules/master-data/master-data.controller';
@@ -28,6 +30,7 @@ import {
   GetFinancialDimensionsHandler,
   GetFinancialDimensionValueHandler,
   GetMainAccountsHandler,
+  GetPaymentTermsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
   GetVendorsHandler,
@@ -41,6 +44,7 @@ import {
   FinancialDimensionMongoRepository,
   FinancialDimensionValueMongoRepository,
   MainAccountMongoRepository,
+  PaymentTermMongoRepository,
   SyncJobMongoRepository,
   VendorMongoRepository,
 } from '@/modules/master-data/repositories';
@@ -53,6 +57,7 @@ import {
   FinancialDimensionRepository,
   FinancialDimensionValueRepository,
   MainAccountRepository,
+  PaymentTermRepository,
   SyncJobRepository,
   VendorRepository,
 } from '@/modules/master-data/repositories/interfaces';
@@ -73,6 +78,8 @@ import {
   FinancialDimensionValueSchema,
   MainAccount,
   MainAccountSchema,
+  PaymentTerm,
+  PaymentTermSchema,
   SyncJob,
   SyncJobSchema,
   Vendor,
@@ -87,6 +94,7 @@ const CommandHandlers = [
   CreateSyncMainAccountsJobHandler,
   CreateSyncVendorsJobHandler,
   CreateSyncExchangeRatesJobHandler,
+  CreateSyncPaymentTermsJobHandler,
   SyncFinancialDimensionsHandler,
   SyncBillingDataHandler,
   SyncMainAccountsHandler,
@@ -94,6 +102,7 @@ const CommandHandlers = [
   SyncCustomersHandler,
   SyncVendorsHandler,
   SyncExchangeRatesHandler,
+  SyncPaymentTermsHandler,
 ];
 
 const QueryHandlers = [
@@ -106,6 +115,7 @@ const QueryHandlers = [
   GetCustomersHandler,
   GetVendorsHandler,
   GetExchangeRatesHandler,
+  GetPaymentTermsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
 ];
@@ -133,6 +143,7 @@ const QueryHandlers = [
         name: AccountCustomerInvoiceMapping.name,
         schema: AccountCustomerInvoiceMappingSchema,
       },
+      { name: PaymentTerm.name, schema: PaymentTermSchema },
       { name: SyncJob.name, schema: SyncJobSchema },
     ]),
   ],
@@ -159,6 +170,10 @@ const QueryHandlers = [
     {
       provide: AccountCustomerInvoiceMappingRepository,
       useClass: AccountCustomerInvoiceMappingMongoRepository,
+    },
+    {
+      provide: PaymentTermRepository,
+      useClass: PaymentTermMongoRepository,
     },
     {
       provide: SyncJobRepository,

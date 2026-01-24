@@ -5,6 +5,7 @@ export const SYNC_TYPES = {
   MAIN_ACCOUNTS: 'main-accounts',
   VENDORS: 'vendors',
   EXCHANGE_RATES: 'exchange-rates',
+  PAYMENT_TERMS: 'payment-terms',
 } as const;
 
 export const SYNC_TYPE_LABELS: Record<string, string> = {
@@ -14,6 +15,7 @@ export const SYNC_TYPE_LABELS: Record<string, string> = {
   [SYNC_TYPES.MAIN_ACCOUNTS]: 'Main Accounts',
   [SYNC_TYPES.VENDORS]: 'Vendors',
   [SYNC_TYPES.EXCHANGE_RATES]: 'Exchange Rates',
+  [SYNC_TYPES.PAYMENT_TERMS]: 'Payment Terms',
 };
 
 export const SYNC_TYPES_LIST = Object.values(SYNC_TYPES);

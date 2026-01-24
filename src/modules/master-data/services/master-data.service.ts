@@ -38,6 +38,11 @@ import {
   IMainAccountListFilter,
 } from '@/modules/master-data/interfaces/main-account.interface';
 import {
+  IPaymentTerm,
+  ICreatePaymentTerm,
+  IPaymentTermListFilter,
+} from '@/modules/master-data/interfaces/payment-term.interface';
+import {
   IVendor,
   ICreateVendor,
   IVendorListFilter,
@@ -51,6 +56,7 @@ import {
   FinancialDimensionRepository,
   FinancialDimensionValueRepository,
   MainAccountRepository,
+  PaymentTermRepository,
   VendorRepository,
 } from '@/modules/master-data/repositories/interfaces';
 
@@ -66,6 +72,7 @@ export class MasterDataService {
     private readonly finDimRepo: FinancialDimensionRepository,
     private readonly finDimValRepo: FinancialDimensionValueRepository,
     private readonly accountMappingRepo: AccountCustomerInvoiceMappingRepository,
+    private readonly paymentTermRepo: PaymentTermRepository,
   ) {}
 
   async getVendorsAsync(
@@ -269,5 +276,25 @@ export class MasterDataService {
     });
     const total = await this.accountMappingRepo.getCount(filter);
     return { items, total };
+  }
+
+  async getPaymentTermsAsync(
+    filter?: IPaymentTermListFilter,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: IPaymentTerm[]; total: number }> {
+    const items = await this.paymentTermRepo.getList(filter ?? {}, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.paymentTermRepo.getCount(filter ?? {});
+    return { items, total };
+  }
+
+  async upsertPaymentTermsAsync(
+    company: string,
+    paymentTerms: ICreatePaymentTerm[],
+  ): Promise<void> {
+    await this.paymentTermRepo.upsertMany(company, paymentTerms);
   }
 }

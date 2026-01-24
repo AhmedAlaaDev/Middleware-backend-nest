@@ -9,6 +9,7 @@ import {
   SyncExchangeRatesCommand,
   SyncFinancialDimensionsCommand,
   SyncMainAccountsCommand,
+  SyncPaymentTermsCommand,
   SyncVendorsCommand,
 } from '@/modules/master-data/commands';
 import { SYNC_TYPES } from '@/modules/master-data/constants/sync-types';
@@ -110,6 +111,12 @@ export class MasterDataSyncProcessor extends WorkerHost {
       case SYNC_TYPES.EXCHANGE_RATES:
         await this.commandBus.execute(
           new SyncExchangeRatesCommand(params.company, params.rateType),
+        );
+        break;
+
+      case SYNC_TYPES.PAYMENT_TERMS:
+        await this.commandBus.execute(
+          new SyncPaymentTermsCommand(params.company),
         );
         break;
 

@@ -7,3 +7,4 @@ export * from './d365fo-vendor.type';
 export * from './d365fo-exchange-rate.type';
 export * from './d365fo-free-text-invoice.type';
 export * from './d365fo-vendor-invoice-journal.type';
+export * from './payment-terms.type';
