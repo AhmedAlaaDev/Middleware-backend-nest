@@ -118,7 +118,7 @@ export class VendorInvoiceJournalService {
       const chunk = lines.slice(i, i + chunkSize);
       const chunkNumber = Math.floor(i / chunkSize) + 1;
       const totalChunks = Math.ceil(lines.length / chunkSize);
-      
+
       this.logger.debug(
         `Posting chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
       );
@@ -128,7 +128,7 @@ export class VendorInvoiceJournalService {
         // If ANY line fails, Promise.all will reject and we'll throw
         const chunkPromises = chunk.map((line) => this.postLine(line));
         await Promise.all(chunkPromises);
-        
+
         this.logger.debug(
           `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
         );
@@ -163,7 +163,7 @@ export class VendorInvoiceJournalService {
 
     // D365FO uses JournalBatchNumber for deletion
     // Format: /data/VendInvoiceJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000001956')
-    const endpoint = `/data/VendInvoiceJournalHeaders(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}')`;
+    const endpoint = `/data/VendInvoiceJournalHeaders(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}')?cross-company=true`;
     await this.d365foClient.delete(endpoint);
   }
 }
