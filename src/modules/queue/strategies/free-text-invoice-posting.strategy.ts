@@ -78,7 +78,7 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
       const totalChunks = Math.ceil(lines.length / chunkSize);
 
       this.logger.debug(
-        `Deleting lines chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
+        `[DELETE] Deleting lines chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
       );
 
       // Delete lines in parallel within chunk
@@ -94,7 +94,7 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
           this.logger.error(
-            `Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
+            `[DELETE] Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
           );
           result.failed.push({
             ...line,

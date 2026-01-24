@@ -49,7 +49,7 @@ export class DfoRollbackService {
     }
 
     this.logger.log(
-      `Starting rollback: deleting ${headerIds.length} headers in chunks of ${chunkSize}`,
+      `[ROLLBACK] Starting header rollback: ${headerIds.length} headers in chunks of ${chunkSize}`,
     );
 
     const successfullyDeleted: string[] = [];
@@ -62,7 +62,7 @@ export class DfoRollbackService {
       const totalChunks = Math.ceil(headerIds.length / chunkSize);
 
       this.logger.debug(
-        `Deleting headers chunk ${chunkNumber} of ${totalChunks} (${chunk.length} headers)`,
+        `[ROLLBACK] Deleting headers chunk ${chunkNumber} of ${totalChunks} (${chunk.length} headers)`,
       );
 
       // Delete headers in parallel within chunk
@@ -70,14 +70,11 @@ export class DfoRollbackService {
         try {
           await strategy.deleteHeader(headerId, dataAreaId);
           successfullyDeleted.push(headerId);
-          this.logger.debug(
-            `Successfully deleted header ${headerId} during rollback`,
-          );
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
           this.logger.error(
-            `Failed to delete header ${headerId} during rollback: ${errorMessage}`,
+            `[ROLLBACK] Failed to delete header ${headerId}: ${errorMessage}`,
           );
           failedToDelete.push(headerId);
           errorCollector.addRollbackError(
@@ -126,7 +123,7 @@ export class DfoRollbackService {
     }
 
     this.logger.log(
-      `Starting line rollback: deleting ${lines.length} lines in chunks of ${chunkSize}`,
+      `[ROLLBACK] Starting line rollback: ${lines.length} lines in chunks of ${chunkSize}`,
     );
 
     const deleteResult = await strategy.deleteLinesInBatches(
@@ -184,7 +181,7 @@ export class DfoRollbackService {
     // First, try to delete lines if they exist
     if (lines && lines.length > 0) {
       this.logger.log(
-        `Rolling back ${lines.length} lines before deleting headers`,
+        `[ROLLBACK] Rolling back ${lines.length} lines before deleting headers`,
       );
       const lineResult = await this.rollbackLines(
         strategy,
@@ -200,7 +197,7 @@ export class DfoRollbackService {
     // Then delete headers
     if (headerIds.length > 0) {
       this.logger.log(
-        `Rolling back ${headerIds.length} headers after line deletion`,
+        `[ROLLBACK] Rolling back ${headerIds.length} headers after line deletion`,
       );
       const headerResult = await this.rollbackHeaders(
         strategy,

@@ -59,7 +59,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
    */
   public async process(job: Job<PostBatchDFOJobData>): Promise<void> {
     this.logger.log(
-      `Processing DFO job ${job.id} for batch ${job.data.batchId}`,
+      `[JOB] Processing DFO job ${job.id} for batch ${job.data.batchId}`,
     );
 
     const errorCollector = new PostingErrorCollector();
@@ -111,7 +111,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
         }
         // Default to free text invoice strategy if unable to determine
         this.logger.warn(
-          `Unable to determine posting strategy for job ${job.id}, defaulting to free text invoice strategy`,
+          `[STRATEGY] Unable to determine posting strategy for job ${job.id}, defaulting to free text invoice strategy`,
         );
         return this.freeTextInvoicePostingStrategy;
     }
@@ -133,7 +133,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `Posting ${groupedData.length} items to D365FO for batch ${batchId}`,
+      `[POST] Starting posting: ${groupedData.length} items to D365FO for batch ${batchId}`,
     );
 
     const createdHeaderIdentifiers: string[] = [];
@@ -177,7 +177,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
       errorCollector.addLineError(errorDetails, 'Line posting');
 
       this.logger.error(
-        `Error during posting for batch ${batchId}: ${errorDetails}`,
+        `[POST] Error during posting for batch ${batchId}: ${errorDetails}`,
         error instanceof Error ? error.stack : undefined,
       );
 
@@ -211,7 +211,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
     groupedData: unknown[],
     errorCollector: PostingErrorCollector,
   ): Promise<{ headerIds: string[] }> {
-    this.logger.debug('Posting headers...');
+    this.logger.debug('[POST] Step 1: Posting headers...');
 
     try {
       const allHeaders = this.extractHeadersFromGroupedData(groupedData);
@@ -247,7 +247,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
     headerIds: string[],
     errorCollector: PostingErrorCollector,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
-    this.logger.debug('Posting lines...');
+    this.logger.debug(`[POST] Step 2: Posting ${preparedLines.length} lines...`);
 
     try {
       const postedLines = await strategy.postLinesInBatches(
@@ -256,7 +256,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
       );
 
       this.logger.debug(
-        `Successfully posted ${postedLines.length} of ${preparedLines.length} lines`,
+        `[POST] Step 2: Successfully posted ${postedLines.length} of ${preparedLines.length} lines`,
       );
 
       return postedLines;
@@ -306,7 +306,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `Starting rollback: ${createdHeaderIdentifiers.length} headers, ${successfullyPostedLines.length} lines`,
+      `[ROLLBACK] Starting rollback: ${createdHeaderIdentifiers.length} headers, ${successfullyPostedLines.length} lines`,
     );
 
     const rollbackService = new DfoRollbackService();
@@ -338,7 +338,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
 
       if (linesToDelete.length > 0) {
         this.logger.debug(
-          `Attempting to delete ${linesToDelete.length} lines for headers that couldn't be deleted`,
+          `[ROLLBACK] Attempting to delete ${linesToDelete.length} lines for headers that couldn't be deleted`,
         );
 
         const lineRollbackResult = await rollbackService.rollbackLines(
@@ -388,7 +388,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
     );
 
     this.logger.log(
-      `Successfully posted batch ${batchId} with ${createdHeaderIdentifiers.length} items`,
+      `[SUCCESS] Successfully posted batch ${batchId} with ${createdHeaderIdentifiers.length} items`,
     );
   }
 
@@ -429,7 +429,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
 
     await this.dataBatchService.updateDfoIdsAsync(batchId, allIds);
     this.logger.debug(
-      `Stored ${headerIds.length} header IDs for batch ${batchId}`,
+      `[STORE] Stored ${headerIds.length} header IDs for batch ${batchId}`,
     );
   }
 

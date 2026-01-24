@@ -39,7 +39,7 @@ export class MasterDataSyncProcessor extends WorkerHost {
 
   public async process(job: Job<MasterDataSyncJobData>): Promise<void> {
     this.logger.log(
-      `Processing master data sync job ${job.id} for jobId: ${job.data.jobId}`,
+      `[SYNC] Processing master data sync job ${job.id} (type: ${job.data.syncType}, jobId: ${job.data.jobId})`,
     );
 
     try {
@@ -58,12 +58,14 @@ export class MasterDataSyncProcessor extends WorkerHost {
         SyncJobStatus.SUCCESS,
       );
 
-      this.logger.log(`Master data sync job ${job.id} completed successfully`);
+      this.logger.log(
+        `[SYNC] Master data sync job ${job.id} completed successfully`,
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Master data sync job ${job.id} failed: ${errorMessage}`,
+        `[SYNC] Master data sync job ${job.id} failed: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
       );
 

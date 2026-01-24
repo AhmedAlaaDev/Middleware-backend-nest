@@ -39,7 +39,7 @@ export class QueueService {
     const queue = this.getQueue(queueName);
     const job = await queue.add(jobName, data, options);
 
-    this.logger.log(`Added job ${job.id} to queue ${queueName}`);
+    this.logger.log(`[QUEUE] Added job ${job.id} (${jobName}) to queue ${queueName}`);
     return job;
   }
 
