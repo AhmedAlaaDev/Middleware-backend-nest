@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import axiosRetry, { IAxiosRetryConfig } from 'axios-retry';
 import { AxiosError } from 'axios';
+import axiosRetry, { IAxiosRetryConfig } from 'axios-retry';
 
 export interface RetryOptions {
   retries?: number;
@@ -30,11 +30,11 @@ export class RetryService {
         'ENETUNREACH',
         'EHOSTUNREACH',
       ];
-      
+
       if (error.code && connectionErrorCodes.includes(error.code)) {
         return true;
       }
-      
+
       // Network errors without specific code should also be retried
       return true;
     }
@@ -63,7 +63,8 @@ export class RetryService {
     const useExponentialBackoff = options?.exponentialBackoff !== false;
 
     // Use custom retry condition if provided, otherwise use default
-    const retryCondition = options?.retryCondition || this.shouldRetry.bind(this);
+    const retryCondition =
+      options?.retryCondition || this.shouldRetry.bind(this);
 
     let lastError: Error | undefined;
 
@@ -100,7 +101,8 @@ export class RetryService {
 
   public configureAxiosRetry(axiosInstance: any, options?: RetryOptions): void {
     // Use custom retry condition if provided, otherwise use default
-    const retryCondition = options?.retryCondition || this.shouldRetry.bind(this);
+    const retryCondition =
+      options?.retryCondition || this.shouldRetry.bind(this);
 
     const retryConfig: IAxiosRetryConfig = {
       retries: options?.retries || 3,

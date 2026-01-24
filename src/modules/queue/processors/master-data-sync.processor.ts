@@ -8,6 +8,7 @@ import {
   SyncCustomersCommand,
   SyncExchangeRatesCommand,
   SyncFinancialDimensionsCommand,
+  SyncLedgersCommand,
   SyncMainAccountsCommand,
   SyncPaymentTermsCommand,
   SyncVendorsCommand,
@@ -118,6 +119,10 @@ export class MasterDataSyncProcessor extends WorkerHost {
         await this.commandBus.execute(
           new SyncPaymentTermsCommand(params.company),
         );
+        break;
+
+      case SYNC_TYPES.LEDGERS:
+        await this.commandBus.execute(new SyncLedgersCommand(params.company));
         break;
 
       default:

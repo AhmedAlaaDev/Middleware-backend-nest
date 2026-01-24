@@ -13,9 +13,7 @@ export class AddDfoIdsHandler implements ICommandHandler<AddDfoIdsCommand> {
   public async execute(command: AddDfoIdsCommand): Promise<void> {
     const { batchId, dfoIds } = command;
 
-    this.logger.log(
-      `Updating batch ${batchId} with ${dfoIds.length} DFO IDs`,
-    );
+    this.logger.log(`Updating batch ${batchId} with ${dfoIds.length} DFO IDs`);
 
     await this.dataBatchService.updateDfoIdsAsync(batchId, dfoIds);
   }

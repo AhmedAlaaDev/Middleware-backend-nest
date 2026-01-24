@@ -4,16 +4,16 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFile } from '@/common/decorators/excel-file.decorator';
+import { PostVendorBatchToDFOCommand } from '@/modules/vendor/commands/post-vendor-batch-to-dfo.command';
 import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-freight-adjustment.comand';
 import { ProcessVendorFreightCommand } from '@/modules/vendor/commands/process-vendor-freight.comand';
 import { ProcessVendorTruckingAdjustmentCommand } from '@/modules/vendor/commands/process-vendor-trucking-adjustment.comand';
 import { ProcessVendorTruckingCommand } from '@/modules/vendor/commands/process-vendor-trucking.comand';
-import { PostVendorBatchToDFOCommand } from '@/modules/vendor/commands/post-vendor-batch-to-dfo.command';
+import { PostToDFODto } from '@/modules/vendor/dtos/post-to-dfo.dto';
 import { VendorFreightAdjustmentDocDto } from '@/modules/vendor/dtos/vendor-freight-adjustment-doc.dto';
 import { VendorFreightDocDto } from '@/modules/vendor/dtos/vendor-freight-doc.dto';
 import { VendorTruckingAdjustmentDocDto } from '@/modules/vendor/dtos/vendor-trucking-adjustment-doc.dto';
 import { VendorTruckingDocDto } from '@/modules/vendor/dtos/vendor-trucking-doc.dto';
-import { PostToDFODto } from '@/modules/vendor/dtos/post-to-dfo.dto';
 
 /**
  * Data Migration - Vendor

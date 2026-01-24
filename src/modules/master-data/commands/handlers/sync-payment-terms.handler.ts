@@ -7,9 +7,7 @@ import { ICreatePaymentTerm } from '@/modules/master-data/interfaces/payment-ter
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 @CommandHandler(SyncPaymentTermsCommand)
-export class SyncPaymentTermsHandler
-  implements ICommandHandler<SyncPaymentTermsCommand>
-{
+export class SyncPaymentTermsHandler implements ICommandHandler<SyncPaymentTermsCommand> {
   private readonly logger = new Logger(SyncPaymentTermsHandler.name);
 
   constructor(
@@ -29,10 +27,12 @@ export class SyncPaymentTermsHandler
     let paymentTermsUpdated = 0;
 
     // Fetch all payment terms from D365FO using automatic pagination
-    const allPaymentTerms =
-      await this.paymentTermsService.getAllPaymentTerms(command.company, {
+    const allPaymentTerms = await this.paymentTermsService.getAllPaymentTerms(
+      command.company,
+      {
         useCache: false, // Don't use cache for sync operations
-      });
+      },
+    );
 
     this.logger.log(
       `Fetched ${allPaymentTerms.length} payment terms from D365FO`,
@@ -79,7 +79,8 @@ export class SyncPaymentTermsHandler
         cashPaymentMainAccountIdDisplayValue:
           paymentTerm.CashPaymentMainAccountIdDisplayValue,
         isCertifiedCompanyCheck: paymentTerm.IsCertifiedCompanyCheck,
-        additionalMonthsForCutoffDate: paymentTerm.AdditionalMonthsForCutoffDate,
+        additionalMonthsForCutoffDate:
+          paymentTerm.AdditionalMonthsForCutoffDate,
       };
 
       if (existingMap.has(name.toLowerCase())) {

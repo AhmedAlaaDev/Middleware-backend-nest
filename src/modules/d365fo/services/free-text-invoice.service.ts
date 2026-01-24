@@ -122,16 +122,11 @@ export class FreeTextInvoiceService {
       try {
         // Post lines in parallel within chunk, tracking successes
         const chunkPromises = chunk.map(async (line) => {
-          try {
-            await this.postLine(line);
-            return {
-              headerId: String(line.ParentRecId),
-              lineNumber: line.LineNumber,
-            };
-          } catch (error) {
-            // If this line fails, we'll throw after processing all in chunk
-            throw error;
-          }
+          await this.postLine(line);
+          return {
+            headerId: String(line.ParentRecId),
+            lineNumber: line.LineNumber,
+          };
         });
 
         const chunkResults = await Promise.all(chunkPromises);

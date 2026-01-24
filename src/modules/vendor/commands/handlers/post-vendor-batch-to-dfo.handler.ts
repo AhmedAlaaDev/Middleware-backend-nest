@@ -257,14 +257,13 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         PostingProfile: 'V-PP', // Static value
         OffsetDefaultDimensionDisplayValue:
           line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE || '',
-        ReportingCurrencyExchRate:
-          line.REPORTINGCURRENCYEXCHRATE || line.EXCHRATE || 100,
+        ReportingCurrencyExchRate: line.REPORTINGCURRENCYEXCHRATE,
         AccountType: line.ACCOUNTTYPE,
         TermsOfPayment: line.TERMSOFPAYMENT,
         ExchRateSecond: line.EXCHRATESECOND || 0,
         TransactionType: line.TRANSACTIONTYPE,
         MethodOfPayment: line.METHODOFPAYMENT || '',
-        ExchRate: line.EXCHRATE || 100,
+        ExchRate: line.EXCHRATE,
         Document: line.DOCUMENT ? String(line.DOCUMENT) : undefined,
         Description: line.DESCRIPTION || '',
         Invoice: line.INVOICE,

@@ -17,6 +17,7 @@ import {
   CreateSyncCustomersJobCommand,
   CreateSyncExchangeRatesJobCommand,
   CreateSyncFinancialDimensionsJobCommand,
+  CreateSyncLedgersJobCommand,
   CreateSyncMainAccountsJobCommand,
   CreateSyncPaymentTermsJobCommand,
   CreateSyncVendorsJobCommand,
@@ -30,6 +31,7 @@ import {
   GetExchangeRatesDto,
   GetFinancialDimensionDto,
   GetFinancialDimensionWithValuesDto,
+  GetLedgersDto,
   GetMainAccountsDto,
   GetPaymentTermsDto,
   GetVendorsDto,
@@ -38,6 +40,7 @@ import {
   SyncCustomersDto,
   SyncExchangeRatesDto,
   SyncFinancialDimensionsDto,
+  SyncLedgersDto,
   SyncMainAccountsDto,
   SyncPaymentTermsDto,
   SyncStatusDto,
@@ -52,6 +55,7 @@ import {
   IFinancialDimension,
   IFinancialDimensionValue,
   IExchangeRate,
+  ILedger,
   IMainAccount,
   IPaymentTerm,
   IVendor,
@@ -64,6 +68,7 @@ import {
   GetExchangeRatesQuery,
   GetFinancialDimensionValueQuery,
   GetFinancialDimensionsQuery,
+  GetLedgersQuery,
   GetMainAccountsQuery,
   GetPaymentTermsQuery,
   GetSyncStatusQuery,
@@ -505,6 +510,46 @@ export class MasterDataController {
   public async syncPaymentTermsAsync(@Query() dto: SyncPaymentTermsDto) {
     return this.commandBus.execute(
       new CreateSyncPaymentTermsJobCommand(dto.company),
+    );
+  }
+
+  /**
+   * Get ledgers from database (Query)
+   */
+  @Get('ledgers')
+  @ApiResponse({
+    status: 200,
+    description: 'Ledgers retrieved successfully',
+  })
+  @ApiPaginatedResponse(ILedger)
+  public getLedgersAsync(
+    @Query() query: GetLedgersDto,
+  ): Promise<IPaginatedRes<ILedger>> {
+    return this.queryBus.execute(
+      new GetLedgersQuery(
+        { company: query.company },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
+  }
+
+  /**
+   * Sync ledgers from D365FO (insert if not exist, update if exists)
+   */
+  @Post('ledgers/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Sync job created successfully',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncLedgersAsync(@Query() dto: SyncLedgersDto) {
+    return this.commandBus.execute(
+      new CreateSyncLedgersJobCommand(dto.company),
     );
   }
 

@@ -8,6 +8,7 @@ import {
   CreateSyncCustomersJobHandler,
   CreateSyncExchangeRatesJobHandler,
   CreateSyncFinancialDimensionsJobHandler,
+  CreateSyncLedgersJobHandler,
   CreateSyncMainAccountsJobHandler,
   CreateSyncPaymentTermsJobHandler,
   CreateSyncVendorsJobHandler,
@@ -16,6 +17,7 @@ import {
   SyncCustomersHandler,
   SyncExchangeRatesHandler,
   SyncFinancialDimensionsHandler,
+  SyncLedgersHandler,
   SyncMainAccountsHandler,
   SyncPaymentTermsHandler,
   SyncVendorsHandler,
@@ -29,6 +31,7 @@ import {
   GetExchangeRatesHandler,
   GetFinancialDimensionsHandler,
   GetFinancialDimensionValueHandler,
+  GetLedgersHandler,
   GetMainAccountsHandler,
   GetPaymentTermsHandler,
   GetSyncJobsHandler,
@@ -43,6 +46,7 @@ import {
   ExchangeRateMongoRepository,
   FinancialDimensionMongoRepository,
   FinancialDimensionValueMongoRepository,
+  LedgerMongoRepository,
   MainAccountMongoRepository,
   PaymentTermMongoRepository,
   SyncJobMongoRepository,
@@ -56,6 +60,7 @@ import {
   ExchangeRateRepository,
   FinancialDimensionRepository,
   FinancialDimensionValueRepository,
+  LedgerRepository,
   MainAccountRepository,
   PaymentTermRepository,
   SyncJobRepository,
@@ -76,6 +81,8 @@ import {
   FinancialDimensionSchema,
   FinancialDimensionValue,
   FinancialDimensionValueSchema,
+  Ledger,
+  LedgerSchema,
   MainAccount,
   MainAccountSchema,
   PaymentTerm,
@@ -95,6 +102,7 @@ const CommandHandlers = [
   CreateSyncVendorsJobHandler,
   CreateSyncExchangeRatesJobHandler,
   CreateSyncPaymentTermsJobHandler,
+  CreateSyncLedgersJobHandler,
   SyncFinancialDimensionsHandler,
   SyncBillingDataHandler,
   SyncMainAccountsHandler,
@@ -103,6 +111,7 @@ const CommandHandlers = [
   SyncVendorsHandler,
   SyncExchangeRatesHandler,
   SyncPaymentTermsHandler,
+  SyncLedgersHandler,
 ];
 
 const QueryHandlers = [
@@ -118,6 +127,7 @@ const QueryHandlers = [
   GetPaymentTermsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
+  GetLedgersHandler,
 ];
 
 @Module({
@@ -144,6 +154,7 @@ const QueryHandlers = [
         schema: AccountCustomerInvoiceMappingSchema,
       },
       { name: PaymentTerm.name, schema: PaymentTermSchema },
+      { name: Ledger.name, schema: LedgerSchema },
       { name: SyncJob.name, schema: SyncJobSchema },
     ]),
   ],
@@ -174,6 +185,10 @@ const QueryHandlers = [
     {
       provide: PaymentTermRepository,
       useClass: PaymentTermMongoRepository,
+    },
+    {
+      provide: LedgerRepository,
+      useClass: LedgerMongoRepository,
     },
     {
       provide: SyncJobRepository,

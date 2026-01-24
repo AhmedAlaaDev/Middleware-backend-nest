@@ -852,4 +852,122 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     return `${paddedNumber}/${suffix}`;
   }
+
+  /**
+   * Normalizes currency code to uppercase (D365FO requirement)
+   * @param currency Currency code to normalize
+   * @returns Uppercase 3-character currency code
+   * @throws Error if currency is invalid
+   */
+  protected normalizeCurrencyCode(currency?: string | null): string {
+    if (!currency || typeof currency !== 'string') {
+      throw new Error('Currency code is required and must be a string');
+    }
+    const normalized = currency.trim().toUpperCase();
+    if (normalized.length !== 3) {
+      throw new Error(
+        `Invalid currency code format: ${currency}. Must be 3 characters.`,
+      );
+    }
+    return normalized;
+  }
+
+  /**
+   * Normalizes company code to uppercase (D365FO requirement)
+   * @param company Company code to normalize
+   * @returns Uppercase company code
+   * @throws Error if company is invalid
+   */
+  protected normalizeCompanyCode(company?: string | null): string {
+    if (!company || typeof company !== 'string') {
+      throw new Error('Company code is required and must be a string');
+    }
+    return company.trim().toUpperCase();
+  }
+
+  /**
+   * Normalizes TransactionType enum value
+   * D365FO expects "Vend" (capitalized), not "vendor" (lowercase)
+   * @param transactionType Transaction type to normalize
+   * @returns Normalized transaction type ("Vend" by default)
+   */
+  protected normalizeTransactionType(transactionType?: string | null): string {
+    if (!transactionType || typeof transactionType !== 'string') {
+      return 'Vend'; // Default
+    }
+    const normalized = transactionType.trim();
+    // Map common variations to D365FO enum values
+    const mapping: Record<string, string> = {
+      vendor: 'Vend',
+      Vendor: 'Vend',
+      VENDOR: 'Vend',
+      vend: 'Vend',
+      Vend: 'Vend',
+    };
+    return mapping[normalized.toLowerCase()] || normalized;
+  }
+
+  /**
+   * Calculates exchange rates based on currency matching rules
+   * Rules:
+   * - If line currency == accounting currency → ExchRate must be 1
+   * - If line currency == reporting currency → ReportingCurrencyExchRate must be 1
+   * - Otherwise, use provided rates or defaults
+   * @param lineCurrency Normalized line currency code
+   * @param providedExchRate Provided exchange rate (transaction→accounting currency)
+   * @param providedReportingCurrencyExchRate Provided reporting currency exchange rate (transaction→reporting currency)
+   * @param ledgerCurrencies Ledger currencies (accounting and reporting)
+   * @returns Calculated exchange rates
+   */
+  protected calculateExchangeRates(
+    lineCurrency: string,
+    providedExchRate?: number | null,
+    providedReportingCurrencyExchRate?: number | null,
+    ledgerCurrencies?: {
+      accountingCurrency: string;
+      reportingCurrency: string;
+    },
+  ): { exchRate: number; reportingCurrencyExchRate: number } {
+    const accountingCurrency =
+      ledgerCurrencies?.accountingCurrency?.toUpperCase().trim() || 'EGP';
+    const reportingCurrency =
+      ledgerCurrencies?.reportingCurrency?.toUpperCase().trim() || 'USD';
+
+    const normalizedLineCurrency = lineCurrency.toUpperCase().trim();
+
+    let exchRate: number;
+    // Initialize with default to satisfy TypeScript's control flow analysis
+    let reportingCurrencyExchRate: number = 1.0;
+
+    // Rule 1: If line currency is accounting currency (EGP), ExchRate must be 1
+    if (normalizedLineCurrency === accountingCurrency) {
+      exchRate = 1.0;
+
+      // ReportingCurrencyExchRate should be the rate from accounting→reporting
+      // If not provided, we can't calculate it - use provided or default
+      reportingCurrencyExchRate = providedReportingCurrencyExchRate ?? 1.0;
+    } else {
+      // Line currency is not accounting currency, use provided rate or default
+      exchRate = providedExchRate ?? 100.0;
+    }
+
+    // Rule 2: If line currency is reporting currency (USD), ReportingCurrencyExchRate must be 1
+    if (normalizedLineCurrency === reportingCurrency) {
+      reportingCurrencyExchRate = 1.0;
+    } else if (normalizedLineCurrency !== accountingCurrency) {
+      // Line currency is neither accounting nor reporting
+      // Use provided reporting rate or default
+      reportingCurrencyExchRate = providedReportingCurrencyExchRate ?? 100.0;
+    }
+    // If line currency is accounting currency, we already set reportingCurrencyExchRate above
+
+    // Validate rates are positive
+    if (exchRate <= 0 || reportingCurrencyExchRate <= 0) {
+      throw new Error(
+        `Invalid exchange rates: ExchRate=${exchRate}, ReportingCurrencyExchRate=${reportingCurrencyExchRate}. Rates must be positive.`,
+      );
+    }
+
+    return { exchRate, reportingCurrencyExchRate };
+  }
 }

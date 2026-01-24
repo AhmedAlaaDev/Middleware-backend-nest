@@ -13,6 +13,7 @@ import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/en
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import {
   GetExchangeRatesQuery,
+  GetLedgersQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -68,7 +69,13 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 1: Filter raw data
+    this.vendorLogger.debug(
+      `[STEP 1] Fetching custody account numbers for company: ${company}`,
+    );
     const custodyAccountNumbers = await this.getCustodyAccountNumbers(company);
+    this.vendorLogger.debug(
+      `[STEP 1] Found ${custodyAccountNumbers.length} custody accounts`,
+    );
     const filteredLines = this.filterRawData(data, custodyAccountNumbers);
     this.logInitialStats(rawCount, filteredLines.length);
 
@@ -79,6 +86,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 3: Build month → invoice map
+    this.vendorLogger.debug(
+      `[STEP 3] Building voucher map from ${sortedLines.length} lines`,
+    );
     const monthVoucherMap = this.buildVoucherMap(sortedLines);
     const monthCount = monthVoucherMap.size;
     const voucherCount = Array.from(monthVoucherMap.values()).reduce(
@@ -86,10 +96,30 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       0,
     );
     this.vendorLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
+      `[STEP 3] Grouped into ${monthCount} months and ${voucherCount} vouchers`,
+    );
+
+    // STEP 3.5: Fetch ledger currencies once per company
+    this.vendorLogger.debug(
+      `[STEP 3.5] Fetching ledger currencies for company: ${company}`,
+    );
+    const normalizedCompany = this.normalizeCompanyCode(company);
+    const ledgersResult = await this.queryBus.execute(
+      new GetLedgersQuery({ company: normalizedCompany }),
+    );
+    const ledger = ledgersResult.items?.[0];
+    const ledgerCurrencies = ledger
+      ? {
+          accountingCurrency: ledger.accountingCurrency,
+          reportingCurrency: ledger.reportingCurrency,
+        }
+      : { accountingCurrency: 'EGP', reportingCurrency: 'USD' };
+    this.vendorLogger.debug(
+      `[STEP 3.5] Ledger currencies: Accounting=${ledgerCurrencies.accountingCurrency}, Reporting=${ledgerCurrencies.reportingCurrency}`,
     );
 
     // STEP 4: Initialize batch processing
+    this.vendorLogger.debug(`[STEP 4] Initializing batch processing`);
     const eData: IVendorFreightDFOLine[] = [];
     let journalBatchNum = await this.getNextBatchNumber();
     let voucherNum = await this.getNextVoucherNumber();
@@ -98,18 +128,18 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     let currentHeader: IVendorFreightDFOHeader | null = null;
     let batchCount = 0;
     let lineNumber = 1;
+    this.vendorLogger.debug(
+      `[STEP 4] Starting with batch number: ${journalBatchNum}, voucher number: ${voucherNum}`,
+    );
 
     // STEP 5: Process each month → invoice
 
     for (const [monthKey, voucherMap] of monthVoucherMap.entries()) {
-      for (const [voucherKey, lines] of voucherMap.entries()) {
+      for (const [_voucherKey, lines] of voucherMap.entries()) {
         const headerLine = lines[0];
         const lineCount = lines.length;
 
         if (lineCount === 0) {
-          this.vendorLogger.warn(
-            `Voucher ${voucherKey} has zero lines, skipping`,
-          );
           continue;
         }
 
@@ -125,11 +155,17 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
             this.flushBatch(currentHeader!, currentBatchLines, eData);
             batchCount++;
             lineNumber = 0;
+            this.vendorLogger.debug(
+              `[BATCH] Flushed batch ${journalBatchNum - 1} with ${currentBatchLines.length} lines`,
+            );
           }
 
           currentBatchMonth = monthKey;
           currentHeader = this.startNewBatch(headerLine, journalBatchNum);
           currentBatchLines = [];
+          this.vendorLogger.debug(
+            `[BATCH] Started new batch ${journalBatchNum} for month: ${monthKey}`,
+          );
         }
 
         // Assign voucher per invoice
@@ -137,7 +173,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
 
         // Calculate exchange rates once per invoice
         const { exchangeRate, reportingRate } =
-          await this.calculateExchangeRates(headerLine);
+          await this.fetchExchangeRatesForHeader(headerLine);
 
         if (!currentHeader) {
           this.vendorLogger.error('Current header is unexpectedly null');
@@ -153,6 +189,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           reportingRate,
           voucher,
           () => lineNumber++,
+          ledgerCurrencies,
         );
 
         currentBatchLines.push(...invoiceLineObjects);
@@ -163,6 +200,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     if (currentBatchLines.length > 0 && currentHeader) {
       batchCount++;
       this.flushBatch(currentHeader, currentBatchLines, eData);
+      this.vendorLogger.debug(
+        `[STEP 6] Flushed final batch ${journalBatchNum} with ${currentBatchLines.length} lines`,
+      );
     }
 
     // Final summary
@@ -180,14 +220,27 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     _company: string,
   ): Promise<DynDataModel[]> {
     const lines = data as unknown as IVendorFreightDFOLine[];
+    const lineCount = lines.length;
+
+    this.vendorLogger.debug(
+      `[VALIDATE] Starting validation for ${lineCount} lines`,
+    );
 
     const dimensionsMap = await this.loadDimensionsMap();
     const mainAccounts = (await this.getAllMainAccounts()).map(
       ({ accountNumber }) => ({ accountNumber }),
     );
 
+    const dimensionCounts = Object.keys(dimensionsMap).reduce(
+      (acc, key) => {
+        acc[key] = dimensionsMap[key]?.length || 0;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
     this.vendorLogger.debug(
-      `Dimensions map: ${JSON.stringify(dimensionsMap.SubVendor, null, 2)}`,
+      `[VALIDATE] Loaded dimensions: ${JSON.stringify(dimensionCounts)}`,
     );
 
     for (const line of lines) {
@@ -205,10 +258,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       this.validateVendor(line, dimensionsMap.Vendor);
 
       if (line.DimensionModel.subVendor) {
-        this.vendorLogger.debug(
-          `Validating sub vendor ${line.DimensionModel.subVendor}`,
-        );
-
         this.validateSubVendor(line, dimensionsMap.SubVendor);
       }
     }
@@ -278,18 +327,12 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       try {
         monthA = getMonthKey(a.TRANSDATE);
       } catch (_error) {
-        this.vendorLogger.warn(
-          `Invalid date format for line ${a.UniqueId}: ${a.TRANSDATE}`,
-        );
         monthA = 'invalid-date';
       }
 
       try {
         monthB = getMonthKey(b.TRANSDATE);
       } catch (_error) {
-        this.vendorLogger.warn(
-          `Invalid date format for line ${b.UniqueId}: ${b.TRANSDATE}`,
-        );
         monthB = 'invalid-date';
       }
 
@@ -320,9 +363,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       try {
         monthKey = getMonthKey(line.TRANSDATE);
       } catch (_error) {
-        this.vendorLogger.warn(
-          `Invalid date format for line ${line.UniqueId}: ${line.TRANSDATE}`,
-        );
         monthKey = 'invalid-date';
       }
 
@@ -357,9 +397,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       try {
         monthKey = getMonthKey(line.TRANSDATE);
       } catch (_error) {
-        this.vendorLogger.warn(
-          `Invalid date format for line ${line.UniqueId}: ${line.TRANSDATE}`,
-        );
         monthKey = 'invalid-date';
       }
 
@@ -416,6 +453,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     voucher: number,
     lineNumber: () => number,
+    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorFreightDFOLine[]> {
     const lineObjects: IVendorFreightDFOLine[] = [];
 
@@ -429,6 +467,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         line.UniqueId.toString(),
         voucher,
         lineNumber(),
+        ledgerCurrencies,
       );
       lineObjects.push(obj);
     }
@@ -436,7 +475,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return lineObjects;
   }
 
-  private async calculateExchangeRates(
+  private async fetchExchangeRatesForHeader(
     headerLine: VendorFreightRawData,
   ): Promise<{
     exchangeRate: number;
@@ -476,13 +515,13 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   private logInitialStats(rawCount: number, filteredCount: number): void {
     const excluded = rawCount - filteredCount;
     this.vendorLogger.debug(
-      `Filtered ${rawCount} raw records → ${filteredCount} valid records (excluded ${excluded} custody accounts)`,
+      `[FILTER] Processed ${rawCount} raw records → ${filteredCount} valid records (excluded ${excluded} custody accounts)`,
     );
   }
 
   private logFinalStats(totalBatches: number, totalLines: number): void {
     this.vendorLogger.debug(
-      `Final output = ${totalLines} enriched lines across ${totalBatches} batches`,
+      `[COMPLETE] Generated ${totalLines} enriched lines across ${totalBatches} batches`,
     );
   }
 
@@ -548,6 +587,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     uniqueId: string,
     voucherNum: number,
     lineNumber: number,
+    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorFreightDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
@@ -562,6 +602,19 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         )
       : { taxNumber: '', termsOfPayment: '' };
 
+    // Normalize currency, company codes, and TransactionType
+    const normalizedCurrency = this.normalizeCurrencyCode(line.CURRENCYCODE);
+    const normalizedCompany = this.normalizeCompanyCode(company);
+    const normalizedTransactionType = this.normalizeTransactionType('vendor');
+
+    // Calculate exchange rates based on currency matching rules
+    const { exchRate, reportingCurrencyExchRate } = this.calculateExchangeRates(
+      normalizedCurrency,
+      exchangeRate,
+      reportingRate,
+      ledgerCurrencies,
+    );
+
     return new IVendorFreightDFOLine({
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
@@ -571,15 +624,15 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       ACCOUNTDISPLAYVALUE: line.ACCOUNTDISPLAYVALUE,
       DEFAULTDIMENSIONDISPLAYVALUE: line.DEFAULTDIMENSIONDISPLAYVALUE,
       DimensionModel: dimensionModel,
-      COMPANY: company,
+      COMPANY: normalizedCompany,
       CREDIT: line.CREDITAMOUNT ?? 0,
       DEBIT: line.DEBITAMOUNT,
-      CURRENCY: line.CURRENCYCODE,
+      CURRENCY: normalizedCurrency,
       DATE: line.TRANSDATE,
       DESCRIPTION: line.TEXT,
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
-      EXCHRATE: exchangeRate,
+      EXCHRATE: exchRate,
       EXCHRATESECOND: 0,
       FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
@@ -592,7 +645,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       METHODOFPAYMENT: line.PAYMENTMETHOD,
       OFFSETACCOUNTDISPLAYVALUE: line.OFFSETACCOUNTDISPLAYVALUE,
       OFFSETACCOUNTTYPE: line.OFFSETACCOUNTTYPE,
-      OFFSETCOMPANY: company,
+      OFFSETCOMPANY: normalizedCompany,
       OFFSETDEFAULTDIMENSIONDISPLAYVALUE:
         line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
       OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE,
@@ -600,11 +653,11 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       OVERRIDESALESTAX: line.OVERRIDESALESTAX,
       PAYMID: Number(uniqueId),
       POSTINGPROFILE: line.POSTINGPROFILE,
-      REPORTINGCURRENCYEXCHRATE: reportingRate,
+      REPORTINGCURRENCYEXCHRATE: reportingCurrencyExchRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
       TAXEXEMPTNUMBER: '',
       TERMSOFPAYMENT: termsOfPayment,
-      TRANSACTIONTYPE: 'vendor',
+      TRANSACTIONTYPE: normalizedTransactionType,
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
       SourceIds: [uniqueId],
     });

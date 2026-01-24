@@ -33,6 +33,11 @@ import {
   IFinancialDimensionValueListFilter,
 } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import {
+  ILedger,
+  ICreateLedger,
+  ILedgerListFilter,
+} from '@/modules/master-data/interfaces/ledger.interface';
+import {
   IMainAccount,
   ICreateMainAccount,
   IMainAccountListFilter,
@@ -58,6 +63,7 @@ import {
   MainAccountRepository,
   PaymentTermRepository,
   VendorRepository,
+  LedgerRepository,
 } from '@/modules/master-data/repositories/interfaces';
 
 @Injectable()
@@ -73,6 +79,7 @@ export class MasterDataService {
     private readonly finDimValRepo: FinancialDimensionValueRepository,
     private readonly accountMappingRepo: AccountCustomerInvoiceMappingRepository,
     private readonly paymentTermRepo: PaymentTermRepository,
+    private readonly ledgerRepo: LedgerRepository,
   ) {}
 
   async getVendorsAsync(
@@ -296,5 +303,25 @@ export class MasterDataService {
     paymentTerms: ICreatePaymentTerm[],
   ): Promise<void> {
     await this.paymentTermRepo.upsertMany(company, paymentTerms);
+  }
+
+  async getLedgersAsync(
+    filter?: ILedgerListFilter,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: ILedger[]; total: number }> {
+    const items = await this.ledgerRepo.getList(filter ?? {}, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.ledgerRepo.getCount(filter ?? {});
+    return { items, total };
+  }
+
+  async upsertLedgersAsync(
+    company: string,
+    ledgers: ICreateLedger[],
+  ): Promise<void> {
+    await this.ledgerRepo.upsertMany(company, ledgers);
   }
 }

@@ -10,6 +10,7 @@ import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
+import { LedgerService } from '@/modules/d365fo/services/ledger.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 import { PaymentTermsService } from '@/modules/d365fo/services/payment-terms.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
@@ -31,6 +32,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     PaymentTermsService,
+    LedgerService,
   ],
   exports: [
     D365FOAuthService,
@@ -47,6 +49,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     PaymentTermsService,
+    LedgerService,
   ],
 })
 export class D365FOModule {}

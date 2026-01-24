@@ -17,7 +17,6 @@ import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/model
 import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
@@ -200,7 +199,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
 
   async validateAsync(
     data: DynDataModel[],
-    company: string,
+    _company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynLedgerClosingJournalEntryDto[];
@@ -274,11 +273,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     for (const [journalBatchNumber, entries] of Object.entries(batches)) {
       if (entries.length === 0) continue;
 
-      const batchResponse =
-        await this.generalJournalService.createJournalHeader(
-          company,
-          entries[0],
-        );
+      await this.generalJournalService.createJournalHeader(company, entries[0]);
 
       for (const entry of entries) {
         const lineResponse = await this.generalJournalService.createJournalLine(

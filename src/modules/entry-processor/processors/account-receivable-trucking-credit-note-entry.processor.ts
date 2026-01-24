@@ -52,7 +52,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
   async formatAndEnrichAsync(
     data: RawDataModel[],
     company: string,
-    billingClassId?: string,
+    _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
@@ -180,8 +180,8 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
 
   async validateAsync(
     data: DynDataModel[],
-    company: string,
-    billingClassId?: string,
+    _company: string,
+    _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynAccountReceivableLineDto[];
     // Load dimensions and accounts
@@ -241,13 +241,13 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     return data;
   }
 
-  async insertIntoDynamicsAsync(
+  insertIntoDynamicsAsync(
     _data: DynDataModel[],
     _company: string,
   ): Promise<void> {
     // Not implemented for credit notes
-    throw new Error(
-      'InsertIntoDynamicsAsync is not implemented for credit notes',
+    return Promise.reject(
+      new Error('InsertIntoDynamicsAsync is not implemented for credit notes'),
     );
   }
 

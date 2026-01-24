@@ -4,6 +4,7 @@ export * from './billing-code.mongo.repository';
 export * from './customer.mongo.repository';
 export * from './exchange-rate.mongo.repository';
 export * from './financial-dimension.mongo.repository';
+export * from './ledger.mongo.repository';
 export * from './main-account.mongo.repository';
 export * from './payment-term.mongo.repository';
 export * from './sync-job.mongo.repository';
