@@ -13,7 +13,6 @@ import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/en
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import {
   GetExchangeRatesQuery,
-  GetLedgersQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -101,19 +100,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       `[STEP 3] Grouped into ${monthCount} months and ${voucherCount} vouchers`,
     );
 
-    // STEP 3.5: Fetch ledger currencies once per company
-    const normalizedCompany = this.normalizeCompanyCode(company);
-    const ledgersResult = await this.queryBus.execute(
-      new GetLedgersQuery({ company: normalizedCompany }),
-    );
-    const ledger = ledgersResult.items?.[0];
-    const ledgerCurrencies = ledger
-      ? {
-          accountingCurrency: ledger.accountingCurrency,
-          reportingCurrency: ledger.reportingCurrency,
-        }
-      : { accountingCurrency: 'EGP', reportingCurrency: 'USD' };
-
     // STEP 4: Initialize batch processing
     this.vendorLogger.debug(`[STEP 4] Initializing batch processing`);
     const eData: IVendorTruckingDFOLine[] = [];
@@ -179,7 +165,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
           exchangeRate,
           reportingRate,
           voucher,
-          ledgerCurrencies,
         );
 
         currentBatchLines.push(...invoiceLineObjects);
@@ -443,7 +428,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     exchangeRate: number,
     reportingRate: number,
     voucher: number,
-    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorTruckingDFOLine[]> {
     const lineObjects: IVendorTruckingDFOLine[] = [];
 
@@ -456,7 +440,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         reportingRate,
         line.UniqueId.toString(),
         voucher,
-        ledgerCurrencies,
       );
       lineObjects.push(obj);
     }
@@ -574,7 +557,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     uniqueId: string,
     voucherNum: number,
-    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorTruckingDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
@@ -594,14 +576,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     const normalizedCompany = this.normalizeCompanyCode(company);
     const normalizedTransactionType = this.normalizeTransactionType('vendor');
 
-    // Calculate exchange rates based on currency matching rules
-    const { exchRate, reportingCurrencyExchRate } = this.calculateExchangeRates(
-      normalizedCurrency,
-      exchangeRate,
-      reportingRate,
-      ledgerCurrencies,
-    );
-
     return new IVendorTruckingDFOLine({
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
@@ -618,7 +592,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       DESCRIPTION: line.TEXT,
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
-      EXCHRATE: exchRate,
+      EXCHRATE: exchangeRate,
       EXCHRATESECOND: 1,
       FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
@@ -639,7 +613,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       OVERRIDESALESTAX: line.OVERRIDESALESTAX,
       PAYMID: Number(uniqueId),
       POSTINGPROFILE: line.POSTINGPROFILE,
-      REPORTINGCURRENCYEXCHRATE: reportingCurrencyExchRate,
+      REPORTINGCURRENCYEXCHRATE: reportingRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
       TAXEXEMPTNUMBER: taxNumber,
       TERMSOFPAYMENT: termsOfPayment,

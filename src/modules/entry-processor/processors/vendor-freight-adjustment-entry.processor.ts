@@ -13,7 +13,6 @@ import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/en
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import {
   GetExchangeRatesQuery,
-  GetLedgersQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -96,25 +95,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
     );
 
-    // STEP 3.5: Fetch ledger currencies once per company
-    this.vendorLogger.debug(
-      `[STEP 3.5] Fetching ledger currencies for company: ${company}`,
-    );
-    const normalizedCompany = this.normalizeCompanyCode(company);
-    const ledgersResult = await this.queryBus.execute(
-      new GetLedgersQuery({ company: normalizedCompany }),
-    );
-    const ledger = ledgersResult.items?.[0];
-    const ledgerCurrencies = ledger
-      ? {
-          accountingCurrency: ledger.accountingCurrency,
-          reportingCurrency: ledger.reportingCurrency,
-        }
-      : { accountingCurrency: 'EGP', reportingCurrency: 'USD' };
-    this.vendorLogger.debug(
-      `[STEP 3.5] Ledger currencies: Accounting=${ledgerCurrencies.accountingCurrency}, Reporting=${ledgerCurrencies.reportingCurrency}`,
-    );
-
     // STEP 4: Initialize batch processing
     this.vendorLogger.debug(`[STEP 4] Initializing batch processing`);
     const eData: IVendorFreightAdjustmentDFOLine[] = [];
@@ -130,7 +110,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
 
     // STEP 5: Process each month → invoice
     for (const [monthKey, voucherMap] of monthVoucherMap.entries()) {
-      for (const [voucherKey, lines] of voucherMap.entries()) {
+      for (const [_voucherKey, lines] of voucherMap.entries()) {
         const headerLine = lines[0];
         const lineCount = lines.length;
 
@@ -186,7 +166,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
           exchangeRate,
           reportingRate,
           voucher,
-          ledgerCurrencies,
         );
 
         currentBatchLines.push(...invoiceLineObjects);
@@ -459,7 +438,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     exchangeRate: number,
     reportingRate: number,
     voucher: number,
-    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorFreightAdjustmentDFOLine[]> {
     const lineObjects: IVendorFreightAdjustmentDFOLine[] = [];
 
@@ -472,7 +450,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
         reportingRate,
         line.UniqueId.toString(),
         voucher,
-        ledgerCurrencies,
       );
       lineObjects.push(obj);
     }
@@ -590,7 +567,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     uniqueId: string,
     voucherNum: number,
-    ledgerCurrencies: { accountingCurrency: string; reportingCurrency: string },
   ): Promise<IVendorFreightAdjustmentDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
@@ -610,14 +586,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     const normalizedCompany = this.normalizeCompanyCode(company);
     const normalizedTransactionType = this.normalizeTransactionType('vendor');
 
-    // Calculate exchange rates based on currency matching rules
-    const { exchRate, reportingCurrencyExchRate } = this.calculateExchangeRates(
-      normalizedCurrency,
-      exchangeRate,
-      reportingRate,
-      ledgerCurrencies,
-    );
-
     return new IVendorFreightAdjustmentDFOLine({
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
@@ -634,7 +602,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       DESCRIPTION: line.TEXT,
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
-      EXCHRATE: exchRate,
+      EXCHRATE: exchangeRate,
       EXCHRATESECOND: 1,
       FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
@@ -655,7 +623,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       OVERRIDESALESTAX: line.OVERRIDESALESTAX,
       PAYMID: Number(uniqueId),
       POSTINGPROFILE: line.POSTINGPROFILE,
-      REPORTINGCURRENCYEXCHRATE: reportingCurrencyExchRate,
+      REPORTINGCURRENCYEXCHRATE: reportingRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
       TAXEXEMPTNUMBER: taxNumber,
       TERMSOFPAYMENT: termsOfPayment,

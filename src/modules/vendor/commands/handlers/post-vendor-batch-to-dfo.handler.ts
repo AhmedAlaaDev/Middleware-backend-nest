@@ -104,6 +104,19 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
     this.validateJournals(groupedJournals);
 
+    // console.log({
+    //   after_mapping_sample: groupedJournals[0]?.lines?.slice(0, 5).map((l) => ({
+    //     Currency: l.Currency,
+    //     ExchRate: l.ExchRate,
+    //     ExchRateSecond: l.ExchRateSecond,
+    //     ReportingCurrencyExchRate: l.ReportingCurrencyExchRate,
+    //   })),
+    // });
+
+    // return {
+    //   jobId: '123',
+    //   message: 'Batch 123 queued for posting to D365FO. Job ID: 123',
+    // };
     await this.prepareBatchForPosting(batchId);
 
     return await this.enqueuePostingJob(
@@ -263,7 +276,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         ExchRateSecond: line.EXCHRATESECOND || 0,
         TransactionType: line.TRANSACTIONTYPE,
         MethodOfPayment: line.METHODOFPAYMENT || '',
-        ExchRate: line.EXCHRATE,
+        ExchRate: line.EXCHRATE ?? 1,
         Document: line.DOCUMENT ? String(line.DOCUMENT) : undefined,
         Description: line.DESCRIPTION || '',
         Invoice: line.INVOICE,
