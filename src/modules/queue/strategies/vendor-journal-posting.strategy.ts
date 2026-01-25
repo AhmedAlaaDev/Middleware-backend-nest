@@ -148,4 +148,14 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
 
     return allLines;
   }
+
+  public async listLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<{ LineNumber: number }>> {
+    return await this.vendorInvoiceJournalService.listLinesForHeader(
+      headerKey,
+      dataAreaId,
+    );
+  }
 }

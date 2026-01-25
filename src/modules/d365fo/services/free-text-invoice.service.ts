@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import {
   D365FOFreeTextInvoiceHeaderRequest,
@@ -14,7 +15,10 @@ import {
 export class FreeTextInvoiceService {
   private readonly logger = new Logger(FreeTextInvoiceService.name);
 
-  constructor(private readonly d365foClient: D365FOClientService) {}
+  constructor(
+    private readonly d365foClient: D365FOClientService,
+    private readonly queryBuilder: ODataQueryBuilderService,
+  ) {}
 
   /**
    * Post free text invoice header to D365FO
@@ -361,5 +365,58 @@ export class FreeTextInvoiceService {
     );
 
     return results;
+  }
+
+  /**
+   * Query and list all lines for a specific header from D365FO
+   * @param headerKey The InvoiceIdentifier of the header (as string)
+   * @param dataAreaId Company data area ID
+   * @returns Array of line objects with LineNumber
+   */
+  public async listLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<{ LineNumber: number }>> {
+    this.logger.debug(
+      `[QUERY] Querying lines for invoice ${headerKey} in company ${dataAreaId}`,
+    );
+
+    const invoiceIdentifier = parseInt(headerKey, 10);
+    if (isNaN(invoiceIdentifier)) {
+      throw new Error(`Invalid invoice identifier: ${headerKey}`);
+    }
+
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('ParentRecId', invoiceIdentifier),
+    );
+
+    const query = this.queryBuilder.buildQuery('/data/FreeTextInvoiceLines', {
+      filter,
+      select: ['LineNumber'],
+      crossCompany: true,
+    });
+
+    try {
+      const response = await this.d365foClient.get<{ LineNumber: number }>(
+        query,
+        {
+          useCache: false,
+        },
+      );
+
+      const lines = response.value || [];
+      this.logger.debug(
+        `[QUERY] Found ${lines.length} lines for invoice ${headerKey}`,
+      );
+
+      return lines;
+    } catch (error) {
+      const errorDetails = this.extractErrorDetails(error);
+      this.logger.error(
+        `[QUERY] Failed to query lines for invoice ${headerKey}: ${errorDetails}`,
+      );
+      throw error;
+    }
   }
 }

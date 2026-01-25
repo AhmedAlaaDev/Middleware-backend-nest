@@ -105,12 +105,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     this.validateJournals(groupedJournals);
 
     // console.log({
-    //   after_mapping_sample: groupedJournals[0]?.lines?.slice(0, 5).map((l) => ({
-    //     Currency: l.Currency,
-    //     ExchRate: l.ExchRate,
-    //     ExchRateSecond: l.ExchRateSecond,
-    //     ReportingCurrencyExchRate: l.ReportingCurrencyExchRate,
-    //   })),
+    //   after_mapping_sample: groupedJournals[0]?.lines?.slice(0, 10),
     // });
 
     // return {

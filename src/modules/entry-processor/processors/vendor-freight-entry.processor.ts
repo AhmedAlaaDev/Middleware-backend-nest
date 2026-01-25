@@ -134,7 +134,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
             journalBatchNum++;
             this.flushBatch(currentHeader!, currentBatchLines, eData);
             batchCount++;
-            lineNumber = 0;
+            lineNumber = 1;
             this.vendorLogger.debug(
               `[BATCH] Flushed batch ${journalBatchNum - 1} with ${currentBatchLines.length} lines`,
             );

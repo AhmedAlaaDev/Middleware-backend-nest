@@ -147,4 +147,14 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
 
     return allLines;
   }
+
+  public async listLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<{ LineNumber: number }>> {
+    return await this.freeTextInvoiceService.listLinesForHeader(
+      headerKey,
+      dataAreaId,
+    );
+  }
 }

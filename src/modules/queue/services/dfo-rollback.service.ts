@@ -19,6 +19,14 @@ export interface RollbackResult {
 }
 
 /**
+ * Metadata for a created header during posting
+ */
+export interface CreatedHeader {
+  headerKey: string; // JournalBatchNumber
+  dataAreaId: string;
+}
+
+/**
  * Service for handling rollback operations when posting fails
  * Handles deletion of headers and lines in chunks
  */
@@ -209,6 +217,238 @@ export class DfoRollbackService {
       result.successfullyDeletedHeaders = headerResult.successfullyDeleted;
       result.failedToDeleteHeaders = headerResult.failedToDelete;
     }
+
+    return result;
+  }
+
+  /**
+   * Rollback all created headers in reverse order with lines-first guarantee
+   * This method ensures atomic rollback by:
+   * 1. Processing headers in reverse creation order (last to first)
+   * 2. For each header: query lines from D365FO, delete all lines, then delete header
+   * 3. If header deletion fails with "dependent lines exist", query and delete remaining lines, then retry
+   * 4. Handles partial success - queries D365FO for existing lines rather than assuming
+   *
+   * @param strategy The posting strategy to use for deletion and querying
+   * @param createdHeaders Array of created headers with metadata (in creation order)
+   * @param chunkSize Number of lines to delete per chunk
+   * @param errorCollector Error collector to record rollback errors
+   * @returns Complete rollback result with per-header details
+   */
+  public async rollbackAll(
+    strategy: IDfoPostingStrategy,
+    createdHeaders: CreatedHeader[],
+    chunkSize: number,
+    errorCollector: PostingErrorCollector,
+  ): Promise<RollbackResult> {
+    if (createdHeaders.length === 0) {
+      this.logger.log('[ROLLBACK] No headers to rollback');
+      return {
+        successfullyDeletedHeaders: [],
+        failedToDeleteHeaders: [],
+        successfullyDeletedLines: [],
+        failedToDeleteLines: [],
+      };
+    }
+
+    this.logger.log(
+      `[ROLLBACK] Starting rollback of ${createdHeaders.length} headers in reverse order`,
+    );
+
+    const result: RollbackResult = {
+      successfullyDeletedHeaders: [],
+      failedToDeleteHeaders: [],
+      successfullyDeletedLines: [],
+      failedToDeleteLines: [],
+    };
+
+    // Process headers in reverse order (last created to first created)
+    const headersToProcess = [...createdHeaders].reverse();
+
+    for (let i = 0; i < headersToProcess.length; i++) {
+      const header = headersToProcess[i];
+      const headerIndex = headersToProcess.length - i; // Original index (1-based)
+
+      this.logger.log(
+        `[ROLLBACK] Processing header ${headerIndex}/${createdHeaders.length}: ${header.headerKey}`,
+      );
+
+      try {
+        // Step 1: Query lines from D365FO (don't assume we know all lines)
+        this.logger.debug(
+          `[ROLLBACK] Querying lines for header ${header.headerKey}`,
+        );
+        let existingLines: Array<{ LineNumber: number }> = [];
+        try {
+          existingLines = await strategy.listLinesForHeader(
+            header.headerKey,
+            header.dataAreaId,
+          );
+          this.logger.log(
+            `[ROLLBACK] Found ${existingLines.length} lines for header ${header.headerKey}`,
+          );
+        } catch (error) {
+          const errorDetails =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `[ROLLBACK] Failed to query lines for header ${header.headerKey}: ${errorDetails}. Proceeding with deletion attempt.`,
+          );
+          // Continue - we'll try to delete header anyway, and if it fails with dependent lines error, we'll query again
+        }
+
+        // Step 2: Delete all lines for this header
+        if (existingLines.length > 0) {
+          const linesToDelete = existingLines.map((line) => ({
+            headerId: header.headerKey,
+            lineNumber: line.LineNumber,
+          }));
+
+          this.logger.log(
+            `[ROLLBACK] Deleting ${linesToDelete.length} lines for header ${header.headerKey}`,
+          );
+
+          const lineDeleteResult = await strategy.deleteLinesInBatches(
+            linesToDelete,
+            header.dataAreaId,
+            chunkSize,
+          );
+
+          result.successfullyDeletedLines.push(...lineDeleteResult.successful);
+          result.failedToDeleteLines.push(...lineDeleteResult.failed);
+
+          this.logger.log(
+            `[ROLLBACK] Deleted ${lineDeleteResult.successful.length} lines for header ${header.headerKey}, ${lineDeleteResult.failed.length} failed`,
+          );
+
+          // Record failed line deletions
+          for (const failed of lineDeleteResult.failed) {
+            errorCollector.addRollbackError(
+              `Failed to delete line: ${failed.error}`,
+              `Line deletion for header ${header.headerKey}`,
+              failed.headerId,
+              failed.lineNumber,
+            );
+          }
+        }
+
+        // Step 3: Delete the header (with retry logic for dependent lines)
+        let headerDeleted = false;
+        let retryCount = 0;
+        const maxRetries = 2; // One initial attempt + up to 2 retries
+
+        while (!headerDeleted && retryCount <= maxRetries) {
+          try {
+            await strategy.deleteHeader(header.headerKey, header.dataAreaId);
+            result.successfullyDeletedHeaders.push(header.headerKey);
+            headerDeleted = true;
+            this.logger.log(
+              `[ROLLBACK] Successfully deleted header ${header.headerKey}`,
+            );
+          } catch (error: any) {
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            const innerErrorMessage =
+              error?.response?.data?.error?.innererror?.message?.toLowerCase() ||
+              '';
+            const isDependentLinesError =
+              innerErrorMessage.includes('dependent journal lines exist') ||
+              innerErrorMessage.includes(
+                'ledger journal table cannot be deleted',
+              );
+
+            if (isDependentLinesError && retryCount < maxRetries) {
+              retryCount++;
+              this.logger.warn(
+                `[ROLLBACK] Header deletion failed due to dependent lines (attempt ${retryCount}/${maxRetries}). Querying and deleting remaining lines for header ${header.headerKey}`,
+              );
+
+              // Query lines again (some might have been created after our initial query)
+              try {
+                const remainingLines = await strategy.listLinesForHeader(
+                  header.headerKey,
+                  header.dataAreaId,
+                );
+
+                if (remainingLines.length > 0) {
+                  this.logger.log(
+                    `[ROLLBACK] Found ${remainingLines.length} remaining lines for header ${header.headerKey}, deleting them`,
+                  );
+
+                  const remainingLinesToDelete = remainingLines.map((line) => ({
+                    headerId: header.headerKey,
+                    lineNumber: line.LineNumber,
+                  }));
+
+                  const remainingDeleteResult =
+                    await strategy.deleteLinesInBatches(
+                      remainingLinesToDelete,
+                      header.dataAreaId,
+                      chunkSize,
+                    );
+
+                  result.successfullyDeletedLines.push(
+                    ...remainingDeleteResult.successful,
+                  );
+                  result.failedToDeleteLines.push(
+                    ...remainingDeleteResult.failed,
+                  );
+
+                  // Record failed deletions
+                  for (const failed of remainingDeleteResult.failed) {
+                    errorCollector.addRollbackError(
+                      `Failed to delete remaining line: ${failed.error}`,
+                      `Remaining line deletion for header ${header.headerKey}`,
+                      failed.headerId,
+                      failed.lineNumber,
+                    );
+                  }
+
+                  // Wait a bit before retrying header deletion
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                } else {
+                  this.logger.debug(
+                    `[ROLLBACK] No remaining lines found for header ${header.headerKey}`,
+                  );
+                }
+              } catch (queryError) {
+                this.logger.error(
+                  `[ROLLBACK] Failed to query remaining lines for header ${header.headerKey}: ${queryError}`,
+                );
+              }
+            } else {
+              // Not a dependent lines error, or max retries reached
+              result.failedToDeleteHeaders.push(header.headerKey);
+              errorCollector.addRollbackError(
+                `Failed to delete header: ${errorMessage}`,
+                `Header deletion for ${header.headerKey}`,
+                header.headerKey,
+              );
+              this.logger.error(
+                `[ROLLBACK] Failed to delete header ${header.headerKey} after ${retryCount} attempts: ${errorMessage}`,
+              );
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        const errorDetails =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `[ROLLBACK] Unexpected error while rolling back header ${header.headerKey}: ${errorDetails}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        result.failedToDeleteHeaders.push(header.headerKey);
+        errorCollector.addRollbackError(
+          `Unexpected error during rollback: ${errorDetails}`,
+          `Header rollback for ${header.headerKey}`,
+          header.headerKey,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[ROLLBACK] Rollback completed: ${result.successfullyDeletedHeaders.length} headers deleted, ${result.failedToDeleteHeaders.length} failed, ${result.successfullyDeletedLines.length} lines deleted, ${result.failedToDeleteLines.length} line deletions failed`,
+    );
 
     return result;
   }

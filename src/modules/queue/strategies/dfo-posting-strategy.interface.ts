@@ -81,4 +81,15 @@ export interface IDfoPostingStrategy {
     headerIds: string[],
     groupedData: unknown[],
   ): unknown[];
+
+  /**
+   * Query and list all lines for a specific header from D365FO
+   * @param headerKey The header identifier (e.g., JournalBatchNumber)
+   * @param dataAreaId The company data area ID
+   * @returns Array of line objects with LineNumber
+   */
+  listLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<{ LineNumber: number }>>;
 }

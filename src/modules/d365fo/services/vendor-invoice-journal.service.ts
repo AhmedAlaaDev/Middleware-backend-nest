@@ -1,12 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import {
   D365FOVendorInvoiceJournalHeaderRequest,
   D365FOVendorInvoiceJournalHeaderResponse,
   D365FOVendorInvoiceJournalLineRequest,
 } from '@/modules/d365fo/types';
+import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /**
  * Service for managing vendor invoice journals in D365FO
@@ -15,22 +17,145 @@ import {
 export class VendorInvoiceJournalService {
   private readonly logger = new Logger(VendorInvoiceJournalService.name);
 
-  constructor(private readonly d365foClient: D365FOClientService) {}
+  constructor(
+    private readonly d365foClient: D365FOClientService,
+    private readonly queryBuilder: ODataQueryBuilderService,
+    private readonly retryService: RetryService,
+  ) {}
 
   /**
-   * Post vendor invoice journal header to D365FO
+   * Post vendor invoice journal header to D365FO (single header)
+   * @param data Header request
+   * @returns Created header response with JournalBatchNumber
    */
   public async postHeader(
     data: D365FOVendorInvoiceJournalHeaderRequest,
   ): Promise<D365FOVendorInvoiceJournalHeaderResponse> {
-    this.logger.debug(
-      `Posting vendor invoice journal header for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}`,
+    this.logger.log(
+      `[HEADER] Creating header for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}`,
     );
 
     return this.d365foClient.post<
       D365FOVendorInvoiceJournalHeaderRequest,
       D365FOVendorInvoiceJournalHeaderResponse
     >('/data/VendInvoiceJournalHeaders', data);
+  }
+
+  /**
+   * Post lines for a specific header (chunked, sequential, no parallel)
+   * @param headerKey JournalBatchNumber of the header
+   * @param lines Array of line requests for this header
+   * @param chunkSize Number of lines to post per chunk (default: 20)
+   * @returns Array of successfully posted line identifiers
+   */
+  public async postLinesForHeader(
+    headerKey: string,
+    lines: D365FOVendorInvoiceJournalLineRequest[],
+    chunkSize: number = 20,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    this.logger.log(
+      `[LINES] Posting ${lines.length} lines for header ${headerKey} in chunks of ${chunkSize}`,
+    );
+
+    const successfullyPosted: Array<{
+      headerId: string;
+      lineNumber: number;
+    }> = [];
+
+    // Process in chunks sequentially (no parallel within chunk)
+    for (let i = 0; i < lines.length; i += chunkSize) {
+      const chunk = lines.slice(i, i + chunkSize);
+      const chunkNumber = Math.floor(i / chunkSize) + 1;
+      const totalChunks = Math.ceil(lines.length / chunkSize);
+
+      this.logger.log(
+        `[LINES] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
+      );
+
+      // Post lines sequentially within chunk (no parallel)
+      for (const line of chunk) {
+        try {
+          await this.postLine(line);
+          successfullyPosted.push({
+            headerId: headerKey,
+            lineNumber: line.LineNumber,
+          });
+          this.logger.debug(
+            `[LINES] Posted line ${line.LineNumber} for header ${headerKey}`,
+          );
+        } catch (error) {
+          const errorDetails = this.extractErrorDetails(error);
+          this.logger.error(
+            `[LINES] Failed to post line ${line.LineNumber} for header ${headerKey} in chunk ${chunkNumber}: ${errorDetails}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          throw new Error(
+            `Failed to post line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `[LINES] Completed chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines posted)`,
+      );
+    }
+
+    this.logger.log(
+      `[LINES] Successfully posted all ${lines.length} lines for header ${headerKey}`,
+    );
+
+    return successfullyPosted;
+  }
+
+  /**
+   * Query and list all lines for a specific header from D365FO
+   * @param headerKey JournalBatchNumber of the header
+   * @param dataAreaId Company data area ID
+   * @returns Array of line objects with LineNumber
+   */
+  public async listLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<{ LineNumber: number }>> {
+    this.logger.debug(
+      `[QUERY] Querying lines for header ${headerKey} in company ${dataAreaId}`,
+    );
+
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendInvoiceJournalLines',
+      {
+        filter,
+        select: ['LineNumber'],
+        crossCompany: true,
+      },
+    );
+
+    try {
+      const response = await this.d365foClient.get<{ LineNumber: number }>(
+        query,
+        {
+          useCache: false,
+        },
+      );
+
+      const lines = response.value || [];
+      this.logger.debug(
+        `[QUERY] Found ${lines.length} lines for header ${headerKey}`,
+      );
+
+      return lines;
+    } catch (error) {
+      const errorDetails = this.extractErrorDetails(error);
+      this.logger.error(
+        `[QUERY] Failed to query lines for header ${headerKey}: ${errorDetails}`,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -244,7 +369,39 @@ export class VendorInvoiceJournalService {
   }
 
   /**
+   * Check if an error is a retryable concurrency conflict
+   */
+  private isConcurrencyConflict(error: any): boolean {
+    if (!error?.response) {
+      return false;
+    }
+
+    const status = error.response?.status;
+    if (status !== 400) {
+      return false;
+    }
+
+    const innerErrorMessage =
+      error?.response?.data?.error?.innererror?.message?.toLowerCase() || '';
+    const errorMessage =
+      error?.response?.data?.error?.message?.toLowerCase() || '';
+
+    const conflictKeywords = [
+      'update conflict',
+      'cannot edit a record',
+      'ledgerjournaltable',
+      'dependent journal lines exist',
+    ];
+
+    const combinedMessage = `${innerErrorMessage} ${errorMessage}`;
+    return conflictKeywords.some((keyword) =>
+      combinedMessage.includes(keyword.toLowerCase()),
+    );
+  }
+
+  /**
    * Delete a vendor invoice journal header (for rollback)
+   * Includes retry logic for concurrency conflicts
    * @param journalBatchNumber The JournalBatchNumber of the header to delete
    * @param dataAreaId The company data area ID
    */
@@ -253,22 +410,46 @@ export class VendorInvoiceJournalService {
     dataAreaId: string,
   ): Promise<void> {
     this.logger.debug(
-      `Deleting vendor invoice journal header ${journalBatchNumber} for company: ${dataAreaId}`,
+      `[DELETE] Deleting vendor invoice journal header ${journalBatchNumber} for company: ${dataAreaId}`,
     );
 
     // D365FO uses JournalBatchNumber for deletion
     // Format: /data/VendInvoiceJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000001956')
     const endpoint = `/data/VendInvoiceJournalHeaders(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}')?cross-company=true`;
-    const response = await this.d365foClient.delete(endpoint);
 
-    // Verify deletion response (should be empty or 204)
-    if (response !== undefined && response !== null) {
-      this.logger.debug(`Header ${journalBatchNumber} deleted successfully`);
-    }
+    // Use retry service with custom condition for concurrency conflicts
+    await this.retryService.executeWithRetry(
+      async () => {
+        const response = await this.d365foClient.delete(endpoint);
+        // Verify deletion response (should be empty or 204)
+        if (response !== undefined && response !== null) {
+          this.logger.debug(
+            `[DELETE] Header ${journalBatchNumber} deleted successfully`,
+          );
+        }
+      },
+      {
+        retries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryCondition: (error: any) => {
+          // Retry on network errors, 5xx errors, or concurrency conflicts
+          if (!error.response) {
+            return true; // Network error
+          }
+          const status = error.response?.status;
+          if (status && status >= 500) {
+            return true; // Server error
+          }
+          return this.isConcurrencyConflict(error);
+        },
+      },
+    );
   }
 
   /**
    * Delete a vendor invoice journal line (for rollback)
+   * Includes retry logic for concurrency conflicts
    * @param journalBatchNumber The JournalBatchNumber of the line to delete
    * @param lineNumber The LineNumber of the line to delete
    * @param dataAreaId The company data area ID
@@ -279,19 +460,40 @@ export class VendorInvoiceJournalService {
     dataAreaId: string,
   ): Promise<void> {
     this.logger.debug(
-      `Deleting vendor invoice journal line ${lineNumber} for journal ${journalBatchNumber} in company: ${dataAreaId}`,
+      `[DELETE] Deleting vendor invoice journal line ${lineNumber} for journal ${journalBatchNumber} in company: ${dataAreaId}`,
     );
 
     // Format: /data/VendInvoiceJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000010002',LineNumber=1)?cross-company=true
     const endpoint = `/data/VendInvoiceJournalLines(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}',LineNumber=${lineNumber})?cross-company=true`;
-    const response = await this.d365foClient.delete(endpoint);
 
-    // Verify deletion response (should be empty or 204)
-    if (response !== undefined && response !== null) {
-      this.logger.debug(
-        `Line ${lineNumber} for journal ${journalBatchNumber} deleted successfully`,
-      );
-    }
+    // Use retry service with custom condition for concurrency conflicts
+    await this.retryService.executeWithRetry(
+      async () => {
+        const response = await this.d365foClient.delete(endpoint);
+        // Verify deletion response (should be empty or 204)
+        if (response !== undefined && response !== null) {
+          this.logger.debug(
+            `[DELETE] Line ${lineNumber} for journal ${journalBatchNumber} deleted successfully`,
+          );
+        }
+      },
+      {
+        retries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryCondition: (error: any) => {
+          // Retry on network errors, 5xx errors, or concurrency conflicts
+          if (!error.response) {
+            return true; // Network error
+          }
+          const status = error.response?.status;
+          if (status && status >= 500) {
+            return true; // Server error
+          }
+          return this.isConcurrencyConflict(error);
+        },
+      },
+    );
   }
 
   /**

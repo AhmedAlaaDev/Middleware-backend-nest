@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
+import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import {
   D365FOFreeTextInvoiceHeaderRequest,
   D365FOFreeTextInvoiceLineRequest,
@@ -11,7 +12,10 @@ import {
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
-import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
+import {
+  CreatedHeader,
+  DfoRollbackService,
+} from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
 import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
@@ -49,6 +53,7 @@ export class PostBatchDFOProcessor extends WorkerHost {
   constructor(
     private readonly freeTextInvoicePostingStrategy: FreeTextInvoicePostingStrategy,
     private readonly vendorJournalPostingStrategy: VendorJournalPostingStrategy,
+    private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
     private readonly dataBatchService: DataBatchService,
   ) {
     super();
@@ -118,7 +123,9 @@ export class PostBatchDFOProcessor extends WorkerHost {
   }
 
   /**
-   * Executes the complete posting process using the provided strategy
+   * Executes the complete posting process using sequential per-header strategy
+   * Process: Header #1 -> All lines for Header #1 -> Header #2 -> All lines for Header #2 -> ...
+   * If ANY error occurs, rollback ALL created headers
    */
   private async executePosting(
     data: PostBatchDFOJobData,
@@ -133,70 +140,165 @@ export class PostBatchDFOProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `[POST] Starting posting: ${groupedData.length} items to D365FO for batch ${batchId}`,
+      `[POST] Starting sequential per-header posting: ${groupedData.length} headers to D365FO for batch ${batchId}`,
     );
 
-    const createdHeaderIdentifiers: string[] = [];
-    let areHeadersPosted = false;
-    const successfullyPostedLines: Array<{
-      headerId: string;
-      lineNumber: number;
-    }> = [];
+    const createdHeaders: CreatedHeader[] = [];
 
     try {
-      // Step 1: Post headers in batches
-      const headerPostingResult = await this.postHeadersWithTracking(
-        strategy,
-        groupedData,
-        errorCollector,
+      // Process each header sequentially: create header, then all its lines
+      for (let i = 0; i < groupedData.length; i++) {
+        const journal = groupedData[i] as {
+          header: D365FOVendorInvoiceJournalHeaderRequest;
+          lines: D365FOVendorInvoiceJournalLineRequest[];
+        };
+
+        const headerIndex = i + 1;
+        this.logger.log(
+          `[POST] Processing header ${headerIndex}/${groupedData.length}: ${journal.header.JournalBatchNumber}`,
+        );
+
+        // Step 1: Create header
+        this.logger.log(
+          `[POST] Creating header ${headerIndex}: ${journal.header.JournalBatchNumber}`,
+        );
+        try {
+          // Use the strategy's postHeadersInBatches with a single header
+          const headerResult = await strategy.postHeadersInBatches(
+            [journal.header],
+            1, // chunkSize = 1 for single header
+          );
+
+          if (headerResult.headerIds.length !== 1) {
+            throw new Error(
+              `Expected 1 header ID, got ${headerResult.headerIds.length}`,
+            );
+          }
+
+          const headerKey = headerResult.headerIds[0];
+
+          // Track created header
+          createdHeaders.push({
+            headerKey,
+            dataAreaId: company,
+          });
+
+          this.logger.log(
+            `[POST] Header ${headerIndex} created successfully: ${headerKey}`,
+          );
+        } catch (error) {
+          const errorDetails = this.extractErrorDetails(error);
+          this.logger.error(
+            `[POST] Failed to create header ${headerIndex} (${journal.header.JournalBatchNumber}): ${errorDetails}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          errorCollector.addHeaderError(
+            errorDetails,
+            `Header ${headerIndex} creation`,
+          );
+          throw new Error(
+            `Failed to create header ${headerIndex}: ${errorDetails}`,
+          );
+        }
+
+        // Step 2: Create ALL lines for this header (chunked, sequential, no parallel)
+        const headerKey = createdHeaders[createdHeaders.length - 1].headerKey;
+        this.logger.log(
+          `[POST] Posting ${journal.lines.length} lines for header ${headerIndex} (${headerKey})`,
+        );
+
+        try {
+          // Prepare lines with the created header key
+          const preparedLines = journal.lines.map((line) => {
+            const { FullPrimaryRemittanceAddress, ...cleanedLine } =
+              line as any;
+            return {
+              ...cleanedLine,
+              JournalBatchNumber: headerKey,
+            } as D365FOVendorInvoiceJournalLineRequest;
+          });
+
+          // Use sequential posting method for vendor journals (chunked, sequential, no parallel)
+          let postedLines: Array<{ headerId: string; lineNumber: number }>;
+          if (strategy instanceof VendorJournalPostingStrategy) {
+            // Use the sequential postLinesForHeader method
+            postedLines =
+              await this.vendorInvoiceJournalService.postLinesForHeader(
+                headerKey,
+                preparedLines,
+                POSTING_CONFIG.LINE_CHUNK_SIZE,
+              );
+          } else {
+            // Fallback to batch method for other strategies
+            postedLines = await strategy.postLinesInBatches(
+              preparedLines,
+              POSTING_CONFIG.LINE_CHUNK_SIZE,
+            );
+          }
+
+          this.logger.log(
+            `[POST] Successfully posted ${postedLines.length} lines for header ${headerIndex} (${headerKey})`,
+          );
+        } catch (error) {
+          const errorDetails = this.extractErrorDetails(error);
+          this.logger.error(
+            `[POST] Failed to post lines for header ${headerIndex} (${headerKey}): ${errorDetails}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          errorCollector.addLineError(
+            errorDetails,
+            `Lines for header ${headerIndex}`,
+          );
+          throw new Error(
+            `Failed to post lines for header ${headerIndex}: ${errorDetails}`,
+          );
+        }
+      }
+
+      // All headers and lines created successfully
+      this.logger.log(
+        `[POST] Successfully posted all ${createdHeaders.length} headers and their lines for batch ${batchId}`,
       );
-
-      createdHeaderIdentifiers.push(...headerPostingResult.headerIds);
-      areHeadersPosted = true;
-
-      // Step 2: Prepare and post lines
-      const preparedLines = strategy.prepareLinesForPosting(
-        [],
-        createdHeaderIdentifiers,
-        groupedData,
-      );
-
-      const postedLines = await this.postLinesWithTracking(
-        strategy,
-        preparedLines,
-        createdHeaderIdentifiers,
-        errorCollector,
-      );
-
-      successfullyPostedLines.push(...postedLines);
 
       // Step 3: Handle successful completion
-      await this.handlePostingSuccess(batchId, createdHeaderIdentifiers);
+      const headerKeys = createdHeaders.map((h) => h.headerKey);
+      await this.handlePostingSuccess(batchId, headerKeys);
     } catch (error) {
       const errorDetails = this.extractErrorDetails(error);
-      errorCollector.addLineError(errorDetails, 'Line posting');
-
       this.logger.error(
         `[POST] Error during posting for batch ${batchId}: ${errorDetails}`,
         error instanceof Error ? error.stack : undefined,
       );
 
-      // Perform rollback if needed - only rollback what was actually created
-      const rollbackResult = await this.performRollback(
-        strategy,
-        createdHeaderIdentifiers,
-        successfullyPostedLines,
-        areHeadersPosted,
-        company,
-        errorCollector,
-      );
-
-      // Store IDs of headers that couldn't be deleted
-      if (rollbackResult.failedToDeleteHeaders.length > 0) {
-        await this.storeCreatedHeaderIds(
-          batchId,
-          rollbackResult.failedToDeleteHeaders,
+      // Perform rollback of ALL created headers (even if some were completed successfully)
+      if (createdHeaders.length > 0) {
+        this.logger.log(
+          `[ROLLBACK] Starting rollback of ${createdHeaders.length} created headers due to error`,
         );
+
+        const rollbackService = new DfoRollbackService();
+        const rollbackResult = await rollbackService.rollbackAll(
+          strategy,
+          createdHeaders,
+          POSTING_CONFIG.ROLLBACK_CHUNK_SIZE,
+          errorCollector,
+        );
+
+        // Log rollback results
+        this.logger.log(
+          `[ROLLBACK] Rollback completed: ${rollbackResult.successfullyDeletedHeaders.length} headers deleted, ${rollbackResult.failedToDeleteHeaders.length} failed, ${rollbackResult.successfullyDeletedLines.length} lines deleted, ${rollbackResult.failedToDeleteLines.length} line deletions failed`,
+        );
+
+        // Store IDs of headers that couldn't be deleted
+        if (rollbackResult.failedToDeleteHeaders.length > 0) {
+          this.logger.warn(
+            `[ROLLBACK] ${rollbackResult.failedToDeleteHeaders.length} headers could not be deleted and remain in D365FO`,
+          );
+          await this.storeCreatedHeaderIds(
+            batchId,
+            rollbackResult.failedToDeleteHeaders,
+          );
+        }
       }
 
       throw error;
@@ -247,7 +349,9 @@ export class PostBatchDFOProcessor extends WorkerHost {
     headerIds: string[],
     errorCollector: PostingErrorCollector,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
-    this.logger.debug(`[POST] Step 2: Posting ${preparedLines.length} lines...`);
+    this.logger.debug(
+      `[POST] Step 2: Posting ${preparedLines.length} lines...`,
+    );
 
     try {
       const postedLines = await strategy.postLinesInBatches(
