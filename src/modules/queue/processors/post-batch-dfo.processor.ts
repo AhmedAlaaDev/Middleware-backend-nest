@@ -45,7 +45,8 @@ const POSTING_CONFIG = {
 } as const;
 
 @Processor(QUEUES.DFO, {
-  concurrency: 3, // Process 3 jobs concurrently
+  concurrency: 1, // Process 1 job at a time to prevent concurrent access to same journals
+  // Reduced from 3 to avoid update conflicts when multiple jobs post to related journals
 })
 export class PostBatchDFOProcessor extends WorkerHost {
   private readonly logger = new Logger(PostBatchDFOProcessor.name);
@@ -221,12 +222,13 @@ export class PostBatchDFOProcessor extends WorkerHost {
           // Use sequential posting method for vendor journals (chunked, sequential, no parallel)
           let postedLines: Array<{ headerId: string; lineNumber: number }>;
           if (strategy instanceof VendorJournalPostingStrategy) {
-            // Use the sequential postLinesForHeader method
+            // Use the sequential postLinesForHeader method with idempotency checks
             postedLines =
               await this.vendorInvoiceJournalService.postLinesForHeader(
                 headerKey,
                 preparedLines,
                 POSTING_CONFIG.LINE_CHUNK_SIZE,
+                company, // Pass dataAreaId for idempotency checks
               );
           } else {
             // Fallback to batch method for other strategies

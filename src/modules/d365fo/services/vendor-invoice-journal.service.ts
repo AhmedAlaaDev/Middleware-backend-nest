@@ -43,19 +43,41 @@ export class VendorInvoiceJournalService {
 
   /**
    * Post lines for a specific header (chunked, sequential, no parallel)
+   * Includes idempotency checks to avoid posting duplicate lines
    * @param headerKey JournalBatchNumber of the header
    * @param lines Array of line requests for this header
    * @param chunkSize Number of lines to post per chunk (default: 20)
+   * @param dataAreaId Company data area ID (required for idempotency checks)
    * @returns Array of successfully posted line identifiers
    */
   public async postLinesForHeader(
     headerKey: string,
     lines: D365FOVendorInvoiceJournalLineRequest[],
     chunkSize: number = 20,
+    dataAreaId?: string,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     this.logger.log(
       `[LINES] Posting ${lines.length} lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
+
+    // Check for existing lines to avoid duplicate posting (idempotency)
+    let existingLines: Set<number> = new Set();
+    if (dataAreaId && lines.length > 0) {
+      try {
+        const existing = await this.listLinesForHeader(headerKey, dataAreaId);
+        existingLines = new Set(existing.map((l) => l.LineNumber));
+        if (existingLines.size > 0) {
+          this.logger.log(
+            `[LINES] Found ${existingLines.size} existing lines for header ${headerKey}, will skip duplicates`,
+          );
+        }
+      } catch (error) {
+        // If query fails, log warning but continue (might be first time posting)
+        this.logger.warn(
+          `[LINES] Could not query existing lines for header ${headerKey}, proceeding without idempotency check: ${this.extractErrorDetails(error)}`,
+        );
+      }
+    }
 
     const successfullyPosted: Array<{
       headerId: string;
@@ -73,7 +95,20 @@ export class VendorInvoiceJournalService {
       );
 
       // Post lines sequentially within chunk (no parallel)
+      // Add small delay between line posts to allow D365FO internal processes to complete
       for (const line of chunk) {
+        // Skip if line already exists (idempotency check)
+        if (existingLines.has(line.LineNumber)) {
+          this.logger.debug(
+            `[LINES] Skipping line ${line.LineNumber} for header ${headerKey} - already exists`,
+          );
+          successfullyPosted.push({
+            headerId: headerKey,
+            lineNumber: line.LineNumber,
+          });
+          continue;
+        }
+
         try {
           await this.postLine(line);
           successfullyPosted.push({
@@ -83,6 +118,13 @@ export class VendorInvoiceJournalService {
           this.logger.debug(
             `[LINES] Posted line ${line.LineNumber} for header ${headerKey}`,
           );
+
+          // Add delay between line posts to allow D365FO internal processes (validation, workflow) to complete
+          // This reduces the chance of RecVersion conflicts
+          if (line !== chunk[chunk.length - 1]) {
+            // Don't delay after the last line in chunk
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
         } catch (error) {
           const errorDetails = this.extractErrorDetails(error);
           this.logger.error(
@@ -160,6 +202,7 @@ export class VendorInvoiceJournalService {
 
   /**
    * Post vendor invoice journal line to D365FO
+   * Includes retry logic with exponential backoff for concurrency conflicts
    */
   public async postLine(
     data: D365FOVendorInvoiceJournalLineRequest,
@@ -171,9 +214,30 @@ export class VendorInvoiceJournalService {
     // Remove FullPrimaryRemittanceAddress from line body before posting
     const { FullPrimaryRemittanceAddress, ...lineData } = data as any;
 
-    return this.d365foClient.post<any, any>(
-      '/data/VendInvoiceJournalLines',
-      lineData,
+    // Use retry service with custom condition for concurrency conflicts
+    return this.retryService.executeWithRetry(
+      async () => {
+        return await this.d365foClient.post<any, any>(
+          '/data/VendInvoiceJournalLines',
+          lineData,
+        );
+      },
+      {
+        retries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryCondition: (error: any) => {
+          // Retry on network errors, 5xx errors, or concurrency conflicts
+          if (!error.response) {
+            return true; // Network error
+          }
+          const status = error.response?.status;
+          if (status && status >= 500) {
+            return true; // Server error
+          }
+          return this.isConcurrencyConflict(error);
+        },
+      },
     );
   }
 

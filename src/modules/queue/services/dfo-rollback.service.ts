@@ -329,12 +329,49 @@ export class DfoRollbackService {
               failed.lineNumber,
             );
           }
+
+          // Wait for D365FO to process line deletions and update header state
+          // This reduces race conditions where header deletion is attempted before line deletions are fully processed
+          if (lineDeleteResult.successful.length > 0) {
+            this.logger.debug(
+              `[ROLLBACK] Waiting for D365FO to process ${lineDeleteResult.successful.length} line deletions for header ${header.headerKey}`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+
+          // Verify all lines are deleted before attempting header deletion
+          // This helps catch any lines that weren't properly deleted
+          try {
+            const remainingLinesAfterDeletion =
+              await strategy.listLinesForHeader(
+                header.headerKey,
+                header.dataAreaId,
+              );
+            if (remainingLinesAfterDeletion.length > 0) {
+              this.logger.warn(
+                `[ROLLBACK] Found ${remainingLinesAfterDeletion.length} remaining lines after deletion attempt for header ${header.headerKey}, will retry deletion`,
+              );
+              // Store these for retry in header deletion logic
+              existingLines = remainingLinesAfterDeletion;
+            } else {
+              this.logger.debug(
+                `[ROLLBACK] Verified all lines deleted for header ${header.headerKey}`,
+              );
+              existingLines = [];
+            }
+          } catch (queryError) {
+            this.logger.warn(
+              `[ROLLBACK] Could not verify line deletion for header ${header.headerKey}: ${queryError}`,
+            );
+            // Continue anyway - header deletion will retry if needed
+          }
         }
 
         // Step 3: Delete the header (with retry logic for dependent lines)
+        // Only attempt if we verified no lines exist, or if we have retries available
         let headerDeleted = false;
         let retryCount = 0;
-        const maxRetries = 2; // One initial attempt + up to 2 retries
+        const maxRetries = 3; // One initial attempt + up to 3 retries (increased for better reliability)
 
         while (!headerDeleted && retryCount <= maxRetries) {
           try {
@@ -403,8 +440,9 @@ export class DfoRollbackService {
                     );
                   }
 
-                  // Wait a bit before retrying header deletion
-                  await new Promise((resolve) => setTimeout(resolve, 500));
+                  // Wait longer before retrying header deletion to ensure D365FO has processed all deletions
+                  // Increased delay to allow D365FO internal processes to complete
+                  await new Promise((resolve) => setTimeout(resolve, 1500));
                 } else {
                   this.logger.debug(
                     `[ROLLBACK] No remaining lines found for header ${header.headerKey}`,
