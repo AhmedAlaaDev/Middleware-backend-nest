@@ -599,7 +599,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
       LineNumber: lineNumber,
-      LINENUMBER: lineNumber.toString(),
       ACCOUNTTYPE: line.ACCOUNTTYPE,
       ACCOUNTDISPLAYVALUE: line.ACCOUNTDISPLAYVALUE,
       DEFAULTDIMENSIONDISPLAYVALUE: line.DEFAULTDIMENSIONDISPLAYVALUE,
