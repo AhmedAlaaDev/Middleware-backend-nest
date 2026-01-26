@@ -81,10 +81,15 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     this.logInitialStats(rawCount, filteredLines.length);
 
     // STEP 2: Sort by month and invoice
-    this.vendorLogger.debug(`[STEP 2] Sorting ${filteredLines.length} lines`);
     const sortedLines = this.sortLinesByLineNumber(filteredLines);
+    this.vendorLogger.debug(
+      `Sorted ${sortedLines.length} lines by line number`,
+    );
 
     // STEP 3: Build month → invoice map
+    this.vendorLogger.debug(
+      `[STEP 3] Building voucher map from ${sortedLines.length} lines`,
+    );
     const monthVoucherMap = this.buildVoucherMap(sortedLines);
     const monthCount = monthVoucherMap.size;
     const voucherCount = Array.from(monthVoucherMap.values()).reduce(
@@ -92,7 +97,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       0,
     );
     this.vendorLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
+      `[STEP 3] Grouped into ${monthCount} months and ${voucherCount} vouchers`,
     );
 
     // STEP 4: Initialize batch processing
@@ -104,6 +109,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     let currentBatchMonth: string | null = null;
     let currentHeader: IVendorFreightAdjustmentDFOHeader | null = null;
     let batchCount = 0;
+    let lineNumber = 1;
     this.vendorLogger.debug(
       `[STEP 4] Starting with batch number: ${journalBatchNum}, voucher number: ${voucherNum}`,
     );
@@ -129,17 +135,14 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
             journalBatchNum++;
             this.flushBatch(currentHeader!, currentBatchLines, eData);
             batchCount++;
+            lineNumber = 1;
             this.vendorLogger.debug(
               `[BATCH] Flushed batch ${journalBatchNum - 1} with ${currentBatchLines.length} lines`,
             );
           }
 
           currentBatchMonth = monthKey;
-          currentHeader = this.startNewBatch(
-            monthKey,
-            headerLine,
-            journalBatchNum,
-          );
+          currentHeader = this.startNewBatch(headerLine, journalBatchNum);
           currentBatchLines = [];
           this.vendorLogger.debug(
             `[BATCH] Started new batch ${journalBatchNum} for month: ${monthKey}`,
@@ -166,6 +169,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
           exchangeRate,
           reportingRate,
           voucher,
+          () => lineNumber++,
         );
 
         currentBatchLines.push(...invoiceLineObjects);
@@ -395,7 +399,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
   }
 
   private startNewBatch(
-    monthKey: string,
     headerLine: VendorFreightAdjustmentRawData,
     journalBatchNum: number,
   ): IVendorFreightAdjustmentDFOHeader {
@@ -419,15 +422,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       return;
     }
 
-    header.JOURNALTOTALCREDIT = batchLines.reduce(
-      (sum, l) => sum + (l.CREDIT ?? 0),
-      0,
-    );
-    header.JOURNALTOTALDEBIT = batchLines.reduce(
-      (sum, l) => sum + (l.DEBIT ?? 0),
-      0,
-    );
-
     eData.push(...batchLines);
   }
 
@@ -438,6 +432,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     exchangeRate: number,
     reportingRate: number,
     voucher: number,
+    lineNumber: () => number,
   ): Promise<IVendorFreightAdjustmentDFOLine[]> {
     const lineObjects: IVendorFreightAdjustmentDFOLine[] = [];
 
@@ -450,6 +445,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
         reportingRate,
         line.UniqueId.toString(),
         voucher,
+        lineNumber(),
       );
       lineObjects.push(obj);
     }
@@ -466,11 +462,15 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     const dateString = headerLine.TRANSDATE;
     const currency = headerLine.CURRENCYCODE;
 
-    const exchangeRate = await this.getExchangeRate(currency, dateString, true);
+    const exchangeRate = await this.getExchangeRate(
+      currency,
+      dateString,
+      'EGP',
+    );
     const reportingRate = await this.getExchangeRate(
       currency,
       dateString,
-      false,
+      'USD',
     );
 
     return { exchangeRate, reportingRate };
@@ -531,9 +531,9 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
   private async getExchangeRate(
     currency: string,
     date: string,
-    toEgp: boolean,
+    toCurrency: 'EGP' | 'USD',
   ) {
-    if (currency === 'EGP') return 1;
+    if (currency === toCurrency) return 100;
 
     const dateRange = getMonthRange(date);
 
@@ -546,7 +546,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
           {
             rateTypeName: 'default',
             fromCurrency: currency,
-            toCurrency: 'EGP',
+            toCurrency,
             fromDate,
             toDate,
           },
@@ -556,7 +556,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       )
     )?.items?.[0]?.rate;
 
-    return toEgp ? (rate ?? 1) : 1 / (rate ?? 1);
+    return rate ?? 100;
   }
 
   private async buildLine(
@@ -567,6 +567,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     uniqueId: string,
     voucherNum: number,
+    lineNumber: number,
   ): Promise<IVendorFreightAdjustmentDFOLine> {
     const dimensionModel = this.parseToDimensions(
       line.ISLEDGER
@@ -574,7 +575,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
-    const { taxNumber, termsOfPayment } = line.ISVENDOR
+    const { taxNumber: _tax, termsOfPayment } = line.ISVENDOR
       ? await this.getVendorTaxNumberAndTermsOfPayment(
           company,
           line.ACCOUNTDISPLAYVALUE,
@@ -589,7 +590,8 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     return new IVendorFreightAdjustmentDFOLine({
       header,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
-      LineNumber: line.LINENUMBER,
+      LineNumber: lineNumber,
+      LINENUMBER: lineNumber.toString(),
       ACCOUNTTYPE: line.ACCOUNTTYPE,
       ACCOUNTDISPLAYVALUE: line.ACCOUNTDISPLAYVALUE,
       DEFAULTDIMENSIONDISPLAYVALUE: line.DEFAULTDIMENSIONDISPLAYVALUE,
@@ -603,7 +605,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       DOCUMENT: line.DOCUMENT,
       DUEDATE: line.DUEDATE,
       EXCHRATE: exchangeRate,
-      EXCHRATESECOND: 1,
+      EXCHRATESECOND: 0,
       FINTAGDISPLAYVALUE: line.FINTAGDISPLAYVALUE,
       INVOICE: line.INVOICE,
       INVOICEDATE: line.DOCUMENTDATE,
@@ -625,7 +627,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       POSTINGPROFILE: line.POSTINGPROFILE,
       REPORTINGCURRENCYEXCHRATE: reportingRate,
       SALESTAXGROUP: line.SALESTAXGROUP || '',
-      TAXEXEMPTNUMBER: taxNumber,
+      TAXEXEMPTNUMBER: '',
       TERMSOFPAYMENT: termsOfPayment,
       TRANSACTIONTYPE: normalizedTransactionType,
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),

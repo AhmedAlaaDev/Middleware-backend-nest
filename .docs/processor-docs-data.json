@@ -1,0 +1,188 @@
+{
+  "closing": {
+    "title": "Closing Entry Processors",
+    "description": "D365FO Middleware - Technical Documentation",
+    "overview": "The Closing Entry Processors are responsible for transforming raw Excel/file data into structured D365 Finance & Operations (D365FO) general journal entries for month-end closing. These processors handle the complete lifecycle of data processing including data mapping, financial dimension parsing and validation, exchange rate calculations, and journal entry creation in D365FO.",
+    "processors": [
+      {
+        "name": "FreightClosingEntryProcessor",
+        "serviceType": "Freight",
+        "journalName": "GL-Freight",
+        "entryProcessorType": "LedgerFreightClosingEntry",
+        "canInsertToD365": true,
+        "description": "Closing Entry January 2026 (Forwarding - {costCenterName})"
+      },
+      {
+        "name": "TruckingClosingEntryProcessor",
+        "serviceType": "Trucking",
+        "journalName": "GL-Fleet",
+        "entryProcessorType": "LedgerTruckingClosingEntry",
+        "canInsertToD365": true,
+        "description": "Closing Entry January 2026 (Forwarding - {costCenterName})"
+      }
+    ],
+    "requiredDimensions": {
+      "common": [
+        "MainAccount",
+        "Activity",
+        "CostCenters",
+        "BusinessUnit",
+        "Location",
+        "Customer",
+        "SubCustomer",
+        "ChargeType",
+        "SalesMan",
+        "CoordinatorMan",
+        "FreightType",
+        "Direction",
+        "Vendor",
+        "SubVendor",
+        "Worker"
+      ],
+      "truckingOnly": [
+        "TruckerType",
+        "TruckNumber"
+      ]
+    },
+    "inputColumns": [
+      {"name": "LINENUMBER", "type": "Number", "required": false, "description": "Line sequence number for ordering"},
+      {"name": "JOURNALBATCHNUMBER", "type": "String", "required": false, "description": "Journal batch identifier"},
+      {"name": "JOURNALNAME", "type": "String", "required": false, "description": "Journal name"},
+      {"name": "VOUCHER", "type": "String", "required": true, "description": "Voucher number for grouping lines"},
+      {"name": "TRANSDATE", "type": "Date", "required": true, "description": "Transaction date"},
+      {"name": "ACCOUNTTYPE", "type": "String", "required": true, "description": "Account type (Ledger, Vend, etc.)"},
+      {"name": "ACCOUNTDISPLAYVALUE", "type": "String", "required": true, "description": "Pipe-separated dimension string"},
+      {"name": "DEFAULTDIMENSIONDISPLAYVALUE", "type": "String", "required": false, "description": "Header default dimension display value"},
+      {"name": "FINTAGDISPLAYVALUE", "type": "String", "required": false, "description": "Financial tag display value"},
+      {"name": "TEXT", "type": "String", "required": false, "description": "Line description/text"},
+      {"name": "DEBITAMOUNT", "type": "Number", "required": true, "description": "Debit amount"},
+      {"name": "CREDITAMOUNT", "type": "Number", "required": true, "description": "Credit amount"},
+      {"name": "CURRENCYCODE", "type": "String", "required": true, "description": "Currency code (e.g., USD, EUR, EGP)"},
+      {"name": "SALESTAXGROUP", "type": "String", "required": false, "description": "Sales tax group code"},
+      {"name": "ITEMSALESTAXGROUP", "type": "String", "required": false, "description": "Item sales tax group code"},
+      {"name": "DOCUMENT", "type": "String", "required": false, "description": "Document reference number"},
+      {"name": "DUEDATE", "type": "Date", "required": false, "description": "Payment due date"},
+      {"name": "INVOICE", "type": "String", "required": false, "description": "Invoice number"},
+      {"name": "OFFSETACCOUNTTYPE", "type": "String", "required": false, "description": "Offset account type"},
+      {"name": "OFFSETACCOUNTDISPLAYVALUE", "type": "String", "required": false, "description": "Offset account display value"},
+      {"name": "OFFSETDEFAULTDIMENSIONDISPLAYVALUE", "type": "String", "required": false, "description": "Offset default dimension display value"},
+      {"name": "POSTINGPROFILE", "type": "String", "required": false, "description": "Posting profile"},
+      {"name": "POSTINGLAYER", "type": "String", "required": false, "description": "Posting layer"},
+      {"name": "ISPOSTED", "type": "String", "required": false, "description": "Is posted flag"}
+    ]
+  },
+  "vendor": {
+    "title": "Vendor (AP) Processors",
+    "description": "D365FO Middleware - Technical Documentation",
+    "overview": "The Vendor (Accounts Payable) Processors are responsible for transforming raw Excel/file data into structured D365 Finance & Operations (D365FO) vendor invoice journal entries. These processors handle the complete lifecycle of data processing including data mapping and enrichment, financial dimension parsing and validation, exchange rate calculations, custody account filtering, and journal entry creation in D365FO.",
+    "processors": [
+      {
+        "name": "VendorFreightEntryProcessor",
+        "serviceType": "Freight",
+        "journalName": "Varies by input",
+        "entryProcessorType": "VendorFreight",
+        "canInsertToD365": false,
+        "description": "Vendor Invoice Freight {monthYear}",
+        "batchDescription": "Vendor Invoice Freight"
+      },
+      {
+        "name": "VendorFreightAdjustmentEntryProcessor",
+        "serviceType": "Freight",
+        "journalName": "Varies by input",
+        "entryProcessorType": "VendorFreightAdjustment",
+        "canInsertToD365": false,
+        "description": "Vendor Invoice Freight Adjustment {monthYear}",
+        "batchDescription": "Vendor Invoice Freight Adjustment"
+      },
+      {
+        "name": "VendorTruckingEntryProcessor",
+        "serviceType": "Trucking",
+        "journalName": "Varies by input",
+        "entryProcessorType": "VendorTrucking",
+        "canInsertToD365": false,
+        "description": "Vendor Invoice Fleet {monthYear}",
+        "batchDescription": "Vendor Invoice Fleet"
+      },
+      {
+        "name": "VendorTruckingAdjustmentEntryProcessor",
+        "serviceType": "Trucking",
+        "journalName": "Varies by input",
+        "entryProcessorType": "VendorTruckingAdjustment",
+        "canInsertToD365": false,
+        "description": "Vendor Invoice Fleet Adjustment {monthYear}",
+        "batchDescription": "Vendor Invoice Fleet Adjustment"
+      }
+    ],
+    "requiredDimensions": {
+      "freight": [
+        "MainAccount",
+        "Activity",
+        "CostCenters",
+        "BusinessUnit",
+        "Location",
+        "ChargeType",
+        "SalesMan",
+        "FreightType",
+        "CoordinatorMan",
+        "Direction",
+        "Vendor",
+        "SubVendor"
+      ],
+      "trucking": [
+        "MainAccount",
+        "Activity",
+        "CostCenters",
+        "BusinessUnit",
+        "Location",
+        "ChargeType",
+        "SalesMan",
+        "CoordinatorMan",
+        "FreightType",
+        "Direction",
+        "TruckerType",
+        "TruckNumber",
+        "Vendor",
+        "SubVendor",
+        "Worker"
+      ]
+    },
+    "inputColumns": [
+      {"name": "LINENUMBER", "type": "Number", "required": true, "description": "Line sequence number for ordering"},
+      {"name": "JOURNALBATCHNUMBER", "type": "String", "required": false, "description": "Journal batch identifier"},
+      {"name": "JOURNALNAME", "type": "String", "required": false, "description": "Journal name"},
+      {"name": "VOUCHER", "type": "String", "required": true, "description": "Voucher number for grouping lines"},
+      {"name": "TRANSDATE", "type": "Date", "required": true, "description": "Transaction date"},
+      {"name": "ACCOUNTTYPE", "type": "String", "required": true, "description": "Either 'Ledger' or 'Vend'"},
+      {"name": "ACCOUNTDISPLAYVALUE", "type": "String", "required": true, "description": "Pipe-separated dimension string or vendor account number"},
+      {"name": "DEFAULTDIMENSIONDISPLAYVALUE", "type": "String", "required": false, "description": "Header default dimension display value"},
+      {"name": "FINTAGDISPLAYVALUE", "type": "String", "required": false, "description": "Financial tag display value"},
+      {"name": "TEXT", "type": "String", "required": false, "description": "Line description/text"},
+      {"name": "DEBITAMOUNT", "type": "Number", "required": true, "description": "Debit amount"},
+      {"name": "CREDITAMOUNT", "type": "Number", "required": true, "description": "Credit amount"},
+      {"name": "CURRENCYCODE", "type": "String", "required": true, "description": "Currency code (e.g., USD, EUR, EGP)"},
+      {"name": "SALESTAXGROUP", "type": "String", "required": false, "description": "Sales tax group code"},
+      {"name": "ITEMSALESTAXGROUP", "type": "String", "required": false, "description": "Item sales tax group code"},
+      {"name": "ITEMWITHHOLDINGTAXGROUPCODE", "type": "String", "required": false, "description": "Item withholding tax group code"},
+      {"name": "DOCUMENT", "type": "Number", "required": false, "description": "Document reference number"},
+      {"name": "DOCUMENTDATE", "type": "Date", "required": false, "description": "Document date"},
+      {"name": "DUEDATE", "type": "Date", "required": false, "description": "Payment due date"},
+      {"name": "INVOICE", "type": "String", "required": true, "description": "Invoice number for grouping"},
+      {"name": "PAYMENTMETHOD", "type": "String", "required": false, "description": "Payment method"},
+      {"name": "POSTINGPROFILE", "type": "String", "required": false, "description": "Posting profile"},
+      {"name": "POSTINGLAYER", "type": "String", "required": false, "description": "Posting layer"},
+      {"name": "ISPOSTED", "type": "Boolean", "required": false, "description": "Is posted flag"},
+      {"name": "ISWITHHOLDINGCALCULATIONENABLED", "type": "Boolean", "required": false, "description": "Withholding tax calculation enabled"},
+      {"name": "OVERRIDESALESTAX", "type": "String", "required": false, "description": "Override sales tax flag"},
+      {"name": "OFFSETACCOUNTTYPE", "type": "String", "required": false, "description": "Offset account type"},
+      {"name": "OFFSETACCOUNTDISPLAYVALUE", "type": "String", "required": false, "description": "Offset account display value"},
+      {"name": "OFFSETDEFAULTDIMENSIONDISPLAYVALUE", "type": "String", "required": false, "description": "Offset default dimension display value"},
+      {"name": "OFFSETTEXT", "type": "String", "required": false, "description": "Offset transaction text"}
+    ],
+    "specialBehaviors": {
+      "custodyFiltering": "Lines with vendor account numbers in the 'Custody' vendor group are excluded from processing (except for Ledger lines).",
+      "batchProcessing": "Entries are grouped by month and voucher. New batches are created when the month changes or when the batch would exceed 1000 lines.",
+      "exchangeRates": "Exchange rates are calculated per invoice header: monthly rate to EGP and reporting rate to USD based on transaction date.",
+      "vendorLookup": "For vendor lines, the processor looks up vendor tax number and terms of payment from D365FO master data."
+    }
+  }
+}
