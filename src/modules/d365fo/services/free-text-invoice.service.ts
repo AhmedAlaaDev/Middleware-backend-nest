@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import {
@@ -18,6 +19,7 @@ export class FreeTextInvoiceService {
   constructor(
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
+    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   /**
@@ -94,8 +96,25 @@ export class FreeTextInvoiceService {
   }
 
   /**
+   * Post lines for a specific header. Sets ParentRecId on each line inside this service (request shaping).
+   * Callers pass lines without ParentRecId; this method attaches the header key.
+   */
+  public async postLinesForHeader(
+    headerKey: string,
+    lines: D365FOFreeTextInvoiceLineRequest[],
+    dataAreaId: string,
+    chunkSize: number = 20,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const shapedLines = lines.map((line) => ({
+      ...line,
+      ParentRecId: parseInt(headerKey, 10),
+    }));
+    return this.postLinesBatch(shapedLines, chunkSize);
+  }
+
+  /**
    * Post multiple free text invoice lines in chunks
-   * @param lines Array of line requests
+   * @param lines Array of line requests (must already have ParentRecId set)
    * @param chunkSize Number of lines to post per chunk (default: 20)
    * @returns Array of successfully posted line identifiers
    * @throws Error if any line fails - caller should rollback headers and successfully posted lines
@@ -140,9 +159,8 @@ export class FreeTextInvoiceService {
           `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
         );
       } catch (error) {
-        const errorDetails = this.extractErrorDetails(error);
+        const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
-        // Log full error response for debugging
         if (error?.response?.data) {
           this.logger.error(
             `D365FO error response: ${JSON.stringify(error.response.data)}`,
@@ -154,7 +172,6 @@ export class FreeTextInvoiceService {
           error instanceof Error ? error.stack : undefined,
         );
 
-        // Build error message based on what was actually posted
         let errorMessage = `Failed to post lines in chunk ${chunkNumber}: ${errorDetails}`;
 
         if (successfullyPosted.length > 0) {
@@ -179,62 +196,6 @@ export class FreeTextInvoiceService {
     );
 
     return successfullyPosted;
-  }
-
-  /**
-   * Extracts detailed error message from D365FO API error response
-   */
-  private extractErrorDetails(error: any): string {
-    // Check for D365FO OData error format
-    if (error?.response?.data?.error) {
-      const d365foError = error.response.data.error;
-
-      // OData error format: { code: "...", message: "...", innererror: { message: "..." } }
-      if (typeof d365foError === 'object') {
-        // Prioritize innererror.message as it contains the detailed error message
-        const innerErrorMessage = d365foError.innererror?.message;
-        const genericMessage = d365foError.message;
-        const code = d365foError.code;
-
-        // Use innererror message if available (more detailed), otherwise fallback to generic message
-        const message = innerErrorMessage || genericMessage || d365foError.code;
-
-        if (message) {
-          return code ? `[${code}] ${message}` : message;
-        }
-
-        // If message is not directly available, try to stringify the error object
-        try {
-          return JSON.stringify(d365foError);
-        } catch {
-          return String(d365foError);
-        }
-      }
-
-      // If error is a string
-      if (typeof d365foError === 'string') {
-        return d365foError;
-      }
-    }
-
-    // Fallback to standard error message extraction
-    if (error?.response?.data?.error_description) {
-      return error.response.data.error_description;
-    }
-
-    if (error?.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error?.message) {
-      return error.message;
-    }
-
-    if (error?.response?.statusText) {
-      return `HTTP ${error.response.status}: ${error.response.statusText}`;
-    }
-
-    return String(error);
   }
 
   /**
@@ -341,8 +302,7 @@ export class FreeTextInvoiceService {
             success: true,
           };
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
           );
@@ -412,7 +372,7 @@ export class FreeTextInvoiceService {
 
       return lines;
     } catch (error) {
-      const errorDetails = this.extractErrorDetails(error);
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
       this.logger.error(
         `[QUERY] Failed to query lines for invoice ${headerKey}: ${errorDetails}`,
       );

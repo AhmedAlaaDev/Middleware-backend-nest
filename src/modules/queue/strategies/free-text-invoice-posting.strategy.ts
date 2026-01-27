@@ -6,6 +6,7 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import {
   D365FOFreeTextInvoiceHeaderRequest,
@@ -21,6 +22,7 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
 
   constructor(
     private readonly freeTextInvoiceService: FreeTextInvoiceService,
+    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async postHeadersInBatches(
@@ -50,6 +52,21 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
     const typedLines = lines as D365FOFreeTextInvoiceLineRequest[];
     return await this.freeTextInvoiceService.postLinesBatch(
       typedLines,
+      chunkSize,
+    );
+  }
+
+  public async postLinesForHeader(
+    headerKey: string,
+    lines: unknown[],
+    dataAreaId: string,
+    chunkSize: number = 20,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const typedLines = lines as D365FOFreeTextInvoiceLineRequest[];
+    return this.freeTextInvoiceService.postLinesForHeader(
+      headerKey,
+      typedLines,
+      dataAreaId,
       chunkSize,
     );
   }
@@ -91,8 +108,7 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
           );
@@ -118,34 +134,6 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
       throw new Error('InvoiceIdentifier not found in response');
     }
     return String(typedResponse.InvoiceIdentifier);
-  }
-
-  public prepareLinesForPosting(
-    lines: unknown[],
-    headerIds: string[],
-    groupedData: unknown[],
-  ): unknown[] {
-    const typedGroupedData = groupedData as Array<{
-      header: D365FOFreeTextInvoiceHeaderRequest;
-      lines: D365FOFreeTextInvoiceLineRequest[];
-    }>;
-
-    const allLines: D365FOFreeTextInvoiceLineRequest[] = [];
-
-    for (let i = 0; i < typedGroupedData.length; i++) {
-      const invoice = typedGroupedData[i];
-      const headerId = headerIds[i];
-
-      // Update ParentRecId for all lines in this invoice
-      const linesWithParentId = invoice.lines.map((line) => ({
-        ...line,
-        ParentRecId: parseInt(headerId, 10),
-      }));
-
-      allLines.push(...linesWithParentId);
-    }
-
-    return allLines;
   }
 
   public async listLinesForHeader(

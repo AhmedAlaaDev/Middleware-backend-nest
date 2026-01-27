@@ -1,8 +1,10 @@
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { IDfoPostingStrategy } from '../strategies/dfo-posting-strategy.interface';
 
 import { PostingErrorCollector } from './posting-error-collector.service';
+
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 
 /**
  * Result of rollback operation
@@ -30,8 +32,11 @@ export interface CreatedHeader {
  * Service for handling rollback operations when posting fails
  * Handles deletion of headers and lines in chunks
  */
+@Injectable()
 export class DfoRollbackService {
   private readonly logger = new Logger(DfoRollbackService.name);
+
+  constructor(private readonly dfoErrorExtractor: DfoErrorExtractorService) {}
 
   /**
    * Rollback headers by deleting them in chunks
@@ -79,8 +84,7 @@ export class DfoRollbackService {
           await strategy.deleteHeader(headerId, dataAreaId);
           successfullyDeleted.push(headerId);
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `[ROLLBACK] Failed to delete header ${headerId}: ${errorMessage}`,
           );
@@ -288,8 +292,7 @@ export class DfoRollbackService {
             `[ROLLBACK] Found ${existingLines.length} lines for header ${header.headerKey}`,
           );
         } catch (error) {
-          const errorDetails =
-            error instanceof Error ? error.message : String(error);
+          const errorDetails = this.dfoErrorExtractor.extractMessage(error);
           this.logger.warn(
             `[ROLLBACK] Failed to query lines for header ${header.headerKey}: ${errorDetails}. Proceeding with deletion attempt.`,
           );
@@ -382,16 +385,10 @@ export class DfoRollbackService {
               `[ROLLBACK] Successfully deleted header ${header.headerKey}`,
             );
           } catch (error: any) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            const innerErrorMessage =
-              error?.response?.data?.error?.innererror?.message?.toLowerCase() ||
-              '';
+            const errorMessage = this.dfoErrorExtractor.extractMessage(error);
             const isDependentLinesError =
-              innerErrorMessage.includes('dependent journal lines exist') ||
-              innerErrorMessage.includes(
-                'ledger journal table cannot be deleted',
-              );
+              this.dfoErrorExtractor.normalize(error).isDependentLinesError ===
+              true;
 
             if (isDependentLinesError && retryCount < maxRetries) {
               retryCount++;
@@ -469,8 +466,7 @@ export class DfoRollbackService {
           }
         }
       } catch (error) {
-        const errorDetails =
-          error instanceof Error ? error.message : String(error);
+        const errorDetails = this.dfoErrorExtractor.extractMessage(error);
         this.logger.error(
           `[ROLLBACK] Unexpected error while rolling back header ${header.headerKey}: ${errorDetails}`,
           error instanceof Error ? error.stack : undefined,

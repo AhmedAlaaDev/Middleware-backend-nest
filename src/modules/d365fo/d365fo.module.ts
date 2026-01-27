@@ -6,8 +6,10 @@ import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoi
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
 import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
+import { FreeTextInvoiceFinTagService } from '@/modules/d365fo/services/free-text-invoice-fin-tag.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { LedgerService } from '@/modules/d365fo/services/ledger.service';
@@ -20,6 +22,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
   providers: [
     D365FOAuthService,
     D365FOClientService,
+    DfoErrorExtractorService,
     ODataQueryBuilderService,
     BillingService,
     CustomerService,
@@ -27,6 +30,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     DimensionService,
     ExchangeRateService,
     FreeTextInvoiceService,
+    FreeTextInvoiceFinTagService,
     GeneralJournalService,
     ChartOfAccountsService,
     VendorService,
@@ -37,6 +41,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
   exports: [
     D365FOAuthService,
     D365FOClientService,
+    DfoErrorExtractorService,
     ODataQueryBuilderService,
     BillingService,
     CustomerService,
@@ -44,6 +49,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     DimensionService,
     ExchangeRateService,
     FreeTextInvoiceService,
+    FreeTextInvoiceFinTagService,
     GeneralJournalService,
     ChartOfAccountsService,
     VendorService,

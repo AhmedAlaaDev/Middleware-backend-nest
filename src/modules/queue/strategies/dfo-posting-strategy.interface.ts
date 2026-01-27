@@ -43,6 +43,20 @@ export interface IDfoPostingStrategy {
   ): Promise<Array<{ headerId: string; lineNumber: number }>>;
 
   /**
+   * Post lines for a specific header. Strategy only forwards to service; line attachment lives in D365FO service.
+   * @param headerKey The header identifier (e.g. JournalBatchNumber or InvoiceIdentifier)
+   * @param lines Array of line requests (without header key attached)
+   * @param dataAreaId The company data area ID
+   * @param chunkSize Number of lines to post per chunk (default: 20)
+   */
+  postLinesForHeader(
+    headerKey: string,
+    lines: unknown[],
+    dataAreaId: string,
+    chunkSize?: number,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>>;
+
+  /**
    * Delete a header by its ID
    * @param headerId The header identifier
    * @param dataAreaId The company data area ID
@@ -68,19 +82,6 @@ export interface IDfoPostingStrategy {
    * @returns The header identifier as a string
    */
   extractHeaderIdFromResponse(response: unknown): string;
-
-  /**
-   * Prepare lines for posting by updating them with header IDs
-   * @param lines Array of line requests
-   * @param headerIds Array of header IDs (should match the order of headers)
-   * @param groupedData Original grouped data structure
-   * @returns Array of prepared line requests
-   */
-  prepareLinesForPosting(
-    lines: unknown[],
-    headerIds: string[],
-    groupedData: unknown[],
-  ): unknown[];
 
   /**
    * Query and list all lines for a specific header from D365FO

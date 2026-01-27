@@ -11,8 +11,10 @@ export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
   constructor(
-    @InjectQueue(QUEUES.DFO)
-    private readonly dfoQueue: Queue,
+    @InjectQueue(QUEUES.DFO_FREE_TEXT_INVOICE)
+    private readonly dfoFreeTextInvoiceQueue: Queue,
+    @InjectQueue(QUEUES.DFO_VENDOR_JOURNAL)
+    private readonly dfoVendorJournalQueue: Queue,
     @InjectQueue(QUEUES.MASTER_DATA_SYNC)
     private readonly masterDataSyncQueue: Queue,
   ) {}
@@ -20,8 +22,10 @@ export class QueueService {
   /** 🧠 Helper to return the Queue instance dynamically */
   private getQueue(queueName: QueueName): Queue {
     switch (queueName) {
-      case QUEUES.DFO:
-        return this.dfoQueue;
+      case QUEUES.DFO_FREE_TEXT_INVOICE:
+        return this.dfoFreeTextInvoiceQueue;
+      case QUEUES.DFO_VENDOR_JOURNAL:
+        return this.dfoVendorJournalQueue;
       case QUEUES.MASTER_DATA_SYNC:
         return this.masterDataSyncQueue;
       default:
@@ -39,7 +43,9 @@ export class QueueService {
     const queue = this.getQueue(queueName);
     const job = await queue.add(jobName, data, options);
 
-    this.logger.log(`[QUEUE] Added job ${job.id} (${jobName}) to queue ${queueName}`);
+    this.logger.log(
+      `[QUEUE] Added job ${job.id} (${jobName}) to queue ${queueName}`,
+    );
     return job;
   }
 

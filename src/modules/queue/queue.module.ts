@@ -8,16 +8,23 @@ import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
-import { PostBatchDFOProcessor } from '@/modules/queue/processors/post-batch-dfo.processor';
+import { PostFreeTextInvoiceDFOProcessor } from '@/modules/queue/processors/post-free-text-invoice-dfo.processor';
+import { PostVendorJournalDFOProcessor } from '@/modules/queue/processors/post-vendor-journal-dfo.processor';
+import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
 import { QueueService } from '@/modules/queue/services/queue.service';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
 import { VendorJournalPostingStrategy } from '@/modules/queue/strategies/vendor-journal-posting.strategy';
 
-const processors = [PostBatchDFOProcessor, MasterDataSyncProcessor];
+const processors = [
+  PostFreeTextInvoiceDFOProcessor,
+  PostVendorJournalDFOProcessor,
+  MasterDataSyncProcessor,
+];
 const strategies = [
   FreeTextInvoicePostingStrategy,
   VendorJournalPostingStrategy,
 ];
+const queueServices = [DfoRollbackService, QueueService];
 
 @Global()
 @Module({
@@ -54,7 +61,7 @@ const strategies = [
       ...Object.values(QUEUES).map((queue) => ({ name: queue })),
     ),
   ],
-  providers: [...processors, ...strategies, QueueService],
+  providers: [...processors, ...strategies, ...queueServices],
   exports: [QueueService],
 })
 export class QueueModule {}

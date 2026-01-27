@@ -151,10 +151,14 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   ): Array<{
     header: D365FOFreeTextInvoiceHeaderRequest;
     lines: D365FOFreeTextInvoiceLineRequest[];
+    HeaderDefaultDimensionDisplayValue: string;
+    LineFinTagDisplayValues: string[];
   }> {
     const groupedInvoices: Array<{
       header: D365FOFreeTextInvoiceHeaderRequest;
       lines: D365FOFreeTextInvoiceLineRequest[];
+      HeaderDefaultDimensionDisplayValue: string;
+      LineFinTagDisplayValues: string[];
     }> = [];
 
     for (const [_freeTextNumber, lines] of invoiceGroups.entries()) {
@@ -162,8 +166,18 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
 
       const header = this.mapHeaderFromLine(lines[0].data, company);
       const mappedLines = this.mapLines(lines, company);
+      const headerDefaultDimensionDisplayValue =
+        lines[0].data.HeaderDefaultDimensionDisplayValue;
+      const lineFinTagDisplayValues = lines.map(
+        (line) => line.data.LineFinTagDisplayValue || '',
+      );
 
-      groupedInvoices.push({ header, lines: mappedLines });
+      groupedInvoices.push({
+        header,
+        lines: mappedLines,
+        HeaderDefaultDimensionDisplayValue: headerDefaultDimensionDisplayValue,
+        LineFinTagDisplayValues: lineFinTagDisplayValues,
+      });
     }
 
     return groupedInvoices;
@@ -243,6 +257,8 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     groupedInvoices: Array<{
       header: D365FOFreeTextInvoiceHeaderRequest;
       lines: D365FOFreeTextInvoiceLineRequest[];
+      HeaderDefaultDimensionDisplayValue: string;
+      LineFinTagDisplayValues: string[];
     }>,
   ): void {
     const validationErrors: Array<{
@@ -411,15 +427,18 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     groupedInvoices: Array<{
       header: D365FOFreeTextInvoiceHeaderRequest;
       lines: D365FOFreeTextInvoiceLineRequest[];
+      HeaderDefaultDimensionDisplayValue: string;
+      LineFinTagDisplayValues: string[];
     }>,
   ): Promise<PostARBatchToDFOResult> {
     const job = await this.queueService.addJob(
-      QUEUES.DFO,
-      'post-ar-batch-to-dfo',
+      QUEUES.DFO_FREE_TEXT_INVOICE,
+      'post-free-text-invoice-batch-to-dfo',
       {
         batchId,
         company,
         groupedInvoices,
+        sourceModule: 'AR',
       },
     );
 

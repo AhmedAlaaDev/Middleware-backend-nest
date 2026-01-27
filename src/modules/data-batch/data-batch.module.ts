@@ -8,7 +8,6 @@ import {
   DeleteBatchHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
-  PostBatchInDFOHandler,
 } from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
 import {
@@ -44,7 +43,6 @@ import { ExcelModule } from '@/modules/excel/excel.module';
 const CommandHandlers = [
   AddDfoIdsHandler,
   CreateDataBatchHandler,
-  PostBatchInDFOHandler,
   DeleteBatchHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,

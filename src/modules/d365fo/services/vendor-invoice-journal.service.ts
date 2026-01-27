@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from './d365fo-client.service';
+import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import {
@@ -21,6 +22,7 @@ export class VendorInvoiceJournalService {
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
     private readonly retryService: RetryService,
+    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   /**
@@ -56,13 +58,22 @@ export class VendorInvoiceJournalService {
     chunkSize: number = 20,
     dataAreaId?: string,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    // Line attachment / request shaping: set JournalBatchNumber, strip FullPrimaryRemittanceAddress (D365FO services only)
+    const shapedLines = lines.map((line) => {
+      const { FullPrimaryRemittanceAddress, ...rest } = line as any;
+      return {
+        ...rest,
+        JournalBatchNumber: headerKey,
+      } as D365FOVendorInvoiceJournalLineRequest;
+    });
+
     this.logger.log(
-      `[LINES] Posting ${lines.length} lines for header ${headerKey} in chunks of ${chunkSize}`,
+      `[LINES] Posting ${shapedLines.length} lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
     // Check for existing lines to avoid duplicate posting (idempotency)
     let existingLines: Set<number> = new Set();
-    if (dataAreaId && lines.length > 0) {
+    if (dataAreaId && shapedLines.length > 0) {
       try {
         const existing = await this.listLinesForHeader(headerKey, dataAreaId);
         existingLines = new Set(existing.map((l) => l.LineNumber));
@@ -74,7 +85,7 @@ export class VendorInvoiceJournalService {
       } catch (error) {
         // If query fails, log warning but continue (might be first time posting)
         this.logger.warn(
-          `[LINES] Could not query existing lines for header ${headerKey}, proceeding without idempotency check: ${this.extractErrorDetails(error)}`,
+          `[LINES] Could not query existing lines for header ${headerKey}, proceeding without idempotency check: ${this.dfoErrorExtractor.extractMessage(error)}`,
         );
       }
     }
@@ -85,8 +96,8 @@ export class VendorInvoiceJournalService {
     }> = [];
 
     // Process in chunks sequentially (no parallel within chunk)
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize);
+    for (let i = 0; i < shapedLines.length; i += chunkSize) {
+      const chunk = shapedLines.slice(i, i + chunkSize);
       const chunkNumber = Math.floor(i / chunkSize) + 1;
       const totalChunks = Math.ceil(lines.length / chunkSize);
 
@@ -126,7 +137,7 @@ export class VendorInvoiceJournalService {
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
         } catch (error) {
-          const errorDetails = this.extractErrorDetails(error);
+          const errorDetails = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `[LINES] Failed to post line ${line.LineNumber} for header ${headerKey} in chunk ${chunkNumber}: ${errorDetails}`,
             error instanceof Error ? error.stack : undefined,
@@ -143,7 +154,7 @@ export class VendorInvoiceJournalService {
     }
 
     this.logger.log(
-      `[LINES] Successfully posted all ${lines.length} lines for header ${headerKey}`,
+      `[LINES] Successfully posted all ${shapedLines.length} lines for header ${headerKey}`,
     );
 
     return successfullyPosted;
@@ -192,7 +203,7 @@ export class VendorInvoiceJournalService {
 
       return lines;
     } catch (error) {
-      const errorDetails = this.extractErrorDetails(error);
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
       this.logger.error(
         `[QUERY] Failed to query lines for header ${headerKey}: ${errorDetails}`,
       );
@@ -227,15 +238,13 @@ export class VendorInvoiceJournalService {
         retryDelay: 1000,
         exponentialBackoff: true,
         retryCondition: (error: any) => {
-          // Retry on network errors, 5xx errors, or concurrency conflicts
-          if (!error.response) {
-            return true; // Network error
-          }
+          if (!error.response) return true;
           const status = error.response?.status;
-          if (status && status >= 500) {
-            return true; // Server error
-          }
-          return this.isConcurrencyConflict(error);
+          if (status && status >= 500) return true;
+          return (
+            this.dfoErrorExtractor.normalize(error).isConcurrencyConflict ===
+            true
+          );
         },
       },
     );
@@ -335,9 +344,8 @@ export class VendorInvoiceJournalService {
           `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
         );
       } catch (error) {
-        const errorDetails = this.extractErrorDetails(error);
+        const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
-        // Log full error response for debugging
         if (error?.response?.data) {
           this.logger.error(
             `D365FO error response: ${JSON.stringify(error.response.data)}`,
@@ -349,7 +357,6 @@ export class VendorInvoiceJournalService {
           error instanceof Error ? error.stack : undefined,
         );
 
-        // Build error message based on what was actually posted
         let errorMessage = `Failed to post lines in chunk ${chunkNumber}: ${errorDetails}`;
 
         if (successfullyPosted.length > 0) {
@@ -374,93 +381,6 @@ export class VendorInvoiceJournalService {
     );
 
     return successfullyPosted;
-  }
-
-  /**
-   * Extracts detailed error message from D365FO API error response
-   */
-  private extractErrorDetails(error: any): string {
-    // Check for D365FO OData error format
-    if (error?.response?.data?.error) {
-      const d365foError = error.response.data.error;
-
-      // OData error format: { code: "...", message: "...", innererror: { message: "..." } }
-      if (typeof d365foError === 'object') {
-        // Prioritize innererror.message as it contains the detailed error message
-        const innerErrorMessage = d365foError.innererror?.message;
-        const genericMessage = d365foError.message;
-        const code = d365foError.code;
-
-        // Use innererror message if available (more detailed), otherwise fallback to generic message
-        const message = innerErrorMessage || genericMessage || d365foError.code;
-
-        if (message) {
-          return code ? `[${code}] ${message}` : message;
-        }
-
-        // If message is not directly available, try to stringify the error object
-        try {
-          return JSON.stringify(d365foError);
-        } catch {
-          return String(d365foError);
-        }
-      }
-
-      // If error is a string
-      if (typeof d365foError === 'string') {
-        return d365foError;
-      }
-    }
-
-    // Fallback to standard error message extraction
-    if (error?.response?.data?.error_description) {
-      return error.response.data.error_description;
-    }
-
-    if (error?.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error?.message) {
-      return error.message;
-    }
-
-    if (error?.response?.statusText) {
-      return `HTTP ${error.response.status}: ${error.response.statusText}`;
-    }
-
-    return String(error);
-  }
-
-  /**
-   * Check if an error is a retryable concurrency conflict
-   */
-  private isConcurrencyConflict(error: any): boolean {
-    if (!error?.response) {
-      return false;
-    }
-
-    const status = error.response?.status;
-    if (status !== 400) {
-      return false;
-    }
-
-    const innerErrorMessage =
-      error?.response?.data?.error?.innererror?.message?.toLowerCase() || '';
-    const errorMessage =
-      error?.response?.data?.error?.message?.toLowerCase() || '';
-
-    const conflictKeywords = [
-      'update conflict',
-      'cannot edit a record',
-      'ledgerjournaltable',
-      'dependent journal lines exist',
-    ];
-
-    const combinedMessage = `${innerErrorMessage} ${errorMessage}`;
-    return conflictKeywords.some((keyword) =>
-      combinedMessage.includes(keyword.toLowerCase()),
-    );
   }
 
   /**
@@ -497,15 +417,13 @@ export class VendorInvoiceJournalService {
         retryDelay: 1000,
         exponentialBackoff: true,
         retryCondition: (error: any) => {
-          // Retry on network errors, 5xx errors, or concurrency conflicts
-          if (!error.response) {
-            return true; // Network error
-          }
+          if (!error.response) return true;
           const status = error.response?.status;
-          if (status && status >= 500) {
-            return true; // Server error
-          }
-          return this.isConcurrencyConflict(error);
+          if (status && status >= 500) return true;
+          return (
+            this.dfoErrorExtractor.normalize(error).isConcurrencyConflict ===
+            true
+          );
         },
       },
     );
@@ -546,15 +464,13 @@ export class VendorInvoiceJournalService {
         retryDelay: 1000,
         exponentialBackoff: true,
         retryCondition: (error: any) => {
-          // Retry on network errors, 5xx errors, or concurrency conflicts
-          if (!error.response) {
-            return true; // Network error
-          }
+          if (!error.response) return true;
           const status = error.response?.status;
-          if (status && status >= 500) {
-            return true; // Server error
-          }
-          return this.isConcurrencyConflict(error);
+          if (status && status >= 500) return true;
+          return (
+            this.dfoErrorExtractor.normalize(error).isConcurrencyConflict ===
+            true
+          );
         },
       },
     );
@@ -614,8 +530,7 @@ export class VendorInvoiceJournalService {
             success: true,
           };
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `Failed to delete line ${line.lineNumber} for journal ${line.journalBatchNumber}: ${errorMessage}`,
           );

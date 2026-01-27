@@ -6,6 +6,7 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import {
   D365FOVendorInvoiceJournalHeaderRequest,
@@ -21,6 +22,7 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
 
   constructor(
     private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
+    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async postHeadersInBatches(
@@ -52,6 +54,21 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
     return await this.vendorInvoiceJournalService.postLinesBatch(
       typedLines,
       chunkSize,
+    );
+  }
+
+  public async postLinesForHeader(
+    headerKey: string,
+    lines: unknown[],
+    dataAreaId: string,
+    chunkSize: number = 20,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const typedLines = lines as D365FOVendorInvoiceJournalLineRequest[];
+    return this.vendorInvoiceJournalService.postLinesForHeader(
+      headerKey,
+      typedLines,
+      chunkSize,
+      dataAreaId,
     );
   }
 
@@ -92,8 +109,7 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
           );
@@ -116,37 +132,6 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
       throw new Error('JournalBatchNumber not found in response');
     }
     return typedResponse.JournalBatchNumber;
-  }
-
-  public prepareLinesForPosting(
-    lines: unknown[],
-    headerIds: string[],
-    groupedData: unknown[],
-  ): unknown[] {
-    const typedGroupedData = groupedData as Array<{
-      header: D365FOVendorInvoiceJournalHeaderRequest;
-      lines: D365FOVendorInvoiceJournalLineRequest[];
-    }>;
-
-    const allLines: D365FOVendorInvoiceJournalLineRequest[] = [];
-
-    for (let i = 0; i < typedGroupedData.length; i++) {
-      const journal = typedGroupedData[i];
-      const journalBatchNumber = headerIds[i];
-
-      // Remove FullPrimaryRemittanceAddress from each line before posting
-      const cleanedLines = journal.lines.map((line) => {
-        const { FullPrimaryRemittanceAddress, ...cleanedLine } = line as any;
-        return {
-          ...cleanedLine,
-          JournalBatchNumber: journalBatchNumber,
-        } as D365FOVendorInvoiceJournalLineRequest;
-      });
-
-      allLines.push(...cleanedLines);
-    }
-
-    return allLines;
   }
 
   public async listLinesForHeader(

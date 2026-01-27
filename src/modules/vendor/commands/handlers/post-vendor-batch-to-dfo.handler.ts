@@ -516,12 +516,13 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     }>,
   ): Promise<PostVendorBatchToDFOResult> {
     const job = await this.queueService.addJob(
-      QUEUES.DFO,
+      QUEUES.DFO_VENDOR_JOURNAL,
       'post-vendor-batch-to-dfo',
       {
         batchId,
         company,
         groupedJournals,
+        sourceModule: 'VENDOR',
       },
     );
 
