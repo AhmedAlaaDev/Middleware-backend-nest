@@ -253,7 +253,11 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
       this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
       this.validateTruckerType(arLine, dimensionsMap.get('TruckerType') || []);
-      // this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
+      this.validateTruckNumber(
+        arLine,
+        dimensionsMap.get('TruckNumber') || [],
+        false,
+      );
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
       this.validateWorker(arLine, dimensionsMap.get('Worker') || []);
       this.validateCoordinatorMan(

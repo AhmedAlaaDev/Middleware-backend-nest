@@ -117,13 +117,13 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     createdHeaders: CreatedHeader[],
     errorCollector: PostingErrorCollector,
   ): Promise<void> {
-    console.log('--------------------------------');
-    console.log('INVOICE HEADER');
-    console.log(JSON.stringify(invoice.header, null, 2));
-    console.log('--------------------------------');
-    console.log('INVOICE LINES');
-    console.log(JSON.stringify(invoice.lines, null, 2));
-    console.log('--------------------------------');
+    // console.log('--------------------------------');
+    // console.log('INVOICE HEADER');
+    // console.log(JSON.stringify(invoice.header, null, 2));
+    // console.log('--------------------------------');
+    // console.log('INVOICE LINES');
+    // console.log(JSON.stringify(invoice.lines, null, 2));
+    // console.log('--------------------------------');
     const headerResult = await this.strategy.postHeadersInBatches(
       [invoice.header],
       1,

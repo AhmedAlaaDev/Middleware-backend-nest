@@ -8,7 +8,7 @@ export type LedgerDocument = HydratedDocument<Ledger>;
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class Ledger {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   legalEntityId: string;
 
   @Prop({ required: true })

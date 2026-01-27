@@ -576,17 +576,23 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected validateTruckNumber(
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
+    isRequired: boolean = true,
   ): void {
     const dimensionsModel = ar.DimensionModel;
+
+    // Only when isRequired=true: add "TruckNumber is required" if missing or '000'
     if (
-      !dimensionsModel?.truckNumber ||
-      dimensionsModel.truckNumber === '000' ||
-      dimensionsModel.truckNumber.toLowerCase() === '000'
+      isRequired &&
+      (!dimensionsModel?.truckNumber ||
+        dimensionsModel.truckNumber === '000' ||
+        dimensionsModel.truckNumber.toLowerCase() === '000')
     ) {
       ar.AddError('TruckNumberDimensions', 'TruckNumber is required');
-      return;
     }
+
+    // Always: when a truck number is present, verify it exists in the system
     if (
+      dimensionsModel?.truckNumber &&
       !dimensions.some((d) =>
         (d?.value || '')
           .toLowerCase()
