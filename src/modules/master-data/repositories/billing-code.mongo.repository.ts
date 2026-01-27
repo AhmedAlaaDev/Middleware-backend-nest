@@ -10,6 +10,10 @@ import {
 import { BillingCodeRepository } from '@/modules/master-data/repositories/interfaces/billing-code.repository';
 import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 @Injectable()
 export class BillingCodeMongoRepository implements BillingCodeRepository {
   constructor(
@@ -38,9 +42,17 @@ export class BillingCodeMongoRepository implements BillingCodeRepository {
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IBillingCode[]> {
     const q: Record<string, unknown> = {};
-    if (filter.company) q['dataAreaId'] = filter.company;
+    if (filter.company)
+      q['dataAreaId'] = {
+        $regex: new RegExp(`^${escapeRegex(filter.company)}$`, 'i'),
+      };
     if (filter.billingClassification)
-      q['billingClassification'] = filter.billingClassification;
+      q['billingClassification'] = {
+        $regex: new RegExp(
+          `^${escapeRegex(filter.billingClassification)}$`,
+          'i',
+        ),
+      };
 
     let query = this.model.find(q).lean();
 
@@ -64,9 +76,17 @@ export class BillingCodeMongoRepository implements BillingCodeRepository {
 
   async getCount(filter: IBillingCodeListFilter): Promise<number> {
     const q: Record<string, unknown> = {};
-    if (filter.company) q['dataAreaId'] = filter.company;
+    if (filter.company)
+      q['dataAreaId'] = {
+        $regex: new RegExp(`^${escapeRegex(filter.company)}$`, 'i'),
+      };
     if (filter.billingClassification)
-      q['billingClassification'] = filter.billingClassification;
+      q['billingClassification'] = {
+        $regex: new RegExp(
+          `^${escapeRegex(filter.billingClassification)}$`,
+          'i',
+        ),
+      };
     return this.model.countDocuments(q).exec();
   }
 }

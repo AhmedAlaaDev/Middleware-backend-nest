@@ -86,21 +86,22 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
       );
       if (createdHeaders.length > 0) {
         this.logger.log(
-          `[ROLLBACK] Rolling back ${createdHeaders.length} headers`,
+          `[ROLLBACK] Rolling back ${createdHeaders.length} headers (headers only; D365FO cascades line deletion)`,
         );
-        const rollbackResult = await this.dfoRollbackService.rollbackAll(
+        const headerResult = await this.dfoRollbackService.rollbackHeaders(
           this.strategy,
-          createdHeaders,
+          createdHeaders.map((h) => h.headerKey),
+          company,
           ROLLBACK_CHUNK_SIZE,
           errorCollector,
         );
         this.logger.log(
-          `[ROLLBACK] Done: ${rollbackResult.successfullyDeletedHeaders.length} headers deleted, ${rollbackResult.failedToDeleteHeaders.length} failed`,
+          `[ROLLBACK] Done: ${headerResult.successfullyDeleted.length} headers deleted, ${headerResult.failedToDelete.length} failed`,
         );
-        if (rollbackResult.failedToDeleteHeaders.length > 0) {
+        if (headerResult.failedToDelete.length > 0) {
           await this.storeCreatedHeaderIds(
             batchId,
-            rollbackResult.failedToDeleteHeaders,
+            headerResult.failedToDelete,
           );
         }
       }
@@ -116,6 +117,13 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     createdHeaders: CreatedHeader[],
     errorCollector: PostingErrorCollector,
   ): Promise<void> {
+    console.log('--------------------------------');
+    console.log('INVOICE HEADER');
+    console.log(JSON.stringify(invoice.header, null, 2));
+    console.log('--------------------------------');
+    console.log('INVOICE LINES');
+    console.log(JSON.stringify(invoice.lines, null, 2));
+    console.log('--------------------------------');
     const headerResult = await this.strategy.postHeadersInBatches(
       [invoice.header],
       1,

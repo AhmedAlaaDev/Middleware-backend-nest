@@ -189,8 +189,9 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
 
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
+      const dimensionValues = await this.getFinancialDimensionValues(
+        dimensionKey === 'SubCustomer' ? 'Customer' : dimensionKey,
+      );
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 

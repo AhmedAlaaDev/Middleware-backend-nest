@@ -62,6 +62,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
       new GetBillingCodesQuery({ company }),
     );
     const billingCodes = billingCodesRes.items;
+
     // Cache billing classification codes, if provided, for downstream validation
     if (billingClassId) {
       this.billingClassifications.set(billingClassId, billingCodes);
@@ -87,13 +88,15 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynAccountReceivableLineDto[];
+
     // Load dimensions and accounts
     const accounts = await this.getAllMainAccounts();
 
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
+      const dimensionValues = await this.getFinancialDimensionValues(
+        dimensionKey === 'SubCustomer' ? 'Customer' : dimensionKey,
+      );
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 
@@ -227,7 +230,11 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         const dims = this.parseToDimensions(line.ACCOUNTDISPLAYVALUE || '');
         this.applySubCustomerMapping(dims, accounts);
         line.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
-        const billingCode = this.findBillingCode(billingCodes, dims.chargeType);
+        const billingCode = this.findBillingCode(
+          billingCodes,
+          billingClassId,
+          dims.chargeType,
+        );
         const arLine = this.prepareAccountReceivableLine(
           invLineCount,
           dims,
@@ -261,12 +268,23 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     }
   }
 
-  private findBillingCode(billingCodes: any[], chargeType?: string): any {
+  private findBillingCode(
+    billingCodes: any[],
+    billingClassification?: string,
+    chargeType?: string,
+  ): any {
     if (!chargeType) return null;
-    return (
-      billingCodes.find((bc: any) =>
-        bc.billingCode?.toLowerCase().includes(chargeType.toLowerCase()),
-      ) || null
-    );
+    const lowerCharge = chargeType.toLowerCase();
+    const lowerClass = billingClassification?.toLowerCase();
+    let best: any = null;
+    for (const bc of billingCodes) {
+      if (!bc.billingCode?.toLowerCase().includes(lowerCharge)) continue;
+      if (lowerClass && bc.billingClassification?.toLowerCase() !== lowerClass)
+        continue;
+      const len = bc.billingCode?.length ?? 0;
+      const bestLen = best?.billingCode?.length ?? 0;
+      if (!best || len > bestLen) best = bc;
+    }
+    return best;
   }
 }

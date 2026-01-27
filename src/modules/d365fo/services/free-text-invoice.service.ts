@@ -68,26 +68,49 @@ export class FreeTextInvoiceService {
     // Process in chunks
     for (let i = 0; i < headers.length; i += chunkSize) {
       const chunk = headers.slice(i, i + chunkSize);
+      const chunkNumber = Math.floor(i / chunkSize) + 1;
+      const totalChunks = Math.ceil(headers.length / chunkSize);
       this.logger.debug(
-        `Posting chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(headers.length / chunkSize)} (${chunk.length} headers)`,
+        `Posting chunk ${chunkNumber} of ${totalChunks} (${chunk.length} headers)`,
       );
 
-      // Post headers in parallel within chunk
-      const chunkPromises = chunk.map((header) => this.postHeader(header));
-      const chunkResults = await Promise.all(chunkPromises);
+      try {
+        // Post headers in parallel within chunk
+        const chunkPromises = chunk.map((header) => this.postHeader(header));
+        const chunkResults = await Promise.all(chunkPromises);
 
-      // Extract IDs from responses
-      for (const result of chunkResults) {
-        // InvoiceIdentifier is a number in the response
-        const invoiceIdentifier = result?.InvoiceIdentifier;
-        if (invoiceIdentifier !== undefined && invoiceIdentifier !== null) {
-          headerIds.push(String(invoiceIdentifier));
-        } else {
-          this.logger.warn(
-            'Header posted but InvoiceIdentifier not found in response',
-            JSON.stringify(result),
+        // Extract IDs from responses
+        for (const result of chunkResults) {
+          // InvoiceIdentifier is a number in the response
+          const invoiceIdentifier = result?.InvoiceIdentifier;
+          if (invoiceIdentifier !== undefined && invoiceIdentifier !== null) {
+            headerIds.push(String(invoiceIdentifier));
+          } else {
+            this.logger.warn(
+              'Header posted but InvoiceIdentifier not found in response',
+              JSON.stringify(result),
+            );
+          }
+        }
+      } catch (error) {
+        const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+
+        if (error?.response?.data) {
+          this.logger.error(
+            `D365FO error response: ${JSON.stringify(error.response.data)}`,
           );
         }
+
+        this.logger.error(
+          `Failed to post header chunk ${chunkNumber} of ${totalChunks}: ${errorDetails}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+
+        let errorMessage = `Failed to post headers in chunk ${chunkNumber}: ${errorDetails}`;
+        if (headerIds.length > 0) {
+          errorMessage += `. ${headerIds.length} headers were posted successfully before failure. Rollback required.`;
+        }
+        throw new Error(errorMessage);
       }
     }
 
@@ -213,7 +236,7 @@ export class FreeTextInvoiceService {
 
     // D365FO uses InvoiceIdentifier for deletion
     // Format: /data/FreeTextInvoiceHeaders(dataAreaId='m-p',InvoiceIdentifier=5637743016)
-    const endpoint = `/data/FreeTextInvoiceHeaders(dataAreaId='${dataAreaId}',InvoiceIdentifier=${headerId})`;
+    const endpoint = `/data/FreeTextInvoiceHeaders(dataAreaId='${dataAreaId}',InvoiceIdentifier=${headerId})?cross-company=true`;
     const response = await this.d365foClient.delete(endpoint);
 
     // Verify deletion response (should be empty or 204)
@@ -241,7 +264,7 @@ export class FreeTextInvoiceService {
     // Assumed format based on vendor invoice journal pattern:
     // /data/FreeTextInvoiceLines(dataAreaId='m-p',InvoiceIdentifier=5637743016,LineNumber=1)?cross-company=true
     // This format needs to be verified through testing
-    const endpoint = `/data/FreeTextInvoiceLines(dataAreaId='${dataAreaId}',InvoiceIdentifier=${headerId},LineNumber=${lineNumber})?cross-company=true`;
+    const endpoint = `/data/FreeTextInvoiceLines(dataAreaId='${dataAreaId}',ParentRecId=${headerId},LineNumber=${lineNumber})?cross-company=true`;
     const response = await this.d365foClient.delete(endpoint);
 
     // Verify deletion response (should be empty or 204)

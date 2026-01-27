@@ -198,7 +198,6 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       InvoiceDate: this.formatDate(firstLine.InvoiceDate),
       DueDate: this.formatDate(firstLine.DueDate),
       CurrencyCode: firstLine.CurrencyCode,
-      MethodOfPayment: firstLine.MethodOfPayment || null,
       TermsOfPayment: firstLine.TermsOfPayment,
       BillingClassification: firstLine.BillingClassification,
       CustomerReference: firstLine.CustomerReference,
@@ -207,16 +206,10 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       PostingProfile: firstLine.PostingProfile,
       SalesTaxGroupId: firstLine.SalesTaxGroup,
       SalesTaxItemGroupId: firstLine.SalesTaxItemGroup,
-      // LanguageId: undefined, // Not in DTO
-      // InvoiceName: undefined, // Not in DTO
-      CustomerRequisition: firstLine.CustomerRequisition,
-      EInvoiceAccountCode: firstLine.EInvoiceAccountCode,
       EInvoiceIsLineSpecific: firstLine.EInvoiceIsLineSpecific,
       OverrideSalesTax: firstLine.OverrideSalesTax,
       InclTax: firstLine.InclTax,
-      CashDiscountCode: firstLine.CashDiscountCode,
-      DirectDebitMandateReference: firstLine.DirectDebitMandateId,
-      TransportationDocumentLineId: firstLine.TransportationDocumentLineId,
+      LanguageId: 'en-US',
     };
   }
 
@@ -245,7 +238,6 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         InvoiceText: line.InvoiceTxt,
         OverrideSalesTax: line.OverrideSalesTax,
         EInvoiceAccountCode: line.EInvoiceAccountCode,
-        TransportationDocumentLineId: line.TransportationDocumentLineId,
       };
     });
   }
@@ -279,7 +271,10 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
 
       // Validate lines
       invoice.lines.forEach((line) => {
-        const lineErrors = this.validateLine(line);
+        const lineErrors = this.validateLine(
+          line,
+          invoice.header.BillingClassification,
+        );
         if (lineErrors.length > 0) {
           validationErrors.push({
             invoiceIndex,
@@ -350,8 +345,13 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   /**
    * Validates line fields and returns array of missing field names
    */
-  private validateLine(line: D365FOFreeTextInvoiceLineRequest): string[] {
+  private validateLine(
+    line: D365FOFreeTextInvoiceLineRequest,
+    billingClassification: string,
+  ): string[] {
+    const lowerBillingClassification = billingClassification?.toLowerCase();
     const missingFields: string[] = [];
+    const skippedDescriptionFields = ['inv-tr'];
 
     // Required fields - check for empty strings and null/undefined
     if (line.LineNumber === undefined || line.LineNumber === null) {
@@ -360,7 +360,10 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     if (!line.BillingCode?.trim()) {
       missingFields.push('BillingCode');
     }
-    if (!line.Description?.trim()) {
+    if (
+      !line.Description?.trim() &&
+      !skippedDescriptionFields.includes(lowerBillingClassification)
+    ) {
       missingFields.push('Description');
     }
     if (line.UnitPrice === undefined || line.UnitPrice === null) {

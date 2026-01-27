@@ -138,7 +138,11 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
         const dims = this.parseToDimensions(line.ACCOUNTDISPLAYVALUE || '');
         this.applySubCustomerMapping(dims, accounts);
         line.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
-        const billingCode = this.findBillingCode(billingCodes, dims.chargeType);
+        const billingCode = this.findBillingCode(
+          billingCodes,
+          billingClassId,
+          dims.chargeType,
+        );
         const arLine = this.prepareAccountReceivableLine(
           invLineCount,
           dims,
@@ -172,13 +176,27 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     }
   }
 
-  private findBillingCode(billingCodes: any[], chargeType?: string): any {
+  private findBillingCode(
+    billingCodes: any[],
+    billingClassification?: string,
+    chargeType?: string,
+  ): any {
     if (!chargeType) return null;
-    return (
-      billingCodes.find((bc: any) =>
-        bc.billingCode?.toLowerCase().includes(chargeType.toLowerCase()),
-      ) || null
-    );
+    const targetCharge = chargeType.toLowerCase();
+    const targetClass = billingClassification?.toLowerCase();
+    let best: any = null;
+
+    for (const bc of billingCodes) {
+      const sourceCharge = bc.billingCode?.toLowerCase();
+      const sourceClass = bc.billingClassification?.toLowerCase();
+
+      if (sourceCharge.includes(targetCharge) && sourceClass === targetClass) {
+        best = bc;
+        break;
+      }
+    }
+
+    return best;
   }
 
   async validateAsync(
@@ -191,8 +209,9 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
 
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
     for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
+      const dimensionValues = await this.getFinancialDimensionValues(
+        dimensionKey === 'SubCustomer' ? 'Customer' : dimensionKey,
+      );
       dimensionsMap.set(dimensionKey, dimensionValues || []);
     }
 
@@ -234,8 +253,9 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
       this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
       this.validateTruckerType(arLine, dimensionsMap.get('TruckerType') || []);
-      this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
+      // this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
+      this.validateWorker(arLine, dimensionsMap.get('Worker') || []);
       this.validateCoordinatorMan(
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
