@@ -231,7 +231,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
       this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
       this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
       this.validateTruckerType(arLine, dimensionsMap.get('TruckerType') || []);
-      this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
+      // this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
       this.validateCoordinatorMan(
         arLine,
@@ -329,6 +329,13 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     const dueDate = this.coerceToDate(custLine.DUEDATE);
     const cashDiscountDate = this.coerceToDate(custLine.CASHDISCOUNTDATE);
 
+    const termsOfPaymentDays =
+      dueDate && transDate
+        ? Math.ceil(
+            (dueDate.getTime() - transDate.getTime()) / (1000 * 60 * 60 * 24),
+          )
+        : 0;
+
     // For credit notes, use negative amounts
     const price =
       ledgerLine.ACCOUNTTYPE?.toLowerCase() === 'ledger'
@@ -379,9 +386,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     line.LedgerDimensionDisplayValue = dimensions.mainAccount || '';
     line.OverrideSalesTax = 'No';
     line.PostingProfile = 'Cust-PP';
-    line.TermsOfPayment = transDate
-      ? transDate.toISOString().split('T')[0]
-      : '';
+    line.TermsOfPayment = `${Math.max(termsOfPaymentDays, 0)} Days`;
     line.DimensionModel = dimensions;
     line.BillingClassification = billingClassId;
     line.CreditNoteInvoiceRef = this.formatDocumentNumber(

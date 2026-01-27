@@ -330,6 +330,13 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     const dueDate = this.coerceToDate(custLine.DUEDATE);
     const cashDiscountDate = this.coerceToDate(custLine.CASHDISCOUNTDATE);
 
+    const termsOfPaymentDays =
+      dueDate && transDate
+        ? Math.ceil(
+            (dueDate.getTime() - transDate.getTime()) / (1000 * 60 * 60 * 24),
+          )
+        : 0;
+
     // For credit notes, use negative amounts
     const price =
       ledgerLine.ACCOUNTTYPE?.toLowerCase() === 'ledger'
@@ -380,9 +387,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.LedgerDimensionDisplayValue = dimensions.mainAccount || '';
     line.OverrideSalesTax = 'No';
     line.PostingProfile = 'Cust-PP';
-    line.TermsOfPayment = transDate
-      ? transDate.toISOString().split('T')[0]
-      : '';
+    line.TermsOfPayment = `${Math.max(termsOfPaymentDays, 0)} Days`;
     line.DimensionModel = dimensions;
     line.BillingClassification = billingClassId;
     line.CreditNoteInvoiceRef = this.formatDocumentNumber(

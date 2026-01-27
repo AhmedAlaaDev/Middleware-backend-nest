@@ -55,7 +55,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
       headers,
     );
 
-    this.logger.log('Error Excel file generated successfully.');
+    this.logger.log('Excel file for errors generated successfully.');
     return filePath;
   }
 

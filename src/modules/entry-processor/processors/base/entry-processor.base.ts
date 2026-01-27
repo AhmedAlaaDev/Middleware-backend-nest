@@ -231,7 +231,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     line.LedgerDimensionDisplayValue = dimensions.mainAccount || '';
     line.OverrideSalesTax = 'No';
     line.PostingProfile = 'Cust-PP';
-    line.TermsOfPayment = `${termsOfPaymentDays} Days`;
+    line.TermsOfPayment = `${Math.max(termsOfPaymentDays, 0)} Days`;
     line.DimensionModel = dimensions;
     line.BillingClassification = billingClassId;
 
