@@ -2,7 +2,7 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 
 export class LedgerClosingEntryModel {
   UniqueId: number;
-  LINENUMBER?: string;
+  LINENUMBER?: string | number;
   JOURNALBATCHNUMBER?: string;
   JOURNALNAME?: string;
   DESCRIPTION?: string;
@@ -53,11 +53,14 @@ export class LedgerClosingEntryModel {
   AccountDimensions?: AccountDimensionsModel;
 
   getLineNumber(): number {
-    if (this.LINENUMBER) {
-      const parts = this.LINENUMBER.split('.');
-      return parseInt(parts[0], 10);
+    if (this.LINENUMBER == null || this.LINENUMBER === '') {
+      throw new Error('LINENUMBER is null or not set.');
     }
-    throw new Error('LINENUMBER is null or not set.');
+    if (typeof this.LINENUMBER === 'number') {
+      return Math.floor(this.LINENUMBER);
+    }
+    const parts = String(this.LINENUMBER).split('.');
+    return parseInt(parts[0], 10);
   }
 
   modifiedLocationHeaderDefaultDimensionDisplayValue(): string {

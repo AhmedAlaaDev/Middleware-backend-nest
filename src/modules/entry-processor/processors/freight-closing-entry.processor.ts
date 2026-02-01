@@ -5,8 +5,6 @@ import { GeneralJournalService } from '@/modules/d365fo/services/general-journal
 import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
-import { LedgerEntryBatchCounter } from '@/modules/db/schemas/ledger-entry-batch-counter.schema';
-import { LedgerVoucherCounter } from '@/modules/db/schemas/ledger-voucher-counter.schema';
 import {
   DynDataModel,
   RawDataModel,
@@ -19,6 +17,17 @@ import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
+import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
+
+interface ClosingBatchCounter {
+  lastBatchNumber: number;
+  companyBatchPrefix?: string;
+}
+
+interface ClosingVoucherCounter {
+  lastNumber: number;
+  relatedSettingLogicalName: string;
+}
 
 interface MonthGroup {
   Year: number;
@@ -121,34 +130,31 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     );
   }
 
-  private async loadCounters(company: string): Promise<{
-    lastBatch: any;
-    lastVoucher: any;
+  private async loadCounters(_company: string): Promise<{
+    lastBatch: ClosingBatchCounter;
+    lastVoucher: ClosingVoucherCounter;
   }> {
-    const lastBatch = await this.db.ledgerEntryBatchCounterModel.findOne({
-      companyId: company,
-    });
-    if (!lastBatch) {
-      throw new Error(
-        `LedgerEntryBatchCounter not found for company: ${company}`,
-      );
-    }
-    const lastVoucher = await this.db.ledgerVoucherCounterModel.findOne({
-      companyId: company,
-      journalName: this.journalName,
-    });
-    if (!lastVoucher) {
-      throw new Error(
-        `LedgerVoucherCounter not found for company: ${company}, journal: ${this.journalName}`,
-      );
-    }
-    return { lastBatch, lastVoucher };
+    const batchSetting = await this.queryBus.execute(
+      new GetSettingQuery('last.ledger.batch.number'),
+    );
+    const voucherSetting = await this.queryBus.execute(
+      new GetSettingQuery('last.ledger.closing.freight.voucher.number'),
+    );
+    const lastBatchNumber = Number(batchSetting?.value ?? '0');
+    const lastNumber = Number(voucherSetting?.value ?? '0');
+    return {
+      lastBatch: { lastBatchNumber, companyBatchPrefix: '' },
+      lastVoucher: {
+        lastNumber,
+        relatedSettingLogicalName: 'last.ledger.closing.freight.voucher.number',
+      },
+    };
   }
 
   private processGroupedLedger(
     groupedLedger: MonthGroup[],
-    lastVoucher: LedgerVoucherCounter,
-    lastBatch: LedgerEntryBatchCounter,
+    lastVoucher: ClosingVoucherCounter,
+    lastBatch: ClosingBatchCounter,
   ): DynLedgerClosingJournalEntryDto[] {
     const dynData: DynLedgerClosingJournalEntryDto[] = [];
     for (const ledgerMonth of groupedLedger) {
@@ -167,8 +173,8 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   }
 
   private async finalizeCountersAndSettings(
-    lastBatch: LedgerEntryBatchCounter,
-    lastVoucher: LedgerVoucherCounter,
+    lastBatch: ClosingBatchCounter,
+    lastVoucher: ClosingVoucherCounter,
   ): Promise<void> {
     await this.commandBus.execute(
       new UpdateSettingValueCommand(
@@ -178,7 +184,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     );
     await this.commandBus.execute(
       new UpdateSettingValueCommand(
-        'd365fo_setting_ledgerbatchcounter',
+        'last.ledger.batch.number',
         lastBatch.lastBatchNumber.toString(),
       ),
     );
@@ -544,7 +550,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
 
   private matchVouchersToEntryPairs(
     entries: DynLedgerClosingJournalEntryDto[],
-    lastVoucher: LedgerVoucherCounter,
+    lastVoucher: ClosingVoucherCounter,
   ): void {
     const groups = entries
       .filter((e) => !e.Voucher)
@@ -572,7 +578,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
 
   private applyBatchNumbersAndAggregate(
     entries: DynLedgerClosingJournalEntryDto[],
-    lastBatch: LedgerEntryBatchCounter,
+    lastBatch: ClosingBatchCounter,
     dynData: DynLedgerClosingJournalEntryDto[],
   ): void {
     lastBatch.lastBatchNumber += 1;
