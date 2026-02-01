@@ -15,6 +15,8 @@ export class QueueService {
     private readonly dfoFreeTextInvoiceQueue: Queue,
     @InjectQueue(QUEUES.DFO_VENDOR_JOURNAL)
     private readonly dfoVendorJournalQueue: Queue,
+    @InjectQueue(QUEUES.DFO_LEDGER_JOURNAL)
+    private readonly dfoLedgerJournalQueue: Queue,
     @InjectQueue(QUEUES.MASTER_DATA_SYNC)
     private readonly masterDataSyncQueue: Queue,
   ) {}
@@ -26,6 +28,8 @@ export class QueueService {
         return this.dfoFreeTextInvoiceQueue;
       case QUEUES.DFO_VENDOR_JOURNAL:
         return this.dfoVendorJournalQueue;
+      case QUEUES.DFO_LEDGER_JOURNAL:
+        return this.dfoLedgerJournalQueue;
       case QUEUES.MASTER_DATA_SYNC:
         return this.masterDataSyncQueue;
       default:

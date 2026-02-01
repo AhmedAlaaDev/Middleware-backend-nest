@@ -1,0 +1,366 @@
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+
+import {
+  PostLedgerBatchToDFOCommand,
+  PostLedgerBatchToDFOResult,
+} from '../post-ledger-batch-to-dfo.command';
+
+import {
+  LedgerJournalHeaderRequest,
+  LedgerJournalLineRequest,
+} from '@/modules/d365fo/types/d365fo-ledger.type';
+import {
+  DataBatchStatus,
+  EntryProcessorTypes,
+} from '@/modules/data-batch/enums/data-batch.enum';
+import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
+import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
+import { QUEUES } from '@/modules/queue/constants/queues';
+import { QueueService } from '@/modules/queue/services/queue.service';
+
+@CommandHandler(PostLedgerBatchToDFOCommand)
+@Injectable()
+export class PostLedgerBatchToDFOHandler implements ICommandHandler<
+  PostLedgerBatchToDFOCommand,
+  PostLedgerBatchToDFOResult
+> {
+  private readonly logger = new Logger(PostLedgerBatchToDFOHandler.name);
+
+  constructor(
+    private readonly dataBatchService: DataBatchService,
+    private readonly queueService: QueueService,
+  ) {}
+
+  public async execute(
+    command: PostLedgerBatchToDFOCommand,
+  ): Promise<PostLedgerBatchToDFOResult> {
+    const { batchId } = command;
+
+    this.logger.log(`Starting post to DFO for ledger batch ${batchId}`);
+
+    const batch = await this.validateBatch(batchId);
+
+    const journalGroups = await this.groupRecordsByJournalBatchNumber(batchId);
+
+    const groupedJournals = this.mapToD365Requests(
+      journalGroups,
+      batch.company,
+    );
+
+    this.validateJournals(groupedJournals);
+
+    await this.prepareBatchForPosting(batchId);
+
+    return await this.enqueuePostingJob(
+      batchId,
+      batch.company,
+      groupedJournals,
+    );
+  }
+
+  private async validateBatch(batchId: string) {
+    const batch = await this.dataBatchService.getByIdAsync(batchId);
+    if (!batch) {
+      throw new NotFoundException(`Batch with ID ${batchId} not found`);
+    }
+    const allowedTypes = [
+      EntryProcessorTypes.LedgerFreightClosingEntry,
+      EntryProcessorTypes.LedgerTruckingClosingEntry,
+    ];
+    if (!allowedTypes.includes(batch.entryProcessorType)) {
+      throw new BadRequestException(
+        `Batch ${batchId} is not a ledger closing entry batch (type: ${batch.entryProcessorType})`,
+      );
+    }
+    return batch;
+  }
+
+  private async groupRecordsByJournalBatchNumber(
+    batchId: string,
+  ): Promise<
+    Map<string, IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]>
+  > {
+    const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
+    const recordsStream = this.cursorToAsyncIterable(cursor);
+
+    const journalGroups = new Map<
+      string,
+      IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]
+    >();
+    let recordCount = 0;
+
+    for await (const record of recordsStream) {
+      recordCount++;
+      const data = record.data as unknown as DynLedgerClosingJournalEntryDto;
+
+      if (!this.isValidRecord(data, record.id)) {
+        continue;
+      }
+
+      const journalBatchNumber = data.JournalBatchNumber;
+      if (!journalGroups.has(journalBatchNumber)) {
+        journalGroups.set(journalBatchNumber, []);
+      }
+      journalGroups
+        .get(journalBatchNumber)!
+        .push(
+          record as unknown as IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>,
+        );
+    }
+
+    if (recordCount === 0) {
+      throw new NotFoundException('No enhanced records found for this batch');
+    }
+
+    this.logger.log(
+      `Grouped ${recordCount} records into ${journalGroups.size} journal batches`,
+    );
+
+    return journalGroups;
+  }
+
+  private isValidRecord(
+    data: DynLedgerClosingJournalEntryDto,
+    recordId: string,
+  ): data is DynLedgerClosingJournalEntryDto {
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+    if (!data.JournalBatchNumber?.trim()) {
+      this.logger.warn(
+        `Skipping record ${recordId}: missing JournalBatchNumber`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  private mapToD365Requests(
+    journalGroups: Map<
+      string,
+      IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]
+    >,
+    company: string,
+  ): Array<{
+    header: LedgerJournalHeaderRequest;
+    lines: LedgerJournalLineRequest[];
+  }> {
+    const groupedJournals: Array<{
+      header: LedgerJournalHeaderRequest;
+      lines: LedgerJournalLineRequest[];
+    }> = [];
+
+    for (const [_batchNumber, lines] of journalGroups.entries()) {
+      if (lines.length === 0) continue;
+
+      const firstLine = lines[0].data;
+      const header: LedgerJournalHeaderRequest = {
+        dataAreaId: company,
+        JournalName: firstLine.JournalName,
+        Description: firstLine.Description,
+      };
+
+      const mappedLines: LedgerJournalLineRequest[] = lines.map((record) =>
+        this.mapLineToRequest(
+          record.data,
+          company,
+          firstLine.JournalBatchNumber,
+        ),
+      );
+
+      groupedJournals.push({ header, lines: mappedLines });
+    }
+
+    return groupedJournals;
+  }
+
+  private mapLineToRequest(
+    line: DynLedgerClosingJournalEntryDto,
+    company: string,
+    journalBatchNumber: string,
+  ): LedgerJournalLineRequest {
+    return {
+      dataAreaId: company,
+      JournalBatchNumber: journalBatchNumber,
+      CurrencyCode: line.CurrencyCode,
+      TransDate: this.formatDate(line.TransDate),
+      DocumentDate: line.DocumentDate
+        ? this.formatDate(line.DocumentDate)
+        : undefined,
+      DueDate: line.DueDate ? this.formatDate(line.DueDate) : undefined,
+      AccountType: line.AccountType,
+      AccountDisplayValue: line.AccountDisplayValue,
+      DefaultDimensionDisplayValue: line.DefaultDimensionDisplayValue,
+      Text: line.Text,
+      DebitAmount: line.DebitAmount,
+      CreditAmount: line.CreditAmount,
+      OffsetAccountType: line.OffsetAccountType,
+      OffsetAccountDisplayValue: line.OffsetAccountDisplayValue,
+      OffsetDefaultDimensionDisplayValue:
+        line.OffsetDefaultDimensionDisplayValue,
+      OffsetText: line.OffsetText,
+      Voucher: line.Voucher,
+      Document: line.Document,
+      Invoice: line.Invoice,
+      PostingProfile: line.PostingProfile,
+      PaymentMethod: line.PaymentMethod,
+      SalesTaxGroup: line.SalesTaxGroup,
+      ItemSalesTaxGroup: line.ItemSalesTaxGroup,
+      ExchRate: line.ExchangeRate,
+    };
+  }
+
+  private formatDate(date?: Date | string): string {
+    if (!date) {
+      return '';
+    }
+    if (date instanceof Date) {
+      return date.toISOString();
+    }
+    if (typeof date === 'string') {
+      const parsed = new Date(date);
+      if (isNaN(parsed.getTime())) {
+        return date;
+      }
+      return parsed.toISOString();
+    }
+    return String(date);
+  }
+
+  private validateJournals(
+    groupedJournals: Array<{
+      header: LedgerJournalHeaderRequest;
+      lines: LedgerJournalLineRequest[];
+    }>,
+  ): void {
+    const validationErrors: Array<{
+      groupIndex?: number;
+      lineIndex?: number;
+      missingFields: string[];
+    }> = [];
+
+    groupedJournals.forEach((group, groupIndex) => {
+      const headerErrors = this.validateHeader(group.header);
+      if (headerErrors.length > 0) {
+        validationErrors.push({
+          groupIndex,
+          missingFields: headerErrors,
+        });
+      }
+
+      group.lines.forEach((line, lineIndex) => {
+        const lineErrors = this.validateLine(line);
+        if (lineErrors.length > 0) {
+          validationErrors.push({
+            groupIndex,
+            lineIndex,
+            missingFields: lineErrors,
+          });
+        }
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      const errorMessages = validationErrors.map((e) => {
+        if (e.lineIndex !== undefined) {
+          return `Group ${e.groupIndex} line ${e.lineIndex}: [${e.missingFields.join(', ')}]`;
+        }
+        return `Group ${e.groupIndex} header: [${e.missingFields.join(', ')}]`;
+      });
+      throw new BadRequestException({
+        message: 'Validation failed for ledger journal data',
+        errors: validationErrors,
+        details: errorMessages.join('; '),
+      });
+    }
+  }
+
+  private validateHeader(header: LedgerJournalHeaderRequest): string[] {
+    const missing: string[] = [];
+    if (!header.dataAreaId?.trim()) missing.push('dataAreaId');
+    if (!header.JournalName?.trim()) missing.push('JournalName');
+    if (!header.Description?.trim()) missing.push('Description');
+    return missing;
+  }
+
+  private validateLine(line: LedgerJournalLineRequest): string[] {
+    const missing: string[] = [];
+    if (!line.JournalBatchNumber?.trim()) missing.push('JournalBatchNumber');
+    if (!line.dataAreaId?.trim()) missing.push('dataAreaId');
+    if (!line.AccountDisplayValue?.trim()) missing.push('AccountDisplayValue');
+    if (
+      (line.DebitAmount === undefined || line.DebitAmount === null) &&
+      (line.CreditAmount === undefined || line.CreditAmount === null)
+    ) {
+      missing.push('DebitAmount or CreditAmount');
+    }
+    return missing;
+  }
+
+  private async prepareBatchForPosting(batchId: string): Promise<void> {
+    await Promise.all([
+      this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Processing,
+      ),
+      this.dataBatchService.clearDfoPostingErrorsAsync(batchId),
+    ]);
+  }
+
+  private async enqueuePostingJob(
+    batchId: string,
+    company: string,
+    groupedJournals: Array<{
+      header: LedgerJournalHeaderRequest;
+      lines: LedgerJournalLineRequest[];
+    }>,
+  ): Promise<PostLedgerBatchToDFOResult> {
+    const job = await this.queueService.addJob(
+      QUEUES.DFO_LEDGER_JOURNAL,
+      'post-ledger-journal-batch-to-dfo',
+      {
+        batchId,
+        company,
+        groupedJournals,
+        sourceModule: 'Ledger',
+      },
+    );
+
+    this.logger.log(
+      `Enqueued job ${job.id} for batch ${batchId} with ${groupedJournals.length} journal groups`,
+    );
+
+    return {
+      jobId: job.id!,
+      message: `Batch ${batchId} queued for posting to D365FO. Job ID: ${job.id}`,
+    };
+  }
+
+  private async *cursorToAsyncIterable(
+    cursor: any,
+  ): AsyncIterable<IDataEnhancedRecord> {
+    try {
+      for await (const doc of cursor) {
+        yield {
+          id: doc._id.toString(),
+          batchId: doc.batchId,
+          dimensionModel: doc.dimensionModel,
+          sourceIds: doc.sourceIds || [],
+          data: doc.data,
+          dataModelType: doc.dataModelType,
+        };
+      }
+    } finally {
+      if (cursor && typeof cursor.close === 'function') {
+        await cursor.close().catch(() => {});
+      }
+    }
+  }
+}

@@ -9,20 +9,24 @@ import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
 import { PostFreeTextInvoiceDFOProcessor } from '@/modules/queue/processors/post-free-text-invoice-dfo.processor';
+import { PostLedgerJournalDFOProcessor } from '@/modules/queue/processors/post-ledger-journal-dfo.processor';
 import { PostVendorJournalDFOProcessor } from '@/modules/queue/processors/post-vendor-journal-dfo.processor';
 import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
 import { QueueService } from '@/modules/queue/services/queue.service';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
+import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
 import { VendorJournalPostingStrategy } from '@/modules/queue/strategies/vendor-journal-posting.strategy';
 
 const processors = [
   PostFreeTextInvoiceDFOProcessor,
   PostVendorJournalDFOProcessor,
+  PostLedgerJournalDFOProcessor,
   MasterDataSyncProcessor,
 ];
 const strategies = [
   FreeTextInvoicePostingStrategy,
   VendorJournalPostingStrategy,
+  LedgerJournalPostingStrategy,
 ];
 const queueServices = [DfoRollbackService, QueueService];
 

@@ -10,9 +10,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
+import { PostLedgerBatchToDFOCommand } from '@/modules/ledger/commands/post-ledger-batch-to-dfo.command';
 import { ProcessFreightClosingEntryCommand } from '@/modules/ledger/commands/process-freight-closing-entry.command';
 import { ProcessTruckingClosingEntryCommand } from '@/modules/ledger/commands/process-trucking-closing-entry.command';
 import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entry.dto';
+import { PostToDFODto } from '@/modules/ledger/dtos/post-to-dfo.dto';
 
 /**
  * Data Migration - Ledger Closing Entries
@@ -59,6 +61,22 @@ export class LedgerController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessTruckingClosingEntryCommand(file.buffer, body.companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Post batch to D365FO
+   */
+  @Post('PostToDFO')
+  @ApiBody({
+    description: 'Post ledger journal batch enhanced records to D365FO',
+    type: PostToDFODto,
+  })
+  public async postToDFO(@Body() body: PostToDFODto) {
+    const result = await this.commandBus.execute(
+      new PostLedgerBatchToDFOCommand(body.batchId),
     );
 
     return result;

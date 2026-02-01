@@ -3,6 +3,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { D365FOClientService } from './d365fo-client.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
+import {
+  LedgerJournalHeaderRequest,
+  LedgerJournalHeaderResponse,
+  LedgerJournalLineRequest,
+  LedgerJournalLineResponse,
+} from '@/modules/d365fo/types/d365fo-ledger.type';
+
+const CROSS_COMPANY = '?cross-company=true';
+
 /**
  * Service for managing general journal entries in D365FO
  */
@@ -16,27 +25,79 @@ export class GeneralJournalService {
   ) {}
 
   /**
-   * Create a general journal header
+   * Create a general journal header (cross-company)
    */
-  public async createJournalHeader(company: string, data: any): Promise<any> {
+  public async createJournalHeader(
+    company: string,
+    data: LedgerJournalHeaderRequest,
+  ): Promise<LedgerJournalHeaderResponse> {
     this.logger.debug(`Creating journal header for company: ${company}`);
 
-    return this.d365foClient.post<any, any>('/data/LedgerJournalHeaders', {
-      ...data,
-      DataAreaId: company,
-    });
+    const payload = { ...data, dataAreaId: data.dataAreaId || company };
+    return this.d365foClient.post<
+      LedgerJournalHeaderRequest,
+      LedgerJournalHeaderResponse
+    >(`/data/LedgerJournalHeaders${CROSS_COMPANY}`, payload);
   }
 
   /**
-   * Create a general journal line
+   * Create a general journal line (cross-company)
    */
-  public async createJournalLine(company: string, data: any): Promise<any> {
-    this.logger.debug(`Creating journal line for company: ${company}`);
+  public async createJournalLine(
+    company: string,
+    data: LedgerJournalLineRequest,
+  ): Promise<LedgerJournalLineResponse> {
+    this.logger.debug(
+      `Creating journal line for company: ${company}, batch: ${data.JournalBatchNumber}`,
+    );
 
-    return this.d365foClient.post<any, any>('/data/LedgerJournalLines', {
-      ...data,
-      DataAreaId: company,
-    });
+    const payload = { ...data, dataAreaId: data.dataAreaId || company };
+    return this.d365foClient.post<
+      LedgerJournalLineRequest,
+      LedgerJournalLineResponse
+    >(`/data/LedgerJournalLines${CROSS_COMPANY}`, payload);
+  }
+
+  /**
+   * Delete a general journal header (cross-company)
+   * Endpoint: /data/LedgerJournalHeaders(dataAreaId='...',JournalBatchNumber='...')?cross-company=true
+   */
+  public async deleteJournalHeader(
+    dataAreaId: string,
+    journalBatchNumber: string,
+  ): Promise<void> {
+    this.logger.debug(
+      `Deleting journal header for company: ${dataAreaId}, batch: ${journalBatchNumber}`,
+    );
+    const dataAreaIdEsc = this.escapeODataKey(dataAreaId);
+    const batchEsc = this.escapeODataKey(journalBatchNumber);
+    const endpoint = `/data/LedgerJournalHeaders(dataAreaId='${dataAreaIdEsc}',JournalBatchNumber='${batchEsc}')${CROSS_COMPANY}`;
+    await this.d365foClient.delete(endpoint);
+  }
+
+  /**
+   * Delete a general journal line (cross-company)
+   * Endpoint: /data/LedgerJournalLines(dataAreaId='...',JournalBatchNumber='...',LineNumber=...)?cross-company=true
+   */
+  public async deleteJournalLine(
+    dataAreaId: string,
+    journalBatchNumber: string,
+    lineNumber: number,
+  ): Promise<void> {
+    this.logger.debug(
+      `Deleting journal line for company: ${dataAreaId}, batch: ${journalBatchNumber}, line: ${lineNumber}`,
+    );
+    const dataAreaIdEsc = this.escapeODataKey(dataAreaId);
+    const batchEsc = this.escapeODataKey(journalBatchNumber);
+    const endpoint = `/data/LedgerJournalLines(dataAreaId='${dataAreaIdEsc}',JournalBatchNumber='${batchEsc}',LineNumber=${lineNumber})${CROSS_COMPANY}`;
+    await this.d365foClient.delete(endpoint);
+  }
+
+  /**
+   * Escape single quotes in OData key string values (double the quote)
+   */
+  private escapeODataKey(value: string): string {
+    return value.replace(/'/g, "''");
   }
 
   /**
@@ -92,11 +153,11 @@ export class GeneralJournalService {
   }
 
   /**
-   * Get general journal lines
+   * Get general journal lines by JournalBatchNumber (LedgerJournalLines uses JournalBatchNumber)
    */
   public async getJournalLines(
     company: string,
-    journalNumber: string,
+    journalBatchNumber: string,
     options?: {
       skipCount?: number;
       maxCount?: number;
@@ -115,7 +176,7 @@ export class GeneralJournalService {
 
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
-      this.queryBuilder.eq('JournalNum', journalNumber),
+      this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
     );
 
     const query = this.queryBuilder.buildQuery('/data/LedgerJournalLines', {
@@ -128,7 +189,7 @@ export class GeneralJournalService {
     });
 
     this.logger.debug(
-      `Fetching journal lines for company: ${company}, journal: ${journalNumber}`,
+      `Fetching journal lines for company: ${company}, batch: ${journalBatchNumber}`,
     );
 
     const response = await this.d365foClient.get<any>(query, {

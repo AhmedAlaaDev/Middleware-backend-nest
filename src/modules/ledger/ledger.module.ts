@@ -4,6 +4,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
+import { PostLedgerBatchToDFOHandler } from '@/modules/ledger/commands/handlers/post-ledger-batch-to-dfo.handler';
 import { ProcessFreightClosingEntryHandler } from '@/modules/ledger/commands/handlers/process-freight-closing-entry.handler';
 import { ProcessTruckingClosingEntryHandler } from '@/modules/ledger/commands/handlers/process-trucking-closing-entry.handler';
 import { LedgerController } from '@/modules/ledger/ledger.controller';
@@ -14,6 +15,7 @@ import { LedgerController } from '@/modules/ledger/ledger.controller';
   providers: [
     ProcessFreightClosingEntryHandler,
     ProcessTruckingClosingEntryHandler,
+    PostLedgerBatchToDFOHandler,
   ],
 })
 export class LedgerModule {}
