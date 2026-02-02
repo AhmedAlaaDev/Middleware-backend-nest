@@ -33,14 +33,14 @@ export class VendorInvoiceJournalService {
   public async postHeader(
     data: D365FOVendorInvoiceJournalHeaderRequest,
   ): Promise<D365FOVendorInvoiceJournalHeaderResponse> {
-    this.logger.log(
-      `[HEADER] Creating header for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}`,
-    );
+    this.logger.log(`[HEADER] Creating header for company: ${data.dataAreaId}`);
+
+    const { JournalBatchNumber: _omit, ...payload } = data;
 
     return this.d365foClient.post<
-      D365FOVendorInvoiceJournalHeaderRequest,
+      Omit<D365FOVendorInvoiceJournalHeaderRequest, 'JournalBatchNumber'>,
       D365FOVendorInvoiceJournalHeaderResponse
-    >('/data/VendInvoiceJournalHeaders', data);
+    >('/data/VendInvoiceJournalHeaders', payload);
   }
 
   /**
@@ -104,6 +104,8 @@ export class VendorInvoiceJournalService {
       this.logger.log(
         `[LINES] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
       );
+
+      this.logger.log(`[LINES] Chunk: ${JSON.stringify(chunk, null, 2)}`);
 
       // Post lines sequentially within chunk (no parallel)
       // Add small delay between line posts to allow D365FO internal processes to complete
@@ -219,7 +221,7 @@ export class VendorInvoiceJournalService {
     data: D365FOVendorInvoiceJournalLineRequest,
   ): Promise<any> {
     this.logger.debug(
-      `Posting vendor invoice journal line for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}, line: ${data.LineNumber}`,
+      `Posting vendor invoice journal line for company: ${data.Company}, batch: ${data.JournalBatchNumber}, line: ${data.LineNumber}`,
     );
 
     // Remove FullPrimaryRemittanceAddress from line body before posting

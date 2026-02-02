@@ -74,6 +74,7 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
           errorCollector,
         );
       }
+
       const headerKeys = createdHeaders.map((h) => h.headerKey);
       await this.handlePostingSuccess(batchId, headerKeys);
     } catch (error) {

@@ -260,9 +260,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         JournalBatchNumber: line.JOURNALBATCHNUMBER,
         LineNumber: line.LineNumber,
         AccountDisplayValue: line.ACCOUNTDISPLAYVALUE,
-        CashDiscountAmount: 0,
         OffsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE || '',
-        PostingProfile: 'V-PP', // Static value
         OffsetDefaultDimensionDisplayValue:
           line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE || '',
         ReportingCurrencyExchRate: line.REPORTINGCURRENCYEXCHRATE,
@@ -275,11 +273,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         Document: line.DOCUMENT ? String(line.DOCUMENT) : undefined,
         Description: line.DESCRIPTION || '',
         Invoice: line.INVOICE,
-        DeliveryDate: '1900-01-01T12:00:00Z',
-        OverrideSalesTax_BR: 'No',
         Date: this.formatDate(line.DATE),
         Voucher: line.VOUCHER ? String(line.VOUCHER) : undefined,
-        CashDiscount: '', // Optional field
         TaxExemptNumber: line.TAXEXEMPTNUMBER || '',
         Currency: line.CURRENCY,
         ItemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
@@ -293,15 +288,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         OverrideSalesTax: this.convertToYesNo(line.OVERRIDESALESTAX),
         Credit: line.CREDIT || 0,
         Company: line.COMPANY || company,
-        CustVendBankAccountId: '', // Optional field
-        OffsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-        SalesTaxGroup: line.SALESTAXGROUP || '', // Optional field
-        DefaultDimensionDisplayValue: line.DEFAULTDIMENSIONDISPLAYVALUE || '',
-        SalesTaxCode: '', // Optional field
-        ItemSalesTaxGroup: line.ITEMSALESTAXGROUP || '', // Optional field
-        FinTagDisplayValue: line.FINTAGDISPLAYVALUE || '',
-        OffsetTransactionText: line.OFFSETTRANSACTIONTEXT || '', // Optional field
-        ITMCostArea: 'Shipment', // Static value
       } as D365FOVendorInvoiceJournalLineRequest;
     });
   }
@@ -417,9 +403,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       missingFields.push('AccountDisplayValue');
     }
     // Static value - PostingProfile is required
-    if (!line.PostingProfile?.trim()) {
-      missingFields.push('PostingProfile');
-    }
+    // if (!line.PostingProfile?.trim()) {
+    //   missingFields.push('PostingProfile');
+    // }
     if (!line.AccountType || !['Vend', 'Ledger'].includes(line.AccountType)) {
       missingFields.push('AccountType');
     }
@@ -472,9 +458,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       missingFields.push('Company');
     }
     // Static value - ITMCostArea is required
-    if (!line.ITMCostArea?.trim()) {
-      missingFields.push('ITMCostArea');
-    }
+    // if (!line.ITMCostArea?.trim()) {
+    //   missingFields.push('ITMCostArea');
+    // }
 
     // Optional fields are not validated (they can be empty/undefined):
     // - OffsetDefaultDimensionDisplayValue
