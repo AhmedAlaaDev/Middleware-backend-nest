@@ -36,4 +36,8 @@ export class DataSourceRecordMongoRepository implements DataSourceRecordReposito
       data: doc.data,
     }));
   }
+
+  public getListStream(batchId: string): any {
+    return this.model.find({ batchId }).lean().cursor();
+  }
 }

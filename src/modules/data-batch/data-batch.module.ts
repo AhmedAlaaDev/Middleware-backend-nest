@@ -8,6 +8,7 @@ import {
   DeleteBatchHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
+  DownloadBatchSourceRecordHandler,
 } from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
 import {
@@ -46,6 +47,7 @@ const CommandHandlers = [
   DeleteBatchHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
+  DownloadBatchSourceRecordHandler,
 ];
 
 const QueryHandlers = [

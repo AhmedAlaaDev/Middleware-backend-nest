@@ -215,6 +215,13 @@ export class DataBatchService {
   }
 
   /**
+   * Get source records stream for a batch (memory-efficient)
+   */
+  public getSourceRecordsStream(batchId: string): any {
+    return this.dataSourceRecordRepo.getListStream(batchId);
+  }
+
+  /**
    * Get enhanced records for a batch
    * @template TEnhancedData - Type of enhanced data records
    */

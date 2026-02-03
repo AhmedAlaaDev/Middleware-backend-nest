@@ -30,6 +30,7 @@ import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
+import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
@@ -245,6 +246,52 @@ export class DataBatchController {
     return new StreamableFile(createReadStream(filePath), {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       disposition: `attachment; filename="batch-errors-${batchId}.xlsx"`,
+    });
+  }
+
+  /**
+   * Download source record list (stored raw data as Excel)
+   */
+  @Post('download-source-file')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Download source records as Excel file',
+    description:
+      'Streams the stored raw source records for the batch (e.g. from AR Freight upload) as an Excel file. Memory-efficient.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiResponse({
+    status: 200,
+    description: 'Excel file with source records',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No source records found for this batch',
+  })
+  @Header(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @Header('x-no-compression', 'true')
+  public async downloadSourceFileAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<StreamableFile> {
+    const filePath = await this.commandBus.execute(
+      new DownloadBatchSourceRecordCommand(batchId),
+    );
+    return new StreamableFile(createReadStream(filePath), {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="source-records-${batchId}.xlsx"`,
     });
   }
 
