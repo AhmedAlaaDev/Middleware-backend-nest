@@ -24,8 +24,6 @@ export class TempFileCleanupJob {
   async handleTempFileCleanup(): Promise<void> {
     const config = this.cfg.get<SchedulerConfig>('scheduler');
 
-    this.logger.debug('config', config);
-
     if (!config?.enabled) {
       this.logger.debug('Scheduler disabled, skipping temp file cleanup');
       return;
