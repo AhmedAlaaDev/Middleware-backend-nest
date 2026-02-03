@@ -8,6 +8,7 @@ export * from './get-financial-dimensions.handler';
 export * from './get-ledgers.handler';
 export * from './get-main-accounts.handler';
 export * from './get-payment-terms.handler';
+export * from './get-tax-item-group-headings.handler';
 export * from './get-sync-jobs.handler';
 export * from './get-sync-status.handler';
 export * from './get-vendors.handler';

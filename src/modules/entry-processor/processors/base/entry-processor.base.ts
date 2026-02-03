@@ -270,6 +270,25 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
   }
 
+  /**
+   * Validates that the line's Item sales tax group (if present) exists in D365FO.
+   * Not required; only validated when a value is provided.
+   */
+  protected validateSalesTaxItemGroup(
+    ar: DynDataModel,
+    validTaxItemGroupCodes: Set<string>,
+  ): void {
+    const line = ar as DynAccountReceivableLineDto;
+    const value = (line.SalesTaxItemGroup || '').trim();
+    if (!value) return;
+    if (!validTaxItemGroupCodes.has(value)) {
+      ar.AddError(
+        'SalesTaxItemGroup',
+        `The item sales tax group '${value}' does not exist in D365FO. Please sync Tax Item Group Headings from D365FO or use a valid code.`,
+      );
+    }
+  }
+
   protected coerceToDate(input: any): Date | null {
     if (!input) return null;
     if (input instanceof Date) return input;

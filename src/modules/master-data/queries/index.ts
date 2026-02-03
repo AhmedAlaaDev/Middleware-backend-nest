@@ -8,6 +8,7 @@ export * from './get-financial-dimensions.query';
 export * from './get-ledgers.query';
 export * from './get-main-accounts.query';
 export * from './get-payment-terms.query';
+export * from './get-tax-item-group-headings.query';
 export * from './get-sync-jobs.query';
 export * from './get-sync-status.query';
 export * from './get-vendors.query';

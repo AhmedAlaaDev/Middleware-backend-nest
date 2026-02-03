@@ -7,5 +7,6 @@ export * from './financial-dimension.repository';
 export * from './ledger.repository';
 export * from './main-account.repository';
 export * from './payment-term.repository';
+export * from './tax-item-group-heading.repository';
 export * from './sync-job.repository';
 export * from './vendor.repository';

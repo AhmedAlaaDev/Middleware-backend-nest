@@ -6,6 +6,7 @@ export const SYNC_TYPES = {
   VENDORS: 'vendors',
   EXCHANGE_RATES: 'exchange-rates',
   PAYMENT_TERMS: 'payment-terms',
+  TAX_ITEM_GROUP_HEADINGS: 'tax-item-group-headings',
   LEDGERS: 'ledgers',
 } as const;
 
@@ -17,6 +18,7 @@ export const SYNC_TYPE_LABELS: Record<string, string> = {
   [SYNC_TYPES.VENDORS]: 'Vendors',
   [SYNC_TYPES.EXCHANGE_RATES]: 'Exchange Rates',
   [SYNC_TYPES.PAYMENT_TERMS]: 'Payment Terms',
+  [SYNC_TYPES.TAX_ITEM_GROUP_HEADINGS]: 'Tax Item Group Headings',
   [SYNC_TYPES.LEDGERS]: 'Ledgers',
 };
 

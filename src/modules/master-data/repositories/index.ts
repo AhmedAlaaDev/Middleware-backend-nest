@@ -7,5 +7,6 @@ export * from './financial-dimension.mongo.repository';
 export * from './ledger.mongo.repository';
 export * from './main-account.mongo.repository';
 export * from './payment-term.mongo.repository';
+export * from './tax-item-group-heading.mongo.repository';
 export * from './sync-job.mongo.repository';
 export * from './vendor.mongo.repository';

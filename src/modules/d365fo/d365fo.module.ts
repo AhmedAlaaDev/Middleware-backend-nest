@@ -15,6 +15,7 @@ import { GeneralJournalService } from '@/modules/d365fo/services/general-journal
 import { LedgerService } from '@/modules/d365fo/services/ledger.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 import { PaymentTermsService } from '@/modules/d365fo/services/payment-terms.service';
+import { TaxItemGroupHeadingService } from '@/modules/d365fo/services/tax-item-group-heading.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
 
@@ -36,6 +37,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     PaymentTermsService,
+    TaxItemGroupHeadingService,
     LedgerService,
   ],
   exports: [
@@ -55,6 +57,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     PaymentTermsService,
+    TaxItemGroupHeadingService,
     LedgerService,
   ],
 })

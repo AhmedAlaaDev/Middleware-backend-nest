@@ -20,6 +20,7 @@ import {
   CreateSyncLedgersJobCommand,
   CreateSyncMainAccountsJobCommand,
   CreateSyncPaymentTermsJobCommand,
+  CreateSyncTaxItemGroupHeadingsJobCommand,
   CreateSyncVendorsJobCommand,
   SaveAccountMappingsCommand,
 } from '@/modules/master-data/commands';
@@ -34,6 +35,7 @@ import {
   GetLedgersDto,
   GetMainAccountsDto,
   GetPaymentTermsDto,
+  GetTaxItemGroupHeadingsDto,
   GetVendorsDto,
   SaveAccountMappingDto,
   SyncBillingDataDto,
@@ -43,6 +45,7 @@ import {
   SyncLedgersDto,
   SyncMainAccountsDto,
   SyncPaymentTermsDto,
+  SyncTaxItemGroupHeadingsDto,
   SyncStatusDto,
   SyncVendorsDto,
 } from '@/modules/master-data/dtos';
@@ -58,6 +61,7 @@ import {
   ILedger,
   IMainAccount,
   IPaymentTerm,
+  ITaxItemGroupHeading,
   IVendor,
 } from '@/modules/master-data/interfaces';
 import {
@@ -71,6 +75,7 @@ import {
   GetLedgersQuery,
   GetMainAccountsQuery,
   GetPaymentTermsQuery,
+  GetTaxItemGroupHeadingsQuery,
   GetSyncStatusQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
@@ -510,6 +515,51 @@ export class MasterDataController {
   public async syncPaymentTermsAsync(@Query() dto: SyncPaymentTermsDto) {
     return this.commandBus.execute(
       new CreateSyncPaymentTermsJobCommand(dto.company),
+    );
+  }
+
+  /**
+   * Get tax item group headings (Item sales tax groups) from database (synced from D365FO)
+   */
+  @Get('tax-item-group-headings')
+  @ApiResponse({
+    status: 200,
+    description: 'Tax item group headings retrieved successfully',
+  })
+  @ApiPaginatedResponse(ITaxItemGroupHeading)
+  public getTaxItemGroupHeadingsAsync(
+    @Query() query: GetTaxItemGroupHeadingsDto,
+  ): Promise<IPaginatedRes<ITaxItemGroupHeading>> {
+    return this.queryBus.execute(
+      new GetTaxItemGroupHeadingsQuery(
+        {
+          dataAreaId: query.dataAreaId,
+          taxItemGroup: query.taxItemGroup,
+        },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
+  }
+
+  /**
+   * Sync tax item group headings from D365FO (Item sales tax groups)
+   */
+  @Post('tax-item-group-headings/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiResponse({
+    status: 200,
+    description: 'Sync job created successfully',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'A sync job is already pending or processing',
+  })
+  public async syncTaxItemGroupHeadingsAsync(
+    @Query() dto: SyncTaxItemGroupHeadingsDto,
+  ) {
+    return this.commandBus.execute(
+      new CreateSyncTaxItemGroupHeadingsJobCommand(dto.company),
     );
   }
 

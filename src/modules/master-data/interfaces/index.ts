@@ -7,5 +7,6 @@ export * from './financial-dimension.interface';
 export * from './ledger.interface';
 export * from './main-account.interface';
 export * from './payment-term.interface';
+export * from './tax-item-group-heading.interface';
 export * from './sync-job.interface';
 export * from './vendor.interface';

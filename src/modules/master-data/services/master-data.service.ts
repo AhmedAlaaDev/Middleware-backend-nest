@@ -48,6 +48,11 @@ import {
   IPaymentTermListFilter,
 } from '@/modules/master-data/interfaces/payment-term.interface';
 import {
+  ITaxItemGroupHeading,
+  ICreateTaxItemGroupHeading,
+  ITaxItemGroupHeadingListFilter,
+} from '@/modules/master-data/interfaces/tax-item-group-heading.interface';
+import {
   IVendor,
   ICreateVendor,
   IVendorListFilter,
@@ -62,6 +67,7 @@ import {
   FinancialDimensionValueRepository,
   MainAccountRepository,
   PaymentTermRepository,
+  TaxItemGroupHeadingRepository,
   VendorRepository,
   LedgerRepository,
 } from '@/modules/master-data/repositories/interfaces';
@@ -79,6 +85,7 @@ export class MasterDataService {
     private readonly finDimValRepo: FinancialDimensionValueRepository,
     private readonly accountMappingRepo: AccountCustomerInvoiceMappingRepository,
     private readonly paymentTermRepo: PaymentTermRepository,
+    private readonly taxItemGroupHeadingRepo: TaxItemGroupHeadingRepository,
     private readonly ledgerRepo: LedgerRepository,
   ) {}
 
@@ -303,6 +310,26 @@ export class MasterDataService {
     paymentTerms: ICreatePaymentTerm[],
   ): Promise<void> {
     await this.paymentTermRepo.upsertMany(company, paymentTerms);
+  }
+
+  async getTaxItemGroupHeadingsAsync(
+    filter?: ITaxItemGroupHeadingListFilter,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: ITaxItemGroupHeading[]; total: number }> {
+    const items = await this.taxItemGroupHeadingRepo.getList(filter ?? {}, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.taxItemGroupHeadingRepo.getCount(filter ?? {});
+    return { items, total };
+  }
+
+  async upsertTaxItemGroupHeadingsAsync(
+    company: string,
+    items: ICreateTaxItemGroupHeading[],
+  ): Promise<void> {
+    await this.taxItemGroupHeadingRepo.upsertMany(company, items);
   }
 
   async getLedgersAsync(

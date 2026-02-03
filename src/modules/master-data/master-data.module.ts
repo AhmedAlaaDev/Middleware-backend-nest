@@ -11,6 +11,7 @@ import {
   CreateSyncLedgersJobHandler,
   CreateSyncMainAccountsJobHandler,
   CreateSyncPaymentTermsJobHandler,
+  CreateSyncTaxItemGroupHeadingsJobHandler,
   CreateSyncVendorsJobHandler,
   SaveAccountMappingsHandler,
   SyncBillingDataHandler,
@@ -20,6 +21,7 @@ import {
   SyncLedgersHandler,
   SyncMainAccountsHandler,
   SyncPaymentTermsHandler,
+  SyncTaxItemGroupHeadingsHandler,
   SyncVendorsHandler,
 } from '@/modules/master-data/commands/handlers';
 import { MasterDataController } from '@/modules/master-data/master-data.controller';
@@ -34,6 +36,7 @@ import {
   GetLedgersHandler,
   GetMainAccountsHandler,
   GetPaymentTermsHandler,
+  GetTaxItemGroupHeadingsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
   GetVendorsHandler,
@@ -49,6 +52,7 @@ import {
   LedgerMongoRepository,
   MainAccountMongoRepository,
   PaymentTermMongoRepository,
+  TaxItemGroupHeadingMongoRepository,
   SyncJobMongoRepository,
   VendorMongoRepository,
 } from '@/modules/master-data/repositories';
@@ -63,6 +67,7 @@ import {
   LedgerRepository,
   MainAccountRepository,
   PaymentTermRepository,
+  TaxItemGroupHeadingRepository,
   SyncJobRepository,
   VendorRepository,
 } from '@/modules/master-data/repositories/interfaces';
@@ -87,6 +92,8 @@ import {
   MainAccountSchema,
   PaymentTerm,
   PaymentTermSchema,
+  TaxItemGroupHeading,
+  TaxItemGroupHeadingSchema,
   SyncJob,
   SyncJobSchema,
   Vendor,
@@ -102,6 +109,7 @@ const CommandHandlers = [
   CreateSyncVendorsJobHandler,
   CreateSyncExchangeRatesJobHandler,
   CreateSyncPaymentTermsJobHandler,
+  CreateSyncTaxItemGroupHeadingsJobHandler,
   CreateSyncLedgersJobHandler,
   SyncFinancialDimensionsHandler,
   SyncBillingDataHandler,
@@ -111,6 +119,7 @@ const CommandHandlers = [
   SyncVendorsHandler,
   SyncExchangeRatesHandler,
   SyncPaymentTermsHandler,
+  SyncTaxItemGroupHeadingsHandler,
   SyncLedgersHandler,
 ];
 
@@ -125,6 +134,7 @@ const QueryHandlers = [
   GetVendorsHandler,
   GetExchangeRatesHandler,
   GetPaymentTermsHandler,
+  GetTaxItemGroupHeadingsHandler,
   GetSyncJobsHandler,
   GetSyncStatusHandler,
   GetLedgersHandler,
@@ -154,6 +164,10 @@ const QueryHandlers = [
         schema: AccountCustomerInvoiceMappingSchema,
       },
       { name: PaymentTerm.name, schema: PaymentTermSchema },
+      {
+        name: TaxItemGroupHeading.name,
+        schema: TaxItemGroupHeadingSchema,
+      },
       { name: Ledger.name, schema: LedgerSchema },
       { name: SyncJob.name, schema: SyncJobSchema },
     ]),
@@ -185,6 +199,10 @@ const QueryHandlers = [
     {
       provide: PaymentTermRepository,
       useClass: PaymentTermMongoRepository,
+    },
+    {
+      provide: TaxItemGroupHeadingRepository,
+      useClass: TaxItemGroupHeadingMongoRepository,
     },
     {
       provide: LedgerRepository,

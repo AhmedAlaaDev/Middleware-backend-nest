@@ -11,6 +11,7 @@ import {
   SyncLedgersCommand,
   SyncMainAccountsCommand,
   SyncPaymentTermsCommand,
+  SyncTaxItemGroupHeadingsCommand,
   SyncVendorsCommand,
 } from '@/modules/master-data/commands';
 import { SYNC_TYPES } from '@/modules/master-data/constants/sync-types';
@@ -120,6 +121,12 @@ export class MasterDataSyncProcessor extends WorkerHost {
       case SYNC_TYPES.PAYMENT_TERMS:
         await this.commandBus.execute(
           new SyncPaymentTermsCommand(params.company),
+        );
+        break;
+
+      case SYNC_TYPES.TAX_ITEM_GROUP_HEADINGS:
+        await this.commandBus.execute(
+          new SyncTaxItemGroupHeadingsCommand(params.company),
         );
         break;
 

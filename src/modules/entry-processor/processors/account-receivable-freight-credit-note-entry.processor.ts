@@ -16,6 +16,7 @@ import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
+import { GetTaxItemGroupHeadingsQuery } from '@/modules/master-data/queries/get-tax-item-group-headings.query';
 
 @Injectable()
 export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProcessorBase {
@@ -182,7 +183,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
 
   async validateAsync(
     data: DynDataModel[],
-    _company: string,
+    company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynAccountReceivableLineDto[];
@@ -207,6 +208,18 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
       );
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
+
+    // Load tax item groups from DFO (for optional SalesTaxItemGroup validation)
+    const taxItemGroupRes = await this.queryBus.execute(
+      new GetTaxItemGroupHeadingsQuery(
+        { dataAreaId: company },
+        undefined,
+        10000,
+      ),
+    );
+    const validTaxItemGroupCodes = new Set(
+      taxItemGroupRes.items.map((x) => x.taxItemGroup),
+    );
 
     // Validate each line
     for (const arLine of arData) {
@@ -237,6 +250,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
       );
+      this.validateSalesTaxItemGroup(arLine, validTaxItemGroupCodes);
     }
     this.procLogger.debug('data Validated');
     return data;
