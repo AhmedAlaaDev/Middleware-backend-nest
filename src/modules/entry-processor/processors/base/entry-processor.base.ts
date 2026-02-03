@@ -655,26 +655,29 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected validateCoordinatorMan(
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
+    isRequired: boolean = true,
   ): void {
     const dimensionsModel = ar.DimensionModel;
+    const coordinatorMan =
+      dimensionsModel?.coordinatorMan?.trim().toLowerCase() || '';
     if (
-      !dimensionsModel?.coordinatorMan ||
-      dimensionsModel.coordinatorMan === '000' ||
-      dimensionsModel.coordinatorMan.toLowerCase() === '000'
+      isRequired &&
+      (!coordinatorMan ||
+        coordinatorMan === '000' ||
+        coordinatorMan.toLowerCase() === '000')
     ) {
       ar.AddError('CoordinatorManDimensions', 'CoordinatorMan is required');
       return;
     }
     if (
+      coordinatorMan &&
       !dimensions.some((d) =>
-        (d?.value || '')
-          .toLowerCase()
-          .includes(dimensionsModel.coordinatorMan?.trim().toLowerCase() || ''),
+        (d?.value || '').toLowerCase().includes(coordinatorMan),
       )
     ) {
       ar.AddError(
         'CoordinatorManDimensions',
-        `The dimension ${dimensionsModel.coordinatorMan} does not exist in the system.`,
+        `The dimension ${coordinatorMan} does not exist in the system.`,
       );
     }
   }
@@ -736,22 +739,24 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected validateWorker(
     ar: DynDataModel,
     dimensions: IFinancialDimensionValue[],
+    isRequired: boolean = true,
   ): void {
     const dimensionsModel = ar.DimensionModel;
-    if (!dimensionsModel?.worker) {
+    const worker = dimensionsModel?.worker?.trim().toLowerCase() || '';
+    if (
+      isRequired &&
+      (!worker || worker === '000' || worker.toLowerCase() === '000')
+    ) {
       ar.AddError('WorkerDimensions', 'Worker is required');
       return;
     }
     if (
-      !dimensions.some((d) =>
-        (d?.value || '')
-          .toLowerCase()
-          .includes(dimensionsModel.worker?.trim().toLowerCase() || ''),
-      )
+      worker &&
+      !dimensions.some((d) => (d?.value || '').toLowerCase().includes(worker))
     ) {
       ar.AddError(
         'WorkerDimensions',
-        `The dimension ${dimensionsModel.worker} does not exist in the system.`,
+        `The dimension ${worker} does not exist in the system.`,
       );
     }
   }
@@ -811,11 +816,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   ): string {
     // Extract numeric part from invoice number (handle cases where it might already have a suffix)
     let numberPart = invoiceNumber || '';
-    if (numberPart.includes('/')) {
-      numberPart = numberPart.split('/')[0];
-    }
-    // Remove any non-numeric characters from the beginning
-    numberPart = numberPart.replace(/^[^0-9]*/, '');
+
+    numberPart = numberPart.split('-')?.pop()?.trim() || '';
 
     // Parse and pad to 9 digits
     const number = parseInt(numberPart, 10);

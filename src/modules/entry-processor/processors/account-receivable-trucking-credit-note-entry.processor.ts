@@ -277,19 +277,14 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
   private getInvoiceBillingClassificationCode(
     custLine: AccountReceivableFileModel,
   ): string {
-    const journalName = custLine.JOURNALNAME?.toLowerCase() || '';
-    const invoice = custLine.INVOICE?.toLowerCase() || '';
+    const document = custLine.DOCUMENT?.toLowerCase() || '';
 
     // Check journal name first
-    if (journalName.includes('or-tr') || invoice.includes('or')) {
-      return 'OR-TR';
-    }
-    if (journalName.includes('inv-tr') || invoice.includes('inv')) {
+    if (document.includes('invoice')) {
       return 'INV-TR';
+    } else {
+      return document.split('/').pop()?.trim()?.toUpperCase() || '';
     }
-
-    // Default to INV-TR if cannot determine
-    return 'INV-TR';
   }
 
   /**

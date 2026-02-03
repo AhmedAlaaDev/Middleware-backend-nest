@@ -272,7 +272,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
         false,
       );
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
-      this.validateWorker(arLine, dimensionsMap.get('Worker') || []);
+      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
       this.validateCoordinatorMan(
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],

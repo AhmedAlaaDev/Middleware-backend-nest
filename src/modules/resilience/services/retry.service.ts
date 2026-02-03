@@ -9,14 +9,24 @@ export interface RetryOptions {
   exponentialBackoff?: boolean;
 }
 
+/** Delay in ms when server returns 429 Too Many Requests (2 minutes) */
+const DELAY_MS_429 = 2 * 60 * 1000;
+
 export class RetryService {
   private readonly logger = new Logger(RetryService.name);
 
   /**
-   * Default retry condition that only retries on connection errors and 5xx errors
-   * Does NOT retry on 4xx client errors
+   * Default retry condition that only retries on connection errors, 5xx errors, and 429 Too Many Requests
+   * Does NOT retry on other 4xx client errors
    */
   private shouldRetry(error: any): boolean {
+    const status = error.response?.status;
+
+    // 429 Too Many Requests - retry after delay (rate limit)
+    if (status === 429) {
+      return true;
+    }
+
     // Network errors (no response) - should retry
     if (!error.response) {
       // Check for connection-related error codes
@@ -40,12 +50,11 @@ export class RetryService {
     }
 
     // 5xx server errors - should retry
-    const status = error.response?.status;
     if (status && status >= 500 && status < 600) {
       return true;
     }
 
-    // 4xx client errors - should NOT retry
+    // Other 4xx client errors - should NOT retry (429 already handled above)
     if (status && status >= 400 && status < 500) {
       return false;
     }
@@ -83,12 +92,17 @@ export class RetryService {
         }
 
         if (attempt < maxRetries) {
-          const delay = useExponentialBackoff
-            ? baseDelay * Math.pow(2, attempt)
-            : baseDelay;
+          const is429 = error.response?.status === 429;
+          const delay = is429
+            ? DELAY_MS_429
+            : useExponentialBackoff
+              ? baseDelay * Math.pow(2, attempt)
+              : baseDelay;
 
           this.logger.warn(
-            `Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms (status: ${error.response?.status || 'network error'}, code: ${error.code || 'N/A'})`,
+            is429
+              ? `Retry attempt ${attempt + 1}/${maxRetries} after 2 min (429 Too Many Requests)`
+              : `Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms (status: ${error.response?.status || 'network error'}, code: ${error.code || 'N/A'})`,
           );
 
           await this.sleep(delay);
@@ -106,7 +120,10 @@ export class RetryService {
 
     const retryConfig: IAxiosRetryConfig = {
       retries: options?.retries || 3,
-      retryDelay: (retryCount) => {
+      retryDelay: (retryCount, error: AxiosError) => {
+        if (error?.response?.status === 429) {
+          return DELAY_MS_429;
+        }
         const baseDelay = options?.retryDelay || 1000;
         if (options?.exponentialBackoff !== false) {
           return baseDelay * Math.pow(2, retryCount);
@@ -117,8 +134,9 @@ export class RetryService {
       onRetry: (retryCount, error: AxiosError) => {
         const status = error.response?.status;
         const code = error.code;
+        const delayMsg = status === 429 ? ', delaying 2 min before retry' : '';
         this.logger.warn(
-          `Axios retry attempt ${retryCount}: ${error.message} (status: ${status || 'network error'}, code: ${code || 'N/A'})`,
+          `Axios retry attempt ${retryCount}: ${error.message} (status: ${status || 'network error'}, code: ${code || 'N/A'}${delayMsg})`,
         );
       },
     };

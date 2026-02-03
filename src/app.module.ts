@@ -9,6 +9,7 @@ import {
   redisConfig,
   ConfigSchema,
   resilienceConfig,
+  schedulerConfig,
 } from '@/config';
 import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { AuthModule } from '@/modules/auth/auth.module';
@@ -36,6 +37,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
         dbConfig,
         redisConfig,
         resilienceConfig,
+        schedulerConfig,
       ],
       isGlobal: true,
       validationSchema: ConfigSchema,

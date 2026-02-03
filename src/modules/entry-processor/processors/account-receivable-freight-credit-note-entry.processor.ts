@@ -273,22 +273,14 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
   private getInvoiceBillingClassificationCode(
     custLine: AccountReceivableFileModel,
   ): string {
-    const journalName = custLine.JOURNALNAME?.toLowerCase() || '';
-    const invoice = custLine.INVOICE?.toLowerCase() || '';
+    const document = custLine.DOCUMENT?.toLowerCase() || '';
 
     // Check journal name first
-    if (journalName.includes('or-fw') || invoice.includes('or')) {
-      return 'OR-FW';
-    }
-    if (journalName.includes('of-fw') || invoice.includes('of')) {
-      return 'OF-FW';
-    }
-    if (journalName.includes('inv-fw') || invoice.includes('inv')) {
+    if (document.includes('invoice')) {
       return 'INV-FW';
+    } else {
+      return document.split('/').pop()?.trim()?.toUpperCase() || '';
     }
-
-    // Default to INV-FW if cannot determine
-    return 'INV-FW';
   }
 
   /**

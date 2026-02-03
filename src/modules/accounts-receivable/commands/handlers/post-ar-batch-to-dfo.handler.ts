@@ -347,11 +347,11 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
    */
   private validateLine(
     line: D365FOFreeTextInvoiceLineRequest,
-    billingClassification: string,
+    _billingClassification: string,
   ): string[] {
-    const lowerBillingClassification = billingClassification?.toLowerCase();
+    // const lowerBillingClassification = billingClassification?.toLowerCase();
     const missingFields: string[] = [];
-    const skippedDescriptionFields = ['inv-tr'];
+    // const skippedDescriptionFields = ['inv-tr'];
 
     // Required fields - check for empty strings and null/undefined
     if (line.LineNumber === undefined || line.LineNumber === null) {
@@ -360,12 +360,12 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     if (!line.BillingCode?.trim()) {
       missingFields.push('BillingCode');
     }
-    if (
-      !line.Description?.trim() &&
-      !skippedDescriptionFields.includes(lowerBillingClassification)
-    ) {
-      missingFields.push('Description');
-    }
+    // if (
+    //   !line.Description?.trim() &&
+    //   !skippedDescriptionFields.includes(lowerBillingClassification)
+    // ) {
+    //   missingFields.push('Description');
+    // }
     if (line.UnitPrice === undefined || line.UnitPrice === null) {
       missingFields.push('UnitPrice');
     }
