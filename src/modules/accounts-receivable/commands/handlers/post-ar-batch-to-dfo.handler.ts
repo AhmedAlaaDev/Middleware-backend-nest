@@ -227,6 +227,12 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     this.logger.warn(
       `DFO free-text invoice TEST MODE enabled: enqueueing 1 header and ${limited.lines.length} lines (max ${this.testingModeMaxLines})`,
     );
+    this.logger.log(
+      `TEST MODE payload - header: ${JSON.stringify(limited.header, null, 2)}`,
+    );
+    this.logger.log(
+      `TEST MODE payload - lines: ${JSON.stringify(limited.lines, null, 2)}`,
+    );
 
     return [limited];
   }

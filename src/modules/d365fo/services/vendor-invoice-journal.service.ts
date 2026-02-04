@@ -105,8 +105,6 @@ export class VendorInvoiceJournalService {
         `[LINES] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
       );
 
-      this.logger.log(`[LINES] Chunk: ${JSON.stringify(chunk, null, 2)}`);
-
       // Post lines sequentially within chunk (no parallel)
       // Add small delay between line posts to allow D365FO internal processes to complete
       for (const line of chunk) {
