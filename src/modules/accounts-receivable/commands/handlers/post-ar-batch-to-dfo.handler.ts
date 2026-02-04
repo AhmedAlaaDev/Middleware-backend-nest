@@ -29,6 +29,13 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   PostARBatchToDFOResult
 > {
   private readonly logger = new Logger(PostARBatchToDFOHandler.name);
+  /**
+   * When enabled, we only enqueue a small sample payload:
+   * - 1 invoice header
+   * - up to 10 related lines
+   */
+  private readonly testingModeEnabled = process.env.NODE_ENV === 'development';
+  private readonly testingModeMaxLines = 10;
 
   constructor(
     private readonly dataBatchService: DataBatchService,
@@ -51,14 +58,15 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       batch.company,
     );
 
-    this.validateInvoices(groupedInvoices);
+    const invoicesToQueue = this.applyTestingMode(groupedInvoices);
+    this.validateInvoices(invoicesToQueue);
 
     await this.prepareBatchForPosting(batchId);
 
     return await this.enqueuePostingJob(
       batchId,
       batch.company,
-      groupedInvoices,
+      invoicesToQueue,
     );
   }
 
@@ -181,6 +189,46 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     }
 
     return groupedInvoices;
+  }
+
+  private applyTestingMode(
+    groupedInvoices: Array<{
+      header: D365FOFreeTextInvoiceHeaderRequest;
+      lines: D365FOFreeTextInvoiceLineRequest[];
+      HeaderDefaultDimensionDisplayValue: string;
+      LineFinTagDisplayValues: string[];
+    }>,
+  ): Array<{
+    header: D365FOFreeTextInvoiceHeaderRequest;
+    lines: D365FOFreeTextInvoiceLineRequest[];
+    HeaderDefaultDimensionDisplayValue: string;
+    LineFinTagDisplayValues: string[];
+  }> {
+    if (!this.testingModeEnabled) {
+      return groupedInvoices;
+    }
+
+    const first = groupedInvoices[0];
+    if (!first) {
+      return groupedInvoices;
+    }
+
+    const limited = {
+      header: first.header,
+      lines: first.lines.slice(0, this.testingModeMaxLines),
+      HeaderDefaultDimensionDisplayValue:
+        first.HeaderDefaultDimensionDisplayValue,
+      LineFinTagDisplayValues: first.LineFinTagDisplayValues.slice(
+        0,
+        this.testingModeMaxLines,
+      ),
+    };
+
+    this.logger.warn(
+      `DFO free-text invoice TEST MODE enabled: enqueueing 1 header and ${limited.lines.length} lines (max ${this.testingModeMaxLines})`,
+    );
+
+    return [limited];
   }
 
   /**

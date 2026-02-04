@@ -34,7 +34,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * - 1 journal header
    * - up to 10 related lines
    */
-  private readonly testingModeEnabled = true;
+  private readonly testingModeEnabled = process.env.NODE_ENV === 'development';
   private readonly testingModeMaxLines = 10;
 
   constructor(
@@ -286,7 +286,10 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     }
 
     const limited = {
-      header: first.header,
+      header: {
+        ...first.header,
+        Description: `[TESTING_ONLY] ${first.header.Description ?? ''}`.trim(),
+      },
       lines: first.lines.slice(0, this.testingModeMaxLines),
     };
 

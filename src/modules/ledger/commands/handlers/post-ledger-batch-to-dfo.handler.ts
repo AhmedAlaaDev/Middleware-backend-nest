@@ -32,6 +32,13 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   PostLedgerBatchToDFOResult
 > {
   private readonly logger = new Logger(PostLedgerBatchToDFOHandler.name);
+  /**
+   * When enabled, we only enqueue a small sample payload:
+   * - 1 journal header
+   * - up to 10 related lines
+   */
+  private readonly testingModeEnabled = process.env.NODE_ENV === 'development';
+  private readonly testingModeMaxLines = 10;
 
   constructor(
     private readonly dataBatchService: DataBatchService,
@@ -54,14 +61,15 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
       batch.company,
     );
 
-    this.validateJournals(groupedJournals);
+    const journalsToQueue = this.applyTestingMode(groupedJournals);
+    this.validateJournals(journalsToQueue);
 
     await this.prepareBatchForPosting(batchId);
 
     return await this.enqueuePostingJob(
       batchId,
       batch.company,
-      groupedJournals,
+      journalsToQueue,
     );
   }
 
@@ -179,6 +187,39 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
     }
 
     return groupedJournals;
+  }
+
+  private applyTestingMode(
+    groupedJournals: Array<{
+      header: LedgerJournalHeaderRequest;
+      lines: LedgerJournalLineRequest[];
+    }>,
+  ): Array<{
+    header: LedgerJournalHeaderRequest;
+    lines: LedgerJournalLineRequest[];
+  }> {
+    if (!this.testingModeEnabled) {
+      return groupedJournals;
+    }
+
+    const first = groupedJournals[0];
+    if (!first) {
+      return groupedJournals;
+    }
+
+    const limited = {
+      header: {
+        ...first.header,
+        Description: `[TESTING_ONLY] ${first.header.Description ?? ''}`.trim(),
+      },
+      lines: first.lines.slice(0, this.testingModeMaxLines),
+    };
+
+    this.logger.warn(
+      `DFO ledger journal TEST MODE enabled: enqueueing 1 header and ${limited.lines.length} lines (max ${this.testingModeMaxLines})`,
+    );
+
+    return [limited];
   }
 
   private mapLineToRequest(
