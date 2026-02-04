@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
-import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -28,11 +27,6 @@ interface ClosingBatchCounter {
 interface ClosingVoucherCounter {
   lastNumber: number;
   relatedSettingLogicalName: string;
-}
-
-interface CostCenterActivity {
-  CostCenter: number;
-  Activity: string;
 }
 
 interface MonthGroup {
@@ -72,13 +66,11 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
   ] as const;
 
   private readonly journalName = 'GL-Fleet';
-  private costCenters: CostCenterActivity[] = [];
 
   constructor(
     queryBus: QueryBus,
     db: DBService,
     private readonly generalJournalService: GeneralJournalService,
-    private readonly exchangeRateService: ExchangeRateService,
     private readonly commandBus: CommandBus,
   ) {
     // Pass null for customerInvoiceService as it's not needed for closing entries
@@ -95,8 +87,6 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     );
     const costCenterDimensions = await this.loadCostCenterDimensions();
     const sortedExchangeRates = await this.loadAndSortExchangeRates();
-    // Placeholder: cost center activities (if needed)
-    this.costCenters = [];
     const { lastBatch, lastVoucher } = await this.loadCounters(company);
     const ledgerData = this.filterAndMapLedgerData(data, accounts);
     const groupedLedger = this.groupEntries(
@@ -244,7 +234,11 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         dimensionsMap.get('ChargeType')?.map((d) => d.value) || [],
       );
       this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
-      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
+      this.validateFreightType(
+        arLine,
+        dimensionsMap.get('FreightType') || [],
+        false,
+      );
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
       this.validateCoordinatorMan(
         arLine,
