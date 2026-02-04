@@ -38,7 +38,7 @@ export interface D365FOVendorInvoiceJournalLineRequest {
   OffsetFinTagDisplayValue?: string;
   PostingProfile: string;
   Listcode?: string;
-  OffsetDefaultDimensionDisplayValue: string;
+  OffsetDefaultDimensionDisplayValue?: string;
   ReportingCurrencyExchRate?: number;
   PaymId?: string;
   AccountType: 'Vend' | 'Ledger';
@@ -95,7 +95,7 @@ export interface D365FOVendorInvoiceJournalLineRequest {
   RemittanceAddressValidTo?: string;
   OffsetAccountDisplayValue: string;
   SalesTaxGroup?: string;
-  DefaultDimensionDisplayValue: string;
+  DefaultDimensionDisplayValue?: string;
   RemittanceAddressLatitude?: number;
   SalesTaxCode?: string;
   ItemSalesTaxGroup?: string;

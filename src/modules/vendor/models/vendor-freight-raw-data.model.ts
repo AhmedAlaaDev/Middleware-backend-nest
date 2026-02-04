@@ -12,6 +12,7 @@ export class VendorFreightRawData {
   DEFAULTDIMENSIONDISPLAYVALUE?: string;
   FINTAGDISPLAYVALUE: string;
   TEXT: string;
+  DESCRIPTION?: string;
   DEBITAMOUNT: number;
   CREDITAMOUNT: number;
   CURRENCYCODE: string;

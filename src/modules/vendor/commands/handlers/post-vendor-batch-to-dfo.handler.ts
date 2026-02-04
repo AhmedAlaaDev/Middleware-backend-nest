@@ -29,6 +29,13 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   PostVendorBatchToDFOResult
 > {
   private readonly logger = new Logger(PostVendorBatchToDFOHandler.name);
+  /**
+   * When enabled, we only enqueue a small sample payload:
+   * - 1 journal header
+   * - up to 10 related lines
+   */
+  private readonly testingModeEnabled = true;
+  private readonly testingModeMaxLines = 10;
 
   constructor(
     private readonly dataBatchService: DataBatchService,
@@ -51,22 +58,21 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       batch.company,
     );
 
-    this.validateJournals(groupedJournals);
+    const journalsToQueue = this.applyTestingMode(groupedJournals);
+    this.validateJournals(journalsToQueue);
 
-    // console.log({
-    //   after_mapping_sample: groupedJournals[0]?.lines?.slice(0, 10),
-    // });
-
+    // console.log(JSON.stringify(journalsToQueue, null, 2));
     // return {
     //   jobId: '123',
     //   message: 'Batch 123 queued for posting to D365FO. Job ID: 123',
     // };
+
     await this.prepareBatchForPosting(batchId);
 
     return await this.enqueuePostingJob(
       batchId,
       batch.company,
-      groupedJournals,
+      journalsToQueue,
     );
   }
 
@@ -195,7 +201,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
-   * Maps journal lines to D365FO line requests
+   * Maps journal lines to D365FO line requests.
+   * For Ledger lines, D365FO expects AccountDisplayValue as full LedgerDimensionDisplayValue
+   * (MainAccount|Dim1|Dim2|...) per the active Ledger dimension format.
    */
   private mapLines(
     lines: IDataEnhancedRecord<VendorFreightDFOLine>[],
@@ -204,29 +212,45 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     return lines.map((lineRecord) => {
       const line = lineRecord.data;
 
+      const accountDisplayValue =
+        line.ACCOUNTTYPE === 'Ledger' &&
+        line.DEFAULTDIMENSIONDISPLAYVALUE?.trim()
+          ? line.ACCOUNTDISPLAYVALUE + line.DEFAULTDIMENSIONDISPLAYVALUE.trim()
+          : line.ACCOUNTDISPLAYVALUE;
+
       return {
         dataAreaId: company,
         JournalBatchNumber: line.JOURNALBATCHNUMBER,
         LineNumber: line.LineNumber,
-        AccountDisplayValue: line.ACCOUNTDISPLAYVALUE,
-        OffsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE || '',
-        OffsetDefaultDimensionDisplayValue:
-          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE || '',
+        AccountDisplayValue: accountDisplayValue,
+        PostingProfile: line.POSTINGPROFILE,
+        OffsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
+        OffsetDefaultDimensionDisplayValue: this.toOptionalTrimmedString(
+          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+        ),
+        DefaultDimensionDisplayValue: this.toOptionalTrimmedString(
+          line.DEFAULTDIMENSIONDISPLAYVALUE,
+        ),
+        // FinTagDisplayValue / OffsetFinTagDisplayValue omitted: D365FO resolves them via
+        // FINTAGCREATEUNICODEHASH and FINTAGDATAENTITYSFKCACHE; if that SQL function is
+        // missing or misconfigured, posting fails. Omit to allow lines to post.
         ReportingCurrencyExchRate: line.REPORTINGCURRENCYEXCHRATE,
         AccountType: line.ACCOUNTTYPE,
         TermsOfPayment: line.TERMSOFPAYMENT,
         ExchRateSecond: line.EXCHRATESECOND || 0,
         TransactionType: line.TRANSACTIONTYPE,
-        MethodOfPayment: line.METHODOFPAYMENT || '',
+        MethodOfPayment: this.toOptionalTrimmedString(line.METHODOFPAYMENT),
         ExchRate: line.EXCHRATE ?? 1,
         Document: line.DOCUMENT ? String(line.DOCUMENT) : undefined,
-        Description: line.DESCRIPTION || '',
+        Description: this.toOptionalTrimmedString(line.DESCRIPTION),
         Invoice: line.INVOICE,
         Date: this.formatDate(line.DATE),
         Voucher: line.VOUCHER ? String(line.VOUCHER) : undefined,
-        TaxExemptNumber: line.TAXEXEMPTNUMBER || '',
+        // TaxExemptNumber: this.toOptionalTrimmedString(line.TAXEXEMPTNUMBER),
         Currency: line.CURRENCY,
-        ItemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+        ItemWithholdingTaxGroupCode: this.toOptionalTrimmedString(
+          line.ITEMWITHHOLDINGTAXGROUPCODE,
+        ),
         OffsetAccountType: line.OFFSETACCOUNTTYPE,
         InvoiceDate: line.INVOICEDATE
           ? this.formatDate(line.INVOICEDATE)
@@ -235,10 +259,50 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         OffsetCompany: line.OFFSETCOMPANY,
         DueDate: line.DUEDATE ? this.formatDate(line.DUEDATE) : undefined,
         OverrideSalesTax: this.convertToYesNo(line.OVERRIDESALESTAX),
+        SalesTaxGroup: this.toOptionalTrimmedString(line.SALESTAXGROUP),
+        ItemSalesTaxGroup: this.toOptionalTrimmedString(line.ITEMSALESTAXGROUP),
         Credit: line.CREDIT || 0,
         Company: line.COMPANY || company,
       } as D365FOVendorInvoiceJournalLineRequest;
     });
+  }
+
+  private applyTestingMode(
+    groupedJournals: Array<{
+      header: D365FOVendorInvoiceJournalHeaderRequest;
+      lines: D365FOVendorInvoiceJournalLineRequest[];
+    }>,
+  ): Array<{
+    header: D365FOVendorInvoiceJournalHeaderRequest;
+    lines: D365FOVendorInvoiceJournalLineRequest[];
+  }> {
+    if (!this.testingModeEnabled) {
+      return groupedJournals;
+    }
+
+    const first = groupedJournals[0];
+    if (!first) {
+      return groupedJournals;
+    }
+
+    const limited = {
+      header: first.header,
+      lines: first.lines.slice(0, this.testingModeMaxLines),
+    };
+
+    this.logger.warn(
+      `DFO vendor journal TEST MODE enabled: enqueueing 1 header and ${limited.lines.length} lines (max ${this.testingModeMaxLines})`,
+    );
+
+    return [limited];
+  }
+
+  private toOptionalTrimmedString(
+    value: string | undefined | null,
+  ): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   /**
