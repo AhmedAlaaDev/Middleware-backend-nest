@@ -32,7 +32,8 @@
     "docker:prod:logs": "docker compose -f docker-compose.production.yml logs app -f",
     "docker:prod:build": "docker build --target production -t moatazali/middleware-app:1.0.2 .",
     "docker:prod:push": "docker push moatazali/middleware-app:1.0.2",
-    "deploy": "pnpm docker:prod:build && pnpm docker:prod:push && ssh mdr \"cd ~/apps/D365FOMiddleware_Nestbackend && pnpm docker:down && pnpm docker:pull && pnpm docker:up\""
+    "docker:deploy": "pnpm docker:prod:build && pnpm docker:prod:push && ssh mdr \"bash -lc 'set -e; cd ~/apps/D365FOMiddleware_Nestbackend; docker compose pull; docker compose up -d --remove-orphans'\"",
+    "docker:server:logs": "ssh mdr \"cd ~/apps/D365FOMiddleware_Nestbackend && docker compose logs -f --tail=200 app\""
   },
   "dependencies": {
     "@keyv/redis": "^5.1.4",

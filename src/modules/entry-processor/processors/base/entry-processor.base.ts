@@ -141,9 +141,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       dimensionsModel.costCenter,
       dimensionsModel.activityName,
       dimensionsModel.businessUnit,
-      String(dimensionsModel.location) === '002'
-        ? 'cai'
-        : dimensionsModel.location,
+      dimensionsModel.location,
       dimensionsModel.customer,
       dimensionsModel.subCustomer,
       dimensionsModel.vendor,

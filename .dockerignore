@@ -49,6 +49,7 @@ logs
 .tmp
 .temp
 *.tmp
+temp
 
 # Docker
 Dockerfile*

@@ -250,11 +250,15 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
       );
-      this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
-      this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
+      this.validateVendor(arLine, dimensionsMap.get('Vendor') || [], false);
+      this.validateSubVendor(
+        arLine,
+        dimensionsMap.get('SubVendor') || [],
+        false,
+      );
       this.validateTruckerType(arLine, dimensionsMap.get('TruckerType') || []);
       this.validateTruckNumber(arLine, dimensionsMap.get('TruckNumber') || []);
-      this.validateWorker(arLine, dimensionsMap.get('Worker') || []);
+      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
     }
 
     return data;
