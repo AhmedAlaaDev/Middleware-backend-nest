@@ -445,9 +445,11 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         }
       }
 
-      ledgerEntry.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(
-        ledgerEntry.AccountDimensions,
-      );
+      ledgerEntry.ACCOUNTDISPLAYVALUE =
+        this.convertToStringDimensionsWithSegments(
+          ledgerEntry.AccountDimensions,
+          20,
+        );
 
       if (
         !excludedEntries.some(

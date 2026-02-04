@@ -169,6 +169,17 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     return parts.map((p) => normalize(p)).join('|');
   }
 
+  protected convertToStringDimensionsWithSegments(
+    dimensionsModel: AccountDimensionsModel | null,
+    requiredSegments: number,
+  ): string {
+    const base = this.convertToStringDimensions(dimensionsModel);
+    const parts = (base ?? '').split('|'); // ممنوع filter
+
+    while (parts.length < requiredSegments) parts.push('');
+    return parts.join('|');
+  }
+
   protected prepareAccountReceivableLine(
     lineNumber: number,
     dimensions: AccountDimensionsModel,
