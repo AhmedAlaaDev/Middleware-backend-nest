@@ -20,58 +20,7 @@ import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanc
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { QueueService } from '@/modules/queue/services/queue.service';
-
-/**
- * Common interface for vendor DFO line data
- * Based on IVendorFreightDFOLine, IVendorTruckingDFOLine, etc.
- */
-interface IVendorDFOLine {
-  header: {
-    JOURNALBATCHNUMBER: string;
-    JOURNALNAME: string;
-    DESCRIPTION: string;
-    OVERRIDESALESTAX: string;
-    SALESTAXINCLUDED: string;
-  };
-  LineNumber: number;
-  JOURNALBATCHNUMBER: string;
-  JOURNALNAME?: string;
-  ACCOUNTTYPE: 'Vend' | 'Ledger';
-  ACCOUNTDISPLAYVALUE: string;
-  DEFAULTDIMENSIONDISPLAYVALUE?: string;
-  COMPANY: string;
-  CREDIT: number;
-  DEBIT: number;
-  CURRENCY: string;
-  DATE: string;
-  DESCRIPTION: string;
-  DOCUMENT: number;
-  DUEDATE: string;
-  EXCHRATE: number;
-  EXCHRATESECOND: number;
-  INVOICE: string;
-  INVOICEDATE: string;
-  OVERRIDESALESTAX: string;
-  POSTINGPROFILE: string;
-  SALESTAXGROUP?: string;
-  ITEMSALESTAXGROUP?: string;
-  TERMSOFPAYMENT?: string;
-  TRANSACTIONTYPE: string;
-  OFFSETACCOUNTDISPLAYVALUE: string;
-  OFFSETACCOUNTTYPE: string;
-  OFFSETCOMPANY: string;
-  OFFSETDEFAULTDIMENSIONDISPLAYVALUE: string;
-  OFFSETFINTAGDISPLAYVALUE?: string;
-  OFFSETTRANSACTIONTEXT?: string;
-  FINTAGDISPLAYVALUE?: any;
-  ISWITHHOLDINGTAXCALCULATE?: string;
-  ITEMWITHHOLDINGTAXGROUPCODE?: string;
-  METHODOFPAYMENT?: string;
-  PAYMID?: number;
-  REPORTINGCURRENCYEXCHRATE?: number;
-  TAXEXEMPTNUMBER?: string;
-  VOUCHER?: number | string;
-}
+import { VendorFreightDFOLine } from '@/modules/vendor/interfaces/vendor-freight-dfo-data.interface';
 
 @CommandHandler(PostVendorBatchToDFOCommand)
 @Injectable()
@@ -137,19 +86,19 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    */
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
-  ): Promise<Map<string, IDataEnhancedRecord<IVendorDFOLine>[]>> {
+  ): Promise<Map<string, IDataEnhancedRecord<VendorFreightDFOLine>[]>> {
     const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
     const journalGroups = new Map<
       string,
-      IDataEnhancedRecord<IVendorDFOLine>[]
+      IDataEnhancedRecord<VendorFreightDFOLine>[]
     >();
     let recordCount = 0;
 
     for await (const record of recordsStream) {
       recordCount++;
-      const data = record.data as unknown as IVendorDFOLine;
+      const data = record.data as unknown as VendorFreightDFOLine;
 
       if (!this.isValidRecord(data, record.id)) {
         continue;
@@ -162,7 +111,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
       journalGroups
         .get(journalBatchNumber)!
-        .push(record as unknown as IDataEnhancedRecord<IVendorDFOLine>);
+        .push(record as unknown as IDataEnhancedRecord<VendorFreightDFOLine>);
     }
 
     if (recordCount === 0) {
@@ -180,9 +129,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * Checks if a record is valid for processing
    */
   private isValidRecord(
-    data: IVendorDFOLine,
+    data: VendorFreightDFOLine,
     recordId: string,
-  ): data is IVendorDFOLine {
+  ): data is VendorFreightDFOLine {
     if (!data || typeof data !== 'object') {
       return false;
     }
@@ -201,7 +150,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * Maps grouped records to D365FO request types
    */
   private mapToD365FORequests(
-    journalGroups: Map<string, IDataEnhancedRecord<IVendorDFOLine>[]>,
+    journalGroups: Map<string, IDataEnhancedRecord<VendorFreightDFOLine>[]>,
     company: string,
   ): Array<{
     header: D365FOVendorInvoiceJournalHeaderRequest;
@@ -228,7 +177,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * Maps the first line of a journal group to a header request
    */
   private mapHeaderFromLines(
-    lines: IDataEnhancedRecord<IVendorDFOLine>[],
+    lines: IDataEnhancedRecord<VendorFreightDFOLine>[],
     company: string,
   ): D365FOVendorInvoiceJournalHeaderRequest {
     const firstLine = lines[0].data;
@@ -249,7 +198,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * Maps journal lines to D365FO line requests
    */
   private mapLines(
-    lines: IDataEnhancedRecord<IVendorDFOLine>[],
+    lines: IDataEnhancedRecord<VendorFreightDFOLine>[],
     company: string,
   ): D365FOVendorInvoiceJournalLineRequest[] {
     return lines.map((lineRecord) => {

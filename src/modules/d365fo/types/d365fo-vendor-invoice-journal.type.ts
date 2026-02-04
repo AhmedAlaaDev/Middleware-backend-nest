@@ -27,36 +27,6 @@ export interface D365FOVendorInvoiceJournalHeaderResponse {
   JournalTotalDebit: number;
 }
 
-/**
- * Request data for posting a vendor invoice journal line to D365FO
- */
-// export interface D365FOVendorInvoiceJournalLineRequest {
-//   LineNumber: number;
-//   JournalBatchNumber: string;
-//   Date: string;
-//   DueDate: string;
-//   Company: string;
-//   AccountType: 'Vend' | 'Ledger';
-//   Invoice?: string;
-//   Description?: string;
-//   Currency: string;
-//   Debit: number;
-//   Credit: number;
-//   OffsetCompany: string;
-//   OffsetAccountType: 'Ledger';
-//   Company2: string;
-//   AccountDisplayValue: string;
-//   Approved?: 'Yes' | 'No';
-//   DefaultDimensionDisplayValue: string;
-//   Document?: string;
-//   FinTagDisplayValue?: string;
-//   IsWithholdingTaxCalculate?: 'Yes' | 'No';
-//   ItemSalesTaxGroup?: string;
-//   ItemWithholdingTaxGroupCode?: string;
-//   PaymId?: string;
-//   SalesTaxGroup?: string;
-// }
-
 export interface D365FOVendorInvoiceJournalLineRequest {
   dataAreaId: string;
   JournalBatchNumber: string;
