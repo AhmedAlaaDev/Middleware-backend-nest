@@ -237,9 +237,13 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
       );
-      this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
-      this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
-      this.validateWorker(arLine, dimensionsMap.get('Worker') || []);
+      this.validateVendor(arLine, dimensionsMap.get('Vendor') || [], false);
+      this.validateSubVendor(
+        arLine,
+        dimensionsMap.get('SubVendor') || [],
+        false,
+      );
+      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
     }
 
     return data;

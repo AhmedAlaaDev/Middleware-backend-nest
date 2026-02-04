@@ -54,6 +54,17 @@ export class RetryService {
       return true;
     }
 
+    // 400 with D365FO LedgerJournalTable update conflict - retryable (transient locking)
+    if (status === 400) {
+      const message = this.getErrorMessage(error).toLowerCase();
+      if (
+        message.includes('update conflict') ||
+        message.includes('cannot edit a record in ledger journal table')
+      ) {
+        return true;
+      }
+    }
+
     // Other 4xx client errors - should NOT retry (429 already handled above)
     if (status && status >= 400 && status < 500) {
       return false;
@@ -146,5 +157,21 @@ export class RetryService {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Extract a single string from an Axios/D365FO error for message matching.
+   * Handles response.data as string, object with message/error, or nested error.
+   */
+  private getErrorMessage(error: any): string {
+    const msg = error?.message ?? '';
+    const data = error?.response?.data;
+    if (data == null) return msg;
+    if (typeof data === 'string') return `${msg} ${data}`.trim();
+    const inner = data?.error?.message ?? data?.message ?? data?.value ?? '';
+    const innerStr = Array.isArray(inner)
+      ? inner.join(' ')
+      : String(inner ?? '');
+    return `${msg} ${innerStr}`.trim();
   }
 }

@@ -79,7 +79,9 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
         `Posting ledger journal lines chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
       );
 
-      const postPromises = chunk.map(async (line) => {
+      // Post lines sequentially per header to avoid D365FO LedgerJournalTable
+      // update conflicts (parallel POSTs on the same journal header cause locking errors).
+      for (const line of chunk) {
         const payload: LedgerJournalLineRequest = {
           ...line,
           dataAreaId,
@@ -89,14 +91,11 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
           dataAreaId,
           payload,
         );
-        return {
+        result.push({
           headerId: headerKey,
           lineNumber: response.LineNumber ?? 0,
-        };
-      });
-
-      const chunkResults = await Promise.all(postPromises);
-      result.push(...chunkResults);
+        });
+      }
     }
 
     return result;
