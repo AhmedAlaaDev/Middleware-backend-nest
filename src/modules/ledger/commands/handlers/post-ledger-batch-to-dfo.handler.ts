@@ -261,6 +261,9 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
       SalesTaxGroup: line.SalesTaxGroup,
       ItemSalesTaxGroup: line.ItemSalesTaxGroup,
       ExchRate: line.ExchangeRate,
+      // TODO: remove after microsoft ticket is solved
+      FinTagDisplayValue: '',
+      // FinTagDisplayValue: line.FinTagDisplayValue || '',
     };
   }
 
@@ -348,6 +351,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
     ) {
       missing.push('DebitAmount or CreditAmount');
     }
+    // if (!line.FinTagDisplayValue?.trim()) missing.push('FinTagDisplayValue');
     return missing;
   }
 
