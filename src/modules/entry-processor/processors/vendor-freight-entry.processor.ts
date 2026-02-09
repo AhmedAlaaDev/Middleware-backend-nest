@@ -204,18 +204,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       ({ accountNumber }) => ({ accountNumber }),
     );
 
-    const dimensionCounts = Object.keys(dimensionsMap).reduce(
-      (acc, key) => {
-        acc[key] = dimensionsMap[key]?.length || 0;
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    this.vendorLogger.debug(
-      `[VALIDATE] Loaded dimensions: ${JSON.stringify(dimensionCounts)}`,
-    );
-
     for (const line of lines) {
       if (line.ACCOUNTTYPE === 'Ledger') {
         this.validateMainAccount(line, mainAccounts);
@@ -229,10 +217,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
       this.validateDirection(line, dimensionsMap.Direction);
       this.validateVendor(line, dimensionsMap.Vendor);
-
-      if (line.DimensionModel.subVendor) {
-        this.validateSubVendor(line, dimensionsMap.SubVendor);
-      }
+      this.validateSubVendor(line, dimensionsMap.SubVendor, false);
     }
 
     return data;
@@ -318,38 +303,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
   }
 
-  private sortLinesByMonthAndInvoice(
-    lines: VendorFreightRawData[],
-  ): VendorFreightRawData[] {
-    const sorted = [...lines].sort((a, b) => {
-      let monthA: string;
-      let monthB: string;
-
-      try {
-        monthA = getMonthKey(a.TRANSDATE);
-      } catch (_error) {
-        monthA = 'invalid-date';
-      }
-
-      try {
-        monthB = getMonthKey(b.TRANSDATE);
-      } catch (_error) {
-        monthB = 'invalid-date';
-      }
-
-      if (monthA !== monthB) {
-        return monthA.localeCompare(monthB);
-      }
-
-      const invA = a.INVOICE?.toLowerCase().trim() || 'no_invoice';
-      const invB = b.INVOICE?.toLowerCase().trim() || 'no_invoice';
-
-      return invA.localeCompare(invB);
-    });
-
-    return sorted;
-  }
-
   private buildVoucherMap(
     sortedLines: VendorFreightRawData[],
   ): Map<string, Map<string, VendorFreightRawData[]>> {
@@ -380,40 +333,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       }
 
       voucherMap.get(voucherKey)!.push(line);
-    }
-
-    return monthInvoiceMap;
-  }
-
-  private buildMonthInvoiceMap(
-    sortedLines: VendorFreightRawData[],
-  ): Map<string, Map<string, VendorFreightRawData[]>> {
-    const monthInvoiceMap = new Map<
-      string,
-      Map<string, VendorFreightRawData[]>
-    >();
-
-    for (const line of sortedLines) {
-      let monthKey: string;
-      try {
-        monthKey = getMonthKey(line.TRANSDATE);
-      } catch (_error) {
-        monthKey = 'invalid-date';
-      }
-
-      const invoiceKey = line.INVOICE?.toLowerCase().trim() || 'no_invoice';
-
-      if (!monthInvoiceMap.has(monthKey)) {
-        monthInvoiceMap.set(monthKey, new Map());
-      }
-
-      const invoiceMap = monthInvoiceMap.get(monthKey)!;
-
-      if (!invoiceMap.has(invoiceKey)) {
-        invoiceMap.set(invoiceKey, []);
-      }
-
-      invoiceMap.get(invoiceKey)!.push(line);
     }
 
     return monthInvoiceMap;
@@ -587,12 +506,13 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
 
-    const { taxNumber: _tax, termsOfPayment } = line.ISVENDOR
+    const vendorInfo = line.ISVENDOR
       ? await this.getVendorTaxNumberAndTermsOfPayment(
           company,
           line.ACCOUNTDISPLAYVALUE,
         )
       : { taxNumber: '', termsOfPayment: '' };
+    const termsOfPayment = vendorInfo.termsOfPayment;
 
     // Calculate exchange rates once per invoice
     const { exchangeRate, reportingRate } =
