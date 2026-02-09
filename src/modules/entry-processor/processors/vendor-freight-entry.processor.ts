@@ -151,10 +151,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         // Assign voucher per invoice
         const voucher = voucherNum++;
 
-        // Calculate exchange rates once per invoice
-        const { exchangeRate, reportingRate } =
-          await this.fetchExchangeRatesForHeader(headerLine);
-
         if (!currentHeader) {
           this.vendorLogger.error('Current header is unexpectedly null');
           throw new Error('Current header is unexpectedly null');
@@ -165,8 +161,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           lines,
           company,
           currentHeader,
-          exchangeRate,
-          reportingRate,
           voucher,
           () => lineNumber++,
         );
@@ -279,15 +273,43 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     custodyAccountNumbers: string[],
   ): VendorFreightRawData[] {
-    const filtered = data
-      .map((d) => new VendorFreightRawData(d))
-      .filter((d) => {
-        if (d.ISLEDGER) return true;
-        const isCustody = custodyAccountNumbers.includes(d.ACCOUNTDISPLAYVALUE);
-        return !isCustody;
-      });
+    const linesToFilter = new Set<string>();
+    const mappedData = data.map((d) => new VendorFreightRawData(d));
 
-    return filtered;
+    // Make invoice unique per UniqueId: first UniqueId keeps the invoice, duplicates get suffix _1, _2, ...
+    const normalizedInv = (inv: string) => inv?.toLowerCase().trim() ?? '';
+    const invoiceToUniqueIds = new Map<string, number[]>();
+    for (const line of mappedData) {
+      const key = normalizedInv(line.INVOICE);
+      if (!key) continue;
+      let ids = invoiceToUniqueIds.get(key);
+      if (!ids) {
+        ids = [];
+        invoiceToUniqueIds.set(key, ids);
+      }
+      if (!ids.includes(line.UniqueId)) ids.push(line.UniqueId);
+    }
+    for (const line of mappedData) {
+      const key = normalizedInv(line.INVOICE);
+      const uniqueIds = invoiceToUniqueIds.get(key);
+      if (!uniqueIds || uniqueIds.length <= 1) continue;
+      const index = uniqueIds.indexOf(line.UniqueId);
+      if (index >= 1) {
+        line.INVOICE = `${line.INVOICE}_${index}`;
+      }
+    }
+
+    for (const line of mappedData) {
+      if (line.ISLEDGER) continue;
+      const isCustody = custodyAccountNumbers.includes(
+        line.ACCOUNTDISPLAYVALUE,
+      );
+      if (isCustody) {
+        linesToFilter.add(line.UniqueId.toString());
+      }
+    }
+
+    return mappedData.filter((d) => !linesToFilter.has(d.UniqueId.toString()));
   }
 
   private sortLinesByLineNumber(
@@ -428,8 +450,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     invoiceLines: VendorFreightRawData[],
     company: string,
     header: IVendorFreightDFOHeader,
-    exchangeRate: number,
-    reportingRate: number,
     voucher: number,
     lineNumber: () => number,
   ): Promise<IVendorFreightDFOLine[]> {
@@ -440,8 +460,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
         line,
         header,
         company,
-        exchangeRate,
-        reportingRate,
         line.UniqueId.toString(),
         voucher,
         lineNumber(),
@@ -559,8 +577,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     line: VendorFreightRawData,
     header: IVendorFreightDFOHeader,
     company: string,
-    exchangeRate: number,
-    reportingRate: number,
     uniqueId: string,
     voucherNum: number,
     lineNumber: number,
@@ -577,6 +593,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
           line.ACCOUNTDISPLAYVALUE,
         )
       : { taxNumber: '', termsOfPayment: '' };
+
+    // Calculate exchange rates once per invoice
+    const { exchangeRate, reportingRate } =
+      await this.fetchExchangeRatesForHeader(line);
 
     // Normalize currency, company codes, and TransactionType
     const normalizedCurrency = this.normalizeCurrencyCode(line.CURRENCYCODE);
