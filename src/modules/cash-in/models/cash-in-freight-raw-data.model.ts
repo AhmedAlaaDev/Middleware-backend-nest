@@ -209,7 +209,20 @@ export class CashInFreightRawData {
     const description = this.lookupResultAsString(data?.DESCRIPTION);
     const journalName = this.lookupResultAsString(data?.JOURNALNAME);
 
-    if (paymentReference) return paymentReference;
+    const ignoredPaymentReferences = [
+      '0',
+      '00',
+      '000',
+      'N/A',
+      '000000000',
+      '0000000000',
+      '00000000000',
+    ];
+    if (
+      paymentReference &&
+      !ignoredPaymentReferences.includes(paymentReference)
+    )
+      return paymentReference;
 
     return `${description || ''} - ${journalName || ''}`;
   }
