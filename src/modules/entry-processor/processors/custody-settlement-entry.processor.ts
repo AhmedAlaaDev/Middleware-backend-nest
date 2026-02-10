@@ -198,10 +198,12 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
 
     // Validate each line
     for (const arLine of arData) {
-      this.validateMainAccount(
-        arLine,
-        accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
-      );
+      if (arLine.AccountType === 'Ledger') {
+        this.validateMainAccount(
+          arLine,
+          accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
+        );
+      }
       this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
       this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
       this.validateBusinessUnit(
@@ -416,8 +418,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       ledgerEntry.AccountDimensions = this.parseToDimensions(
         ledgerEntry.ACCOUNTTYPE === 'Ledger'
           ? ledgerEntry.ACCOUNTDISPLAYVALUE || ''
-          : (ledgerEntry.ACCOUNTDISPLAYVALUE || '') +
-              (ledgerEntry.DEFAULTDIMENSIONDISPLAYVALUE || ''),
+          : ledgerEntry.DEFAULTDIMENSIONDISPLAYVALUE || '',
       );
 
       if (
