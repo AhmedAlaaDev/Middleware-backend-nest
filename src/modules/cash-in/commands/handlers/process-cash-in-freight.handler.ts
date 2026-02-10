@@ -37,6 +37,20 @@ export class ProcessCashInFreightHandler implements ICommandHandler<ProcessCashI
     );
 
     const enriched = await processor.formatAndEnrichAsync(rawData, company);
+
+    // return {
+    //   id: 'test',
+    //   company: 'm-p',
+    //   entryProcessorType: EntryProcessorTypes.CashInFreight,
+    //   entryProcessorName: ENTRY_PROCESSOR_NAMES.CASH_IN_FREIGHT,
+    //   description: `Cash-In Freight ${Date.now()}`,
+    //   successCount: 0,
+    //   errorCount: 0,
+    //   totalFormattedCount: 0,
+    //   totalUploadedCount: 0,
+    //   status: 1,
+    //   creationDate: new Date(),
+    // };
     const validated = await processor.validateAsync(enriched, company);
 
     const dataBatch = await this.dataBatchService.createAsync(

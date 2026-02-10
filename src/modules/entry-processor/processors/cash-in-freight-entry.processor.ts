@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { getMonthKey } from '@/lib/utils';
 import { CashInFreightDFOLine } from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
@@ -12,6 +12,7 @@ import {
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetCustomersQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -20,7 +21,7 @@ type RawDataInvoiceMap = Map<string, CashInFreightRawData[]>;
 
 @Injectable()
 export class CashInFreightEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(CashInFreightEntryProcessor.name);
+  private readonly logger = new Logger(CashInFreightEntryProcessor.name);
 
   // --------------------------------------------------------------------------
   // CONSTANTS
@@ -45,6 +46,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   ] as const;
 
   constructor(
+    private readonly commandBus: CommandBus,
     customerInvoiceService: CustomerInvoiceService,
     queryBus: QueryBus,
     db: DBService,
@@ -61,36 +63,62 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     company: string,
   ): Promise<DynDataModel[]> {
     const rawCount = data.length;
-    this.procLogger.debug(
+    this.logger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
     );
 
     // STEP 1: Map & sort
-    const sortedLines = this.sortLinesByLineNumber(this.mapToModels(data));
+    const rawLines = this.mapToModels(data);
 
-    // STEP 2: Build invoice map
-    const invoiceMap = this.buildInvoiceMap(sortedLines);
-    const invoiceCount = invoiceMap.size;
-    this.procLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${invoiceCount} invoices`,
+    // STEP 2: FILTER CUSTODY SETTLEMENTS
+    const { custodySettlementLines, otherLines } =
+      this.filteredSortedLines(rawLines);
+    this.logger.debug(
+      `Filtered ${rawLines.length} lines into ${custodySettlementLines.length} custody settlement lines and ${otherLines.length} other lines`,
     );
 
-    // STEP 3: Batch processing (rules)
+    // STEP 2.5: run custody settlement with raw data (no file – already extracted from Excel)
+    if (custodySettlementLines.length > 0) {
+      this.commandBus
+        .execute(
+          new ProcessCustodySettlementEntryCommand(
+            company,
+            undefined,
+            custodySettlementLines,
+          ),
+        )
+        .catch((error) => {
+          this.logger.error(
+            `Error processing custody settlement entry: ${error}`,
+          );
+        });
+    }
+
+    // STEP 3: Build invoice map
+    const invoiceMap = this.buildInvoiceMap(otherLines);
+    const invoiceCount = invoiceMap.size;
+    this.logger.debug(
+      `Grouped ${otherLines.length} lines into ${invoiceCount} invoices`,
+    );
+
+    // STEP 4: Build DFO lines
+    const dfoLines = await this.buildLines(invoiceMap, company);
+    this.logger.debug(`Built ${dfoLines.length} DFO lines`);
+
+    // STEP 5: Batch processing (rules)
     // - MAX 1000 lines per batch
     // - batch contains only invoices from the same month
     // - invoice cannot be split across batches
     const journalBatchNum = await this.getNextBatchNumber();
     const voucherNum = await this.getNextVoucherNumber();
-    const updatedInvoiceMap = this.updateBatchAndVoucher(
-      invoiceMap,
+    const updatedDfoLines = this.updateBatchAndVoucher(
+      dfoLines,
       journalBatchNum,
       voucherNum,
     );
+    this.logger.debug(`Updated DFO lines: ${updatedDfoLines.length}`);
 
-    // STEP 4: Build DFO lines
-    const dfoLines = await this.buildLine(updatedInvoiceMap, company);
-
-    return dfoLines;
+    return updatedDfoLines;
   }
 
   // --------------------------------------------------------------------------
@@ -116,7 +144,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       this.validateDirection(line, dimensionsMap.get('Direction')!);
       this.validateCustomerDimension(line, dimensionsMap.get('Customer')!);
 
-      if (line.DimensionModel.subCustomer) {
+      if (line.DimensionModel?.subCustomer) {
         this.validateSubCustomerDimension(
           line,
           dimensionsMap.get('SubCustomer')!,
@@ -145,12 +173,41 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
   }
 
+  private filteredSortedLines(sortedLines: CashInFreightRawData[]) {
+    const custodySettlementLines: CashInFreightRawData[] = [];
+    const otherLines: CashInFreightRawData[] = [];
+
+    for (const line of sortedLines) {
+      if (line.ISCUSTODYSETTLEMENT) {
+        custodySettlementLines.push(line);
+      } else {
+        otherLines.push(line);
+      }
+    }
+
+    return {
+      custodySettlementLines: this.sortLinesByLineNumber(
+        custodySettlementLines,
+      ),
+      otherLines: this.sortLinesByLineNumber(otherLines),
+    };
+  }
+
   private updateBatchAndVoucher(
-    invoiceMap: RawDataInvoiceMap,
+    dfoLines: CashInFreightDFOLine[],
     journalBatchNum: number,
     voucherNum: number,
-  ): RawDataInvoiceMap {
-    const updatedMap: RawDataInvoiceMap = new Map();
+  ): CashInFreightDFOLine[] {
+    const invoiceMap = new Map<string, CashInFreightDFOLine[]>();
+    for (const line of dfoLines) {
+      const uniqueId = String(line.PaymentId);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
+      }
+      invoiceMap.get(uniqueId)!.push(line);
+    }
+
+    const updatedMap = new Map<string, CashInFreightDFOLine[]>();
 
     let currentBatchMonth: string | null = null;
     let currentBatchLineCount = 0;
@@ -165,7 +222,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
 
       const headerLine = lines[0];
-      const invoiceMonth = getMonthKey(headerLine.TRANSDATE);
+      const invoiceMonth = getMonthKey(headerLine.TransactionDate);
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -186,26 +243,26 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       // Edge case: a single invoice exceeds the batch limit.
       // We keep it intact (do not split invoice), even if it exceeds 1000.
       if (invoiceLineCount > this.MAX_LINES_PER_BATCH) {
-        this.procLogger.warn(
-          `Invoice ${headerLine.INVOICE ?? headerLine.UniqueId} has ${invoiceLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
+        this.logger.warn(
+          `Invoice ${headerLine.MarkedInvoice ?? headerLine.PaymentId} has ${invoiceLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
         );
       }
 
-      const journalName = headerLine.JOURNALNAME;
+      const journalName = headerLine.JournalName;
       const formattedBatch = this.formatBatchNumber(currentBatchNumber);
       const formattedVoucher = this.formatVoucherNumber(
         currentVoucherNum,
         journalName,
       );
 
-      const updatedLines: CashInFreightRawData[] = [];
+      const updatedLines: CashInFreightDFOLine[] = [];
 
       for (const line of lines) {
-        const updatedLine = new CashInFreightRawData({
+        const updatedLine = new CashInFreightDFOLine({
           ...line,
-          JOURNALBATCHNUMBER: formattedBatch,
-          VOUCHER: formattedVoucher,
-          LINENUMBER: lineNumberInBatch,
+          JournalBatchNumber: formattedBatch,
+          Voucher: formattedVoucher,
+          LineNumber: lineNumberInBatch,
         });
 
         updatedLines.push(updatedLine);
@@ -219,7 +276,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       updatedMap.set(uniqueId, updatedLines);
     }
 
-    return updatedMap;
+    return Array.from(updatedMap.values()).flat();
   }
 
   private buildInvoiceMap(
@@ -238,12 +295,76 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     return invoiceMap;
   }
 
-  private async buildLine(
-    _invoiceMap: RawDataInvoiceMap,
-    _company: string,
+  private async buildLines(
+    invoiceMap: RawDataInvoiceMap,
+    company: string,
   ): Promise<CashInFreightDFOLine[]> {
     const dfoLines: CashInFreightDFOLine[] = [];
-    return Promise.resolve(dfoLines);
+
+    for (const [_uniqueId, lines] of invoiceMap.entries()) {
+      const debitLine = lines.find((l) => l.ISDEBIT);
+      const creditLines = lines.filter((l) => l.ISCREDIT);
+
+      if (!debitLine || creditLines.length === 0) continue;
+
+      for (const creditLine of creditLines) {
+        const dfoLine = await this.buildLine(debitLine, creditLine, company);
+        dfoLines.push(dfoLine);
+      }
+    }
+    return dfoLines;
+  }
+
+  private async buildLine(
+    debitLine: CashInFreightRawData,
+    creditLine: CashInFreightRawData,
+    company: string,
+  ): Promise<CashInFreightDFOLine> {
+    const dimensionModel = this.parseToDimensions(
+      creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    );
+    const line = new CashInFreightDFOLine({
+      JournalBatchNumber: '',
+      LineNumber: 0,
+      AccountDisplayValue: creditLine.ACCOUNTDISPLAYVALUE,
+      OffsetAccountDisplayValue: debitLine.ACCOUNTDISPLAYVALUE,
+      AccountType: creditLine.ACCOUNTTYPE,
+      OffsetAccountType: debitLine.ACCOUNTTYPE,
+      DefaultDimensionsForAccountDisplayValue:
+        creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+      DefaultDimensionsForOffsetAccountDisplayValue:
+        debitLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+      Company: company,
+      CurrencyCode: creditLine.CURRENCYCODE || '',
+      CreditAmount: creditLine.CREDITAMOUNT,
+      DebitAmount: debitLine.DEBITAMOUNT,
+      ExchangeRate: creditLine.EXCHANGERATE,
+      TransactionDate: creditLine.TRANSDATE,
+      TransactionText: creditLine.TEXT || '',
+      PostingProfile: creditLine.POSTINGPROFILE || '',
+      MarkedInvoice: creditLine.INVOICE || '',
+      CalculateWithholdingTax: creditLine.ISWITHHOLDINGCALCULATIONENABLED
+        ? 'Yes'
+        : 'No',
+      CustomerName: '',
+      FinTagDisplayValue: creditLine.FINTAGDISPLAYVALUE || '',
+      OffsetFinTagDisplayValue: debitLine.FINTAGDISPLAYVALUE || '',
+      OffsetTransactionText: debitLine.TEXT || '',
+      IsPrepayment: creditLine.ISPREPAYMENT ? 'Yes' : 'No',
+      MarkedInvoiceCompany: company,
+      OffsetCompany: company,
+      ReportingCurrencyExchRate: creditLine.REPORTINGCURRENCYEXCHRATE || '',
+      ReportingCurrencyExchRateSecondary:
+        creditLine.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
+      SecondaryExchangeRate: creditLine.EXCHANGERATESECONDARY || '',
+      TaxGroup: creditLine.SALESTAXGROUP || '',
+      TransactionDateD365: creditLine.TRANSDATE,
+      Voucher: '',
+      PaymentId: creditLine.UniqueId.toString(),
+      JournalName: creditLine.JOURNALNAME,
+    });
+    line.DimensionModel = dimensionModel;
+    return line;
   }
 
   private async getCustomerName(

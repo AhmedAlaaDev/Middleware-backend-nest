@@ -51,8 +51,13 @@ export class CashInFreightDFOLineBase {
   TransactionDateD365: string;
   Voucher: string;
 
-  UseABankDepositSlip: string;
-  UseSalesTaxDirectionFromMainAccount: string;
+  UseABankDepositSlip?: string;
+  UseSalesTaxDirectionFromMainAccount?: string;
+
+  PaymentId: string;
+  OffsetFinTagDisplayValue: string;
+  OffsetTransactionText: string;
+  JournalName: string;
 
   /* Optional (mapping notes: Optional or empty source) */
   BankTransactionType?: string;
@@ -68,10 +73,7 @@ export class CashInFreightDFOLineBase {
   NachaIatOfacSecondaryScreeningIndicator?: string;
   NachaIatOriginatingDfiQualifier?: string;
   NachaIatReceivingDfiQualifier?: string;
-  OffsetFinTagDisplayValue?: string;
-  OffsetTransactionText?: string;
   OverrideSalesTax?: string;
-  PaymentId?: string;
   PaymentMethodName?: string;
   PaymentNotes?: string;
   PaymentReference?: string;

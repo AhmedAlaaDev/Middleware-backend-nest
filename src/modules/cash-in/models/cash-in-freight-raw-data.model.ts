@@ -46,7 +46,7 @@ export class CashInFreightRawData {
   DUEDATE?: string;
   INVOICE?: string;
   PAYMENTMETHOD?: string;
-  PAYMENTREFERENCE?: string;
+  PAYMENTREFERENCE: string;
 
   CASHDISCOUNT: number;
   CASHDISCOUNTAMOUNT: number;
@@ -75,22 +75,35 @@ export class CashInFreightRawData {
   SafeType: 'Customer Collection' | 'Custody Settlement' | 'DownPayment';
   VoucherType: 'Cash' | 'Cheque' | 'Deposit' | 'POS' | 'PrePayment';
 
-  // handy flags (optional)
+  ISDEBIT: boolean;
+  ISCREDIT: boolean;
+
+  // ACCOUNT TYPE FLAGS
   ISCUSTOMER: boolean;
   ISPETTYCASH: boolean;
   ISLEDGER: boolean;
   ISVENDOR: boolean;
   ISBANK: boolean;
 
+  // VOUCHER TYPE FLAGS
   ISCASH: boolean;
   ISCHEQUE: boolean;
   ISDEPOSIT: boolean;
   ISPOS: boolean;
   ISPREPAYMENT: boolean;
 
+  // SAFETY TYPE FLAGS
+  ISCUSTODYSETTLEMENT: boolean;
+  ISCUSTOMERCOLLECTION: boolean;
+  ISDOWNPAYMENT: boolean;
+
   constructor(data: RawDataModel) {
     const s = (v: unknown) => this.lookupResultAsString(v);
     const n = (v: unknown) => this.lookupResultAsNumber(v);
+
+    const PAYMENTREFERENCE = this.generatePaymentReference(data);
+    const DEBITAMOUNT = Number(n(data?.DEBITAMOUNT)) || 0;
+    const CREDITAMOUNT = Number(n(data?.CREDITAMOUNT)) || 0;
 
     Object.assign(this, {
       ...data,
@@ -102,7 +115,7 @@ export class CashInFreightRawData {
       // --- String fields (unwrap lookup cells from Excel) ---
       JOURNALBATCHNUMBER: s(data?.JOURNALBATCHNUMBER),
       JOURNALNAME: s(data?.JOURNALNAME),
-      DESCRIPTION: s(data?.DESCRIPTION),
+      DESCRIPTION: PAYMENTREFERENCE,
       VOUCHER: s(data?.VOUCHER),
       TRANSDATE: s(data?.TRANSDATE),
       ACCOUNTTYPE: s(data?.ACCOUNTTYPE),
@@ -112,8 +125,8 @@ export class CashInFreightRawData {
       TEXT: s(data?.TEXT),
 
       // --- Amounts and rates (numbers) ---
-      DEBITAMOUNT: Number(n(data?.DEBITAMOUNT)) || 0,
-      CREDITAMOUNT: Number(n(data?.CREDITAMOUNT)) || 0,
+      DEBITAMOUNT,
+      CREDITAMOUNT,
       CURRENCYCODE: s(data?.CURRENCYCODE),
       EXCHANGERATE: Number(n(data?.EXCHANGERATE)) || 0,
 
@@ -163,24 +176,42 @@ export class CashInFreightRawData {
       ITEMWITHHOLDINGTAXGROUPCODE: s(data?.ITEMWITHHOLDINGTAXGROUPCODE),
       DOCUMENTDATE: s(data?.DOCUMENTDATE),
       DUEDATE: s(data?.DUEDATE),
-      PAYMENTREFERENCE: s(data?.PAYMENTREFERENCE),
+      PAYMENTREFERENCE,
+
+      ISDEBIT: DEBITAMOUNT > 0,
+      ISCREDIT: CREDITAMOUNT > 0,
 
       // --- Derived flags from ACCOUNTTYPE ---
-      ISCUSTOMER: this.isAccountType(data?.ACCOUNTTYPE, 'cust'),
-      ISPETTYCASH: this.isAccountType(data?.ACCOUNTTYPE, 'petty cash'),
-      ISLEDGER: this.isAccountType(data?.ACCOUNTTYPE, 'ledger'),
-      ISVENDOR: this.isAccountType(data?.ACCOUNTTYPE, 'vend'),
-      ISBANK: this.isAccountType(data?.ACCOUNTTYPE, 'bank'),
+      ISCUSTOMER: this.compare(data?.ACCOUNTTYPE, 'cust'),
+      ISPETTYCASH: this.compare(data?.ACCOUNTTYPE, 'petty cash'),
+      ISLEDGER: this.compare(data?.ACCOUNTTYPE, 'ledger'),
+      ISVENDOR: this.compare(data?.ACCOUNTTYPE, 'vend'),
+      ISBANK: this.compare(data?.ACCOUNTTYPE, 'bank'),
 
       // --- Derived flags from VoucherType ---
-      ISCASH: this.isAccountType(data?.VoucherType, 'cash'),
-      ISCHEQUE: this.isAccountType(data?.VoucherType, 'cheque'),
-      ISDEPOSIT: this.isAccountType(data?.VoucherType, 'deposit'),
-      ISPOS: this.isAccountType(data?.VoucherType, 'pos'),
+      ISCASH: this.compare(data?.VoucherType, 'cash'),
+      ISCHEQUE: this.compare(data?.VoucherType, 'cheque'),
+      ISDEPOSIT: this.compare(data?.VoucherType, 'deposit'),
+      ISPOS: this.compare(data?.VoucherType, 'pos'),
       ISPREPAYMENT:
         this.toBoolean(data?.PREPAYMENT) ||
-        this.isAccountType(data?.POSTINGPROFILE, 'prepayment'),
+        this.compare(data?.POSTINGPROFILE, 'prepayment'),
+
+      // --- Derived flags from SafeType ---
+      ISCUSTODYSETTLEMENT: this.compare(data?.SafeType, 'Custody Settlement'),
+      ISCUSTOMERCOLLECTION: this.compare(data?.SafeType, 'Customer Collection'),
+      ISDOWNPAYMENT: this.compare(data?.SafeType, 'DownPayment'),
     });
+  }
+
+  private generatePaymentReference(data: RawDataModel): string {
+    const paymentReference = this.lookupResultAsString(data?.PAYMENTREFERENCE);
+    const description = this.lookupResultAsString(data?.DESCRIPTION);
+    const journalName = this.lookupResultAsString(data?.JOURNALNAME);
+
+    if (paymentReference) return paymentReference;
+
+    return `${description || ''} - ${journalName || ''}`;
   }
 
   private lookupResult<T = any>(value: LookupCell<T>): T {
@@ -210,7 +241,7 @@ export class CashInFreightRawData {
     return v === 'yes' || v === 'true' || v === '1';
   }
 
-  private isAccountType(value: any, equalsTo: string): boolean {
+  private compare(value: any, equalsTo: string): boolean {
     return this.lowerTrimed(String(value ?? '')) === this.lowerTrimed(equalsTo);
   }
 

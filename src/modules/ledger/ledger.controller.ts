@@ -61,7 +61,7 @@ export class LedgerController {
     @Body() body: LedgerClosingEntryDto,
   ) {
     const result = await this.commandBus.execute(
-      new ProcessCustodySettlementEntryCommand(file.buffer, body.companyId),
+      new ProcessCustodySettlementEntryCommand(body.companyId, file.buffer),
     );
 
     return result;

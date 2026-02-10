@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { ProcessCustodySettlementEntryCommand } from '../process-custody-settlement-entry.command';
@@ -15,7 +15,9 @@ import { ExcelService } from '@/modules/excel/excel.service';
 @CommandHandler(ProcessCustodySettlementEntryCommand)
 @Injectable()
 export class ProcessCustodySettlementEntryHandler implements ICommandHandler<ProcessCustodySettlementEntryCommand> {
-  private readonly logger = new Logger(ProcessCustodySettlementEntryHandler.name);
+  private readonly logger = new Logger(
+    ProcessCustodySettlementEntryHandler.name,
+  );
 
   constructor(
     private readonly excelService: ExcelService,
@@ -27,13 +29,26 @@ export class ProcessCustodySettlementEntryHandler implements ICommandHandler<Pro
     command: ProcessCustodySettlementEntryCommand,
   ): Promise<IDataBatch> {
     this.logger.log(
-      `Start ProcessCustodySettlementEntry: company=${command.companyId}, bufferLength=${command.fileBuffer?.length || 0}`,
+      `Start ProcessCustodySettlementEntry: company=${command.companyId}, bufferLength=${command.fileBuffer?.length || command.rawData?.length || 0}`,
     );
 
-    const rawData =
-      await this.excelService.excelToJson<CustodySettlementEntryModel>(
-        command.fileBuffer,
+    if (!command.fileBuffer && !command.rawData) {
+      throw new BadRequestException(
+        'No file or raw data provided for custody settlement entry',
       );
+    }
+
+    let rawData: CustodySettlementEntryModel[] = [];
+
+    if (command.rawData) {
+      rawData = command.rawData as CustodySettlementEntryModel[];
+    } else {
+      rawData =
+        await this.excelService.excelToJson<CustodySettlementEntryModel>(
+          command.fileBuffer!,
+        );
+    }
+
     this.logger.debug(`Parsed raw rows: ${rawData.length}`);
     if (rawData.length > 0) {
       this.logger.debug(`First row sample: ${JSON.stringify(rawData[0])}`);
