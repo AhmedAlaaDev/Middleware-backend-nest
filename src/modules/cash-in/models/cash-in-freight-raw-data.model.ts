@@ -13,7 +13,7 @@ export class CashInFreightRawData {
   VOUCHER: string;
   TRANSDATE: string;
 
-  ACCOUNTTYPE: string;
+  ACCOUNTTYPE: 'Cust' | 'Ledger' | 'Vend' | 'Bank' | 'Petty cash';
   ACCOUNTDISPLAYVALUE: string;
 
   DEFAULTDIMENSIONDISPLAYVALUE?: string;
@@ -72,8 +72,8 @@ export class CashInFreightRawData {
 
   // custom columns you have in the JSON
   SafeTransaction?: string;
-  SafeType?: string;
-  VoucherType?: string;
+  SafeType: 'Customer Collection' | 'Custody Settlement' | 'DownPayment';
+  VoucherType: 'Cash' | 'Cheque' | 'Deposit' | 'POS' | 'PrePayment';
 
   // handy flags (optional)
   ISCUSTOMER: boolean;

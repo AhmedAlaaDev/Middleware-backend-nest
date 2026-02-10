@@ -33,6 +33,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   private readonly MAX_LINES_PER_BATCH = 1000;
   readonly requiredDimensions = [
     'MainAccount',
+    'Customer',
+    'SubCustomer',
     'Activity',
     'CostCenters',
     'BusinessUnit',
@@ -208,6 +210,8 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       if (line.ACCOUNTTYPE === 'Ledger') {
         this.validateMainAccount(line, mainAccounts);
       }
+      this.validateCustomerDimension(line, dimensionsMap.Customer);
+      this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
       this.validateActivityName(line, dimensionsMap.Activity);
       this.validateCostCenter(line, dimensionsMap.CostCenters);
       this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);

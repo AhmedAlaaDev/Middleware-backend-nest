@@ -1,156 +1,96 @@
 import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
-/* ----------------------------- HEADER ----------------------------- */
-
-export class CashInFreightDFOHeader {
-  JOURNALBATCHNUMBER: string; // Auto Generation
-  DESCRIPTION: string; // Customer Collection Freight January 2025
-  ISPOSTED: 'Yes' | 'No';
-  JOURNALNAME: string; // Cust-Pay
-  OVERRIDESALESTAX: 'Yes' | 'No';
-
-  constructor(data: CashInFreightDFOHeader) {
-    Object.assign(this, data);
-  }
-}
-
-/* ----------------------------- SETTLED ---------------------------- */
-
-export class CashInFreightDFOSettled {
-  JOURNALLINECOMPANY: string;
-  JOURNALBATCHNUMBER: string;
-  JOURNALLINENUMBER: string;
-
-  INVOICENUMBER: string;
-  INVOICECOMPANY: string;
-
-  INVOICEDUEDATE: string;
-
-  ACCOUNTDISPLAYVALUE: string;
-
-  CASHDISCOUNTTOTAKEININVOICECURRENCY: number;
-
-  INVOICEACCOUNT: string;
-
-  INVOICETOPAYMENTCROSSRATE: number;
-
-  SETTLEMENTAMOUNTININVOICECURRENCY: number;
-
-  SourceIds: string[] = [];
-
-  constructor(data: CashInFreightDFOSettled) {
-    Object.assign(this, data);
-  }
-}
-
 /* ------------------------------ LINE ------------------------------ */
+/* D365 field names from cash-in-maping.json, keys in PascalCase. */
 
 export class CashInFreightDFOLineBase {
-  header: CashInFreightDFOHeader;
-  settled: CashInFreightDFOSettled;
+  JournalBatchNumber: string;
   LineNumber: number;
 
-  DimensionModel: AccountDimensionsModel;
+  AccountDisplayValue: string;
+  AccountType: string;
 
-  JOURNALBATCHNUMBER: string; // Auto Generation
-  LINENUMBER: string; // 1000 Rows Per Batch
+  Company: string;
 
-  ACCOUNTDISPLAYVALUE: string;
-  ACCOUNTTYPE: string; // "Customer" (أو Cust/Bank/Petty cash حسب نظامك)
+  CurrencyCode: string;
+  CreditAmount: number;
+  DebitAmount: number;
 
-  BANKTRANSACTIONTYPE: string;
+  ExchangeRate: number;
 
-  CALCULATEWITHHOLDINGTAX: 'Yes' | 'No';
+  TransactionDate: string;
+  TransactionText: string;
 
-  CENTRALBANKIMPORTDATE: string;
-  CENTRALBANKPURPOSECODE: string;
-  CENTRALBANKPURPOSETEXT: string;
+  PostingProfile: string;
+  MarkedInvoice: string;
 
-  COMPANY: string; // M-P
+  CalculateWithholdingTax: 'Yes' | 'No';
 
-  CREDITAMOUNT: number;
-  CURRENCYCODE: string;
+  CustomerName: string;
 
-  CUSTOMERNAME: string; // Master Data (Auto)
+  DefaultDimensionsForAccountDisplayValue: string;
+  DefaultDimensionsForOffsetAccountDisplayValue: string;
 
-  DEBITAMOUNT: number;
+  FinTagDisplayValue: string;
 
-  DEFAULTDIMENSIONSFORACCOUNTDISPLAYVALUE: string;
-  DEFAULTDIMENSIONSFOROFFSETACCOUNTDISPLAYVALUE: string;
+  IsPrepayment: 'Yes' | 'No';
 
-  DEPOSITNUMBER: string;
+  MarkedInvoiceCompany: string;
 
-  EXCHANGERATE: number;
+  OffsetAccountDisplayValue: string;
+  OffsetAccountType: string;
+  OffsetCompany: string;
 
-  FINTAGDISPLAYVALUE: any;
+  ReportingCurrencyExchRate: number | string;
+  ReportingCurrencyExchRateSecondary: number;
+  SecondaryExchangeRate: number | string;
 
-  ISPREPAYMENT: 'Yes' | 'No';
+  TaxGroup: string;
 
-  ITEMWITHHOLDINGTAXGROUP?: string;
+  TransactionDateD365: string;
+  Voucher: string;
 
-  MARKEDINVOICE: string;
-  MARKEDINVOICECOMPANY: string;
+  UseABankDepositSlip: string;
+  UseSalesTaxDirectionFromMainAccount: string;
 
-  // NACHA fields
-  NACHAIATFOREIGNEXCHANGEINDICATOR: string;
-  NACHAIATFOREIGNEXCHANGEREFERENCE: string;
-  NACHAIATFOREIGNEXCHANGEREFERENCEINDICATOR: string;
-  NACHAIATOFACSCREENINGINDICATOR: string;
-  NACHAIATOFACSECONDARYSCREENINGINDICATOR: string;
-  NACHAIATORIGINATINGDFIQUALIFIER: string;
-  NACHAIATRECEIVINGDFIQUALIFIER: string;
-
-  OFFSETACCOUNTDISPLAYVALUE: string;
-  OFFSETACCOUNTTYPE: string;
-  OFFSETCOMPANY: string;
-
-  OFFSETFINTAGDISPLAYVALUE: string;
-  OFFSETTRANSACTIONTEXT: string;
-
-  OVERRIDESALESTAX: string;
-
-  PAYMENTID: string;
-  PAYMENTMETHODNAME: string;
-  PAYMENTNOTES: string;
-  PAYMENTREFERENCE: string;
-  PAYMENTSPECIFICATION: string;
-
-  // postdated check fields (اختياري)
-  POSTDATEDCHECKBANKBRANCH: string;
-  POSTDATEDCHECKBANKNAME: string;
-  POSTDATEDCHECKCASHIERDISPLAYVALUE: string;
-  POSTDATEDCHECKISREPLACEMENTCHECK: string;
-  POSTDATEDCHECKMATURITYDATE: string;
-  POSTDATEDCHECKNUMBER: string;
-  POSTDATEDCHECKORIGINALCHECKNUMBER: string;
-  POSTDATEDCHECKREASONFORSTOP: string;
-  POSTDATEDCHECKRECEIVEDDATE: string;
-  POSTDATEDCHECKREPLACEMENTCOMMENTS: string;
-  POSTDATEDCHECKSALESPERSONDISPLAYVALUE: string;
-  POSTDATEDCHECKSTOPPAYMENT: string;
-
-  POSTINGPROFILE: string; // Cust-PP
-
-  REPORTINGCURRENCYEXCHRATE: number | string;
-  REPORTINGCURRENCYEXCHRATESECONDARY: number | string;
-
-  SECONDARYEXCHANGERATE: string;
-  SETTLEVOUCHER: string;
-
-  TAXGROUP: string;
-  TAXITEMGROUP: string;
-
-  THIRDPARTYBANKACCOUNTID: string;
-
-  TRANSACTIONDATE: string;
-  TRANSACTIONTEXT: string; // AUTO
-  VOUCHER: string; // AUTO
-
-  USEABANKDEPOSITSLIP: string;
-  USESALESTAXDIRECTIONFROMMAINACCOUNT: string;
-
-  SourceIds: string[] = [];
+  /* Optional (mapping notes: Optional or empty source) */
+  BankTransactionType?: string;
+  CentralBankImportDate?: string;
+  CentralBankPurposeCode?: string;
+  CentralBankPurposeText?: string;
+  DepositNumber?: string;
+  ItemWithholdingTaxGroup?: string;
+  NachaIatForeignExchangeIndicator?: string;
+  NachaIatForeignExchangeReference?: string;
+  NachaIatForeignExchangeReferenceIndicator?: string;
+  NachaIatOfacScreeningIndicator?: string;
+  NachaIatOfacSecondaryScreeningIndicator?: string;
+  NachaIatOriginatingDfiQualifier?: string;
+  NachaIatReceivingDfiQualifier?: string;
+  OffsetFinTagDisplayValue?: string;
+  OffsetTransactionText?: string;
+  OverrideSalesTax?: string;
+  PaymentId?: string;
+  PaymentMethodName?: string;
+  PaymentNotes?: string;
+  PaymentReference?: string;
+  PaymentSpecification?: string;
+  PostDatedCheckBankBranch?: string;
+  PostDatedCheckBankName?: string;
+  PostDatedCheckCashierDisplayValue?: string;
+  PostDatedCheckIsReplacementCheck?: string;
+  PostDatedCheckMaturityDate?: string;
+  PostDatedCheckNumber?: string;
+  PostDatedCheckOriginalCheckNumber?: string;
+  PostDatedCheckReasonForStop?: string;
+  PostDatedCheckReceivedDate?: string;
+  PostDatedCheckReplacementComments?: string;
+  PostDatedCheckSalesPersonDisplayValue?: string;
+  PostDatedCheckStopPayment?: string;
+  SettleVoucher?: string;
+  TaxItemGroup?: string;
+  ThirdPartyBankAccountId?: string;
 
   constructor(data: CashInFreightDFOLineBase) {
     Object.assign(this, data);
@@ -161,6 +101,11 @@ export class CashInFreightDFOLine
   extends CashInFreightDFOLineBase
   implements DynDataModel
 {
+  /** Dimension model for MS dimension combination (not a D365 field). */
+  DimensionModel: AccountDimensionsModel;
+
+  SourceIds: string[] = [];
+
   private errors: Array<{ property: string; message: string }> = [];
 
   constructor(data: CashInFreightDFOLineBase) {

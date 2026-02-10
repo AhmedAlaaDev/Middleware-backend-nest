@@ -1,13 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear, getMonthKey } from '@/lib/utils';
-import {
-  CashInFreightDFOLine,
-  CashInFreightDFOLineBase,
-  CashInFreightDFOHeader,
-  CashInFreightDFOSettled,
-} from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
+import { getMonthKey } from '@/lib/utils';
+import { CashInFreightDFOLine } from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
 import { CashInFreightRawData } from '@/modules/cash-in/models/cash-in-freight-raw-data.model';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -21,7 +16,7 @@ import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/finan
 import { GetCustomersQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
-type MonthVoucherMap = Map<string, Map<string, CashInFreightRawData[]>>;
+type RawDataInvoiceMap = Map<string, CashInFreightRawData[]>;
 
 @Injectable()
 export class CashInFreightEntryProcessor extends EntryProcessorBase {
@@ -73,96 +68,29 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     // STEP 1: Map & sort
     const sortedLines = this.sortLinesByLineNumber(this.mapToModels(data));
 
-    // STEP 2: Build month → voucher map
-    const monthVoucherMap = this.buildVoucherMap(sortedLines);
-    const monthCount = monthVoucherMap.size;
-    const voucherCount = Array.from(monthVoucherMap.values()).reduce(
-      (sum, voucherMap) => sum + voucherMap.size,
-      0,
-    );
+    // STEP 2: Build invoice map
+    const invoiceMap = this.buildInvoiceMap(sortedLines);
+    const invoiceCount = invoiceMap.size;
     this.procLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
+      `Grouped ${sortedLines.length} lines into ${invoiceCount} invoices`,
     );
 
     // STEP 3: Batch processing (rules)
     // - MAX 1000 lines per batch
-    // - batch contains only one month
-    // - voucher cannot be split across batches
-    const eData: CashInFreightDFOLine[] = [];
-
-    let journalBatchNum = await this.getNextBatchNumber();
-    let voucherNum = await this.getNextVoucherNumber();
-
-    let currentBatchLines: CashInFreightDFOLine[] = [];
-    let currentBatchMonth: string | null = null;
-    let currentHeader: CashInFreightDFOHeader | null = null;
-    let batchCount = 0;
-    let lineNumber = 1;
-
-    for (const [monthKey, voucherMap] of monthVoucherMap.entries()) {
-      for (const [voucherKey, voucherLines] of voucherMap.entries()) {
-        const headerLine = voucherLines[0];
-        const groupLineCount = voucherLines.length;
-
-        if (!headerLine || groupLineCount === 0) {
-          continue;
-        }
-
-        const monthChanged = currentBatchMonth !== monthKey;
-        const wouldExceedLimit =
-          currentBatchLines.length + groupLineCount > this.MAX_LINES_PER_BATCH;
-
-        if (monthChanged || wouldExceedLimit || currentHeader === null) {
-          // Close previous batch
-          if (currentBatchLines.length > 0 && currentHeader) {
-            this.flushBatch(currentHeader, currentBatchLines, eData);
-            batchCount++;
-            journalBatchNum++;
-          }
-
-          // Start new batch
-          currentBatchMonth = monthKey;
-          currentHeader = this.startNewBatch(headerLine, journalBatchNum);
-          currentBatchLines = [];
-          lineNumber = 1;
-        }
-
-        // Edge case: a single voucher exceeds the batch limit.
-        // We keep it intact (do not split voucher), even if it exceeds 1000.
-        if (groupLineCount > this.MAX_LINES_PER_BATCH) {
-          this.procLogger.warn(
-            `Voucher ${voucherKey} has ${groupLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
-          );
-        }
-
-        const voucher = voucherNum++;
-
-        for (const rawLine of voucherLines) {
-          const enrichedLine = await this.buildLine({
-            rawLine,
-            header: currentHeader,
-            company,
-            voucher,
-            lineNumber,
-          });
-
-          currentBatchLines.push(enrichedLine);
-          lineNumber++;
-        }
-      }
-    }
-
-    // Final flush
-    if (currentBatchLines.length > 0 && currentHeader) {
-      this.flushBatch(currentHeader, currentBatchLines, eData);
-      batchCount++;
-    }
-
-    this.procLogger.debug(
-      `Final output = ${eData.length} enriched lines across ${batchCount} batches`,
+    // - batch contains only invoices from the same month
+    // - invoice cannot be split across batches
+    const journalBatchNum = await this.getNextBatchNumber();
+    const voucherNum = await this.getNextVoucherNumber();
+    const updatedInvoiceMap = this.updateBatchAndVoucher(
+      invoiceMap,
+      journalBatchNum,
+      voucherNum,
     );
 
-    return eData as unknown as DynDataModel[];
+    // STEP 4: Build DFO lines
+    const dfoLines = await this.buildLine(updatedInvoiceMap, company);
+
+    return dfoLines;
   }
 
   // --------------------------------------------------------------------------
@@ -175,31 +103,24 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   ): Promise<DynDataModel[]> {
     const lines = data as unknown as CashInFreightDFOLine[];
 
-    const mainAccounts = (await this.getAllMainAccounts()).map(
-      ({ accountNumber }) => ({ accountNumber }),
-    );
-
-    const dimensionsMap: Record<string, IFinancialDimensionValue[]> = {};
-    for (const key of this.requiredDimensions) {
-      dimensionsMap[key] = (await this.getFinancialDimensionValues(key)) || [];
-    }
+    const dimensionsMap = await this.getDimensionsMap();
 
     for (const line of lines) {
-      if (line.ACCOUNTTYPE === 'Ledger') {
-        this.validateMainAccount(line, mainAccounts);
-      }
-      this.validateActivityName(line, dimensionsMap.Activity);
-      this.validateCostCenter(line, dimensionsMap.CostCenters);
-      this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
-      this.validateLocation(line, dimensionsMap.Location);
-      this.validateSalesMan(line, dimensionsMap.SalesMan);
-      this.validateFreightType(line, dimensionsMap.FreightType);
-      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
-      this.validateDirection(line, dimensionsMap.Direction);
-      this.validateCustomerDimension(line, dimensionsMap.Customer);
+      this.validateActivityName(line, dimensionsMap.get('Activity')!);
+      this.validateCostCenter(line, dimensionsMap.get('CostCenters')!);
+      this.validateBusinessUnit(line, dimensionsMap.get('BusinessUnit')!);
+      this.validateLocation(line, dimensionsMap.get('Location')!);
+      this.validateSalesMan(line, dimensionsMap.get('SalesMan')!);
+      this.validateFreightType(line, dimensionsMap.get('FreightType')!);
+      this.validateCoordinatorMan(line, dimensionsMap.get('CoordinatorMan')!);
+      this.validateDirection(line, dimensionsMap.get('Direction')!);
+      this.validateCustomerDimension(line, dimensionsMap.get('Customer')!);
 
       if (line.DimensionModel.subCustomer) {
-        this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
+        this.validateSubCustomerDimension(
+          line,
+          dimensionsMap.get('SubCustomer')!,
+        );
       }
     }
 
@@ -224,287 +145,105 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
   }
 
-  private buildVoucherMap(
+  private updateBatchAndVoucher(
+    invoiceMap: RawDataInvoiceMap,
+    journalBatchNum: number,
+    voucherNum: number,
+  ): RawDataInvoiceMap {
+    const updatedMap: RawDataInvoiceMap = new Map();
+
+    let currentBatchMonth: string | null = null;
+    let currentBatchLineCount = 0;
+    let currentBatchNumber = journalBatchNum;
+    let currentVoucherNum = voucherNum;
+
+    let lineNumberInBatch = 1;
+
+    for (const [uniqueId, lines] of invoiceMap.entries()) {
+      if (!lines || lines.length === 0) {
+        continue;
+      }
+
+      const headerLine = lines[0];
+      const invoiceMonth = getMonthKey(headerLine.TRANSDATE);
+
+      const invoiceLineCount = lines.length;
+      const monthChanged = currentBatchMonth !== invoiceMonth;
+      const wouldExceedLimit =
+        currentBatchLineCount + invoiceLineCount > this.MAX_LINES_PER_BATCH;
+
+      // If month changes, or adding this invoice would exceed the max lines,
+      // we start a new batch and reset line number.
+      if (monthChanged || wouldExceedLimit) {
+        if (currentBatchMonth !== null) {
+          currentBatchNumber++;
+        }
+        currentBatchMonth = invoiceMonth;
+        currentBatchLineCount = 0;
+        lineNumberInBatch = 1;
+      }
+
+      // Edge case: a single invoice exceeds the batch limit.
+      // We keep it intact (do not split invoice), even if it exceeds 1000.
+      if (invoiceLineCount > this.MAX_LINES_PER_BATCH) {
+        this.procLogger.warn(
+          `Invoice ${headerLine.INVOICE ?? headerLine.UniqueId} has ${invoiceLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
+        );
+      }
+
+      const journalName = headerLine.JOURNALNAME;
+      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
+      const formattedVoucher = this.formatVoucherNumber(
+        currentVoucherNum,
+        journalName,
+      );
+
+      const updatedLines: CashInFreightRawData[] = [];
+
+      for (const line of lines) {
+        const updatedLine = new CashInFreightRawData({
+          ...line,
+          JOURNALBATCHNUMBER: formattedBatch,
+          VOUCHER: formattedVoucher,
+          LINENUMBER: lineNumberInBatch,
+        });
+
+        updatedLines.push(updatedLine);
+        currentBatchLineCount++;
+        lineNumberInBatch++;
+      }
+
+      // Move to next voucher for the next invoice
+      currentVoucherNum++;
+
+      updatedMap.set(uniqueId, updatedLines);
+    }
+
+    return updatedMap;
+  }
+
+  private buildInvoiceMap(
     sortedLines: CashInFreightRawData[],
-  ): MonthVoucherMap {
-    const monthVoucherMap: MonthVoucherMap = new Map();
+  ): RawDataInvoiceMap {
+    const invoiceMap: RawDataInvoiceMap = new Map();
 
     for (const line of sortedLines) {
-      const monthKey = this.safeMonthKey(line);
-      const voucherKey = this.safeVoucherKey(line);
-
-      if (!monthVoucherMap.has(monthKey)) {
-        monthVoucherMap.set(monthKey, new Map());
+      const uniqueId = String(line.UniqueId);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
       }
-
-      const voucherMap = monthVoucherMap.get(monthKey)!;
-      if (!voucherMap.has(voucherKey)) {
-        voucherMap.set(voucherKey, []);
-      }
-
-      voucherMap.get(voucherKey)!.push(line);
+      invoiceMap.get(uniqueId)!.push(line);
     }
 
-    return monthVoucherMap;
+    return invoiceMap;
   }
 
-  private safeMonthKey(line: CashInFreightRawData): string {
-    try {
-      return getMonthKey(line.TRANSDATE);
-    } catch {
-      return 'invalid-date';
-    }
-  }
-
-  private safeVoucherKey(line: CashInFreightRawData): string {
-    const v = String(line.VOUCHER || '').trim();
-    return v || `uid-${String(line.UniqueId)}`;
-  }
-
-  private startNewBatch(
-    headerLine: CashInFreightRawData,
-    journalBatchNum: number,
-  ): CashInFreightDFOHeader {
-    return this.createBatchHeader(headerLine, journalBatchNum);
-  }
-
-  private flushBatch(
-    _header: CashInFreightDFOHeader,
-    batchLines: CashInFreightDFOLine[],
-    eData: CashInFreightDFOLine[],
-  ): void {
-    if (batchLines.length === 0) return;
-    eData.push(...batchLines);
-  }
-
-  private async buildLine(args: {
-    rawLine: CashInFreightRawData;
-    header: CashInFreightDFOHeader;
-    company: string;
-    voucher: number;
-    lineNumber: number;
-  }): Promise<CashInFreightDFOLine> {
-    const { rawLine, header, company, voucher, lineNumber } = args;
-
-    // ---------- Dimensions ----------
-    const dims = this.parseToDimensions(
-      rawLine.ISLEDGER
-        ? rawLine.ACCOUNTDISPLAYVALUE || ''
-        : rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-    );
-
-    // ---------- Settled ----------
-    const settlementAmount = Number(rawLine.CREDITAMOUNT || 0);
-
-    const settled = new CashInFreightDFOSettled({
-      JOURNALLINECOMPANY: company,
-      JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
-      JOURNALLINENUMBER: String(lineNumber),
-      INVOICENUMBER: String(rawLine.INVOICE || ''),
-      INVOICECOMPANY: company,
-      INVOICEDUEDATE: '',
-      ACCOUNTDISPLAYVALUE: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
-      CASHDISCOUNTTOTAKEININVOICECURRENCY: 0,
-      INVOICEACCOUNT: String(rawLine.ACCOUNTTYPE || ''),
-      INVOICETOPAYMENTCROSSRATE: 0,
-      SETTLEMENTAMOUNTININVOICECURRENCY: settlementAmount,
-      SourceIds: [String(rawLine.UniqueId)],
-    });
-
-    // ---------- Master Data ----------
-    const customerName = await this.getCustomerName(
-      rawLine.ACCOUNTTYPE,
-      rawLine.ACCOUNTDISPLAYVALUE,
-      company,
-    );
-
-    // ---------- Type Overrides (based on your 5 templates) ----------
-    const ov = this.buildTypeOverrides(rawLine);
-
-    const payload: CashInFreightDFOLineBase = {
-      header,
-      settled,
-      LineNumber: lineNumber,
-      DimensionModel: dims,
-
-      JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
-      LINENUMBER: String(lineNumber),
-
-      ACCOUNTDISPLAYVALUE: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
-      ACCOUNTTYPE: String(rawLine.ACCOUNTTYPE || ''),
-
-      BANKTRANSACTIONTYPE: rawLine.VoucherType || '',
-      CALCULATEWITHHOLDINGTAX: 'No',
-
-      CENTRALBANKIMPORTDATE: '',
-      CENTRALBANKPURPOSECODE: '',
-      CENTRALBANKPURPOSETEXT: '',
-
-      COMPANY: company,
-
-      CREDITAMOUNT: Number(rawLine.CREDITAMOUNT || 0),
-      CURRENCYCODE: String(rawLine.CURRENCYCODE || ''),
-
-      CUSTOMERNAME: customerName,
-
-      DEBITAMOUNT: Number(rawLine.DEBITAMOUNT || 0),
-
-      DEFAULTDIMENSIONSFORACCOUNTDISPLAYVALUE: String(
-        rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-      ),
-      DEFAULTDIMENSIONSFOROFFSETACCOUNTDISPLAYVALUE: String(
-        rawLine.OFFSETDEFAULTDIMENSIONDISPLAYVALUE || '',
-      ),
-
-      DEPOSITNUMBER: '',
-
-      EXCHANGERATE: Number(rawLine.EXCHANGERATE || 1),
-
-      FINTAGDISPLAYVALUE: rawLine.FINTAGDISPLAYVALUE,
-
-      ISPREPAYMENT: ov.ISPREPAYMENT as 'No' | 'Yes',
-
-      ITEMWITHHOLDINGTAXGROUP: '',
-
-      MARKEDINVOICE: String(rawLine.INVOICE || ''),
-      MARKEDINVOICECOMPANY: company,
-
-      NACHAIATFOREIGNEXCHANGEINDICATOR: '',
-      NACHAIATFOREIGNEXCHANGEREFERENCE: '',
-      NACHAIATFOREIGNEXCHANGEREFERENCEINDICATOR: '',
-      NACHAIATOFACSCREENINGINDICATOR: '',
-      NACHAIATOFACSECONDARYSCREENINGINDICATOR: '',
-      NACHAIATORIGINATINGDFIQUALIFIER: '',
-      NACHAIATRECEIVINGDFIQUALIFIER: '',
-
-      OFFSETACCOUNTDISPLAYVALUE: String(
-        rawLine.OFFSETACCOUNTDISPLAYVALUE || '',
-      ),
-      OFFSETACCOUNTTYPE: String(rawLine.OFFSETACCOUNTTYPE || ''),
-      OFFSETCOMPANY: company,
-
-      OFFSETFINTAGDISPLAYVALUE: String(rawLine.OFFSETFINTAGDISPLAYVALUE || ''),
-      OFFSETTRANSACTIONTEXT: String(rawLine.OFFSETTEXT || rawLine.TEXT || ''),
-
-      OVERRIDESALESTAX: '',
-
-      PAYMENTID: String(rawLine.UniqueId || ''),
-
-      PAYMENTMETHODNAME: ov.PAYMENTMETHODNAME,
-      PAYMENTNOTES: '',
-      PAYMENTREFERENCE: ov.PAYMENTREFERENCE,
-      PAYMENTSPECIFICATION: '',
-
-      POSTDATEDCHECKBANKBRANCH: ov.POSTDATEDCHECKBANKBRANCH,
-      POSTDATEDCHECKBANKNAME: ov.POSTDATEDCHECKBANKNAME,
-      POSTDATEDCHECKCASHIERDISPLAYVALUE: '',
-      POSTDATEDCHECKISREPLACEMENTCHECK: '',
-      POSTDATEDCHECKMATURITYDATE: ov.POSTDATEDCHECKMATURITYDATE,
-      POSTDATEDCHECKNUMBER: ov.POSTDATEDCHECKNUMBER,
-      POSTDATEDCHECKORIGINALCHECKNUMBER: '',
-      POSTDATEDCHECKREASONFORSTOP: '',
-      POSTDATEDCHECKRECEIVEDDATE: '',
-      POSTDATEDCHECKREPLACEMENTCOMMENTS: '',
-      POSTDATEDCHECKSALESPERSONDISPLAYVALUE: '',
-      POSTDATEDCHECKSTOPPAYMENT: '',
-
-      POSTINGPROFILE: ov.POSTINGPROFILE,
-
-      REPORTINGCURRENCYEXCHRATE: '',
-      REPORTINGCURRENCYEXCHRATESECONDARY: '',
-
-      SECONDARYEXCHANGERATE: '',
-      SETTLEVOUCHER: '',
-
-      TAXGROUP: '',
-      TAXITEMGROUP: '',
-
-      THIRDPARTYBANKACCOUNTID: '',
-
-      TRANSACTIONDATE: String(rawLine.TRANSDATE || ''),
-      TRANSACTIONTEXT: '',
-      VOUCHER: this.formatVoucherNumber(
-        voucher,
-        String(rawLine.JOURNALNAME || 'CashIn'),
-      ),
-
-      USEABANKDEPOSITSLIP: '',
-      USESALESTAXDIRECTIONFROMMAINACCOUNT: '',
-
-      SourceIds: [String(rawLine.UniqueId)],
-    };
-
-    return new CashInFreightDFOLine(payload);
-  }
-
-  private resolvePayType(raw: CashInFreightRawData): string {
-    // Priority matters if more than one flag is true
-    if (raw.ISPREPAYMENT) return 'PrePayment';
-    if (raw.ISCHEQUE) return 'Check';
-    if (raw.ISDEPOSIT) return 'Deposit';
-    if (raw.ISPOS) return 'POS';
-    return 'Cash';
-  }
-
-  private buildTypeOverrides(raw: CashInFreightRawData) {
-    const type = this.resolvePayType(raw);
-
-    if (!type) {
-      this.procLogger.warn(
-        `Unable to resolve pay type for UniqueId=${raw.UniqueId}`,
-      );
-    }
-
-    const isCheckLike = type === 'Check' || type === 'PrePayment';
-
-    const PAYMENTMETHODNAME =
-      type === 'Cash'
-        ? '' // template says blank
-        : type === 'Deposit'
-          ? 'Deposit'
-          : type === 'POS'
-            ? 'POS'
-            : 'Check'; // Check + PrePayment
-
-    // Template rules:
-    // - Check + PrePayment => 33 (PAYMENTREFERENCE field)
-    // - Cash/Deposit/POS   => 5  (DESCRIPTION field)
-    const PAYMENTREFERENCE = isCheckLike
-      ? String(raw.PAYMENTREFERENCE || '')
-      : String(raw.DESCRIPTION || '');
-
-    const ISPREPAYMENT = type === 'PrePayment' ? 'Yes' : 'No';
-    const POSTINGPROFILE = type === 'PrePayment' ? 'Perpayment' : 'Cust-PP';
-
-    // NOTE:
-    // You didn't provide raw keys for check bank/branch/maturity/check number.
-    // So we keep them blank by default.
-    // If you *do* have them (e.g. raw.CHECKBANKNAME, raw.CHECKNUMBER, ...),
-    // map them here.
-    const POSTDATEDCHECKBANKBRANCH = isCheckLike
-      ? String(raw.OFFSETFINTAGDISPLAYVALUE || '')
-      : '';
-    const POSTDATEDCHECKBANKNAME = isCheckLike
-      ? String(raw.OFFSETTEXT || '')
-      : '';
-    const POSTDATEDCHECKMATURITYDATE = isCheckLike
-      ? String(raw.DOCUMENTDATE || '')
-      : '';
-    const POSTDATEDCHECKNUMBER = isCheckLike
-      ? String(raw.PAYMENTREFERENCE || '')
-      : '';
-
-    return {
-      type,
-      PAYMENTMETHODNAME,
-      PAYMENTREFERENCE,
-      ISPREPAYMENT,
-      POSTINGPROFILE,
-      POSTDATEDCHECKBANKBRANCH,
-      POSTDATEDCHECKBANKNAME,
-      POSTDATEDCHECKMATURITYDATE,
-      POSTDATEDCHECKNUMBER,
-    };
+  private async buildLine(
+    _invoiceMap: RawDataInvoiceMap,
+    _company: string,
+  ): Promise<CashInFreightDFOLine[]> {
+    const dfoLines: CashInFreightDFOLine[] = [];
+    return Promise.resolve(dfoLines);
   }
 
   private async getCustomerName(
@@ -524,19 +263,11 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     return customers?.items[0]?.name || '';
   }
 
-  private createBatchHeader(
-    line: CashInFreightRawData,
-    journalBatchNum: number,
-  ): CashInFreightDFOHeader {
-    const formattedDate = formatToMonthYear(line.TRANSDATE);
-
-    return new CashInFreightDFOHeader({
-      JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
-      DESCRIPTION: `Customer Collection Freight ${formattedDate}`,
-      ISPOSTED: 'No',
-      JOURNALNAME: 'Cust-Pay',
-      OVERRIDESALESTAX: 'No',
-    });
+  private async getMainAccounts(): Promise<{ accountNumber: string }[]> {
+    const mainAccounts = (await this.getAllMainAccounts()).map(
+      ({ accountNumber }) => ({ accountNumber }),
+    );
+    return mainAccounts;
   }
 
   private async getNextBatchNumber(): Promise<number> {
@@ -559,5 +290,14 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       )?.value ?? '0';
 
     return Number(value) + 1;
+  }
+
+  private async getDimensionsMap() {
+    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
+    for (const key of this.requiredDimensions) {
+      const dimensionValues = await this.getFinancialDimensionValues(key);
+      dimensionsMap.set(key, dimensionValues || []);
+    }
+    return dimensionsMap;
   }
 }

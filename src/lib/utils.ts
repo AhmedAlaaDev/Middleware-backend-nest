@@ -37,7 +37,7 @@ export function getMonthKey(dateStr: string): string {
   const d = new Date(dateStr);
 
   if (isNaN(d.getTime())) {
-    throw new Error(`Invalid date format: ${dateStr}`);
+    return 'invalid-date';
   }
 
   const year = d.getFullYear();
