@@ -21,8 +21,14 @@ import {
 } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
 import { QUEUES } from '@/modules/queue/constants/queues';
+
+/** Ledger journal line shape used for DFO posting (closing and custody-settlement batches) */
+type LedgerJournalEntryDto =
+  | DynLedgerClosingJournalEntryDto
+  | DynCustodySettlementJournalEntryDto;
 import { QueueService } from '@/modules/queue/services/queue.service';
 
 @CommandHandler(PostLedgerBatchToDFOCommand)
@@ -81,10 +87,11 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
     const allowedTypes = [
       EntryProcessorTypes.LedgerFreightClosingEntry,
       EntryProcessorTypes.LedgerTruckingClosingEntry,
+      EntryProcessorTypes.LedgerCustodySettlementEntry,
     ];
     if (!allowedTypes.includes(batch.entryProcessorType)) {
       throw new BadRequestException(
-        `Batch ${batchId} is not a ledger closing entry batch (type: ${batch.entryProcessorType})`,
+        `Batch ${batchId} is not a ledger journal batch (closing or custody-settlement) (type: ${batch.entryProcessorType})`,
       );
     }
     return batch;
@@ -93,20 +100,20 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
   ): Promise<
-    Map<string, IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]>
+    Map<string, IDataEnhancedRecord<LedgerJournalEntryDto>[]>
   > {
     const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
     const journalGroups = new Map<
       string,
-      IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]
+      IDataEnhancedRecord<LedgerJournalEntryDto>[]
     >();
     let recordCount = 0;
 
     for await (const record of recordsStream) {
       recordCount++;
-      const data = record.data as unknown as DynLedgerClosingJournalEntryDto;
+      const data = record.data as unknown as LedgerJournalEntryDto;
 
       if (!this.isValidRecord(data, record.id)) {
         continue;
@@ -119,7 +126,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
       journalGroups
         .get(journalBatchNumber)!
         .push(
-          record as unknown as IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>,
+          record as unknown as IDataEnhancedRecord<LedgerJournalEntryDto>,
         );
     }
 
@@ -135,9 +142,9 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   }
 
   private isValidRecord(
-    data: DynLedgerClosingJournalEntryDto,
+    data: LedgerJournalEntryDto,
     recordId: string,
-  ): data is DynLedgerClosingJournalEntryDto {
+  ): data is LedgerJournalEntryDto {
     if (!data || typeof data !== 'object') {
       return false;
     }
@@ -153,7 +160,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   private mapToD365Requests(
     journalGroups: Map<
       string,
-      IDataEnhancedRecord<DynLedgerClosingJournalEntryDto>[]
+      IDataEnhancedRecord<LedgerJournalEntryDto>[]
     >,
     company: string,
   ): Array<{
@@ -229,7 +236,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   }
 
   private mapLineToRequest(
-    line: DynLedgerClosingJournalEntryDto,
+    line: LedgerJournalEntryDto,
     company: string,
     journalBatchNumber: string,
   ): LedgerJournalLineRequest {

@@ -9,6 +9,7 @@ import {
   AccountReceivableTruckingEntryProcessor,
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
+  CustodySettlementEntryProcessor,
   FreightClosingEntryProcessor,
   TruckingClosingEntryProcessor,
   VendorFreightAdjustmentEntryProcessor,
@@ -35,6 +36,7 @@ export class EntryProcessorFactory {
     private readonly cashOutFreightProcessor: CashOutFreightEntryProcessor,
     private readonly freightClosingProcessor: FreightClosingEntryProcessor,
     private readonly truckingClosingProcessor: TruckingClosingEntryProcessor,
+    private readonly custodySettlementProcessor: CustodySettlementEntryProcessor,
     // Add other processors here
   ) {
     this.registerProcessors();
@@ -80,6 +82,10 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.LedgerTruckingClosingEntry,
       this.truckingClosingProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.LedgerCustodySettlementEntry,
+      this.custodySettlementProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.CashInFreight,

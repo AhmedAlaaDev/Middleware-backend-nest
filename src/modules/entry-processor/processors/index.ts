@@ -4,6 +4,7 @@ export { AccountReceivableTruckingEntryProcessor } from './account-receivable-tr
 export { AccountReceivableTruckingCreditNoteEntryProcessor } from './account-receivable-trucking-credit-note-entry.processor';
 export { CashInFreightEntryProcessor } from './cash-in-freight-entry.processor';
 export { CashOutFreightEntryProcessor } from './cash-out-freight-entry.processor';
+export { CustodySettlementEntryProcessor } from './custody-settlement-entry.processor';
 export { FreightClosingEntryProcessor } from './freight-closing-entry.processor';
 export { TruckingClosingEntryProcessor } from './trucking-closing-entry.processor';
 export { VendorFreightAdjustmentEntryProcessor } from './vendor-freight-adjustment-entry.processor';

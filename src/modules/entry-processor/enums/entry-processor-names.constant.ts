@@ -11,6 +11,7 @@ export const ENTRY_PROCESSOR_NAMES = {
   VENDOR_TRUCKING_ADJUSTMENT: 'VendorTruckingAdjustmentEntryProcessor',
   LEDGER_FREIGHT_CLOSING_ENTRY: 'FreightClosingEntryProcessor',
   LEDGER_TRUCKING_CLOSING_ENTRY: 'TruckingClosingEntryProcessor',
+  LEDGER_CUSTODY_SETTLEMENT_ENTRY: 'CustodySettlementEntryProcessor',
   CASH_IN_FREIGHT: 'CashInFreightEntryProcessor',
   CASH_OUT_FREIGHT: 'CashOutFreightEntryProcessor',
 } as const;

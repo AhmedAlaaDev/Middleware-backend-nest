@@ -10,6 +10,7 @@ import {
   AccountReceivableTruckingEntryProcessor,
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
+  CustodySettlementEntryProcessor,
   FreightClosingEntryProcessor,
   TruckingClosingEntryProcessor,
   VendorFreightAdjustmentEntryProcessor,
@@ -33,6 +34,7 @@ const EntryProcessors = [
   CashOutFreightEntryProcessor,
   FreightClosingEntryProcessor,
   TruckingClosingEntryProcessor,
+  CustodySettlementEntryProcessor,
   // Add other processors here
 ];
 

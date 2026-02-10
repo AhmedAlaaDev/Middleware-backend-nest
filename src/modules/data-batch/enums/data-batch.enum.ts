@@ -28,4 +28,5 @@ export enum EntryProcessorTypes {
   VendorTruckingAdjustment = 20,
   CashInFreight = 21,
   CashOutFreight = 22,
+  LedgerCustodySettlementEntry = 23,
 }

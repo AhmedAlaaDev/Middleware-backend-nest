@@ -127,6 +127,14 @@ export class SettingsSeedService implements OnModuleInit {
         hasAction: true,
         order: 14,
       },
+      {
+        displayName: 'Last Ledger Voucher Custody Settlement',
+        logicalName: 'last.ledger.custody.settlement.voucher.number',
+        value: '0',
+        groupName: 'Ledger',
+        hasAction: true,
+        order: 15,
+      },
     ];
 
     let created = 0;

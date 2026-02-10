@@ -11,6 +11,7 @@ import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
 import { PostLedgerBatchToDFOCommand } from '@/modules/ledger/commands/post-ledger-batch-to-dfo.command';
+import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { ProcessFreightClosingEntryCommand } from '@/modules/ledger/commands/process-freight-closing-entry.command';
 import { ProcessTruckingClosingEntryCommand } from '@/modules/ledger/commands/process-trucking-closing-entry.command';
 import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entry.dto';
@@ -40,6 +41,27 @@ export class LedgerController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessFreightClosingEntryCommand(file.buffer, body.companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Custody Settlement Entry Document
+   */
+  @Post('custody-settlement')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: LedgerClosingEntryDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async custodySettlementEntry(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: LedgerClosingEntryDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessCustodySettlementEntryCommand(file.buffer, body.companyId),
     );
 
     return result;
