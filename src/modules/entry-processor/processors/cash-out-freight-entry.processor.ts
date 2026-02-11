@@ -73,13 +73,18 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 1: Map & sort
+    this.procLogger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
     const rawLines = this.mapToModels(data);
+    this.procLogger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
 
     // STEP 2: Filter custody settlements vs other lines
+    this.procLogger.debug(
+      `[STEP 2] Filtering custody settlements from ${rawLines.length} lines`,
+    );
     const { custodySettlementLines, otherLines } =
       this.filteredSortedLines(rawLines);
     this.procLogger.debug(
-      `Filtered ${rawLines.length} lines into ${custodySettlementLines.length} custody settlement lines and ${otherLines.length} other lines`,
+      `[FILTER] Processed ${rawLines.length} lines → ${custodySettlementLines.length} custody settlement, ${otherLines.length} other lines`,
     );
 
     // STEP 2.5: Run custody settlement with raw data (no file – already extracted from Excel)
@@ -100,28 +105,38 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     }
 
     // STEP 3: Build invoice map (by UniqueId, like cash-in)
+    this.procLogger.debug(
+      `[STEP 3] Building invoice map from ${otherLines.length} lines`,
+    );
     const invoiceMap = this.buildInvoiceMap(otherLines);
     const invoiceCount = invoiceMap.size;
-    this.procLogger.debug(
-      `Grouped ${otherLines.length} lines into ${invoiceCount} invoices`,
-    );
+    this.procLogger.debug(`[STEP 3] Grouped into ${invoiceCount} invoices`);
 
     // STEP 4: Build DFO lines (debit/credit pairing, one line per credit)
+    this.procLogger.debug(
+      `[STEP 4] Building DFO lines from ${invoiceCount} invoices`,
+    );
     const dfoLines = await this.buildLines(invoiceMap, company);
-    this.procLogger.debug(`Built ${dfoLines.length} DFO lines`);
+    this.procLogger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
     // STEP 5: Batch processing (rules)
     // - MAX 1000 lines per batch
     // - batch contains only invoices from the same month
     // - invoice cannot be split across batches
+    this.procLogger.debug(`[STEP 5] Initializing batch processing`);
     const journalBatchNum = await this.getNextBatchNumber();
     const voucherNum = await this.getNextVoucherNumber();
+    this.procLogger.debug(
+      `[STEP 5] Starting with batch number: ${journalBatchNum}, voucher number: ${voucherNum}`,
+    );
     const updatedDfoLines = this.updateBatchAndVoucher(
       dfoLines,
       journalBatchNum,
       voucherNum,
     );
-    this.procLogger.debug(`Updated DFO lines: ${updatedDfoLines.length}`);
+    this.procLogger.debug(
+      `[COMPLETE] Generated ${updatedDfoLines.length} enriched lines`,
+    );
 
     return updatedDfoLines as unknown as DynDataModel[];
   }
@@ -135,6 +150,10 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     _company: string,
   ): Promise<DynDataModel[]> {
     const lines = data as unknown as CashOutFreightDFOLine[];
+    const lineCount = lines.length;
+    this.procLogger.debug(
+      `[VALIDATE] Starting validation for ${lineCount} lines`,
+    );
 
     const mainAccounts = (await this.getAllMainAccounts()).map(
       ({ accountNumber }) => ({ accountNumber }),
@@ -227,7 +246,33 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     invoiceMap: RawDataInvoiceMap,
     company: string,
   ): Promise<CashOutFreightDFOLine[]> {
-    const dfoLines: CashOutFreightDFOLine[] = [];
+    const allLines = Array.from(invoiceMap.values()).flat();
+    const uniqueVendorAccounts = new Set<string>();
+    for (const line of allLines) {
+      if (
+        line.ACCOUNTTYPE?.toLowerCase() === 'vend' &&
+        line.ACCOUNTDISPLAYVALUE
+      ) {
+        uniqueVendorAccounts.add(line.ACCOUNTDISPLAYVALUE);
+      }
+    }
+
+    const vendorNameMap = new Map<string, string>();
+    if (uniqueVendorAccounts.size > 0) {
+      const vendorRes = await this.queryBus.execute(
+        new GetVendorsQuery({
+          company,
+          accountNumbers: Array.from(uniqueVendorAccounts),
+        }),
+      );
+      for (const v of vendorRes?.items ?? []) {
+        vendorNameMap.set(
+          v.vendorAccountNumber,
+          v.vendorOrganizationName ?? '',
+        );
+      }
+    }
+
     const stubHeader = new CashOutFreightDFOHeader({
       JOURNALBATCHNUMBER: '',
       CATEGORYPURPOSE: 0,
@@ -240,25 +285,33 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       SERVICELEVEL: 0,
     });
 
+    const dfoLines: CashOutFreightDFOLine[] = [];
+
     for (const [_uniqueId, lines] of invoiceMap.entries()) {
       const debitLine = lines.find((l) => l.ISDEBIT);
       const creditLines = lines.filter((l) => l.ISCREDIT);
 
       if (!debitLine) {
-        for (const creditLine of creditLines) {
-          const dfoLine = await this.buildLineFromPair(
-            null,
-            creditLine,
-            company,
-            stubHeader,
-            0,
-            0,
-          );
-          dfoLine.AddError(
+        const built = await Promise.all(
+          creditLines.map((creditLine) =>
+            this.buildLineFromPair(
+              null,
+              creditLine,
+              company,
+              stubHeader,
+              0,
+              0,
+              false,
+              vendorNameMap,
+            ),
+          ),
+        );
+        for (let i = 0; i < built.length; i++) {
+          built[i].AddError(
             'Invoice',
-            `Invoice ${creditLine.INVOICE ?? _uniqueId} has no debit line.`,
+            `Invoice ${creditLines[i].INVOICE ?? _uniqueId} has no debit line.`,
           );
-          dfoLines.push(dfoLine);
+          dfoLines.push(built[i]);
         }
         if (creditLines.length === 0 && lines[0]) {
           const placeholder = lines[0];
@@ -270,6 +323,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
             0,
             0,
             true,
+            vendorNameMap,
           );
           dfoLine.AddError(
             'Invoice',
@@ -289,6 +343,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
           0,
           0,
           true,
+          vendorNameMap,
         );
         dfoLine.AddError(
           'Invoice',
@@ -310,15 +365,21 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
         ? `Total credit (${totalCredit}) does not match debit (${totalDebit}) for invoice ${debitLine.INVOICE ?? _uniqueId}.`
         : null;
 
-      for (const creditLine of creditLines) {
-        const dfoLine = await this.buildLineFromPair(
-          debitLine,
-          creditLine,
-          company,
-          stubHeader,
-          0,
-          0,
-        );
+      const built = await Promise.all(
+        creditLines.map((creditLine) =>
+          this.buildLineFromPair(
+            debitLine,
+            creditLine,
+            company,
+            stubHeader,
+            0,
+            0,
+            false,
+            vendorNameMap,
+          ),
+        ),
+      );
+      for (const dfoLine of built) {
         if (balanceError) {
           dfoLine.AddError('Invoice', balanceError);
         }
@@ -428,6 +489,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     voucher: number,
     lineNumber: number,
     useDebitAmounts = false,
+    vendorNameMap?: Map<string, string>,
   ): Promise<CashOutFreightDFOLine> {
     const lineAmount = useDebitAmounts
       ? creditLine.DEBITAMOUNT
@@ -454,11 +516,16 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       SourceIds: [String(creditLine.UniqueId)],
     });
 
-    const vendorName = await this.getVendorName(
-      creditLine.ACCOUNTTYPE,
-      creditLine.ACCOUNTDISPLAYVALUE,
-      company,
-    );
+    const vendorName =
+      vendorNameMap && creditLine.ACCOUNTTYPE?.toLowerCase() === 'vend'
+        ? (vendorNameMap.get(creditLine.ACCOUNTDISPLAYVALUE ?? '') ?? '')
+        : vendorNameMap === undefined
+          ? await this.getVendorName(
+              creditLine.ACCOUNTTYPE,
+              creditLine.ACCOUNTDISPLAYVALUE,
+              company,
+            )
+          : '';
 
     const ov = this.buildSafeTypeOverrides(creditLine, company);
     const paymentReference = String(

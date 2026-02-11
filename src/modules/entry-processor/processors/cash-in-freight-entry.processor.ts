@@ -19,6 +19,9 @@ import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
 type RawDataInvoiceMap = Map<string, CashInFreightRawData[]>;
 
+const EXCHANGE_RATE_CACHE_KEY = (date: string, currency: string) =>
+  `${date}|${currency || ''}`;
+
 @Injectable()
 export class CashInFreightEntryProcessor extends EntryProcessorBase {
   private readonly logger = new Logger(CashInFreightEntryProcessor.name);
@@ -68,13 +71,18 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 1: Map & sort
+    this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
     const rawLines = this.mapToModels(data);
+    this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
 
     // STEP 2: FILTER CUSTODY SETTLEMENTS
+    this.logger.debug(
+      `[STEP 2] Filtering custody settlements from ${rawLines.length} lines`,
+    );
     const { custodySettlementLines, otherLines } =
       this.filteredSortedLines(rawLines);
     this.logger.debug(
-      `Filtered ${rawLines.length} lines into ${custodySettlementLines.length} custody settlement lines and ${otherLines.length} other lines`,
+      `[FILTER] Processed ${rawLines.length} lines → ${custodySettlementLines.length} custody settlement, ${otherLines.length} other lines`,
     );
 
     // STEP 2.5: run custody settlement with raw data (no file – already extracted from Excel)
@@ -95,28 +103,38 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     }
 
     // STEP 3: Build invoice map
+    this.logger.debug(
+      `[STEP 3] Building invoice map from ${otherLines.length} lines`,
+    );
     const invoiceMap = this.buildInvoiceMap(otherLines);
     const invoiceCount = invoiceMap.size;
-    this.logger.debug(
-      `Grouped ${otherLines.length} lines into ${invoiceCount} invoices`,
-    );
+    this.logger.debug(`[STEP 3] Grouped into ${invoiceCount} invoices`);
 
     // STEP 4: Build DFO lines
+    this.logger.debug(
+      `[STEP 4] Building DFO lines from ${invoiceCount} invoices`,
+    );
     const dfoLines = await this.buildLines(invoiceMap, company);
-    this.logger.debug(`Built ${dfoLines.length} DFO lines`);
+    this.logger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
     // STEP 5: Batch processing (rules)
     // - MAX 1000 lines per batch
     // - batch contains only invoices from the same month
     // - invoice cannot be split across batches
+    this.logger.debug(`[STEP 5] Initializing batch processing`);
     const journalBatchNum = await this.getNextBatchNumber();
     const voucherNum = await this.getNextVoucherNumber();
+    this.logger.debug(
+      `[STEP 5] Starting with batch number: ${journalBatchNum}, voucher number: ${voucherNum}`,
+    );
     const updatedDfoLines = this.updateBatchAndVoucher(
       dfoLines,
       journalBatchNum,
       voucherNum,
     );
-    this.logger.debug(`Updated DFO lines: ${updatedDfoLines.length}`);
+    this.logger.debug(
+      `[COMPLETE] Generated ${updatedDfoLines.length} enriched lines`,
+    );
 
     return updatedDfoLines;
   }
@@ -130,6 +148,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     _company: string,
   ): Promise<DynDataModel[]> {
     const lines = data as unknown as CashInFreightDFOLine[];
+    const lineCount = lines.length;
+    this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     const dimensionsMap = await this.getDimensionsMap();
 
@@ -308,6 +328,52 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     invoiceMap: RawDataInvoiceMap,
     company: string,
   ): Promise<CashInFreightDFOLine[]> {
+    const allLines = Array.from(invoiceMap.values()).flat();
+    const uniqueDateCurrency = new Map<
+      string,
+      { date: string; currency: string }
+    >();
+    const uniqueCustomerAccounts = new Set<string>();
+    for (const line of allLines) {
+      const key = EXCHANGE_RATE_CACHE_KEY(
+        line.TRANSDATE,
+        line.CURRENCYCODE || '',
+      );
+      if (!uniqueDateCurrency.has(key)) {
+        uniqueDateCurrency.set(key, {
+          date: line.TRANSDATE,
+          currency: line.CURRENCYCODE || '',
+        });
+      }
+      if (
+        line.ACCOUNTTYPE?.toLowerCase() === 'cust' &&
+        line.ACCOUNTDISPLAYVALUE
+      ) {
+        uniqueCustomerAccounts.add(line.ACCOUNTDISPLAYVALUE);
+      }
+    }
+
+    const [exchangeRateEntries, customerNameEntries] = await Promise.all([
+      Promise.all(
+        Array.from(uniqueDateCurrency.values()).map(
+          async ({ date, currency }) => {
+            const rates = await this.fetchExchangeRates(date, currency);
+            return [EXCHANGE_RATE_CACHE_KEY(date, currency), rates] as const;
+          },
+        ),
+      ).then((entries) => new Map(entries)),
+      Promise.all(
+        Array.from(uniqueCustomerAccounts).map(async (accountDisplayValue) => {
+          const name = await this.getCustomerName(
+            'cust',
+            accountDisplayValue,
+            company,
+          );
+          return [accountDisplayValue, name] as const;
+        }),
+      ).then((entries) => new Map(entries)),
+    ]);
+
     const dfoLines: CashInFreightDFOLine[] = [];
 
     for (const [uniqueId, lines] of invoiceMap.entries()) {
@@ -315,17 +381,26 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       const creditLines = lines.filter((l) => l.ISCREDIT);
 
       if (!debitLine) {
-        // No debit line: build one line per credit with error so user sees the invoice
-        for (const creditLine of creditLines) {
-          const dfoLine = await this.buildLine(null, creditLine, company);
-          dfoLine.AddError(
+        const built = await Promise.all(
+          creditLines.map((creditLine) =>
+            this.buildLine(
+              null,
+              creditLine,
+              company,
+              false,
+              customerNameEntries,
+              exchangeRateEntries,
+            ),
+          ),
+        );
+        for (let i = 0; i < built.length; i++) {
+          built[i].AddError(
             'Invoice',
-            `Invoice ${creditLine.INVOICE ?? uniqueId} has no debit line.`,
+            `Invoice ${creditLines[i].INVOICE ?? uniqueId} has no debit line.`,
           );
-          dfoLines.push(dfoLine);
+          dfoLines.push(built[i]);
         }
         if (creditLines.length === 0) {
-          // No debit and no credit: single placeholder line with error
           const placeholder = lines[0];
           if (placeholder) {
             const dfoLine = await this.buildLine(
@@ -333,6 +408,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
               placeholder,
               company,
               true,
+              customerNameEntries,
+              exchangeRateEntries,
             );
             dfoLine.AddError(
               'Invoice',
@@ -345,12 +422,13 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
 
       if (creditLines.length === 0) {
-        // No credit lines: one line from debit with error
         const dfoLine = await this.buildLine(
           debitLine,
           debitLine,
           company,
           true,
+          customerNameEntries,
+          exchangeRateEntries,
         );
         dfoLine.AddError(
           'Invoice',
@@ -372,8 +450,19 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
         ? `Total credit (${totalCredit}) does not match debit (${totalDebit}) for invoice ${debitLine.INVOICE ?? uniqueId}.`
         : null;
 
-      for (const creditLine of creditLines) {
-        const dfoLine = await this.buildLine(debitLine, creditLine, company);
+      const built = await Promise.all(
+        creditLines.map((creditLine) =>
+          this.buildLine(
+            debitLine,
+            creditLine,
+            company,
+            false,
+            customerNameEntries,
+            exchangeRateEntries,
+          ),
+        ),
+      );
+      for (const dfoLine of built) {
         if (balanceError) {
           dfoLine.AddError('Invoice', balanceError);
         }
@@ -388,26 +477,42 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     creditLine: CashInFreightRawData,
     company: string,
     useDebitAmounts = false,
+    customerNameMap?: Map<string, string>,
+    exchangeRateMap?: Map<
+      string,
+      { exchangeRate: number; reportingRate: number }
+    >,
   ): Promise<CashInFreightDFOLine> {
     const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
     const dimensionModel = isLedger
       ? this.parseToDimensions(creditLine.ACCOUNTDISPLAYVALUE)
       : this.parseToDimensions(creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '');
 
-    // DFO line: one amount on each side so debit equals credit on the same line
     const lineAmount = useDebitAmounts
       ? creditLine.DEBITAMOUNT
       : creditLine.CREDITAMOUNT;
-    const customerName = await this.getCustomerName(
-      creditLine.ACCOUNTTYPE,
-      creditLine.ACCOUNTDISPLAYVALUE,
-      company,
-    );
 
-    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+    const customerName =
+      customerNameMap && creditLine.ACCOUNTTYPE?.toLowerCase() === 'cust'
+        ? (customerNameMap.get(creditLine.ACCOUNTDISPLAYVALUE) ?? '')
+        : customerNameMap === undefined
+          ? await this.getCustomerName(
+              creditLine.ACCOUNTTYPE,
+              creditLine.ACCOUNTDISPLAYVALUE,
+              company,
+            )
+          : '';
+
+    const exchangeKey = EXCHANGE_RATE_CACHE_KEY(
       creditLine.TRANSDATE,
       creditLine.CURRENCYCODE || '',
     );
+    const { exchangeRate, reportingRate } =
+      exchangeRateMap?.get(exchangeKey) ??
+      (await this.fetchExchangeRates(
+        creditLine.TRANSDATE,
+        creditLine.CURRENCYCODE || '',
+      ));
 
     const line = new CashInFreightDFOLine(
       {

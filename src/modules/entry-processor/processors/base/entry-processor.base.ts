@@ -922,17 +922,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     exchangeRate: number;
     reportingRate: number;
   }> {
-    const exchangeRate = await this.queryExchangeRate(
-      currency,
-      dateString,
-      'EGP',
-    );
-    const reportingRate = await this.queryExchangeRate(
-      currency,
-      dateString,
-      'USD',
-    );
-
+    const [exchangeRate, reportingRate] = await Promise.all([
+      this.queryExchangeRate(currency, dateString, 'EGP'),
+      this.queryExchangeRate(currency, dateString, 'USD'),
+    ]);
     return { exchangeRate, reportingRate };
   }
 
