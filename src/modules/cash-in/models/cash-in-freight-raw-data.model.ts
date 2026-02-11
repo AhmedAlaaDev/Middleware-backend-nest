@@ -72,8 +72,23 @@ export class CashInFreightRawData {
 
   // custom columns you have in the JSON
   SafeTransaction?: string;
-  SafeType: 'Customer Collection' | 'Custody Settlement' | 'DownPayment';
-  VoucherType: 'Cash' | 'Cheque' | 'Deposit' | 'POS' | 'PrePayment';
+  SafeType:
+    | 'Customer Collection'
+    | 'Custody Settlement'
+    | 'DownPayment'
+    | 'Custody Issue'
+    | 'Direct'
+    | 'Other'
+    | 'Vendor Payment';
+
+  VoucherType:
+    | 'Cash'
+    | 'Cheque'
+    | 'Deposit'
+    | 'POS'
+    | 'PrePayment'
+    | 'Transfer'
+    | 'Visa';
 
   ISDEBIT: boolean;
   ISCREDIT: boolean;
@@ -91,11 +106,17 @@ export class CashInFreightRawData {
   ISDEPOSIT: boolean;
   ISPOS: boolean;
   ISPREPAYMENT: boolean;
+  ISTRANSFER: boolean;
+  ISVISA: boolean;
 
   // SAFETY TYPE FLAGS
   ISCUSTODYSETTLEMENT: boolean;
   ISCUSTOMERCOLLECTION: boolean;
   ISDOWNPAYMENT: boolean;
+  ISCUSTODYISSUE: boolean;
+  ISDIRECT: boolean;
+  ISOTHER: boolean;
+  ISVENDORPAYMENT: boolean;
 
   constructor(data: RawDataModel) {
     const s = (v: unknown) => this.lookupResultAsString(v);
@@ -196,11 +217,17 @@ export class CashInFreightRawData {
       ISPREPAYMENT:
         this.toBoolean(data?.PREPAYMENT) ||
         this.compare(data?.POSTINGPROFILE, 'prepayment'),
+      ISTRANSFER: this.compare(data?.VoucherType, 'transfer'),
+      ISVISA: this.compare(data?.VoucherType, 'visa'),
 
       // --- Derived flags from SafeType ---
       ISCUSTODYSETTLEMENT: this.compare(data?.SafeType, 'Custody Settlement'),
       ISCUSTOMERCOLLECTION: this.compare(data?.SafeType, 'Customer Collection'),
       ISDOWNPAYMENT: this.compare(data?.SafeType, 'DownPayment'),
+      ISCUSTODYISSUE: this.compare(data?.SafeType, 'Custody Issue'),
+      ISDIRECT: this.compare(data?.SafeType, 'Direct'),
+      ISOTHER: this.compare(data?.SafeType, 'Other'),
+      ISVENDORPAYMENT: this.compare(data?.SafeType, 'Vendor Payment'),
     });
   }
 
