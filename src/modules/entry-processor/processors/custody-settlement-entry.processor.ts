@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
+import { formatToMonthYear } from '@/lib/utils';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
-import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
 import {
@@ -15,9 +15,11 @@ import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/m
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
+
+const EXCHANGE_RATE_CACHE_KEY = (date: string, currency: string) =>
+  `${date}|${currency || ''}`;
 
 interface ClosingBatchCounter {
   lastBatchNumber: number;
@@ -37,9 +39,6 @@ interface MonthGroup {
 
 @Injectable()
 export class CustodySettlementEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(
-    CustodySettlementEntryProcessor.name,
-  );
   readonly entryProcessorType =
     EntryProcessorTypes.LedgerCustodySettlementEntry;
   readonly requiredDimensions = [
@@ -80,15 +79,10 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
-    const costCenterDimensions = await this.loadCostCenterDimensions();
-    const sortedExchangeRates = await this.loadAndSortExchangeRates();
     const { lastBatch, lastVoucher } = await this.loadCounters(company);
     const ledgerData = this.filterAndMapLedgerData(data, accounts);
-    const groupedLedger = this.groupEntries(
-      ledgerData,
-      costCenterDimensions,
-      sortedExchangeRates,
-    );
+    const exchangeRateMap = await this.buildExchangeRateMap(ledgerData);
+    const groupedLedger = this.groupEntries(ledgerData, exchangeRateMap);
     const dynData = this.processGroupedLedger(
       groupedLedger,
       lastVoucher,
@@ -98,33 +92,32 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     return dynData;
   }
 
-  private async loadCostCenterDimensions(): Promise<
-    IFinancialDimensionValue[]
+  private async buildExchangeRateMap(
+    ledgerData: CustodySettlementEntryModel[],
+  ): Promise<
+    Map<string, { exchangeRate: number; reportingRate: number }>
   > {
-    return await this.getFinancialDimensionValues('CostCenters');
-  }
-
-  private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
-    const exchangeRatesRes = await this.queryBus.execute(
-      new GetExchangeRatesQuery({}, undefined, undefined),
+    const uniqueDateCurrency = new Map<
+      string,
+      { date: string; currency: string }
+    >();
+    for (const entry of ledgerData) {
+      const dateStr = String(entry.TRANSDATE);
+      const currency = entry.CURRENCYCODE || '';
+      const key = EXCHANGE_RATE_CACHE_KEY(dateStr, currency);
+      if (!uniqueDateCurrency.has(key)) {
+        uniqueDateCurrency.set(key, { date: dateStr, currency });
+      }
+    }
+    const entries = await Promise.all(
+      Array.from(uniqueDateCurrency.values()).map(
+        async ({ date, currency }) => {
+          const rates = await this.fetchExchangeRates(date, currency);
+          return [EXCHANGE_RATE_CACHE_KEY(date, currency), rates] as const;
+        },
+      ),
     );
-    const exchangeRates = exchangeRatesRes?.items ?? [];
-    const d365foRates: D365FOExchangeRate[] = (exchangeRates || []).map(
-      (rate) => ({
-        RateTypeName: rate.rateTypeName || 'Default',
-        FromCurrency: rate.fromCurrency || '',
-        ToCurrency: rate.toCurrency || '',
-        StartDate: rate.startDate || new Date().toISOString(),
-        EndDate: rate.endDate || new Date().toISOString(),
-        Rate: rate.rate || 0,
-        ConversionFactor: rate.conversionFactor?.toString(),
-        RateTypeDescription: rate.rateTypeDescription,
-      }),
-    );
-    return [...d365foRates].sort(
-      (a, b) =>
-        new Date(b.StartDate).getTime() - new Date(a.StartDate).getTime(),
-    );
+    return new Map(entries);
   }
 
   private async loadCounters(_company: string): Promise<{
@@ -284,69 +277,18 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     voucherNumber: string,
     source: CustodySettlementEntryModel,
     dimensionsModel: AccountDimensionsModel,
-    month: number,
-    year: number,
-    exchangeRates: D365FOExchangeRate[],
+    exchangeRateMap: Map<string, { exchangeRate: number; reportingRate: number }>,
   ): DynCustodySettlementJournalEntryDto {
-    let monthlyExchangeRate = 0;
-    let reportExchangeRate = 0;
-
     const transDate = new Date(source.TRANSDATE);
-
-    // Determine monthly exchange rate to EGP
-    if (source.CURRENCYCODE?.toUpperCase() !== 'EGP') {
-      const rate = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'EGP' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      monthlyExchangeRate = rate?.Rate || 0;
-    } else {
-      monthlyExchangeRate = 1;
-    }
-
-    // Determine reporting currency exchange rate to USD
-    if (
-      source.CURRENCYCODE?.toUpperCase() !== 'EGP' &&
-      source.CURRENCYCODE?.toUpperCase() !== 'USD'
-    ) {
-      const rate = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'USD' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      reportExchangeRate = rate?.Rate || 0;
-    } else if (source.CURRENCYCODE?.toUpperCase() === 'USD') {
-      reportExchangeRate = 1;
-    } else {
-      // Convert from EGP to USD by inverting the USD->EGP rate
-      const usdToEgp = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === 'USD' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      reportExchangeRate = usdToEgp?.Rate ? 1 / usdToEgp.Rate : 0;
-    }
-
-    const monthNames = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
+    const exchangeKey = EXCHANGE_RATE_CACHE_KEY(
+      String(source.TRANSDATE),
+      source.CURRENCYCODE || '',
+    );
+    const { exchangeRate, reportingRate } =
+      exchangeRateMap.get(exchangeKey) ?? {
+        exchangeRate: 100,
+        reportingRate: 100,
+      };
 
     const sourceJournalName = source?.JOURNALNAME?.trim()?.toLowerCase() || '';
     const descriptionSuffix =
@@ -355,6 +297,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
         : sourceJournalName === 'cashout'
           ? 'Cash Out'
           : 'Without Cash';
+    const monthYearLabel = formatToMonthYear(String(source.TRANSDATE));
 
     const line = new DynCustodySettlementJournalEntryDto();
     line.CustomId = parseInt(
@@ -365,7 +308,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     line.LineNumber = lineNumber;
     line.JournalBatchNumber = batchNumber;
     line.JournalName = this.journalName;
-    line.Description = `Custody Settlement Entry ${monthNames[month - 1]} ${year} (${descriptionSuffix})`;
+    line.Description = `Custody Settlement Entry ${monthYearLabel} (${descriptionSuffix})`;
     line.Voucher = voucherNumber;
     line.DimensionModel = dimensionsModel;
     line.TransDate = transDate;
@@ -378,8 +321,8 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     line.DebitAmount = source.DEBITAMOUNT || 0;
     line.CreditAmount = source.CREDITAMOUNT || 0;
     line.CurrencyCode = source.CURRENCYCODE || '';
-    line.ExchangeRate = monthlyExchangeRate * 100;
-    line.ReportingCurrencyExchRate = reportExchangeRate * 100;
+    line.ExchangeRate = exchangeRate;
+    line.ReportingCurrencyExchRate = reportingRate;
     line.ReportingCurrencyExchRateSecondary = 0;
     line.CashDiscount = source.CASHDISCOUNT || '';
     line.CashDiscountAmount = source.CASHDISCOUNTAMOUNT || 0;
@@ -468,8 +411,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
 
   private groupEntries(
     ledgerData: CustodySettlementEntryModel[],
-    _costCenters: IFinancialDimensionValue[],
-    exchangeRates: D365FOExchangeRate[],
+    exchangeRateMap: Map<string, { exchangeRate: number; reportingRate: number }>,
   ): MonthGroup[] {
     const monthGroups = ledgerData.reduce(
       (acc, entry) => {
@@ -492,9 +434,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
           '',
           entry,
           entry.AccountDimensions!,
-          month,
-          year,
-          exchangeRates,
+          exchangeRateMap,
         );
         acc[key].Entries.push(journalEntry);
 
