@@ -31,6 +31,8 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
   private readonly MAX_LINES_PER_BATCH = 1000;
   readonly requiredDimensions = [
     'MainAccount',
+    'Customer',
+    'SubCustomer',
     'Activity',
     'CostCenters',
     'BusinessUnit',
@@ -80,7 +82,11 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       data,
       custodyAccountNumbers,
     );
-    this.logInitialStats(rawCount, custodySettlementLines.length, otherLines.length);
+    this.logInitialStats(
+      rawCount,
+      custodySettlementLines.length,
+      otherLines.length,
+    );
 
     // STEP 1.5: Run custody settlement with raw data (no file – already extracted from Excel)
     if (custodySettlementLines.length > 0) {
@@ -233,6 +239,8 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         //   this.validateTruckNumber(line, dimensionsMap.TruckNumber);
         // }
       }
+      this.validateCustomerDimension(line, dimensionsMap.Customer);
+      this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
       this.validateActivityName(line, dimensionsMap.Activity);
       this.validateCostCenter(line, dimensionsMap.CostCenters);
       this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);

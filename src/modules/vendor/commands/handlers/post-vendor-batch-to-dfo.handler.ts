@@ -234,6 +234,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         // FinTagDisplayValue / OffsetFinTagDisplayValue omitted: D365FO resolves them via
         // FINTAGCREATEUNICODEHASH and FINTAGDATAENTITYSFKCACHE; if that SQL function is
         // missing or misconfigured, posting fails. Omit to allow lines to post.
+        FinTagDisplayValue: line.FINTAGDISPLAYVALUE,
+        OffsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
         ReportingCurrencyExchRate: line.REPORTINGCURRENCYEXCHRATE,
         AccountType: line.ACCOUNTTYPE,
         TermsOfPayment: line.TERMSOFPAYMENT,
@@ -478,6 +480,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     // }
     if (!line.Company?.trim()) {
       missingFields.push('Company');
+    }
+    if (!line.FinTagDisplayValue?.trim()) {
+      missingFields.push('FinTagDisplayValue');
     }
     // Static value - ITMCostArea is required
     // if (!line.ITMCostArea?.trim()) {

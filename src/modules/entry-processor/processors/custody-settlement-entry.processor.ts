@@ -57,7 +57,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     'Direction',
     'Vendor',
     'SubVendor',
-    // 'Worker',
+    'Worker',
   ] as const;
 
   private readonly journalName = 'CustSettle';
@@ -214,29 +214,30 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       this.validateCustomerDimension(
         arLine,
         dimensionsMap.get('Customer') || [],
+        false,
       );
       this.validateSubCustomerDimension(
         arLine,
         dimensionsMap.get('SubCustomer') || [],
+        false,
       );
       this.validateChargeTypeDimension(
         arLine,
         dimensionsMap.get('ChargeType')?.map((d) => d.value) || [],
       );
-      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
+      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || [], false);
       this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
       this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
       this.validateCoordinatorMan(
         arLine,
         dimensionsMap.get('CoordinatorMan') || [],
-      );
-      this.validateVendor(arLine, dimensionsMap.get('Vendor') || [], false);
-      this.validateSubVendor(
-        arLine,
-        dimensionsMap.get('SubVendor') || [],
         false,
       );
-      // this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
+      if (arLine.AccountType === 'Vend') {
+        this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
+        this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
+      }
+      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
     }
 
     return data;
