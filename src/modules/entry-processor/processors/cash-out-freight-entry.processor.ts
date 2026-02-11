@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import {
@@ -17,11 +17,12 @@ import {
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
-type MonthVoucherMap = Map<string, Map<string, CashOutFreightRawData[]>>;
+type RawDataInvoiceMap = Map<string, CashOutFreightRawData[]>;
 
 @Injectable()
 export class CashOutFreightEntryProcessor extends EntryProcessorBase {
@@ -50,6 +51,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
   ] as const;
 
   constructor(
+    private readonly commandBus: CommandBus,
     customerInvoiceService: CustomerInvoiceService,
     queryBus: QueryBus,
     db: DBService,
@@ -71,98 +73,57 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 1: Map & sort
-    const sortedLines = this.sortLinesByLineNumber(this.mapToModels(data));
+    const rawLines = this.mapToModels(data);
 
-    // STEP 2: Build month → voucher map
-    const monthVoucherMap = this.buildVoucherMap(sortedLines);
-    const monthCount = monthVoucherMap.size;
-    const voucherCount = Array.from(monthVoucherMap.values()).reduce(
-      (sum, voucherMap) => sum + voucherMap.size,
-      0,
-    );
+    // STEP 2: Filter custody settlements vs other lines
+    const { custodySettlementLines, otherLines } =
+      this.filteredSortedLines(rawLines);
     this.procLogger.debug(
-      `Grouped ${sortedLines.length} lines into ${monthCount} months and ${voucherCount} vouchers`,
+      `Filtered ${rawLines.length} lines into ${custodySettlementLines.length} custody settlement lines and ${otherLines.length} other lines`,
     );
 
-    // STEP 3: Batch processing (rules)
-    // - MAX 1000 lines per batch
-    // - batch contains only one month
-    // - voucher cannot be split across batches
-    const eData: CashOutFreightDFOLine[] = [];
-
-    let journalBatchNum = await this.getNextBatchNumber();
-    let voucherNum = await this.getNextVoucherNumber();
-
-    let currentBatchLines: CashOutFreightDFOLine[] = [];
-    let currentBatchMonth: string | null = null;
-    let currentHeader: CashOutFreightDFOHeader | null = null;
-    let batchCount = 0;
-    let lineNumber = 1;
-
-    for (const [monthKey, voucherMap] of monthVoucherMap.entries()) {
-      for (const [voucherKey, voucherLines] of voucherMap.entries()) {
-        const headerLine = voucherLines[0];
-        const groupLineCount = voucherLines.length;
-
-        if (!headerLine || groupLineCount === 0) {
-          continue;
-        }
-
-        const monthChanged = currentBatchMonth !== monthKey;
-        const wouldExceedLimit =
-          currentBatchLines.length + groupLineCount > this.MAX_LINES_PER_BATCH;
-
-        if (monthChanged || wouldExceedLimit || currentHeader === null) {
-          // Close previous batch
-          if (currentBatchLines.length > 0 && currentHeader) {
-            this.flushBatch(currentHeader, currentBatchLines, eData);
-            batchCount++;
-            journalBatchNum++;
-          }
-
-          // Start new batch
-          currentBatchMonth = monthKey;
-          currentHeader = this.startNewBatch(headerLine, journalBatchNum);
-          currentBatchLines = [];
-          lineNumber = 1;
-        }
-
-        // Edge case: a single voucher exceeds the batch limit.
-        // We keep it intact (do not split voucher), even if it exceeds 1000.
-        if (groupLineCount > this.MAX_LINES_PER_BATCH) {
-          this.procLogger.warn(
-            `Voucher ${voucherKey} has ${groupLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
-          );
-        }
-
-        const voucher = voucherNum++;
-
-        for (const rawLine of voucherLines) {
-          const enrichedLine = await this.buildLine({
-            rawLine,
-            header: currentHeader,
+    // STEP 2.5: Run custody settlement with raw data (no file – already extracted from Excel)
+    if (custodySettlementLines.length > 0) {
+      this.commandBus
+        .execute(
+          new ProcessCustodySettlementEntryCommand(
             company,
-            voucher,
-            lineNumber,
-          });
-
-          currentBatchLines.push(enrichedLine);
-          lineNumber++;
-        }
-      }
+            undefined,
+            custodySettlementLines,
+          ),
+        )
+        .catch((error) => {
+          this.procLogger.error(
+            `Error processing custody settlement entry: ${error}`,
+          );
+        });
     }
 
-    // Final flush
-    if (currentBatchLines.length > 0 && currentHeader) {
-      this.flushBatch(currentHeader, currentBatchLines, eData);
-      batchCount++;
-    }
-
+    // STEP 3: Build invoice map (by UniqueId, like cash-in)
+    const invoiceMap = this.buildInvoiceMap(otherLines);
+    const invoiceCount = invoiceMap.size;
     this.procLogger.debug(
-      `Final output = ${eData.length} enriched lines across ${batchCount} batches`,
+      `Grouped ${otherLines.length} lines into ${invoiceCount} invoices`,
     );
 
-    return eData as unknown as DynDataModel[];
+    // STEP 4: Build DFO lines (debit/credit pairing, one line per credit)
+    const dfoLines = await this.buildLines(invoiceMap, company);
+    this.procLogger.debug(`Built ${dfoLines.length} DFO lines`);
+
+    // STEP 5: Batch processing (rules)
+    // - MAX 1000 lines per batch
+    // - batch contains only invoices from the same month
+    // - invoice cannot be split across batches
+    const journalBatchNum = await this.getNextBatchNumber();
+    const voucherNum = await this.getNextVoucherNumber();
+    const updatedDfoLines = this.updateBatchAndVoucher(
+      dfoLines,
+      journalBatchNum,
+      voucherNum,
+    );
+    this.procLogger.debug(`Updated DFO lines: ${updatedDfoLines.length}`);
+
+    return updatedDfoLines as unknown as DynDataModel[];
   }
 
   // --------------------------------------------------------------------------
@@ -224,106 +185,284 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
   }
 
-  private buildVoucherMap(
-    sortedLines: CashOutFreightRawData[],
-  ): MonthVoucherMap {
-    const monthVoucherMap: MonthVoucherMap = new Map();
+  private filteredSortedLines(sortedLines: CashOutFreightRawData[]) {
+    const custodySettlementLines: CashOutFreightRawData[] = [];
+    const otherLines: CashOutFreightRawData[] = [];
 
     for (const line of sortedLines) {
-      const monthKey = this.safeMonthKey(line);
-      const voucherKey = this.safeVoucherKey(line);
-
-      if (!monthVoucherMap.has(monthKey)) {
-        monthVoucherMap.set(monthKey, new Map());
+      if (line.ISCUSTODYSETTLEMENT) {
+        custodySettlementLines.push(line);
+      } else {
+        otherLines.push(line);
       }
-
-      const voucherMap = monthVoucherMap.get(monthKey)!;
-      if (!voucherMap.has(voucherKey)) {
-        voucherMap.set(voucherKey, []);
-      }
-
-      voucherMap.get(voucherKey)!.push(line);
     }
 
-    return monthVoucherMap;
+    return {
+      custodySettlementLines: this.sortLinesByLineNumber(
+        custodySettlementLines,
+      ),
+      otherLines: this.sortLinesByLineNumber(otherLines),
+    };
   }
 
-  private safeMonthKey(line: CashOutFreightRawData): string {
-    try {
-      return getMonthKey(line.TRANSDATE);
-    } catch {
-      return 'invalid-date';
+  private buildInvoiceMap(
+    sortedLines: CashOutFreightRawData[],
+  ): RawDataInvoiceMap {
+    const invoiceMap: RawDataInvoiceMap = new Map();
+
+    for (const line of sortedLines) {
+      const uniqueId = String(line.UniqueId);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
+      }
+      invoiceMap.get(uniqueId)!.push(line);
     }
+
+    return invoiceMap;
   }
 
-  private safeVoucherKey(line: CashOutFreightRawData): string {
-    const v = String(line.VOUCHER || '').trim();
-    return v || `uid-${String(line.UniqueId)}`;
+  private static readonly AMOUNT_EPSILON = 1e-6;
+
+  private async buildLines(
+    invoiceMap: RawDataInvoiceMap,
+    company: string,
+  ): Promise<CashOutFreightDFOLine[]> {
+    const dfoLines: CashOutFreightDFOLine[] = [];
+    const stubHeader = new CashOutFreightDFOHeader({
+      JOURNALBATCHNUMBER: '',
+      CATEGORYPURPOSE: 0,
+      CHARGEBEARER: 0,
+      DESCRIPTION: '',
+      ISPOSTED: 'No',
+      JOURNALNAME: 'P-Freight',
+      LOCALINSTRUMENT: 0,
+      OVERRIDESALESTAX: 'No',
+      SERVICELEVEL: 0,
+    });
+
+    for (const [_uniqueId, lines] of invoiceMap.entries()) {
+      const debitLine = lines.find((l) => l.ISDEBIT);
+      const creditLines = lines.filter((l) => l.ISCREDIT);
+
+      if (!debitLine) {
+        for (const creditLine of creditLines) {
+          const dfoLine = await this.buildLineFromPair(
+            null,
+            creditLine,
+            company,
+            stubHeader,
+            0,
+            0,
+          );
+          dfoLine.AddError(
+            'Invoice',
+            `Invoice ${creditLine.INVOICE ?? _uniqueId} has no debit line.`,
+          );
+          dfoLines.push(dfoLine);
+        }
+        if (creditLines.length === 0 && lines[0]) {
+          const placeholder = lines[0];
+          const dfoLine = await this.buildLineFromPair(
+            placeholder,
+            placeholder,
+            company,
+            stubHeader,
+            0,
+            0,
+            true,
+          );
+          dfoLine.AddError(
+            'Invoice',
+            `Invoice ${placeholder.INVOICE ?? _uniqueId} has no debit and no credit lines.`,
+          );
+          dfoLines.push(dfoLine);
+        }
+        continue;
+      }
+
+      if (creditLines.length === 0) {
+        const dfoLine = await this.buildLineFromPair(
+          debitLine,
+          debitLine,
+          company,
+          stubHeader,
+          0,
+          0,
+          true,
+        );
+        dfoLine.AddError(
+          'Invoice',
+          `Invoice ${debitLine.INVOICE ?? _uniqueId} has no credit lines.`,
+        );
+        dfoLines.push(dfoLine);
+        continue;
+      }
+
+      const totalDebit = debitLine.DEBITAMOUNT;
+      const totalCredit = creditLines.reduce(
+        (sum, c) => sum + c.CREDITAMOUNT,
+        0,
+      );
+      const amountsMatch =
+        Math.abs(totalDebit - totalCredit) <
+        CashOutFreightEntryProcessor.AMOUNT_EPSILON;
+      const balanceError = !amountsMatch
+        ? `Total credit (${totalCredit}) does not match debit (${totalDebit}) for invoice ${debitLine.INVOICE ?? _uniqueId}.`
+        : null;
+
+      for (const creditLine of creditLines) {
+        const dfoLine = await this.buildLineFromPair(
+          debitLine,
+          creditLine,
+          company,
+          stubHeader,
+          0,
+          0,
+        );
+        if (balanceError) {
+          dfoLine.AddError('Invoice', balanceError);
+        }
+        dfoLines.push(dfoLine);
+      }
+    }
+    return dfoLines;
   }
 
-  private startNewBatch(
-    headerLine: CashOutFreightRawData,
+  private updateBatchAndVoucher(
+    dfoLines: CashOutFreightDFOLine[],
     journalBatchNum: number,
-  ): CashOutFreightDFOHeader {
-    return this.createBatchHeader(headerLine, journalBatchNum);
-  }
+    voucherNum: number,
+  ): CashOutFreightDFOLine[] {
+    const invoiceMap = new Map<string, CashOutFreightDFOLine[]>();
+    for (const line of dfoLines) {
+      const uniqueId = String(line.PAYMENTID);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
+      }
+      invoiceMap.get(uniqueId)!.push(line);
+    }
 
-  private flushBatch(
-    _header: CashOutFreightDFOHeader,
-    batchLines: CashOutFreightDFOLine[],
-    eData: CashOutFreightDFOLine[],
-  ): void {
-    if (batchLines.length === 0) return;
-    eData.push(...batchLines);
-  }
+    const updatedMap = new Map<string, CashOutFreightDFOLine[]>();
+    let currentBatchMonth: string | null = null;
+    let currentBatchLineCount = 0;
+    let currentBatchNumber = journalBatchNum;
+    let currentVoucherNum = voucherNum;
+    let lineNumberInBatch = 1;
 
-  private async buildLine(args: {
-    rawLine: CashOutFreightRawData;
-    header: CashOutFreightDFOHeader;
-    company: string;
-    voucher: number;
-    lineNumber: number;
-  }): Promise<CashOutFreightDFOLine> {
-    const { rawLine, header, company, voucher, lineNumber } = args;
-
-    // ---------- Dimensions ----------
-    const dims = this.parseToDimensions(
-      rawLine.ISLEDGER
-        ? rawLine.ACCOUNTDISPLAYVALUE || ''
-        : rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    const entriesByMonth = Array.from(invoiceMap.entries()).sort(
+      (a, b) =>
+        getMonthKey(a[1][0].TRANSACTIONDATE).localeCompare(
+          getMonthKey(b[1][0].TRANSACTIONDATE),
+        ) || a[0].localeCompare(b[0]),
     );
 
-    // ---------- Settled ----------
-    const settlementAmount = Number(rawLine.CREDITAMOUNT || 0);
+    for (const [uniqueId, lines] of entriesByMonth) {
+      if (!lines || lines.length === 0) continue;
+
+      const headerLine = lines[0];
+      const invoiceMonth = getMonthKey(headerLine.TRANSACTIONDATE);
+
+      const invoiceLineCount = lines.length;
+      const monthChanged = currentBatchMonth !== invoiceMonth;
+      const wouldExceedLimit =
+        currentBatchLineCount + invoiceLineCount > this.MAX_LINES_PER_BATCH;
+
+      if (monthChanged || wouldExceedLimit) {
+        if (currentBatchMonth !== null) {
+          currentBatchNumber++;
+        }
+        currentBatchMonth = invoiceMonth;
+        currentBatchLineCount = 0;
+        lineNumberInBatch = 1;
+      }
+
+      if (invoiceLineCount > this.MAX_LINES_PER_BATCH) {
+        this.procLogger.warn(
+          `Invoice ${headerLine.MARKEDINVOICE ?? uniqueId} has ${invoiceLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
+        );
+      }
+
+      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
+      const newHeader = new CashOutFreightDFOHeader({
+        JOURNALBATCHNUMBER: formattedBatch,
+        CATEGORYPURPOSE: 0,
+        CHARGEBEARER: 0,
+        DESCRIPTION: `Vendor Payment  Freight ${formatToMonthYear(headerLine.TRANSACTIONDATE)}`,
+        ISPOSTED: 'No',
+        JOURNALNAME: 'P-Freight',
+        LOCALINSTRUMENT: 0,
+        OVERRIDESALESTAX: 'No',
+        SERVICELEVEL: 0,
+      });
+
+      const formattedVoucher = this.formatVoucherNumber(
+        currentVoucherNum,
+        'P-Freight',
+      );
+
+      const updatedLines: CashOutFreightDFOLine[] = [];
+      for (const line of lines) {
+        line.header = newHeader;
+        line.JOURNALBATCHNUMBER = formattedBatch;
+        line.VOUCHER = formattedVoucher;
+        line.LINENUMBER = String(lineNumberInBatch);
+        line.LineNumber = lineNumberInBatch;
+        line.settled.JOURNALBATCHNUMBER = formattedBatch;
+        line.settled.JOURNALLINENUMBER = String(lineNumberInBatch);
+        updatedLines.push(line);
+        currentBatchLineCount++;
+        lineNumberInBatch++;
+      }
+      currentVoucherNum++;
+      updatedMap.set(uniqueId, updatedLines);
+    }
+
+    return Array.from(updatedMap.values()).flat();
+  }
+
+  private async buildLineFromPair(
+    debitLine: CashOutFreightRawData | null,
+    creditLine: CashOutFreightRawData,
+    company: string,
+    header: CashOutFreightDFOHeader,
+    voucher: number,
+    lineNumber: number,
+    useDebitAmounts = false,
+  ): Promise<CashOutFreightDFOLine> {
+    const lineAmount = useDebitAmounts
+      ? creditLine.DEBITAMOUNT
+      : creditLine.CREDITAMOUNT;
+
+    const dims = this.parseToDimensions(
+      creditLine.ISLEDGER
+        ? creditLine.ACCOUNTDISPLAYVALUE || ''
+        : creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    );
 
     const settled = new CashOutFreightDFOSettled({
       JOURNALLINECOMPANY: company,
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
       JOURNALLINENUMBER: String(lineNumber),
-      INVOICENUMBER: String(rawLine.INVOICE || ''),
+      INVOICENUMBER: String(creditLine.INVOICE || ''),
       INVOICECOMPANY: company,
       INVOICEDUEDATE: '',
-      ACCOUNTDISPLAYVALUE: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
+      ACCOUNTDISPLAYVALUE: String(creditLine.ACCOUNTDISPLAYVALUE || ''),
       CASHDISCOUNTTOTAKEININVOICECURRENCY: 0,
-      INVOICEACCOUNT: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
+      INVOICEACCOUNT: String(creditLine.ACCOUNTDISPLAYVALUE || ''),
       INVOICETOPAYMENTCROSSRATE: 0,
-      SETTLEMENTAMOUNTININVOICECURRENCY: settlementAmount,
-      SourceIds: [String(rawLine.UniqueId)],
+      SETTLEMENTAMOUNTININVOICECURRENCY: lineAmount,
+      SourceIds: [String(creditLine.UniqueId)],
     });
 
-    // ---------- Master Data ----------
     const vendorName = await this.getVendorName(
-      rawLine.ACCOUNTTYPE,
-      rawLine.ACCOUNTDISPLAYVALUE,
+      creditLine.ACCOUNTTYPE,
+      creditLine.ACCOUNTDISPLAYVALUE,
       company,
     );
 
-    // ---------- Type Overrides (Direct / Custody Issue / Custody Settlement / Vendor Payment) ----------
-    const ov = this.buildSafeTypeOverrides(rawLine, company);
-
-    // ---------- Base fallbacks ----------
+    const ov = this.buildSafeTypeOverrides(creditLine, company);
     const paymentReference = String(
-      rawLine.PAYMENTREFERENCE || rawLine.DESCRIPTION || '',
+      creditLine.PAYMENTREFERENCE || creditLine.DESCRIPTION || '',
     );
 
     const payload: CashOutFreightDFOLineBase = {
@@ -335,12 +474,12 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       JOURNALBATCHNUMBER: header.JOURNALBATCHNUMBER,
       LINENUMBER: String(lineNumber),
 
-      ACCOUNTDISPLAYVALUE: String(rawLine.ACCOUNTDISPLAYVALUE || ''),
-      ACCOUNTTYPE: String(rawLine.ACCOUNTTYPE || ''),
+      ACCOUNTDISPLAYVALUE: String(creditLine.ACCOUNTDISPLAYVALUE || ''),
+      ACCOUNTTYPE: String(creditLine.ACCOUNTTYPE || ''),
 
       BANKTRANSACTIONTYPE: '',
 
-      CALCULATEWITHHOLDINGTAX: rawLine.ISWITHHOLDINGCALCULATIONENABLED
+      CALCULATEWITHHOLDINGTAX: creditLine.ISWITHHOLDINGCALCULATIONENABLED
         ? 'Yes'
         : 'No',
 
@@ -353,30 +492,31 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       CHECKNUMBER: paymentReference,
       COMPANY: company,
 
-      CREDITAMOUNT: Number(rawLine.CREDITAMOUNT || 0),
-      CURRENCYCODE: String(rawLine.CURRENCYCODE || ''),
-      DEBITAMOUNT: Number(rawLine.DEBITAMOUNT || 0),
+      CREDITAMOUNT: lineAmount,
+      CURRENCYCODE: String(creditLine.CURRENCYCODE || ''),
+      DEBITAMOUNT: lineAmount,
 
       DEFAULTDIMENSIONSFORACCOUNTDISPLAYVALUE: String(
-        rawLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+        creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
       ),
       DEFAULTDIMENSIONSFOROFFSETACCOUNTDISPLAYVALUE: String(
-        rawLine.OFFSETDEFAULTDIMENSIONDISPLAYVALUE ||
-          rawLine.DEFAULTDIMENSIONDISPLAYVALUE ||
+        debitLine?.OFFSETDEFAULTDIMENSIONDISPLAYVALUE ||
+          debitLine?.DEFAULTDIMENSIONDISPLAYVALUE ||
+          creditLine.DEFAULTDIMENSIONDISPLAYVALUE ||
           '',
       ),
 
       ERRORCODEPAYMENT: '',
 
-      EXCHANGERATE: Number(rawLine.EXCHANGERATE || 1),
-      FINTAGDISPLAYVALUE: String(rawLine.FINTAGDISPLAYVALUE || ''),
+      EXCHANGERATE: Number(creditLine.EXCHANGERATE || 1),
+      FINTAGDISPLAYVALUE: String(creditLine.FINTAGDISPLAYVALUE || ''),
 
       FULLPRIMARYREMITTANCEADDRESS: '',
 
       ISPREPAYMENT: 'No',
 
       ITEMWITHHOLDINGTAXGROUPCODE: String(
-        rawLine.ITEMWITHHOLDINGTAXGROUPCODE || '',
+        creditLine.ITEMWITHHOLDINGTAXGROUPCODE || '',
       ),
 
       LOCALINSTRUMENT: '',
@@ -395,18 +535,28 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       NEWJOURNALBATCHNUMBER: '',
 
       OFFSETACCOUNTDISPLAYVALUE: String(
-        rawLine.OFFSETACCOUNTDISPLAYVALUE || '',
+        debitLine?.ACCOUNTDISPLAYVALUE ||
+          creditLine.OFFSETACCOUNTDISPLAYVALUE ||
+          '',
       ),
-      OFFSETACCOUNTTYPE: String(rawLine.OFFSETACCOUNTTYPE || ''),
+      OFFSETACCOUNTTYPE: String(
+        debitLine?.ACCOUNTTYPE || creditLine.OFFSETACCOUNTTYPE || '',
+      ),
       OFFSETCOMPANY: company,
 
-      OFFSETFINTAGDISPLAYVALUE: String(rawLine.OFFSETFINTAGDISPLAYVALUE || ''),
-      OFFSETTRANSACTIONTEXT: String(rawLine.OFFSETTEXT || rawLine.TEXT || ''),
+      OFFSETFINTAGDISPLAYVALUE: String(
+        debitLine?.OFFSETFINTAGDISPLAYVALUE ||
+          creditLine.OFFSETFINTAGDISPLAYVALUE ||
+          '',
+      ),
+      OFFSETTRANSACTIONTEXT: String(
+        debitLine?.OFFSETTEXT || creditLine.OFFSETTEXT || creditLine.TEXT || '',
+      ),
 
-      OVERRIDESALESTAX: String(rawLine.OVERRIDESALESTAX || ''),
+      OVERRIDESALESTAX: String(creditLine.OVERRIDESALESTAX || ''),
 
-      PAYMENTID: String(rawLine.UniqueId || ''),
-      PAYMENTMETHODNAME: String(rawLine.PAYMENTMETHOD || ''),
+      PAYMENTID: String(creditLine.UniqueId || ''),
+      PAYMENTMETHODNAME: String(creditLine.PAYMENTMETHOD || ''),
       PAYMENTREFERENCE: paymentReference,
 
       PAYMENTSPECIFICATION: '',
@@ -442,33 +592,33 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       REMITTANCEADDRESSZIPCODE: '',
       REMITTANCELOCATIONID: '',
 
-      REPORTINGCURRENCYEXCHRATE: '', // template says Auto
-      REPORTINGCURRENCYEXCHRATESECONDARY: '', // Auto
-      SECONDARYEXCHANGERATE: '', // Auto
+      REPORTINGCURRENCYEXCHRATE: '',
+      REPORTINGCURRENCYEXCHRATESECONDARY: '',
+      SECONDARYEXCHANGERATE: '',
 
       SERVICELEVEL: '',
 
-      SETTLEVOUCHER: '', // Auto in template
+      SETTLEVOUCHER: '',
 
-      TAXGROUP: String(rawLine.SALESTAXGROUP || ''),
-      TAXITEMGROUP: String(rawLine.ITEMSALESTAXGROUP || ''),
-      TAXWITHHOLDGROUP: String(rawLine.ITEMWITHHOLDINGTAXGROUPCODE || ''),
+      TAXGROUP: String(creditLine.SALESTAXGROUP || ''),
+      TAXITEMGROUP: String(creditLine.ITEMSALESTAXGROUP || ''),
+      TAXWITHHOLDGROUP: String(creditLine.ITEMWITHHOLDINGTAXGROUPCODE || ''),
 
       THIRDPARTYBANKACCOUNTID: '',
 
-      TRANSACTIONDATE: String(rawLine.TRANSDATE || ''),
-      TRANSACTIONTEXT: String(rawLine.TEXT || ''),
+      TRANSACTIONDATE: String(creditLine.TRANSDATE || ''),
+      TRANSACTIONTEXT: String(creditLine.TEXT || ''),
 
       VOUCHER: this.formatVoucherNumber(
         voucher,
-        String(rawLine.JOURNALNAME || 'CashOut'),
+        String(creditLine.JOURNALNAME || 'P-Freight'),
       ),
 
       USESALESTAXDIRECTIONFROMMAINACCOUNT: 'No',
 
       VENDORNAME: vendorName,
 
-      SourceIds: [String(rawLine.UniqueId)],
+      SourceIds: [String(creditLine.UniqueId)],
     };
 
     return new CashOutFreightDFOLine(payload);

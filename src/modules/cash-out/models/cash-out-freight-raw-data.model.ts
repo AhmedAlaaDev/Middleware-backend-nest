@@ -85,49 +85,125 @@ export class CashOutFreightRawData {
   ISCUSTODYSETTLEMENT: boolean;
   ISVENDORPAYMENT: boolean;
 
+  ISDEBIT: boolean;
+  ISCREDIT: boolean;
+
   constructor(data: RawDataModel) {
+    const s = (v: unknown) => this.lookupResultAsString(v);
+    const n = (v: unknown) => this.lookupResultAsNumber(v);
+
+    const PAYMENTREFERENCE = this.generatePaymentReference(data);
+    const DEBITAMOUNT = Number(n(data?.DEBITAMOUNT)) || 0;
+    const CREDITAMOUNT = Number(n(data?.CREDITAMOUNT)) || 0;
+
     Object.assign(this, {
       ...data,
 
-      // lookup cells -> their result
-      JOURNALBATCHNUMBER: this.lookupResultAsString(data?.JOURNALBATCHNUMBER),
-      TEXT: this.lookupResultAsString(data?.TEXT),
-      CREDITAMOUNT: this.lookupResultAsNumber(data?.CREDITAMOUNT),
-      DEBITAMOUNT: this.lookupResultAsNumber(data?.DEBITAMOUNT),
+      UniqueId: Number(n(data?.UniqueId)) || 0,
+      LINENUMBER: Number(n(data?.LINENUMBER)) || 0,
 
-      // normalize common types
-      LINENUMBER: Number(data?.LINENUMBER),
+      JOURNALBATCHNUMBER: s(data?.JOURNALBATCHNUMBER),
+      JOURNALNAME: s(data?.JOURNALNAME),
+      DESCRIPTION: PAYMENTREFERENCE,
+      VOUCHER: s(data?.VOUCHER),
+      TRANSDATE: s(data?.TRANSDATE),
+      ACCOUNTTYPE: s(data?.ACCOUNTTYPE),
+      ACCOUNTDISPLAYVALUE: s(data?.ACCOUNTDISPLAYVALUE),
+      DEFAULTDIMENSIONDISPLAYVALUE: s(data?.DEFAULTDIMENSIONDISPLAYVALUE),
+      FINTAGDISPLAYVALUE: s(data?.FINTAGDISPLAYVALUE),
+      TEXT: s(data?.TEXT),
 
-      EXCHANGERATE: Number(data?.EXCHANGERATE ?? 0),
-      EXCHANGERATESECONDARY: Number(data?.EXCHANGERATESECONDARY ?? 0),
+      DEBITAMOUNT,
+      CREDITAMOUNT,
+      CURRENCYCODE: s(data?.CURRENCYCODE),
+      EXCHANGERATE: Number(n(data?.EXCHANGERATE)) || 0,
 
-      CASHDISCOUNT: Number(data?.CASHDISCOUNT ?? 0),
-      CASHDISCOUNTAMOUNT: Number(data?.CASHDISCOUNTAMOUNT ?? 0),
-
-      QUANTITY: Number(data?.QUANTITY ?? 0),
-      REPORTINGCURRENCYEXCHRATESECONDARY: Number(
-        data?.REPORTINGCURRENCYEXCHRATESECONDARY ?? 0,
+      OFFSETACCOUNTTYPE: s(data?.OFFSETACCOUNTTYPE),
+      OFFSETACCOUNTDISPLAYVALUE: s(data?.OFFSETACCOUNTDISPLAYVALUE),
+      OFFSETDEFAULTDIMENSIONDISPLAYVALUE: s(
+        data?.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
       ),
+      OFFSETFINTAGDISPLAYVALUE: s(data?.OFFSETFINTAGDISPLAYVALUE),
+      OFFSETTEXT: s(data?.OFFSETTEXT),
 
-      // yes/no fields -> boolean
-      ISPOSTED: this.toBoolean(data?.ISPOSTED),
+      PREPAYMENT: s(data?.PREPAYMENT),
+      SALESTAXGROUP: s(data?.SALESTAXGROUP),
+      ITEMSALESTAXGROUP: s(data?.ITEMSALESTAXGROUP),
+      TAXEXEMPTNUMBER: s(data?.TAXEXEMPTNUMBER),
+      ITEMWITHHOLDINGTAXGROUPCODE: s(data?.ITEMWITHHOLDINGTAXGROUPCODE),
       ISWITHHOLDINGCALCULATIONENABLED: this.toBoolean(
         data?.ISWITHHOLDINGCALCULATIONENABLED,
       ),
-      REVERSEENTRY: this.toBoolean(data?.REVERSEENTRY),
 
-      // quick flags based on ACCOUNTTYPE
-      ISVENDOR: this.isAccountType(data?.ACCOUNTTYPE, 'vend'),
-      ISPETTYCASH: this.isAccountType(data?.ACCOUNTTYPE, 'petty cash'),
-      ISLEDGER: this.isAccountType(data?.ACCOUNTTYPE, 'ledger'),
-      ISDIRECT: this.isAccountType(data?.SafeType, 'direct'),
-      ISCUSTODYISSUE: this.isAccountType(data?.SafeType, 'custody issue'),
-      ISCUSTODYSETTLEMENT: this.isAccountType(
-        data?.SafeType,
-        'custody settlement',
-      ),
-      ISVENDORPAYMENT: this.isAccountType(data?.SafeType, 'vendor payment'),
+      DOCUMENT: s(data?.DOCUMENT),
+      DOCUMENTDATE: s(data?.DOCUMENTDATE),
+      DUEDATE: s(data?.DUEDATE),
+      INVOICE: s(data?.INVOICE),
+      PAYMENTMETHOD: s(data?.PAYMENTMETHOD),
+      PAYMENTREFERENCE,
+
+      CASHDISCOUNT: Number(n(data?.CASHDISCOUNT)) || 0,
+      CASHDISCOUNTAMOUNT: Number(n(data?.CASHDISCOUNTAMOUNT)) || 0,
+      CASHDISCOUNTDATE: s(data?.CASHDISCOUNTDATE),
+
+      EXCHANGERATESECONDARY: Number(n(data?.EXCHANGERATESECONDARY)) || 0,
+      OVERRIDESALESTAX: s(data?.OVERRIDESALESTAX),
+      PAYMENTID: s(data?.PAYMENTID),
+      QUANTITY: Number(n(data?.QUANTITY)) || 0,
+      REPORTINGCURRENCYEXCHRATESECONDARY:
+        Number(n(data?.REPORTINGCURRENCYEXCHRATESECONDARY)) || 0,
+      REPORTINGCURRENCYEXCHRATE: s(data?.REPORTINGCURRENCYEXCHRATE),
+      REVERSEDATE: s(data?.REVERSEDATE),
+      REVERSEENTRY: this.toBoolean(data?.REVERSEENTRY),
+      SALESTAXCODE: s(data?.SALESTAXCODE),
+      POSTINGPROFILE: s(data?.POSTINGPROFILE),
+      POSTINGLAYER: s(data?.POSTINGLAYER),
+      ISPOSTED: this.toBoolean(data?.ISPOSTED),
+
+      SafeTransaction: s(data?.SafeTransaction),
+      SafeType: s(data?.SafeType),
+      VoucherType: s(data?.VoucherType),
+
+      ISDEBIT: DEBITAMOUNT > 0,
+      ISCREDIT: CREDITAMOUNT > 0,
+
+      ISVENDOR: this.compare(data?.ACCOUNTTYPE, 'vend'),
+      ISPETTYCASH: this.compare(data?.ACCOUNTTYPE, 'petty cash'),
+      ISLEDGER: this.compare(data?.ACCOUNTTYPE, 'ledger'),
+      ISDIRECT: this.compare(data?.SafeType, 'Direct'),
+      ISCUSTODYISSUE: this.compare(data?.SafeType, 'Custody Issue'),
+      ISCUSTODYSETTLEMENT: this.compare(data?.SafeType, 'Custody Settlement'),
+      ISVENDORPAYMENT: this.compare(data?.SafeType, 'Vendor Payment'),
     });
+  }
+
+  private generatePaymentReference(data: RawDataModel): string {
+    const paymentReference = this.lookupResultAsString(data?.PAYMENTREFERENCE);
+    const description = this.lookupResultAsString(data?.DESCRIPTION);
+    const journalName = this.lookupResultAsString(data?.JOURNALNAME);
+
+    const ignoredPaymentReferences = [
+      '0',
+      '00',
+      '000',
+      'N/A',
+      '000000000',
+      '0000000000',
+      '00000000000',
+    ];
+
+    if (
+      paymentReference &&
+      !ignoredPaymentReferences.includes(paymentReference)
+    ) {
+      return paymentReference;
+    }
+
+    return `${description || ''} - ${journalName || ''}`;
+  }
+
+  private compare(value: unknown, equalsTo: string): boolean {
+    return this.lowerTrimed(String(value ?? '')) === this.lowerTrimed(equalsTo);
   }
 
   private lookupResult<T = any>(value: LookupCell<T>): T {
@@ -155,10 +231,6 @@ export class CashOutFreightRawData {
   private toBoolean(value: any): boolean {
     const v = this.lowerTrimed(String(value ?? ''));
     return v === 'yes' || v === 'true' || v === '1';
-  }
-
-  private isAccountType(value: any, equalsTo: string): boolean {
-    return this.lowerTrimed(String(value ?? '')) === this.lowerTrimed(equalsTo);
   }
 
   private lowerTrimed(value: string): string {

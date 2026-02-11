@@ -150,8 +150,10 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
         const voucher = voucherNum++;
 
         // Calculate exchange rates once per invoice
-        const { exchangeRate, reportingRate } =
-          await this.fetchExchangeRates(headerLine.TRANSDATE, headerLine.CURRENCYCODE);
+        const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+          headerLine.TRANSDATE,
+          headerLine.CURRENCYCODE,
+        );
 
         if (!currentHeader) {
           this.vendorLogger.error('Current header is unexpectedly null');

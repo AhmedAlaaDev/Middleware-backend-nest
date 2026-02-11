@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
@@ -10,6 +10,7 @@ import {
   DynDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -47,6 +48,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
   ] as const;
 
   constructor(
+    private readonly commandBus: CommandBus,
     customerInvoiceService: CustomerInvoiceService,
     queryBus: QueryBus,
     db: DBService,
@@ -66,7 +68,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
     );
 
-    // STEP 1: Filter raw data
+    // STEP 1: Split custody settlement vs other lines
     this.vendorLogger.debug(
       `[STEP 1] Fetching custody account numbers for company: ${company}`,
     );
@@ -74,11 +76,31 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     this.vendorLogger.debug(
       `[STEP 1] Found ${custodyAccountNumbers.length} custody accounts`,
     );
-    const filteredLines = this.filterRawData(data, custodyAccountNumbers);
-    this.logInitialStats(rawCount, filteredLines.length);
+    const { custodySettlementLines, otherLines } = this.filterRawData(
+      data,
+      custodyAccountNumbers,
+    );
+    this.logInitialStats(rawCount, custodySettlementLines.length, otherLines.length);
+
+    // STEP 1.5: Run custody settlement with raw data (no file – already extracted from Excel)
+    if (custodySettlementLines.length > 0) {
+      this.commandBus
+        .execute(
+          new ProcessCustodySettlementEntryCommand(
+            company,
+            undefined,
+            custodySettlementLines,
+          ),
+        )
+        .catch((error) => {
+          this.vendorLogger.error(
+            `Error processing custody settlement entry: ${error}`,
+          );
+        });
+    }
 
     // STEP 2: Sort by month and invoice
-    const sortedLines = this.sortLinesByLineNumber(filteredLines);
+    const sortedLines = this.sortLinesByLineNumber(otherLines);
     this.vendorLogger.debug(
       `Sorted ${sortedLines.length} lines by line number`,
     );
@@ -261,8 +283,11 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
   private filterRawData(
     data: RawDataModel[],
     custodyAccountNumbers: string[],
-  ): VendorTruckingRawData[] {
-    const linesToFilter = new Set<string>();
+  ): {
+    custodySettlementLines: VendorTruckingRawData[];
+    otherLines: VendorTruckingRawData[];
+  } {
+    const custodyUniqueIds = new Set<string>();
     const mappedData = data.map((d) => new VendorTruckingRawData(d));
 
     // Make invoice unique per UniqueId: first UniqueId keeps the invoice, duplicates get suffix _1, _2, ...
@@ -294,11 +319,18 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         line.ACCOUNTDISPLAYVALUE,
       );
       if (isCustody) {
-        linesToFilter.add(line.UniqueId.toString());
+        custodyUniqueIds.add(line.UniqueId.toString());
       }
     }
 
-    return mappedData.filter((d) => !linesToFilter.has(d.UniqueId.toString()));
+    const custodySettlementLines = mappedData.filter((d) =>
+      custodyUniqueIds.has(d.UniqueId.toString()),
+    );
+    const otherLines = mappedData.filter(
+      (d) => !custodyUniqueIds.has(d.UniqueId.toString()),
+    );
+
+    return { custodySettlementLines, otherLines };
   }
 
   private sortLinesByLineNumber(
@@ -410,10 +442,13 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     });
   }
 
-  private logInitialStats(rawCount: number, filteredCount: number): void {
-    const excluded = rawCount - filteredCount;
+  private logInitialStats(
+    rawCount: number,
+    custodyCount: number,
+    otherCount: number,
+  ): void {
     this.vendorLogger.debug(
-      `[FILTER] Processed ${rawCount} raw records → ${filteredCount} valid records (excluded ${excluded} custody accounts)`,
+      `[FILTER] Processed ${rawCount} raw records → ${custodyCount} custody settlement lines, ${otherCount} other lines`,
     );
   }
 
@@ -468,8 +503,10 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     const termsOfPayment = vendorInfo.termsOfPayment;
 
     // Calculate exchange rates once per invoice
-    const { exchangeRate, reportingRate } =
-      await this.fetchExchangeRates(line.TRANSDATE, line.CURRENCYCODE);
+    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+      line.TRANSDATE,
+      line.CURRENCYCODE,
+    );
 
     // Normalize currency, company codes, and TransactionType
     const normalizedCurrency = this.normalizeCurrencyCode(line.CURRENCYCODE);
