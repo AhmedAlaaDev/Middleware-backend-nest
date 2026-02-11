@@ -452,11 +452,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
         }
       }
 
-      ledgerEntry.ACCOUNTDISPLAYVALUE =
-        this.convertToStringDimensionsWithSegments(
-          ledgerEntry.AccountDimensions,
-          20,
-        );
+      ledgerEntry.ACCOUNTDISPLAYVALUE = entry.ACCOUNTDISPLAYVALUE || '';
 
       if (
         !excludedEntries.some(

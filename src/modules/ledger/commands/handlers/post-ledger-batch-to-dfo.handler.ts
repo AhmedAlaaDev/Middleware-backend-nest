@@ -24,12 +24,12 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
 import { QUEUES } from '@/modules/queue/constants/queues';
+import { QueueService } from '@/modules/queue/services/queue.service';
 
 /** Ledger journal line shape used for DFO posting (closing and custody-settlement batches) */
 type LedgerJournalEntryDto =
   | DynLedgerClosingJournalEntryDto
   | DynCustodySettlementJournalEntryDto;
-import { QueueService } from '@/modules/queue/services/queue.service';
 
 @CommandHandler(PostLedgerBatchToDFOCommand)
 @Injectable()
@@ -99,9 +99,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
 
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
-  ): Promise<
-    Map<string, IDataEnhancedRecord<LedgerJournalEntryDto>[]>
-  > {
+  ): Promise<Map<string, IDataEnhancedRecord<LedgerJournalEntryDto>[]>> {
     const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
@@ -125,9 +123,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
       }
       journalGroups
         .get(journalBatchNumber)!
-        .push(
-          record as unknown as IDataEnhancedRecord<LedgerJournalEntryDto>,
-        );
+        .push(record as unknown as IDataEnhancedRecord<LedgerJournalEntryDto>);
     }
 
     if (recordCount === 0) {
@@ -158,10 +154,7 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
   }
 
   private mapToD365Requests(
-    journalGroups: Map<
-      string,
-      IDataEnhancedRecord<LedgerJournalEntryDto>[]
-    >,
+    journalGroups: Map<string, IDataEnhancedRecord<LedgerJournalEntryDto>[]>,
     company: string,
   ): Array<{
     header: LedgerJournalHeaderRequest;
@@ -261,8 +254,8 @@ export class PostLedgerBatchToDFOHandler implements ICommandHandler<
         line.OffsetDefaultDimensionDisplayValue,
       OffsetText: line.OffsetText,
       Voucher: line.Voucher,
-      Document: line.Document,
-      Invoice: line.Invoice,
+      Document: line.Document ? line.Document.toString() : '',
+      Invoice: line.Invoice ? line.Invoice.toString() : '',
       PostingProfile: line.PostingProfile,
       PaymentMethod: line.PaymentMethod,
       SalesTaxGroup: line.SalesTaxGroup,
