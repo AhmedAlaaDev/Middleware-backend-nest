@@ -218,6 +218,7 @@ export class CashInFreightRawData {
       '0000000000',
       '00000000000',
     ];
+
     if (
       paymentReference &&
       !ignoredPaymentReferences.includes(paymentReference)

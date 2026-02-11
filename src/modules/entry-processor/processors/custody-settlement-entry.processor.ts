@@ -347,6 +347,14 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       'December',
     ];
 
+    const sourceJournalName = source?.JOURNALNAME?.trim()?.toLowerCase() || '';
+    const descriptionSuffix =
+      sourceJournalName === 'cashin'
+        ? 'Cash In'
+        : sourceJournalName === 'cashout'
+          ? 'Cash Out'
+          : 'Without Cash';
+
     const line = new DynCustodySettlementJournalEntryDto();
     line.CustomId = parseInt(
       `${source.UniqueId}${dimensionsModel.costCenter || ''}`,
@@ -356,7 +364,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     line.LineNumber = lineNumber;
     line.JournalBatchNumber = batchNumber;
     line.JournalName = this.journalName;
-    line.Description = `Custody Settlement Entry ${monthNames[month - 1]} ${year} (Without Cash)`;
+    line.Description = `Custody Settlement Entry ${monthNames[month - 1]} ${year} (${descriptionSuffix})`;
     line.Voucher = voucherNumber;
     line.DimensionModel = dimensionsModel;
     line.TransDate = transDate;

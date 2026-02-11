@@ -110,8 +110,13 @@ export class CashInFreightDFOLine
 
   private errors: Array<{ property: string; message: string }> = [];
 
-  constructor(data: CashInFreightDFOLineBase) {
+  constructor(
+    data: CashInFreightDFOLineBase,
+    dimensionModel: AccountDimensionsModel,
+  ) {
     super(data);
+    this.DimensionModel = dimensionModel;
+    this.SourceIds = [data.PaymentId];
   }
 
   get ErrorCount(): number {

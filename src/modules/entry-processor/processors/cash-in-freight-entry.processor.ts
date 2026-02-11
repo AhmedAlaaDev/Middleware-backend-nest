@@ -258,12 +258,15 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       const updatedLines: CashInFreightDFOLine[] = [];
 
       for (const line of lines) {
-        const updatedLine = new CashInFreightDFOLine({
-          ...line,
-          JournalBatchNumber: formattedBatch,
-          Voucher: formattedVoucher,
-          LineNumber: lineNumberInBatch,
-        });
+        const updatedLine = new CashInFreightDFOLine(
+          {
+            ...line,
+            JournalBatchNumber: formattedBatch,
+            Voucher: formattedVoucher,
+            LineNumber: lineNumberInBatch,
+          },
+          line.DimensionModel,
+        );
 
         updatedLines.push(updatedLine);
         currentBatchLineCount++;
@@ -323,48 +326,51 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const dimensionModel = this.parseToDimensions(
       creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
     );
-    const line = new CashInFreightDFOLine({
-      JournalBatchNumber: '',
-      LineNumber: 0,
-      AccountDisplayValue: creditLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: debitLine.ACCOUNTDISPLAYVALUE,
-      AccountType: creditLine.ACCOUNTTYPE,
-      OffsetAccountType: debitLine.ACCOUNTTYPE,
-      DefaultDimensionsForAccountDisplayValue:
-        creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-      DefaultDimensionsForOffsetAccountDisplayValue:
-        debitLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-      Company: company,
-      CurrencyCode: creditLine.CURRENCYCODE || '',
-      CreditAmount: creditLine.CREDITAMOUNT,
-      DebitAmount: debitLine.DEBITAMOUNT,
-      ExchangeRate: creditLine.EXCHANGERATE,
-      TransactionDate: creditLine.TRANSDATE,
-      TransactionText: creditLine.TEXT || '',
-      PostingProfile: creditLine.POSTINGPROFILE || '',
-      MarkedInvoice: creditLine.INVOICE || '',
-      CalculateWithholdingTax: creditLine.ISWITHHOLDINGCALCULATIONENABLED
-        ? 'Yes'
-        : 'No',
-      CustomerName: '',
-      FinTagDisplayValue: creditLine.FINTAGDISPLAYVALUE || '',
-      OffsetFinTagDisplayValue: debitLine.FINTAGDISPLAYVALUE || '',
-      OffsetTransactionText: debitLine.TEXT || '',
-      IsPrepayment: creditLine.ISPREPAYMENT ? 'Yes' : 'No',
-      MarkedInvoiceCompany: company,
-      OffsetCompany: company,
-      ReportingCurrencyExchRate: creditLine.REPORTINGCURRENCYEXCHRATE || '',
-      ReportingCurrencyExchRateSecondary:
-        creditLine.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
-      SecondaryExchangeRate: creditLine.EXCHANGERATESECONDARY || '',
-      TaxGroup: creditLine.SALESTAXGROUP || '',
-      TransactionDateD365: creditLine.TRANSDATE,
-      Voucher: '',
-      PaymentId: creditLine.UniqueId.toString(),
-      JournalName: creditLine.JOURNALNAME,
-    });
-    line.DimensionModel = dimensionModel;
-    return line;
+
+    const line = new CashInFreightDFOLine(
+      {
+        JournalBatchNumber: '',
+        LineNumber: 0,
+        AccountDisplayValue: creditLine.ACCOUNTDISPLAYVALUE,
+        OffsetAccountDisplayValue: debitLine.ACCOUNTDISPLAYVALUE,
+        AccountType: creditLine.ACCOUNTTYPE,
+        OffsetAccountType: debitLine.ACCOUNTTYPE,
+        DefaultDimensionsForAccountDisplayValue:
+          creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+        DefaultDimensionsForOffsetAccountDisplayValue:
+          debitLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+        Company: company,
+        CurrencyCode: creditLine.CURRENCYCODE || '',
+        CreditAmount: creditLine.CREDITAMOUNT,
+        DebitAmount: creditLine.DEBITAMOUNT,
+        ExchangeRate: creditLine.EXCHANGERATE,
+        TransactionDate: creditLine.TRANSDATE,
+        TransactionText: creditLine.TEXT || '',
+        PostingProfile: creditLine.POSTINGPROFILE || '',
+        MarkedInvoice: creditLine.INVOICE || '',
+        CalculateWithholdingTax: creditLine.ISWITHHOLDINGCALCULATIONENABLED
+          ? 'Yes'
+          : 'No',
+        CustomerName: '',
+        FinTagDisplayValue: creditLine.FINTAGDISPLAYVALUE || '',
+        OffsetFinTagDisplayValue: debitLine.FINTAGDISPLAYVALUE || '',
+        OffsetTransactionText: debitLine.TEXT || '',
+        IsPrepayment: creditLine.ISPREPAYMENT ? 'Yes' : 'No',
+        MarkedInvoiceCompany: company,
+        OffsetCompany: company,
+        ReportingCurrencyExchRate: creditLine.REPORTINGCURRENCYEXCHRATE || '',
+        ReportingCurrencyExchRateSecondary:
+          creditLine.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
+        SecondaryExchangeRate: creditLine.EXCHANGERATESECONDARY || '',
+        TaxGroup: creditLine.SALESTAXGROUP || '',
+        TransactionDateD365: creditLine.TRANSDATE,
+        Voucher: '',
+        PaymentId: creditLine.UniqueId.toString(),
+        JournalName: creditLine.JOURNALNAME,
+      },
+      dimensionModel,
+    );
+    return Promise.resolve(line);
   }
 
   private async getCustomerName(
