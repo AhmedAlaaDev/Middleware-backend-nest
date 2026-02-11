@@ -133,23 +133,27 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
     const dimensionsMap = await this.getDimensionsMap();
 
+    const mainAccounts = await this.getMainAccounts();
+
     for (const line of lines) {
+      if (line.AccountType?.trim()?.toLowerCase() === 'ledger') {
+        this.validateMainAccount(line, mainAccounts);
+      }
       this.validateActivityName(line, dimensionsMap.get('Activity')!);
       this.validateCostCenter(line, dimensionsMap.get('CostCenters')!);
       this.validateBusinessUnit(line, dimensionsMap.get('BusinessUnit')!);
       this.validateLocation(line, dimensionsMap.get('Location')!);
-      this.validateSalesMan(line, dimensionsMap.get('SalesMan')!);
-      this.validateFreightType(line, dimensionsMap.get('FreightType')!);
-      this.validateCoordinatorMan(line, dimensionsMap.get('CoordinatorMan')!);
-      this.validateDirection(line, dimensionsMap.get('Direction')!);
       this.validateCustomerDimension(line, dimensionsMap.get('Customer')!);
-
-      if (line.DimensionModel?.subCustomer) {
-        this.validateSubCustomerDimension(
-          line,
-          dimensionsMap.get('SubCustomer')!,
-        );
-      }
+      this.validateSubCustomerDimension(
+        line,
+        dimensionsMap.get('SubCustomer')!,
+        false,
+      );
+      // this.validateChargeTypeDimension(line, dimensionsMap.get('ChargeType')!);
+      this.validateSalesMan(line, dimensionsMap.get('SalesMan')!);
+      this.validateCoordinatorMan(line, dimensionsMap.get('CoordinatorMan')!);
+      this.validateFreightType(line, dimensionsMap.get('FreightType')!);
+      this.validateDirection(line, dimensionsMap.get('Direction')!);
     }
 
     return data;
@@ -298,20 +302,81 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     return invoiceMap;
   }
 
+  private static readonly AMOUNT_EPSILON = 1e-6;
+
   private async buildLines(
     invoiceMap: RawDataInvoiceMap,
     company: string,
   ): Promise<CashInFreightDFOLine[]> {
     const dfoLines: CashInFreightDFOLine[] = [];
 
-    for (const [_uniqueId, lines] of invoiceMap.entries()) {
+    for (const [uniqueId, lines] of invoiceMap.entries()) {
       const debitLine = lines.find((l) => l.ISDEBIT);
       const creditLines = lines.filter((l) => l.ISCREDIT);
 
-      if (!debitLine || creditLines.length === 0) continue;
+      if (!debitLine) {
+        // No debit line: build one line per credit with error so user sees the invoice
+        for (const creditLine of creditLines) {
+          const dfoLine = await this.buildLine(null, creditLine, company);
+          dfoLine.AddError(
+            'Invoice',
+            `Invoice ${creditLine.INVOICE ?? uniqueId} has no debit line.`,
+          );
+          dfoLines.push(dfoLine);
+        }
+        if (creditLines.length === 0) {
+          // No debit and no credit: single placeholder line with error
+          const placeholder = lines[0];
+          if (placeholder) {
+            const dfoLine = await this.buildLine(
+              placeholder,
+              placeholder,
+              company,
+              true,
+            );
+            dfoLine.AddError(
+              'Invoice',
+              `Invoice ${placeholder.INVOICE ?? uniqueId} has no debit and no credit lines.`,
+            );
+            dfoLines.push(dfoLine);
+          }
+        }
+        continue;
+      }
+
+      if (creditLines.length === 0) {
+        // No credit lines: one line from debit with error
+        const dfoLine = await this.buildLine(
+          debitLine,
+          debitLine,
+          company,
+          true,
+        );
+        dfoLine.AddError(
+          'Invoice',
+          `Invoice ${debitLine.INVOICE ?? uniqueId} has no credit lines.`,
+        );
+        dfoLines.push(dfoLine);
+        continue;
+      }
+
+      const totalDebit = debitLine.DEBITAMOUNT;
+      const totalCredit = creditLines.reduce(
+        (sum, c) => sum + c.CREDITAMOUNT,
+        0,
+      );
+      const amountsMatch =
+        Math.abs(totalDebit - totalCredit) <
+        CashInFreightEntryProcessor.AMOUNT_EPSILON;
+      const balanceError = !amountsMatch
+        ? `Total credit (${totalCredit}) does not match debit (${totalDebit}) for invoice ${debitLine.INVOICE ?? uniqueId}.`
+        : null;
 
       for (const creditLine of creditLines) {
         const dfoLine = await this.buildLine(debitLine, creditLine, company);
+        if (balanceError) {
+          dfoLine.AddError('Invoice', balanceError);
+        }
         dfoLines.push(dfoLine);
       }
     }
@@ -319,12 +384,29 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   }
 
   private async buildLine(
-    debitLine: CashInFreightRawData,
+    debitLine: CashInFreightRawData | null,
     creditLine: CashInFreightRawData,
     company: string,
+    useDebitAmounts = false,
   ): Promise<CashInFreightDFOLine> {
-    const dimensionModel = this.parseToDimensions(
-      creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+    const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
+    const dimensionModel = isLedger
+      ? this.parseToDimensions(creditLine.ACCOUNTDISPLAYVALUE)
+      : this.parseToDimensions(creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '');
+
+    // DFO line: one amount on each side so debit equals credit on the same line
+    const lineAmount = useDebitAmounts
+      ? creditLine.DEBITAMOUNT
+      : creditLine.CREDITAMOUNT;
+    const customerName = await this.getCustomerName(
+      creditLine.ACCOUNTTYPE,
+      creditLine.ACCOUNTDISPLAYVALUE,
+      company,
+    );
+
+    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+      creditLine.TRANSDATE,
+      creditLine.CURRENCYCODE || '',
     );
 
     const line = new CashInFreightDFOLine(
@@ -332,18 +414,18 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
         JournalBatchNumber: '',
         LineNumber: 0,
         AccountDisplayValue: creditLine.ACCOUNTDISPLAYVALUE,
-        OffsetAccountDisplayValue: debitLine.ACCOUNTDISPLAYVALUE,
+        OffsetAccountDisplayValue: debitLine?.ACCOUNTDISPLAYVALUE ?? '',
         AccountType: creditLine.ACCOUNTTYPE,
-        OffsetAccountType: debitLine.ACCOUNTTYPE,
+        OffsetAccountType: debitLine?.ACCOUNTTYPE ?? '',
         DefaultDimensionsForAccountDisplayValue:
           creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
         DefaultDimensionsForOffsetAccountDisplayValue:
-          debitLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+          debitLine?.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
         Company: company,
         CurrencyCode: creditLine.CURRENCYCODE || '',
-        CreditAmount: creditLine.CREDITAMOUNT,
-        DebitAmount: creditLine.DEBITAMOUNT,
-        ExchangeRate: creditLine.EXCHANGERATE,
+        CreditAmount: lineAmount,
+        DebitAmount: lineAmount,
+        ExchangeRate: exchangeRate,
         TransactionDate: creditLine.TRANSDATE,
         TransactionText: creditLine.TEXT || '',
         PostingProfile: creditLine.POSTINGPROFILE || '',
@@ -351,14 +433,14 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
         CalculateWithholdingTax: creditLine.ISWITHHOLDINGCALCULATIONENABLED
           ? 'Yes'
           : 'No',
-        CustomerName: '',
+        CustomerName: customerName,
         FinTagDisplayValue: creditLine.FINTAGDISPLAYVALUE || '',
-        OffsetFinTagDisplayValue: debitLine.FINTAGDISPLAYVALUE || '',
-        OffsetTransactionText: debitLine.TEXT || '',
+        OffsetFinTagDisplayValue: debitLine?.FINTAGDISPLAYVALUE ?? '',
+        OffsetTransactionText: debitLine?.TEXT ?? '',
         IsPrepayment: creditLine.ISPREPAYMENT ? 'Yes' : 'No',
         MarkedInvoiceCompany: company,
         OffsetCompany: company,
-        ReportingCurrencyExchRate: creditLine.REPORTINGCURRENCYEXCHRATE || '',
+        ReportingCurrencyExchRate: reportingRate,
         ReportingCurrencyExchRateSecondary:
           creditLine.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
         SecondaryExchangeRate: creditLine.EXCHANGERATESECONDARY || '',

@@ -1,5 +1,6 @@
 import { QueryBus } from '@nestjs/cqrs';
 
+import { getMonthRange } from '@/lib/utils';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
@@ -14,6 +15,7 @@ import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dy
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
@@ -911,5 +913,57 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       Vend: 'Vend',
     };
     return mapping[normalized.toLowerCase()] || normalized;
+  }
+
+  protected async fetchExchangeRates(
+    dateString: string,
+    currency: string,
+  ): Promise<{
+    exchangeRate: number;
+    reportingRate: number;
+  }> {
+    const exchangeRate = await this.queryExchangeRate(
+      currency,
+      dateString,
+      'EGP',
+    );
+    const reportingRate = await this.queryExchangeRate(
+      currency,
+      dateString,
+      'USD',
+    );
+
+    return { exchangeRate, reportingRate };
+  }
+
+  protected async queryExchangeRate(
+    currency: string,
+    date: string,
+    toCurrency: 'EGP' | 'USD',
+  ) {
+    if (currency === toCurrency) return 100;
+
+    const dateRange = getMonthRange(date);
+
+    const fromDate = dateRange?.fromDate;
+    const toDate = dateRange?.toDate;
+
+    const rate = (
+      await this.queryBus.execute(
+        new GetExchangeRatesQuery(
+          {
+            rateTypeName: 'default',
+            fromCurrency: currency,
+            toCurrency,
+            fromDate,
+            toDate,
+          },
+          undefined,
+          undefined,
+        ),
+      )
+    )?.items?.[0]?.rate;
+
+    return rate ? Number(rate * 100) : 100;
   }
 }

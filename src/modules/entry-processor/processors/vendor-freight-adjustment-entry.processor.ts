@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear, getMonthKey, getMonthRange } from '@/lib/utils';
+import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { DBService } from '@/modules/db/db.service';
@@ -11,10 +11,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import {
-  GetExchangeRatesQuery,
-  GetVendorsQuery,
-} from '@/modules/master-data/queries';
+import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
   IVendorFreightAdjustmentDFOHeader,
@@ -154,7 +151,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
 
         // Calculate exchange rates once per invoice
         const { exchangeRate, reportingRate } =
-          await this.fetchExchangeRatesForHeader(headerLine);
+          await this.fetchExchangeRates(headerLine.TRANSDATE, headerLine.CURRENCYCODE);
 
         if (!currentHeader) {
           this.vendorLogger.error('Current header is unexpectedly null');
@@ -453,29 +450,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     return lineObjects;
   }
 
-  private async fetchExchangeRatesForHeader(
-    headerLine: VendorFreightAdjustmentRawData,
-  ): Promise<{
-    exchangeRate: number;
-    reportingRate: number;
-  }> {
-    const dateString = headerLine.TRANSDATE;
-    const currency = headerLine.CURRENCYCODE;
-
-    const exchangeRate = await this.getExchangeRate(
-      currency,
-      dateString,
-      'EGP',
-    );
-    const reportingRate = await this.getExchangeRate(
-      currency,
-      dateString,
-      'USD',
-    );
-
-    return { exchangeRate, reportingRate };
-  }
-
   private createBatchHeader(
     headerLine: VendorFreightAdjustmentRawData,
     journalBatchNum: number,
@@ -526,37 +500,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       )?.value ?? '0';
 
     return Number(value) + 1;
-  }
-
-  private async getExchangeRate(
-    currency: string,
-    date: string,
-    toCurrency: 'EGP' | 'USD',
-  ) {
-    if (currency === toCurrency) return 100;
-
-    const dateRange = getMonthRange(date);
-
-    const fromDate = dateRange?.fromDate;
-    const toDate = dateRange?.toDate;
-
-    const rate = (
-      await this.queryBus.execute(
-        new GetExchangeRatesQuery(
-          {
-            rateTypeName: 'default',
-            fromCurrency: currency,
-            toCurrency,
-            fromDate,
-            toDate,
-          },
-          undefined,
-          undefined,
-        ),
-      )
-    )?.items?.[0]?.rate;
-
-    return rate ?? 100;
   }
 
   private async buildLine(
