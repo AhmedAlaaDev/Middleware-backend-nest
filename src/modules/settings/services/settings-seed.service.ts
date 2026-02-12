@@ -135,6 +135,14 @@ export class SettingsSeedService implements OnModuleInit {
         hasAction: true,
         order: 15,
       },
+      {
+        displayName: 'Last Ledger Closing Freight Difference Voucher Number',
+        logicalName: 'last.ledger.closing.freight.difference.voucher.number',
+        value: '0',
+        groupName: 'Ledger',
+        hasAction: true,
+        order: 16,
+      },
     ];
 
     let created = 0;

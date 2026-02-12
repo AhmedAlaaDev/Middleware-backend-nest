@@ -5,6 +5,7 @@ export * from './account-receivable/account-receivable-trucking-entry.processor'
 export * from './cash/cash-in-freight-entry.processor';
 export * from './cash/cash-out-freight-entry.processor';
 export * from './closing/closing-custody-settlement-entry.processor';
+export * from './closing/closing-freight-difference-entry.processor';
 export * from './closing/closing-freight-entry.processor';
 export * from './closing/closing-trucking-entry.processor';
 export * from './vendor/vendor-freight-adjustment-entry.processor';

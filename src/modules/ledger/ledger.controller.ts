@@ -11,9 +11,11 @@ import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
 import { PostLedgerBatchToDFOCommand } from '@/modules/ledger/commands/post-ledger-batch-to-dfo.command';
+import { ProcessClosingFreightDifferenceCommand } from '@/modules/ledger/commands/process-closing-freight-difference.command';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { ProcessFreightClosingEntryCommand } from '@/modules/ledger/commands/process-freight-closing-entry.command';
 import { ProcessTruckingClosingEntryCommand } from '@/modules/ledger/commands/process-trucking-closing-entry.command';
+import { ClosingFreightDifferenceDto } from '@/modules/ledger/dtos/closing-freight-difference.dto';
 import { LedgerClosingEntryDto } from '@/modules/ledger/dtos/ledger-closing-entry.dto';
 import { PostToDFODto } from '@/modules/ledger/dtos/post-to-dfo.dto';
 
@@ -41,6 +43,27 @@ export class LedgerController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessFreightClosingEntryCommand(file.buffer, body.companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Freight Closing Difference Document
+   */
+  @Post('Freight-Closing-Difference')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: ClosingFreightDifferenceDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async freightClosingDifference(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: ClosingFreightDifferenceDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessClosingFreightDifferenceCommand(file.buffer, body.companyId),
     );
 
     return result;

@@ -5,6 +5,7 @@ import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
 import { PostLedgerBatchToDFOHandler } from '@/modules/ledger/commands/handlers/post-ledger-batch-to-dfo.handler';
+import { ProcessClosingFreightDifferenceHandler } from '@/modules/ledger/commands/handlers/process-closing-freight-difference.handler';
 import { ProcessCustodySettlementEntryHandler } from '@/modules/ledger/commands/handlers/process-custody-settlement-entry.handler';
 import { ProcessFreightClosingEntryHandler } from '@/modules/ledger/commands/handlers/process-freight-closing-entry.handler';
 import { ProcessTruckingClosingEntryHandler } from '@/modules/ledger/commands/handlers/process-trucking-closing-entry.handler';
@@ -15,6 +16,7 @@ import { LedgerController } from '@/modules/ledger/ledger.controller';
   controllers: [LedgerController],
   providers: [
     ProcessFreightClosingEntryHandler,
+    ProcessClosingFreightDifferenceHandler,
     ProcessCustodySettlementEntryHandler,
     ProcessTruckingClosingEntryHandler,
     PostLedgerBatchToDFOHandler,
