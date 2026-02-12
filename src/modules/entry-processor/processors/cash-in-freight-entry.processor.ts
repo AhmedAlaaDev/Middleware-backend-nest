@@ -1,26 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus } from '@nestjs/cqrs';
 
 import { getMonthKey } from '@/lib/utils';
 import { CashInFreightDFOLine } from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
 import { CashInFreightRawData } from '@/modules/cash-in/models/cash-in-freight-raw-data.model';
-import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetCustomersQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
 type RawDataInvoiceMap = Map<string, CashInFreightRawData[]>;
-
-const EXCHANGE_RATE_CACHE_KEY = (date: string, currency: string) =>
-  `${date}|${currency || ''}`;
 
 @Injectable()
 export class CashInFreightEntryProcessor extends EntryProcessorBase {
@@ -50,11 +46,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
   constructor(
     private readonly commandBus: CommandBus,
-    customerInvoiceService: CustomerInvoiceService,
-    queryBus: QueryBus,
-    db: DBService,
+    baseDeps: EntryProcessorBaseDependencies,
   ) {
-    super(customerInvoiceService, queryBus, db);
+    super({ dependencies: baseDeps });
   }
 
   // --------------------------------------------------------------------------
@@ -329,22 +323,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     company: string,
   ): Promise<CashInFreightDFOLine[]> {
     const allLines = Array.from(invoiceMap.values()).flat();
-    const uniqueDateCurrency = new Map<
-      string,
-      { date: string; currency: string }
-    >();
     const uniqueCustomerAccounts = new Set<string>();
     for (const line of allLines) {
-      const key = EXCHANGE_RATE_CACHE_KEY(
-        line.TRANSDATE,
-        line.CURRENCYCODE || '',
-      );
-      if (!uniqueDateCurrency.has(key)) {
-        uniqueDateCurrency.set(key, {
-          date: line.TRANSDATE,
-          currency: line.CURRENCYCODE || '',
-        });
-      }
       if (
         line.ACCOUNTTYPE?.toLowerCase() === 'cust' &&
         line.ACCOUNTDISPLAYVALUE
@@ -353,26 +333,16 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
     }
 
-    const [exchangeRateEntries, customerNameEntries] = await Promise.all([
-      Promise.all(
-        Array.from(uniqueDateCurrency.values()).map(
-          async ({ date, currency }) => {
-            const rates = await this.fetchExchangeRates(date, currency);
-            return [EXCHANGE_RATE_CACHE_KEY(date, currency), rates] as const;
-          },
-        ),
-      ).then((entries) => new Map(entries)),
-      Promise.all(
-        Array.from(uniqueCustomerAccounts).map(async (accountDisplayValue) => {
-          const name = await this.getCustomerName(
-            'cust',
-            accountDisplayValue,
-            company,
-          );
-          return [accountDisplayValue, name] as const;
-        }),
-      ).then((entries) => new Map(entries)),
-    ]);
+    const customerNameEntries = await Promise.all(
+      Array.from(uniqueCustomerAccounts).map(async (accountDisplayValue) => {
+        const name = await this.getCustomerName(
+          'cust',
+          accountDisplayValue,
+          company,
+        );
+        return [accountDisplayValue, name] as const;
+      }),
+    ).then((entries) => new Map(entries));
 
     const dfoLines: CashInFreightDFOLine[] = [];
 
@@ -389,7 +359,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
               company,
               false,
               customerNameEntries,
-              exchangeRateEntries,
             ),
           ),
         );
@@ -409,7 +378,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
               company,
               true,
               customerNameEntries,
-              exchangeRateEntries,
             );
             dfoLine.AddError(
               'Invoice',
@@ -428,7 +396,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
           company,
           true,
           customerNameEntries,
-          exchangeRateEntries,
         );
         dfoLine.AddError(
           'Invoice',
@@ -458,7 +425,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
             company,
             false,
             customerNameEntries,
-            exchangeRateEntries,
           ),
         ),
       );
@@ -478,10 +444,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     useDebitAmounts = false,
     customerNameMap?: Map<string, string>,
-    exchangeRateMap?: Map<
-      string,
-      { exchangeRate: number; reportingRate: number }
-    >,
   ): Promise<CashInFreightDFOLine> {
     const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
     const dimensionModel = isLedger
@@ -503,16 +465,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
             )
           : '';
 
-    const exchangeKey = EXCHANGE_RATE_CACHE_KEY(
+    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
       creditLine.TRANSDATE,
       creditLine.CURRENCYCODE || '',
     );
-    const { exchangeRate, reportingRate } =
-      exchangeRateMap?.get(exchangeKey) ??
-      (await this.fetchExchangeRates(
-        creditLine.TRANSDATE,
-        creditLine.CURRENCYCODE || '',
-      ));
 
     const line = new CashInFreightDFOLine(
       {

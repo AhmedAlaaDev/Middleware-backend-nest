@@ -1,9 +1,7 @@
 import { QueryBus } from '@nestjs/cqrs';
 
-import { getMonthRange } from '@/lib/utils';
-import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
+import { EntryProcessorBaseOptions } from '@/modules/entry-processor/interfaces/entry-processor-base-options.interface';
 import {
   DynDataModel,
   IEntryProcessor,
@@ -15,24 +13,27 @@ import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dy
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
+import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
+
   abstract readonly requiredDimensions: readonly string[];
 
   protected billingClassifications: Map<string, Array<IBillingCode>> =
     new Map();
 
-  constructor(
-    protected readonly customerInvoiceService: CustomerInvoiceService,
-    protected readonly queryBus: QueryBus,
-    protected readonly db: DBService,
-  ) {}
+  protected readonly queryBus: QueryBus;
+  protected readonly exchangeRateService: ExchangeRateService;
+
+  constructor(protected readonly options: EntryProcessorBaseOptions) {
+    this.queryBus = options.dependencies.queryBus;
+    this.exchangeRateService = options.dependencies.exchangeRateService;
+  }
 
   abstract formatAndEnrichAsync(
     data: RawDataModel[],
@@ -51,7 +52,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     company: string,
   ): Promise<void>;
 
-  parseToDimensions(dimensionString: string): AccountDimensionsModel {
+  public parseToDimensions(dimensionString: string): AccountDimensionsModel {
     const capitalizeFirst = (input: any): string => {
       if (input === null || input === undefined) return '';
       const s = typeof input === 'string' ? input : String(input);
@@ -131,7 +132,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     };
   }
 
-  convertToStringDimensions(
+  public convertToStringDimensions(
     dimensionsModel: AccountDimensionsModel | null,
   ): string {
     if (!dimensionsModel) {
@@ -915,48 +916,30 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     return mapping[normalized.toLowerCase()] || normalized;
   }
 
-  protected async fetchExchangeRates(
+  protected fetchExchangeRates(
     dateString: string,
     currency: string,
   ): Promise<{
     exchangeRate: number;
     reportingRate: number;
   }> {
-    const [exchangeRate, reportingRate] = await Promise.all([
-      this.queryExchangeRate(currency, dateString, 'EGP'),
-      this.queryExchangeRate(currency, dateString, 'USD'),
-    ]);
-    return { exchangeRate, reportingRate };
+    return this.exchangeRateService.fetchExchangeRates(
+      dateString,
+      currency,
+      this.options.rateType ?? 'default',
+    );
   }
 
-  protected async queryExchangeRate(
+  protected queryExchangeRate(
     currency: string,
     date: string,
     toCurrency: 'EGP' | 'USD',
-  ) {
-    if (currency === toCurrency) return 100;
-
-    const dateRange = getMonthRange(date);
-
-    const fromDate = dateRange?.fromDate;
-    const toDate = dateRange?.toDate;
-
-    const rate = (
-      await this.queryBus.execute(
-        new GetExchangeRatesQuery(
-          {
-            rateTypeName: 'default',
-            fromCurrency: currency,
-            toCurrency,
-            fromDate,
-            toDate,
-          },
-          undefined,
-          undefined,
-        ),
-      )
-    )?.items?.[0]?.rate;
-
-    return rate ? Number(rate * 100) : 100;
+  ): Promise<number> {
+    return this.exchangeRateService.queryExchangeRate(
+      currency,
+      date,
+      toCurrency,
+      this.options.rateType ?? 'default',
+    );
   }
 }

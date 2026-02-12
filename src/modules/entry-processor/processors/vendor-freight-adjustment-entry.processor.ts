@@ -1,15 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
 
 import { formatToMonthYear, getMonthKey } from '@/lib/utils';
-import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   RawDataModel,
   DynDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -45,12 +43,8 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     'SubVendor',
   ] as const;
 
-  constructor(
-    customerInvoiceService: CustomerInvoiceService,
-    queryBus: QueryBus,
-    db: DBService,
-  ) {
-    super(customerInvoiceService, queryBus, db);
+  constructor(baseDeps: EntryProcessorBaseDependencies) {
+    super({ dependencies: baseDeps });
   }
 
   // --------------------------------------------------------------------------

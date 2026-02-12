@@ -21,7 +21,9 @@ export class ExchangeRateMongoRepository implements ExchangeRateRepository {
     private readonly model: Model<ExchangeRate>,
   ) {}
 
-  private buildFilter(filter: IExchangeRateListFilter): Record<string, unknown> {
+  private buildFilter(
+    filter: IExchangeRateListFilter,
+  ): Record<string, unknown> {
     const q: Record<string, unknown> = {};
     if (filter.rateTypeName)
       q['rateTypeName'] = {

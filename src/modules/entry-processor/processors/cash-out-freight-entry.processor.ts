@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus } from '@nestjs/cqrs';
 
 import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import {
@@ -9,14 +9,13 @@ import {
   CashOutFreightDFOSettled,
 } from '@/modules/cash-out/interfaces/cash-out-freight-dfo-data.interface';
 import { CashOutFreightRawData } from '@/modules/cash-out/models/cash-out-freight-raw-data.model';
-import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
@@ -52,11 +51,9 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
 
   constructor(
     private readonly commandBus: CommandBus,
-    customerInvoiceService: CustomerInvoiceService,
-    queryBus: QueryBus,
-    db: DBService,
+    baseDeps: EntryProcessorBaseDependencies,
   ) {
-    super(customerInvoiceService, queryBus, db);
+    super({ dependencies: baseDeps });
   }
 
   // --------------------------------------------------------------------------

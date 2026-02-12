@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus } from '@nestjs/cqrs';
 
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   RawDataModel,
@@ -13,6 +12,7 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
 import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
@@ -66,13 +66,11 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   private readonly journalName = 'GL-Freight';
 
   constructor(
-    queryBus: QueryBus,
-    db: DBService,
+    baseDeps: EntryProcessorBaseDependencies,
     private readonly generalJournalService: GeneralJournalService,
     private readonly commandBus: CommandBus,
   ) {
-    // Pass null for customerInvoiceService as it's not needed for closing entries
-    super(null as any, queryBus, db);
+    super({ dependencies: baseDeps });
   }
 
   async formatAndEnrichAsync(

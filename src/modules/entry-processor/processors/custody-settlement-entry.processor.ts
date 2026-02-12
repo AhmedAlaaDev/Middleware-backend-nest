@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus } from '@nestjs/cqrs';
 
 import { formatToMonthYear } from '@/lib/utils';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   RawDataModel,
@@ -13,13 +12,11 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 import { CustodySettlementEntryModel } from '@/modules/entry-processor/models/custody-settlement-entry.model';
 import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
-
-const EXCHANGE_RATE_CACHE_KEY = (date: string, currency: string) =>
-  `${date}|${currency || ''}`;
 
 interface ClosingBatchCounter {
   lastBatchNumber: number;
@@ -62,13 +59,11 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
   private readonly journalName = 'CustSettle';
 
   constructor(
-    queryBus: QueryBus,
-    db: DBService,
+    baseDeps: EntryProcessorBaseDependencies,
     private readonly generalJournalService: GeneralJournalService,
     private readonly commandBus: CommandBus,
   ) {
-    // Pass null for customerInvoiceService as it's not needed for closing entries
-    super(null as any, queryBus, db);
+    super({ dependencies: baseDeps, rateType: 'default' });
   }
 
   async formatAndEnrichAsync(
@@ -81,8 +76,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     );
     const { lastBatch, lastVoucher } = await this.loadCounters(company);
     const ledgerData = this.filterAndMapLedgerData(data, accounts);
-    const exchangeRateMap = await this.buildExchangeRateMap(ledgerData);
-    const groupedLedger = this.groupEntries(ledgerData, exchangeRateMap);
+    const groupedLedger = await this.groupEntries(ledgerData);
     const dynData = this.processGroupedLedger(
       groupedLedger,
       lastVoucher,
@@ -90,32 +84,6 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     );
     await this.finalizeCountersAndSettings(lastBatch, lastVoucher);
     return dynData;
-  }
-
-  private async buildExchangeRateMap(
-    ledgerData: CustodySettlementEntryModel[],
-  ): Promise<Map<string, { exchangeRate: number; reportingRate: number }>> {
-    const uniqueDateCurrency = new Map<
-      string,
-      { date: string; currency: string }
-    >();
-    for (const entry of ledgerData) {
-      const dateStr = String(entry.TRANSDATE);
-      const currency = entry.CURRENCYCODE || '';
-      const key = EXCHANGE_RATE_CACHE_KEY(dateStr, currency);
-      if (!uniqueDateCurrency.has(key)) {
-        uniqueDateCurrency.set(key, { date: dateStr, currency });
-      }
-    }
-    const entries = await Promise.all(
-      Array.from(uniqueDateCurrency.values()).map(
-        async ({ date, currency }) => {
-          const rates = await this.fetchExchangeRates(date, currency);
-          return [EXCHANGE_RATE_CACHE_KEY(date, currency), rates] as const;
-        },
-      ),
-    );
-    return new Map(entries);
   }
 
   private async loadCounters(_company: string): Promise<{
@@ -269,28 +237,18 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     }
   }
 
-  private createJournalEntryDto(
+  private async createJournalEntryDto(
     lineNumber: number,
     batchNumber: string,
     voucherNumber: string,
     source: CustodySettlementEntryModel,
     dimensionsModel: AccountDimensionsModel,
-    exchangeRateMap: Map<
-      string,
-      { exchangeRate: number; reportingRate: number }
-    >,
-  ): DynCustodySettlementJournalEntryDto {
+  ): Promise<DynCustodySettlementJournalEntryDto> {
     const transDate = new Date(source.TRANSDATE);
-    const exchangeKey = EXCHANGE_RATE_CACHE_KEY(
+    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
       String(source.TRANSDATE),
       source.CURRENCYCODE || '',
     );
-    const { exchangeRate, reportingRate } = exchangeRateMap.get(
-      exchangeKey,
-    ) ?? {
-      exchangeRate: 100,
-      reportingRate: 100,
-    };
 
     const sourceJournalName = source?.JOURNALNAME?.trim()?.toLowerCase() || '';
     const descriptionSuffix =
@@ -411,42 +369,34 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     return ledgerData.sort((a, b) => a.getLineNumber() - b.getLineNumber());
   }
 
-  private groupEntries(
+  private async groupEntries(
     ledgerData: CustodySettlementEntryModel[],
-    exchangeRateMap: Map<
-      string,
-      { exchangeRate: number; reportingRate: number }
-    >,
-  ): MonthGroup[] {
-    const monthGroups = ledgerData.reduce(
-      (acc, entry) => {
-        const date = new Date(entry.TRANSDATE);
-        const year = date.getFullYear();
-        const month = date.getMonth() + 1;
-        const key = `${year}-${month}`;
+  ): Promise<MonthGroup[]> {
+    const monthGroups: Record<string, MonthGroup> = {};
 
-        if (!acc[key]) {
-          acc[key] = {
-            Year: year,
-            Month: month,
-            Entries: [],
-          };
-        }
+    for (const entry of ledgerData) {
+      const date = new Date(entry.TRANSDATE);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const key = `${year}-${month}`;
 
-        const journalEntry = this.createJournalEntryDto(
-          entry.getLineNumber(),
-          '0',
-          '',
-          entry,
-          entry.AccountDimensions!,
-          exchangeRateMap,
-        );
-        acc[key].Entries.push(journalEntry);
+      if (!monthGroups[key]) {
+        monthGroups[key] = {
+          Year: year,
+          Month: month,
+          Entries: [],
+        };
+      }
 
-        return acc;
-      },
-      {} as Record<string, MonthGroup>,
-    );
+      const journalEntry = await this.createJournalEntryDto(
+        entry.getLineNumber(),
+        '0',
+        '',
+        entry,
+        entry.AccountDimensions!,
+      );
+      monthGroups[key].Entries.push(journalEntry);
+    }
 
     // Sort entries within each month - preserve source LineNumber order
     // so debit/credit pairs stay consecutive (line 1–2, 3–4, etc.)

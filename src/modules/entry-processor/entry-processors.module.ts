@@ -18,6 +18,7 @@ import {
   VendorTruckingAdjustmentEntryProcessor,
   VendorTruckingEntryProcessor,
 } from '@/modules/entry-processor/processors';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 
@@ -40,7 +41,11 @@ const EntryProcessors = [
 
 @Module({
   imports: [CqrsModule, D365FOModule, MasterDataModule, SettingsModule],
-  providers: [EntryProcessorFactory, ...EntryProcessors],
+  providers: [
+    EntryProcessorBaseDependencies,
+    EntryProcessorFactory,
+    ...EntryProcessors,
+  ],
   exports: [EntryProcessorFactory],
 })
 export class EntryProcessorsModule {}

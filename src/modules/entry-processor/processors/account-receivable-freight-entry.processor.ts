@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
 
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { DBService } from '@/modules/db/db.service';
 import {
   DynDataModel,
   RawDataModel,
@@ -11,6 +9,7 @@ import {
 import { AccountReceivableFileModel } from '@/modules/entry-processor/models/account-receivable-file.model';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
@@ -38,11 +37,10 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
   ];
 
   constructor(
-    customerInvoiceService: CustomerInvoiceService,
-    queryBus: QueryBus,
-    db: DBService,
+    baseDeps: EntryProcessorBaseDependencies,
+    private readonly customerInvoiceService: CustomerInvoiceService,
   ) {
-    super(customerInvoiceService, queryBus, db);
+    super({ dependencies: baseDeps });
   }
 
   async formatAndEnrichAsync(

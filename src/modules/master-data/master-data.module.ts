@@ -99,6 +99,7 @@ import {
   Vendor,
   VendorSchema,
 } from '@/modules/master-data/schemas';
+import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
 const CommandHandlers = [
@@ -174,6 +175,7 @@ const QueryHandlers = [
   ],
   controllers: [MasterDataController],
   providers: [
+    ExchangeRateService,
     MasterDataService,
     { provide: VendorRepository, useClass: VendorMongoRepository },
     { provide: CustomerRepository, useClass: CustomerMongoRepository },
@@ -215,6 +217,6 @@ const QueryHandlers = [
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [MasterDataService, SyncJobRepository],
+  exports: [MasterDataService, ExchangeRateService, SyncJobRepository],
 })
 export class MasterDataModule {}

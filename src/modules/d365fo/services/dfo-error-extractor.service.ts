@@ -38,7 +38,9 @@ export class DfoErrorExtractorService {
     const internal = obj.internalexception ?? obj.internalException;
     if (internal) {
       const msg =
-        typeof internal === 'object' && internal !== null && 'message' in internal
+        typeof internal === 'object' &&
+        internal !== null &&
+        'message' in internal
           ? (internal as { message?: string }).message
           : typeof internal === 'string'
             ? internal

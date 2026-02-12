@@ -34,6 +34,6 @@ export interface IEntryProcessor {
 
   insertIntoDynamicsAsync(data: DynDataModel[], company: string): Promise<void>;
 
-  parseToDimensions(dimensionString: string): any;
-  convertToStringDimensions(dimensionsModel: any): string;
+  parseToDimensions(dimensionString: string): AccountDimensionsModel;
+  convertToStringDimensions(dimensionsModel: AccountDimensionsModel): string;
 }
