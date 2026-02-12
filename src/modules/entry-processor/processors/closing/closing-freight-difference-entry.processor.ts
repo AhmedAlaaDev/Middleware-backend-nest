@@ -323,12 +323,14 @@ export class ClosingFreightDifferenceEntryProcessor extends EntryProcessorBase {
       10,
     );
 
-    const accountDisplayValue = dimensionsModel.chargeType
-      ? source.ACCOUNTDISPLAYVALUE || ''
-      : this.utilsService.toDimensionString({
-          ...dimensionsModel,
-          freightType: '16544',
-        });
+    // Always default freightType to 16544 when missing (even if chargeType is present)
+    const dimensionsWithFreight = {
+      ...dimensionsModel,
+      chargeType: dimensionsModel.chargeType?.trim() || '16544',
+    };
+    const accountDisplayValue = this.utilsService.toDimensionString(
+      dimensionsWithFreight,
+    );
 
     line.UniqueId = source.UniqueId;
     line.LineNumber = lineNumber;
@@ -336,7 +338,7 @@ export class ClosingFreightDifferenceEntryProcessor extends EntryProcessorBase {
     line.JournalName = this.journalName;
     line.Description = `Closing Freight Difference ${monthNames[month - 1]} ${year} (${costCenterName})`;
     line.Voucher = voucherNumber;
-    line.DimensionModel = dimensionsModel;
+    line.DimensionModel = dimensionsWithFreight;
     line.TransDate = transDate;
     line.AccountDisplayValue = accountDisplayValue;
     line.AccountType = source.ACCOUNTTYPE || '';
