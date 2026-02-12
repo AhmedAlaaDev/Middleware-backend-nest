@@ -41,7 +41,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     TruckerType: true,
     TruckNumber: true, // overridden per-line (required when truckerType 11 or 12)
     Vendor: true,
-    SubVendor: true, // overridden per-line
+    SubVendor: false,
     Worker: true,
   };
 
@@ -207,7 +207,6 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       await this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
-          SubVendor: !!line.DimensionModel?.subVendor,
           TruckNumber: requireTruckNumber,
         },
       });

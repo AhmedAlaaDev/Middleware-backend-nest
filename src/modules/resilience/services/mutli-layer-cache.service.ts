@@ -24,16 +24,16 @@ export class MultiLayerCacheService {
   private readonly defaultL3Ttl: number;
 
   constructor(
-    private readonly cache: CacheService, // In-memory (now), Redis (future)
+    private readonly cache: CacheService,
     private readonly cacheEntryRepo: CacheEntryRepository,
     private readonly config: ConfigService<IConfig>,
   ) {
     const defaultCacheOptions =
       this.config.get<ResilienceConfig>('resilience')?.cache;
 
-    this.defaultL1Ttl = defaultCacheOptions?.l1Ttl ?? 5 * 60 * 1000;
-    this.defaultL2Ttl = defaultCacheOptions?.l2Ttl ?? 30 * 60 * 1000;
-    this.defaultL3Ttl = defaultCacheOptions?.l3Ttl ?? 2 * 60 * 60 * 1000;
+    this.defaultL1Ttl = defaultCacheOptions?.l1Ttl ?? 5 * 60 * 1000; // 5 minutes
+    this.defaultL2Ttl = defaultCacheOptions?.l2Ttl ?? 30 * 60 * 1000; // 30 minutes
+    this.defaultL3Ttl = defaultCacheOptions?.l3Ttl ?? 2 * 60 * 60 * 1000; // 2 hours
   }
 
   /**

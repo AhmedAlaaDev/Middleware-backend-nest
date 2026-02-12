@@ -39,7 +39,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     CoordinatorMan: true,
     Direction: true,
     Vendor: true,
-    SubVendor: true, // overridden per-line
+    SubVendor: false,
   };
 
   constructor(baseDeps: EntryProcessorBaseDependencies) {
@@ -201,9 +201,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     for (const line of lines) {
       await this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
-        dimensionIsRequired: {
-          SubVendor: !!line.DimensionModel?.subVendor,
-        },
       });
     }
 
