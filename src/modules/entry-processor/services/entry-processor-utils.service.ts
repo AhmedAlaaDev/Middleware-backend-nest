@@ -9,6 +9,7 @@ export class EntryProcessorUtilsService {
    */
   normalizeDimensionSegment(input: unknown): string {
     if (input === null || input === undefined) return '';
+    if (typeof input !== 'string' && typeof input !== 'number') return '';
     const s = typeof input === 'string' ? input : String(input);
     const lower = s.toLowerCase();
     return lower.charAt(0).toUpperCase() + lower.slice(1);
@@ -158,6 +159,7 @@ export class EntryProcessorUtilsService {
 
     const normalize = (v: unknown) => {
       if (v === null || v === undefined) return '';
+      if (typeof v !== 'string' && typeof v !== 'number') return '';
       const s = typeof v === 'string' ? v : String(v);
       return s.trim();
     };

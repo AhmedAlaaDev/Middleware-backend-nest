@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
 import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import {
   DimensionKey,
   RequiredDimensionsConfig,
@@ -20,7 +19,6 @@ export interface DimensionValidationConfig {
   dimensionIsRequired?: Partial<Record<DimensionKey, boolean>>;
   validateMainAccount?: boolean;
   chargeTypeDims?: string[];
-  validTaxItemGroupCodes?: Set<string>;
   /** Chart of accounts to use for main account validation. Defaults to 'Chart of Accounts'. */
   chartNumber?: string;
 }
@@ -115,10 +113,6 @@ export class DimensionValidationService {
           this.validateWorker(ar, values, isRequired(key));
           break;
       }
-    }
-
-    if (config.validTaxItemGroupCodes?.size) {
-      this.validateSalesTaxItemGroup(ar, config.validTaxItemGroupCodes);
     }
   }
 
@@ -242,34 +236,54 @@ export class DimensionValidationService {
     );
   }
 
+  private static normalizeChargeTypeForMatch(s: string): string {
+    return s
+      .toLowerCase()
+      .replace(/-of|-or/g, '')
+      .trim();
+  }
+
   private validateChargeTypeDimension(
     ar: DynDataModel,
-    dimensions: string[],
+    allowedValues: string[],
     isRequired: boolean,
   ): void {
-    const dimensionsModel = ar.DimensionModel;
-    const normalizedChargeType =
-      dimensionsModel?.chargeType?.toLowerCase() || '';
-    if (
-      isRequired &&
-      (!normalizedChargeType || normalizedChargeType === '000')
-    ) {
-      ar.AddError('ChargeTypeDimensions', 'ChargeType is required');
+    this.validateDimensionFieldFromStrings(
+      ar,
+      ar.DimensionModel?.chargeType,
+      allowedValues,
+      isRequired,
+      'ChargeTypeDimensions',
+      'ChargeType',
+      (s) => DimensionValidationService.normalizeChargeTypeForMatch(s),
+    );
+  }
+
+  /**
+   * Validates a dimension field against a list of allowed strings.
+   * Uses exact match after optional normalizer (e.g. ChargeType needs -of/-or stripped).
+   */
+  private validateDimensionFieldFromStrings(
+    ar: DynDataModel,
+    rawValue: string | undefined,
+    allowedValues: string[],
+    isRequired: boolean,
+    errorKey: string,
+    label: string,
+    normalizer: (s: string) => string = (s) => s.toLowerCase().trim(),
+  ): void {
+    const value = (rawValue ?? '').trim();
+    if (isRequired && (!value || value.toLowerCase() === '000')) {
+      ar.AddError(errorKey, `${label} is required`);
       return;
     }
     if (
-      normalizedChargeType &&
-      !dimensions.some((d) => {
-        const normalizedDim = d
-          .toLowerCase()
-          .replace('-of', '')
-          .replace('-or', '');
-        return normalizedDim === normalizedChargeType;
-      })
+      value &&
+      !allowedValues.some((d) => normalizer(d) === normalizer(value))
     ) {
       ar.AddError(
-        'ChargeTypeDimensions',
-        `The dimension ${dimensionsModel?.chargeType ?? normalizedChargeType} does not exist in the system.`,
+        errorKey,
+        `The dimension ${rawValue ?? value} does not exist in the system.`,
       );
     }
   }
@@ -467,20 +481,5 @@ export class DimensionValidationService {
       'WorkerDimensions',
       'Worker',
     );
-  }
-
-  private validateSalesTaxItemGroup(
-    ar: DynDataModel,
-    validTaxItemGroupCodes: Set<string>,
-  ): void {
-    const line = ar as DynAccountReceivableLineDto;
-    const value = (line.SalesTaxItemGroup || '').trim();
-    if (!value) return;
-    if (!validTaxItemGroupCodes.has(value)) {
-      ar.AddError(
-        'SalesTaxItemGroup',
-        `The item sales tax group '${value}' does not exist in D365FO. Please sync Tax Item Group Headings from D365FO or use a valid code.`,
-      );
-    }
   }
 }

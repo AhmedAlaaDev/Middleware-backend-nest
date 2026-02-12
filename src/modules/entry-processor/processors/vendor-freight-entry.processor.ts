@@ -331,7 +331,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       let monthKey: string;
 
       try {
-        monthKey = this.toMonthKey(line.TRANSDATE);
+        monthKey = this.utilsService.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -358,7 +358,9 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     headerLine: VendorFreightRawData,
     journalBatchNum: number,
   ): IVendorFreightDFOHeader {
-    const formattedDate = this.formatMonthYear(headerLine.TRANSDATE);
+    const formattedDate = this.utilsService.formatMonthYear(
+      headerLine.TRANSDATE,
+    );
 
     const header = this.createBatchHeader(
       headerLine,
@@ -411,7 +413,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     formattedDate: string,
   ): IVendorFreightDFOHeader {
     return new IVendorFreightDFOHeader({
-      JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
+      JOURNALBATCHNUMBER: this.utilsService.formatBatchNumber(journalBatchNum),
       DESCRIPTION: `Vendor Invoice Freight ${formattedDate}`,
       JOURNALNAME: headerLine.JOURNALNAME,
       OVERRIDESALESTAX: 'No',
@@ -465,7 +467,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     voucherNum: number,
     lineNumber: number,
   ): Promise<IVendorFreightDFOLine> {
-    const dimensionModel = this.parseDimensionString(
+    const dimensionModel = this.utilsService.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -486,9 +488,12 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // Normalize currency, company codes, and TransactionType
-    const normalizedCurrency = this.normalizeCurrencyCode(line.CURRENCYCODE);
-    const normalizedCompany = this.normalizeCompanyCode(company);
-    const normalizedTransactionType = this.normalizeTransactionType('vendor');
+    const normalizedCurrency = this.utilsService.normalizeCurrencyCode(
+      line.CURRENCYCODE,
+    );
+    const normalizedCompany = this.utilsService.normalizeCompanyCode(company);
+    const normalizedTransactionType =
+      this.utilsService.normalizeTransactionType('vendor');
 
     return new IVendorFreightDFOLine({
       header,
@@ -533,7 +538,10 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       TAXEXEMPTNUMBER: line.TAXEXEMPTNUMBER ?? '',
       TERMSOFPAYMENT: termsOfPayment,
       TRANSACTIONTYPE: normalizedTransactionType,
-      VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
+      VOUCHER: this.utilsService.formatVoucherNumber(
+        voucherNum,
+        line.JOURNALNAME,
+      ),
       SourceIds: [uniqueId],
     });
   }

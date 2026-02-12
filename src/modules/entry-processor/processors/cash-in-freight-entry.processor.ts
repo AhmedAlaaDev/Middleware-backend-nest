@@ -225,7 +225,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
 
       const headerLine = lines[0];
-      const invoiceMonth = this.toMonthKey(headerLine.TransactionDate);
+      const invoiceMonth = this.utilsService.toMonthKey(
+        headerLine.TransactionDate,
+      );
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -252,8 +254,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
 
       const journalName = headerLine.JournalName;
-      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
-      const formattedVoucher = this.formatVoucherNumber(
+      const formattedBatch =
+        this.utilsService.formatBatchNumber(currentBatchNumber);
+      const formattedVoucher = this.utilsService.formatVoucherNumber(
         currentVoucherNum,
         journalName,
       );
@@ -432,8 +435,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   ): Promise<CashInFreightDFOLine> {
     const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
     const dimensionModel = isLedger
-      ? this.parseDimensionString(creditLine.ACCOUNTDISPLAYVALUE)
-      : this.parseDimensionString(
+      ? this.utilsService.parseDimensionString(creditLine.ACCOUNTDISPLAYVALUE)
+      : this.utilsService.parseDimensionString(
           creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
         );
 
@@ -545,7 +548,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   private async getDimensionsMap() {
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
     for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
-      const dimensionValues = await this.getFinancialDimensionValues(key);
+      const dimensionValues =
+        await this.dimensionService.getDimensionValues(key);
       dimensionsMap.set(key, dimensionValues || []);
     }
     return dimensionsMap;

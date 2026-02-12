@@ -214,7 +214,9 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
         : sourceJournalName === 'cashout'
           ? 'Cash Out'
           : 'Without Cash';
-    const monthYearLabel = this.formatMonthYear(String(source.TRANSDATE));
+    const monthYearLabel = this.utilsService.formatMonthYear(
+      String(source.TRANSDATE),
+    );
 
     const line = new DynCustodySettlementJournalEntryDto();
     line.CustomId = parseInt(
@@ -284,7 +286,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       const ledgerEntry = new CustodySettlementEntryModel();
       Object.assign(ledgerEntry, entry);
 
-      ledgerEntry.AccountDimensions = this.parseDimensionString(
+      ledgerEntry.AccountDimensions = this.utilsService.parseDimensionString(
         ledgerEntry.ACCOUNTTYPE === 'Ledger'
           ? ledgerEntry.ACCOUNTDISPLAYVALUE || ''
           : ledgerEntry.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -412,7 +414,10 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       const voucher = lastVoucher.lastNumber;
 
       for (const entry of group) {
-        entry.Voucher = this.formatVoucherNumber(voucher, this.journalName);
+        entry.Voucher = this.utilsService.formatVoucherNumber(
+          voucher,
+          this.journalName,
+        );
       }
     }
   }
@@ -445,7 +450,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
 
       for (const entry of voucherEntries) {
         entry.LineNumber = batchLineNumber++;
-        entry.JournalBatchNumber = this.formatBatchNumber(
+        entry.JournalBatchNumber = this.utilsService.formatBatchNumber(
           lastBatch.lastBatchNumber,
         );
         dynData.push(entry);

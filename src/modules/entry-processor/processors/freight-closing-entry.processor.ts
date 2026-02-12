@@ -103,7 +103,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   private async loadCostCenterDimensions(): Promise<
     IFinancialDimensionValue[]
   > {
-    return await this.getFinancialDimensionValues('CostCenters');
+    return await this.dimensionService.getDimensionValues('CostCenters');
   }
 
   private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
@@ -379,7 +379,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
       const ledgerEntry = new LedgerClosingEntryModel();
       Object.assign(ledgerEntry, entry);
 
-      ledgerEntry.AccountDimensions = this.parseDimensionString(
+      ledgerEntry.AccountDimensions = this.utilsService.parseDimensionString(
         ledgerEntry.ACCOUNTDISPLAYVALUE || '',
       );
 
@@ -405,10 +405,11 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         }
       }
 
-      ledgerEntry.ACCOUNTDISPLAYVALUE = this.toDimensionStringWithSegments(
-        ledgerEntry.AccountDimensions,
-        20,
-      );
+      ledgerEntry.ACCOUNTDISPLAYVALUE =
+        this.utilsService.toDimensionStringWithSegments(
+          ledgerEntry.AccountDimensions,
+          20,
+        );
 
       if (
         !excludedEntries.some(

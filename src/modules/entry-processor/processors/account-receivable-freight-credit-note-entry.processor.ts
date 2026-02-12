@@ -14,7 +14,6 @@ import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimens
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
-import { GetTaxItemGroupHeadingsQuery } from '@/modules/master-data/queries/get-tax-item-group-headings.query';
 
 @Injectable()
 export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProcessorBase {
@@ -118,11 +117,12 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     let invLineCount = 1;
     for (const custLine of custLines) {
       for (const ledgerLine of ledgerLines) {
-        const dims = this.parseDimensionString(
+        const dims = this.utilsService.parseDimensionString(
           ledgerLine.ACCOUNTDISPLAYVALUE || '',
         );
         this.applySubCustomerMapping(dims, accounts);
-        ledgerLine.ACCOUNTDISPLAYVALUE = this.toDimensionString(dims);
+        ledgerLine.ACCOUNTDISPLAYVALUE =
+          this.utilsService.toDimensionString(dims);
         const classification =
           this.getInvoiceBillingClassificationCode(custLine);
         const codes =
@@ -214,23 +214,12 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
 
-    const taxItemGroupRes = await this.queryBus.execute(
-      new GetTaxItemGroupHeadingsQuery(
-        { dataAreaId: company },
-        undefined,
-        10000,
-      ),
-    );
-    const validTaxItemGroupCodes = new Set(
-      taxItemGroupRes.items.map((x) => x.taxItemGroup),
-    );
-
     for (const arLine of arData) {
       await this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
-        validTaxItemGroupCodes,
       });
+      await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);
     }
     this.procLogger.debug('data Validated');
     return data;
@@ -294,9 +283,11 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     billingCode: IBillingCode | null,
     billingClassId: string,
   ): DynAccountReceivableLineDto {
-    const transDate = this.toDate(custLine.TRANSDATE) as Date;
-    const dueDate = this.toDate(custLine.DUEDATE);
-    const cashDiscountDate = this.toDate(custLine.CASHDISCOUNTDATE);
+    const transDate = this.utilsService.toDate(custLine.TRANSDATE) as Date;
+    const dueDate = this.utilsService.toDate(custLine.DUEDATE);
+    const cashDiscountDate = this.utilsService.toDate(
+      custLine.CASHDISCOUNTDATE,
+    );
 
     const termsOfPaymentDays =
       dueDate && transDate
@@ -319,7 +310,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.CustomId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.LineNumber = lineNumber;
-    line.FreeTextNumber = this.formatFreeTextNumberWithSuffix(
+    line.FreeTextNumber = this.utilsService.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
       true, // This is a credit note
@@ -343,7 +334,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.DueDate = dueDate || undefined;
     line.CashDiscountCode = '';
     line.CashDiscountDate = cashDiscountDate || undefined;
-    line.CustomerReference = this.formatFreeTextNumberWithSuffix(
+    line.CustomerReference = this.utilsService.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
       true, // This is a credit note
@@ -358,7 +349,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     line.TermsOfPayment = `${Math.max(termsOfPaymentDays, 0)} Days`;
     line.DimensionModel = dimensions;
     line.BillingClassification = billingClassId;
-    line.CreditNoteInvoiceRef = this.formatDocumentNumber(
+    line.CreditNoteInvoiceRef = this.utilsService.formatDocumentNumber(
       custLine.DOCUMENT || '',
     );
 

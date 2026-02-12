@@ -57,7 +57,7 @@ export class ExchangeRateService {
     const cacheKey = `exchange-rates:${rateType}:all`;
     return this.multiLayerCacheService.get(cacheKey, async () => {
       const result = await this.queryBus.execute(
-        new GetExchangeRatesQuery({ rateTypeName: rateType }, 0, 1000),
+        new GetExchangeRatesQuery({ rateTypeName: rateType }, 0, 10000),
       );
       return result?.items ?? [];
     });

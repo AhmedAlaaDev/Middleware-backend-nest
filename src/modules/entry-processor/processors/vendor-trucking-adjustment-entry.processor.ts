@@ -276,13 +276,13 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       let monthB: string;
 
       try {
-        monthA = this.toMonthKey(a.TRANSDATE);
+        monthA = this.utilsService.toMonthKey(a.TRANSDATE);
       } catch (_error) {
         monthA = 'invalid-date';
       }
 
       try {
-        monthB = this.toMonthKey(b.TRANSDATE);
+        monthB = this.utilsService.toMonthKey(b.TRANSDATE);
       } catch (_error) {
         monthB = 'invalid-date';
       }
@@ -312,7 +312,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       let monthKey: string;
 
       try {
-        monthKey = this.toMonthKey(line.TRANSDATE);
+        monthKey = this.utilsService.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -346,7 +346,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     for (const line of sortedLines) {
       let monthKey: string;
       try {
-        monthKey = this.toMonthKey(line.TRANSDATE);
+        monthKey = this.utilsService.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -373,7 +373,9 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     headerLine: VendorTruckingAdjustmentRawData,
     journalBatchNum: number,
   ): IVendorTruckingAdjustmentDFOHeader {
-    const formattedDate = this.formatMonthYear(headerLine.TRANSDATE);
+    const formattedDate = this.utilsService.formatMonthYear(
+      headerLine.TRANSDATE,
+    );
 
     const header = this.createBatchHeader(
       headerLine,
@@ -430,7 +432,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     formattedDate: string,
   ): IVendorTruckingAdjustmentDFOHeader {
     return new IVendorTruckingAdjustmentDFOHeader({
-      JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
+      JOURNALBATCHNUMBER: this.utilsService.formatBatchNumber(journalBatchNum),
       DESCRIPTION: `Vendor Invoice Fleet Adjustment ${formattedDate}`,
       ISPOSTED: headerLine.ISPOSTED,
       JOURNALNAME: headerLine.JOURNALNAME,
@@ -486,7 +488,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     voucherNum: number,
     lineNumber: number,
   ): Promise<IVendorTruckingAdjustmentDFOLine> {
-    const dimensionModel = this.parseDimensionString(
+    const dimensionModel = this.utilsService.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -500,9 +502,12 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       : { taxNumber: '', termsOfPayment: '' };
 
     // Normalize currency, company codes, and TransactionType
-    const normalizedCurrency = this.normalizeCurrencyCode(line.CURRENCYCODE);
-    const normalizedCompany = this.normalizeCompanyCode(company);
-    const normalizedTransactionType = this.normalizeTransactionType('vendor');
+    const normalizedCurrency = this.utilsService.normalizeCurrencyCode(
+      line.CURRENCYCODE,
+    );
+    const normalizedCompany = this.utilsService.normalizeCompanyCode(company);
+    const normalizedTransactionType =
+      this.utilsService.normalizeTransactionType('vendor');
 
     return new IVendorTruckingAdjustmentDFOLine({
       header,
@@ -546,7 +551,10 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       TAXEXEMPTNUMBER: '',
       TERMSOFPAYMENT: termsOfPayment,
       TRANSACTIONTYPE: normalizedTransactionType,
-      VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
+      VOUCHER: this.utilsService.formatVoucherNumber(
+        voucherNum,
+        line.JOURNALNAME,
+      ),
       SourceIds: [uniqueId],
     });
   }

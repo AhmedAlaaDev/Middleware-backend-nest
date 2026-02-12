@@ -15,7 +15,6 @@ import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimens
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
-import { GetTaxItemGroupHeadingsQuery } from '@/modules/master-data/queries/get-tax-item-group-headings.query';
 import { BillingCode } from '@/modules/master-data/schemas/billing-code.schema';
 
 @Injectable()
@@ -101,23 +100,12 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
 
-    const taxItemGroupRes = await this.queryBus.execute(
-      new GetTaxItemGroupHeadingsQuery(
-        { dataAreaId: company },
-        undefined,
-        10000,
-      ),
-    );
-    const validTaxItemGroupCodes = new Set(
-      taxItemGroupRes.items.map((x) => x.taxItemGroup),
-    );
-
     for (const arLine of arData) {
       await this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
-        validTaxItemGroupCodes,
       });
+      await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);
     }
     this.procLogger.debug('data Validated');
     return data;
@@ -205,9 +193,11 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
         continue;
       }
       if (type === 'ledger' && currentCustLine !== null) {
-        const dims = this.parseDimensionString(line.ACCOUNTDISPLAYVALUE || '');
+        const dims = this.utilsService.parseDimensionString(
+          line.ACCOUNTDISPLAYVALUE || '',
+        );
         this.applySubCustomerMapping(dims, accounts);
-        line.ACCOUNTDISPLAYVALUE = this.toDimensionString(dims);
+        line.ACCOUNTDISPLAYVALUE = this.utilsService.toDimensionString(dims);
         const billingCode = this.findBillingCode(
           billingCodes,
           dims.chargeType,
@@ -288,9 +278,11 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     billingCode: BillingCode | null,
     billingClassId: string,
   ): DynAccountReceivableLineDto {
-    const transDate = this.toDate(custLine.TRANSDATE) as Date;
-    const dueDate = this.toDate(custLine.DUEDATE);
-    const cashDiscountDate = this.toDate(custLine.CASHDISCOUNTDATE);
+    const transDate = this.utilsService.toDate(custLine.TRANSDATE) as Date;
+    const dueDate = this.utilsService.toDate(custLine.DUEDATE);
+    const cashDiscountDate = this.utilsService.toDate(
+      custLine.CASHDISCOUNTDATE,
+    );
     const termsOfPaymentDays =
       dueDate && transDate
         ? Math.ceil(
@@ -306,7 +298,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     line.CustomId =
       typeof custLine.UniqueId === 'number' ? custLine.UniqueId : lineNumber;
     line.LineNumber = lineNumber;
-    line.FreeTextNumber = this.formatFreeTextNumberWithSuffix(
+    line.FreeTextNumber = this.utilsService.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
       false,
@@ -330,7 +322,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     line.DueDate = dueDate || undefined;
     line.CashDiscountCode = '';
     line.CashDiscountDate = cashDiscountDate || undefined;
-    line.CustomerReference = this.formatFreeTextNumberWithSuffix(
+    line.CustomerReference = this.utilsService.formatFreeTextNumberWithSuffix(
       custLine.INVOICE || '',
       billingClassId,
       false,

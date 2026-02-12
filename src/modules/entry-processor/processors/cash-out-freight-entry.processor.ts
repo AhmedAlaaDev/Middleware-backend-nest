@@ -386,16 +386,20 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
 
     const entriesByMonth = Array.from(invoiceMap.entries()).sort(
       (a, b) =>
-        this.toMonthKey(a[1][0].TRANSACTIONDATE).localeCompare(
-          this.toMonthKey(b[1][0].TRANSACTIONDATE),
-        ) || a[0].localeCompare(b[0]),
+        this.utilsService
+          .toMonthKey(a[1][0].TRANSACTIONDATE)
+          .localeCompare(
+            this.utilsService.toMonthKey(b[1][0].TRANSACTIONDATE),
+          ) || a[0].localeCompare(b[0]),
     );
 
     for (const [uniqueId, lines] of entriesByMonth) {
       if (!lines || lines.length === 0) continue;
 
       const headerLine = lines[0];
-      const invoiceMonth = this.toMonthKey(headerLine.TRANSACTIONDATE);
+      const invoiceMonth = this.utilsService.toMonthKey(
+        headerLine.TRANSACTIONDATE,
+      );
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -417,12 +421,13 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
         );
       }
 
-      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
+      const formattedBatch =
+        this.utilsService.formatBatchNumber(currentBatchNumber);
       const newHeader = new CashOutFreightDFOHeader({
         JOURNALBATCHNUMBER: formattedBatch,
         CATEGORYPURPOSE: 0,
         CHARGEBEARER: 0,
-        DESCRIPTION: `Vendor Payment  Freight ${this.formatMonthYear(headerLine.TRANSACTIONDATE)}`,
+        DESCRIPTION: `Vendor Payment  Freight ${this.utilsService.formatMonthYear(headerLine.TRANSACTIONDATE)}`,
         ISPOSTED: 'No',
         JOURNALNAME: 'P-Freight',
         LOCALINSTRUMENT: 0,
@@ -430,7 +435,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
         SERVICELEVEL: 0,
       });
 
-      const formattedVoucher = this.formatVoucherNumber(
+      const formattedVoucher = this.utilsService.formatVoucherNumber(
         currentVoucherNum,
         'P-Freight',
       );
@@ -469,7 +474,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       ? creditLine.DEBITAMOUNT
       : creditLine.CREDITAMOUNT;
 
-    const dims = this.parseDimensionString(
+    const dims = this.utilsService.parseDimensionString(
       creditLine.ISLEDGER
         ? creditLine.ACCOUNTDISPLAYVALUE || ''
         : creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -650,7 +655,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       TRANSACTIONDATE: String(creditLine.TRANSDATE || ''),
       TRANSACTIONTEXT: String(creditLine.TEXT || ''),
 
-      VOUCHER: this.formatVoucherNumber(
+      VOUCHER: this.utilsService.formatVoucherNumber(
         voucher,
         String(creditLine.JOURNALNAME || 'P-Freight'),
       ),
@@ -702,10 +707,10 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     line: CashOutFreightRawData,
     journalBatchNum: number,
   ): CashOutFreightDFOHeader {
-    const formattedDate = this.formatMonthYear(line.TRANSDATE);
+    const formattedDate = this.utilsService.formatMonthYear(line.TRANSDATE);
 
     return new CashOutFreightDFOHeader({
-      JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),
+      JOURNALBATCHNUMBER: this.utilsService.formatBatchNumber(journalBatchNum),
       CATEGORYPURPOSE: 0,
       CHARGEBEARER: 0,
       DESCRIPTION: `Vendor Payment  Freight ${formattedDate}`,
