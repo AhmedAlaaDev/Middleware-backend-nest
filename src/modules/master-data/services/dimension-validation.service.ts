@@ -76,15 +76,22 @@ export class DimensionValidationService {
         case 'SubCustomer':
           this.validateSubCustomerDimension(ar, values, isRequired(key));
           break;
-        case 'ChargeType':
-          if (config.chargeTypeDims?.length) {
+        case 'ChargeType': {
+          const allowedChargeTypes =
+            (config.chargeTypeDims?.length ?? 0) > 0
+              ? config.chargeTypeDims!
+              : values
+                  .map((v) => v?.value)
+                  .filter((v): v is string => Boolean(v));
+          if (allowedChargeTypes.length > 0) {
             this.validateChargeTypeDimension(
               ar,
-              config.chargeTypeDims,
+              allowedChargeTypes,
               isRequired(key),
             );
           }
           break;
+        }
         case 'SalesMan':
           this.validateSalesMan(ar, values, isRequired(key));
           break;
