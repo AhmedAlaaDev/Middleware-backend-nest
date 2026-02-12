@@ -94,9 +94,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
 
   private async buildExchangeRateMap(
     ledgerData: CustodySettlementEntryModel[],
-  ): Promise<
-    Map<string, { exchangeRate: number; reportingRate: number }>
-  > {
+  ): Promise<Map<string, { exchangeRate: number; reportingRate: number }>> {
     const uniqueDateCurrency = new Map<
       string,
       { date: string; currency: string }
@@ -277,18 +275,22 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     voucherNumber: string,
     source: CustodySettlementEntryModel,
     dimensionsModel: AccountDimensionsModel,
-    exchangeRateMap: Map<string, { exchangeRate: number; reportingRate: number }>,
+    exchangeRateMap: Map<
+      string,
+      { exchangeRate: number; reportingRate: number }
+    >,
   ): DynCustodySettlementJournalEntryDto {
     const transDate = new Date(source.TRANSDATE);
     const exchangeKey = EXCHANGE_RATE_CACHE_KEY(
       String(source.TRANSDATE),
       source.CURRENCYCODE || '',
     );
-    const { exchangeRate, reportingRate } =
-      exchangeRateMap.get(exchangeKey) ?? {
-        exchangeRate: 100,
-        reportingRate: 100,
-      };
+    const { exchangeRate, reportingRate } = exchangeRateMap.get(
+      exchangeKey,
+    ) ?? {
+      exchangeRate: 100,
+      reportingRate: 100,
+    };
 
     const sourceJournalName = source?.JOURNALNAME?.trim()?.toLowerCase() || '';
     const descriptionSuffix =
@@ -411,7 +413,10 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
 
   private groupEntries(
     ledgerData: CustodySettlementEntryModel[],
-    exchangeRateMap: Map<string, { exchangeRate: number; reportingRate: number }>,
+    exchangeRateMap: Map<
+      string,
+      { exchangeRate: number; reportingRate: number }
+    >,
   ): MonthGroup[] {
     const monthGroups = ledgerData.reduce(
       (acc, entry) => {

@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { capitalize } from '@/lib/utils';
 import {
   ICreateExchangeRate,
   IExchangeRate,
@@ -11,12 +10,35 @@ import {
 import { ExchangeRateRepository } from '@/modules/master-data/repositories/interfaces/exchange-rate.repository';
 import { ExchangeRate } from '@/modules/master-data/schemas/exchange-rate.schema';
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 @Injectable()
 export class ExchangeRateMongoRepository implements ExchangeRateRepository {
   constructor(
     @InjectModel(ExchangeRate.name)
     private readonly model: Model<ExchangeRate>,
   ) {}
+
+  private buildFilter(filter: IExchangeRateListFilter): Record<string, unknown> {
+    const q: Record<string, unknown> = {};
+    if (filter.rateTypeName)
+      q['rateTypeName'] = {
+        $regex: new RegExp(`^${escapeRegex(filter.rateTypeName)}$`, 'i'),
+      };
+    if (filter.fromCurrency)
+      q['fromCurrency'] = {
+        $regex: new RegExp(`^${escapeRegex(filter.fromCurrency)}$`, 'i'),
+      };
+    if (filter.toCurrency)
+      q['toCurrency'] = {
+        $regex: new RegExp(`^${escapeRegex(filter.toCurrency)}$`, 'i'),
+      };
+    if (filter.fromDate) q['startDate'] = { $gte: filter.fromDate } as unknown;
+    if (filter.toDate) q['endDate'] = { $lte: filter.toDate } as unknown;
+    return q;
+  }
 
   async upsertMany(rates: ICreateExchangeRate[]): Promise<void> {
     const ops = rates.map((r) => ({
@@ -40,15 +62,7 @@ export class ExchangeRateMongoRepository implements ExchangeRateRepository {
     filter: IExchangeRateListFilter,
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IExchangeRate[]> {
-    const q: Record<string, unknown> = {};
-    if (filter.rateTypeName)
-      q['rateTypeName'] = capitalize(filter.rateTypeName?.toLowerCase());
-    if (filter.fromCurrency)
-      q['fromCurrency'] = filter.fromCurrency?.toUpperCase();
-    if (filter.toCurrency) q['toCurrency'] = filter.toCurrency?.toUpperCase();
-    if (filter.fromDate) q['startDate'] = { $gte: filter.fromDate } as unknown;
-    if (filter.toDate) q['endDate'] = { $lte: filter.toDate } as unknown;
-
+    const q = this.buildFilter(filter);
     let query = this.model.find(q).lean();
 
     if (options?.skipCount !== undefined) {
@@ -74,12 +88,7 @@ export class ExchangeRateMongoRepository implements ExchangeRateRepository {
   }
 
   async getCount(filter: IExchangeRateListFilter): Promise<number> {
-    const q: Record<string, unknown> = {};
-    if (filter.rateTypeName) q['rateTypeName'] = filter.rateTypeName;
-    if (filter.fromCurrency) q['fromCurrency'] = filter.fromCurrency;
-    if (filter.toCurrency) q['toCurrency'] = filter.toCurrency;
-    if (filter.fromDate) q['startDate'] = { $gte: filter.fromDate } as unknown;
-    if (filter.toDate) q['endDate'] = { $lte: filter.toDate } as unknown;
+    const q = this.buildFilter(filter);
     return this.model.countDocuments(q).exec();
   }
 }

@@ -18,10 +18,6 @@ export class GetExchangeRatesHandler implements IQueryHandler<GetExchangeRatesQu
     const skipCount = query.skipCount;
     const maxCount = query.maxCount;
 
-    // this.logger.log(
-    //   `Fetching exchange rates from database${query.rateType ? `, rateType: ${query.rateType}` : ''}${query.fromCurrency ? `, fromCurrency: ${query.fromCurrency}` : ''}${query.toCurrency ? `, toCurrency: ${query.toCurrency}` : ''}`,
-    // );
-
     const { items, total } = await this.masterDataService.getExchangeRatesAsync(
       query.filter ?? {},
       skipCount,

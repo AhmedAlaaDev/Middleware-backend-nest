@@ -159,11 +159,13 @@ export class MasterDataService {
     skipCount?: number,
     maxCount?: number,
   ): Promise<{ items: IExchangeRate[]; total: number }> {
-    const items = await this.exchangeRateRepo.getList(filter, {
-      skipCount,
-      maxCount,
-    });
-    const total = await this.exchangeRateRepo.getCount(filter);
+    const [items, total] = await Promise.all([
+      this.exchangeRateRepo.getList(filter, {
+        skipCount,
+        maxCount,
+      }),
+      this.exchangeRateRepo.getCount(filter),
+    ]);
     return { items, total };
   }
 
