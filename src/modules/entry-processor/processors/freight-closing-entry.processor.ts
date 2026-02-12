@@ -13,6 +13,7 @@ import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/model
 import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
@@ -45,7 +46,7 @@ interface CostCenterGroup {
 export class FreightClosingEntryProcessor extends EntryProcessorBase {
   private readonly procLogger = new Logger(FreightClosingEntryProcessor.name);
   readonly entryProcessorType = EntryProcessorTypes.LedgerFreightClosingEntry;
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -194,54 +195,18 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynLedgerClosingJournalEntryDto[];
-    const accounts = await this.getAllMainAccounts();
 
-    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
-    for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
-      dimensionsMap.set(dimensionKey, dimensionValues || []);
-    }
-
-    // Validate each line
     for (const arLine of arData) {
-      this.validateMainAccount(
-        arLine,
-        accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
-      );
-      this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
-      this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
-      this.validateBusinessUnit(
-        arLine,
-        dimensionsMap.get('BusinessUnit') || [],
-      );
-      this.validateLocation(arLine, dimensionsMap.get('Location') || []);
-      this.validateCustomerDimension(
-        arLine,
-        dimensionsMap.get('Customer') || [],
-      );
-      this.validateSubCustomerDimension(
-        arLine,
-        dimensionsMap.get('SubCustomer') || [],
-      );
-      this.validateChargeTypeDimension(
-        arLine,
-        dimensionsMap.get('ChargeType')?.map((d) => d.value) || [],
-      );
-      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
-      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
-      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
-      this.validateCoordinatorMan(
-        arLine,
-        dimensionsMap.get('CoordinatorMan') || [],
-      );
-      this.validateVendor(arLine, dimensionsMap.get('Vendor') || [], false);
-      this.validateSubVendor(
-        arLine,
-        dimensionsMap.get('SubVendor') || [],
-        false,
-      );
-      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
+      await this.dimensionService.validateDimensions(arLine, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: true,
+        chartNumber: this.options?.chartNumber,
+        dimensionIsRequired: {
+          Vendor: false,
+          SubVendor: false,
+          Worker: false,
+        },
+      });
     }
 
     return data;
@@ -421,7 +386,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
       const ledgerEntry = new LedgerClosingEntryModel();
       Object.assign(ledgerEntry, entry);
 
-      ledgerEntry.AccountDimensions = this.parseToDimensions(
+      ledgerEntry.AccountDimensions = this.parseDimensionString(
         ledgerEntry.ACCOUNTDISPLAYVALUE || '',
       );
 
@@ -447,11 +412,10 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         }
       }
 
-      ledgerEntry.ACCOUNTDISPLAYVALUE =
-        this.convertToStringDimensionsWithSegments(
-          ledgerEntry.AccountDimensions,
-          20,
-        );
+      ledgerEntry.ACCOUNTDISPLAYVALUE = this.toDimensionStringWithSegments(
+        ledgerEntry.AccountDimensions,
+        20,
+      );
 
       if (
         !excludedEntries.some(

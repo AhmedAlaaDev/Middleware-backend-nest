@@ -99,6 +99,7 @@ import {
   Vendor,
   VendorSchema,
 } from '@/modules/master-data/schemas';
+import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 
@@ -175,6 +176,7 @@ const QueryHandlers = [
   ],
   controllers: [MasterDataController],
   providers: [
+    DimensionValidationService,
     ExchangeRateService,
     MasterDataService,
     { provide: VendorRepository, useClass: VendorMongoRepository },
@@ -217,6 +219,11 @@ const QueryHandlers = [
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [MasterDataService, ExchangeRateService, SyncJobRepository],
+  exports: [
+    DimensionValidationService,
+    MasterDataService,
+    ExchangeRateService,
+    SyncJobRepository,
+  ],
 })
 export class MasterDataModule {}

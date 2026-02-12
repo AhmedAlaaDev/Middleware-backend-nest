@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   RawDataModel,
@@ -8,7 +7,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
@@ -28,7 +27,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   readonly entryProcessorType = EntryProcessorTypes.VendorTruckingAdjustment;
   private readonly MAX_LINES_PER_BATCH = 1000;
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -201,47 +200,19 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       `[VALIDATE] Starting validation for ${lineCount} lines`,
     );
 
-    const dimensionsMap = await this.loadDimensionsMap();
-    const mainAccounts = (await this.getAllMainAccounts()).map(
-      ({ accountNumber }) => ({ accountNumber }),
-    );
-
-    const dimensionCounts = Object.keys(dimensionsMap).reduce(
-      (acc, key) => {
-        acc[key] = dimensionsMap[key]?.length || 0;
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    this.vendorLogger.debug(
-      `[VALIDATE] Loaded dimensions: ${JSON.stringify(dimensionCounts)}`,
-    );
-
     for (const line of lines) {
-      if (line.ACCOUNTTYPE === 'Ledger') {
-        this.validateMainAccount(line, mainAccounts);
-      }
-      this.validateActivityName(line, dimensionsMap.Activity);
-      this.validateCostCenter(line, dimensionsMap.CostCenters);
-      this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
-      this.validateLocation(line, dimensionsMap.Location);
-      this.validateSalesMan(line, dimensionsMap.SalesMan);
-      this.validateFreightType(line, dimensionsMap.FreightType);
-      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
-      this.validateDirection(line, dimensionsMap.Direction);
-      this.validateVendor(line, dimensionsMap.Vendor);
-      this.validateTruckerType(line, dimensionsMap.TruckerType);
-      if (
-        line.DimensionModel.truckerType === '11' ||
-        line.DimensionModel.truckerType === '12'
-      ) {
-        this.validateTruckNumber(line, dimensionsMap.TruckNumber);
-      }
+      const truckerType = line.DimensionModel?.truckerType;
+      const requireTruckNumber = truckerType === '11' || truckerType === '12';
 
-      if (line.DimensionModel.subVendor) {
-        this.validateSubVendor(line, dimensionsMap.SubVendor);
-      }
+      await this.dimensionService.validateDimensions(line, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
+        dimensionIsRequired: {
+          SubVendor: !!line.DimensionModel?.subVendor,
+          TruckNumber: requireTruckNumber,
+        },
+        chartNumber: this.options?.chartNumber,
+      });
     }
 
     return data;
@@ -307,13 +278,13 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       let monthB: string;
 
       try {
-        monthA = getMonthKey(a.TRANSDATE);
+        monthA = this.toMonthKey(a.TRANSDATE);
       } catch (_error) {
         monthA = 'invalid-date';
       }
 
       try {
-        monthB = getMonthKey(b.TRANSDATE);
+        monthB = this.toMonthKey(b.TRANSDATE);
       } catch (_error) {
         monthB = 'invalid-date';
       }
@@ -343,7 +314,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       let monthKey: string;
 
       try {
-        monthKey = getMonthKey(line.TRANSDATE);
+        monthKey = this.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -377,7 +348,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     for (const line of sortedLines) {
       let monthKey: string;
       try {
-        monthKey = getMonthKey(line.TRANSDATE);
+        monthKey = this.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -404,7 +375,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     headerLine: VendorTruckingAdjustmentRawData,
     journalBatchNum: number,
   ): IVendorTruckingAdjustmentDFOHeader {
-    const formattedDate = formatToMonthYear(headerLine.TRANSDATE);
+    const formattedDate = this.formatMonthYear(headerLine.TRANSDATE);
 
     const header = this.createBatchHeader(
       headerLine,
@@ -517,7 +488,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     voucherNum: number,
     lineNumber: number,
   ): Promise<IVendorTruckingAdjustmentDFOLine> {
-    const dimensionModel = this.parseToDimensions(
+    const dimensionModel = this.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -580,16 +551,6 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
       SourceIds: [uniqueId],
     });
-  }
-
-  private async loadDimensionsMap() {
-    const map: Record<string, IFinancialDimensionValue[]> = {};
-
-    for (const key of this.requiredDimensions) {
-      map[key] = (await this.getFinancialDimensionValues(key)) || [];
-    }
-
-    return map;
   }
 
   public insertIntoDynamicsAsync(): Promise<void> {

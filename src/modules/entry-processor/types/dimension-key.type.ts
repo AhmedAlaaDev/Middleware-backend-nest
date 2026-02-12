@@ -1,0 +1,18 @@
+export type DimensionKey =
+  | 'MainAccount'
+  | 'Activity'
+  | 'CostCenters'
+  | 'BusinessUnit'
+  | 'Location'
+  | 'Customer'
+  | 'SubCustomer'
+  | 'Vendor'
+  | 'SubVendor'
+  | 'ChargeType'
+  | 'SalesMan'
+  | 'CoordinatorMan'
+  | 'FreightType'
+  | 'Direction'
+  | 'TruckerType'
+  | 'TruckNumber'
+  | 'Worker';

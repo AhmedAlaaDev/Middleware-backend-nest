@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   RawDataModel,
@@ -9,8 +8,8 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
@@ -28,7 +27,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   readonly entryProcessorType = EntryProcessorTypes.VendorFreight;
   private readonly MAX_LINES_PER_BATCH = 1000;
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Customer',
     'SubCustomer',
@@ -221,27 +220,15 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       `[VALIDATE] Starting validation for ${lineCount} lines`,
     );
 
-    const dimensionsMap = await this.loadDimensionsMap();
-    const mainAccounts = (await this.getAllMainAccounts()).map(
-      ({ accountNumber }) => ({ accountNumber }),
-    );
-
     for (const line of lines) {
-      if (line.ACCOUNTTYPE === 'Ledger') {
-        this.validateMainAccount(line, mainAccounts);
-      }
-      this.validateCustomerDimension(line, dimensionsMap.Customer);
-      this.validateSubCustomerDimension(line, dimensionsMap.SubCustomer);
-      this.validateActivityName(line, dimensionsMap.Activity);
-      this.validateCostCenter(line, dimensionsMap.CostCenters);
-      this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
-      this.validateLocation(line, dimensionsMap.Location);
-      this.validateSalesMan(line, dimensionsMap.SalesMan);
-      this.validateFreightType(line, dimensionsMap.FreightType);
-      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
-      this.validateDirection(line, dimensionsMap.Direction);
-      this.validateVendor(line, dimensionsMap.Vendor);
-      this.validateSubVendor(line, dimensionsMap.SubVendor, false);
+      await this.dimensionService.validateDimensions(line, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
+        dimensionIsRequired: {
+          SubVendor: false,
+        },
+        chartNumber: this.options?.chartNumber,
+      });
     }
 
     return data;
@@ -349,7 +336,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       let monthKey: string;
 
       try {
-        monthKey = getMonthKey(line.TRANSDATE);
+        monthKey = this.toMonthKey(line.TRANSDATE);
       } catch (_error) {
         monthKey = 'invalid-date';
       }
@@ -376,7 +363,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     headerLine: VendorFreightRawData,
     journalBatchNum: number,
   ): IVendorFreightDFOHeader {
-    const formattedDate = formatToMonthYear(headerLine.TRANSDATE);
+    const formattedDate = this.formatMonthYear(headerLine.TRANSDATE);
 
     const header = this.createBatchHeader(
       headerLine,
@@ -483,7 +470,7 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
     voucherNum: number,
     lineNumber: number,
   ): Promise<IVendorFreightDFOLine> {
-    const dimensionModel = this.parseToDimensions(
+    const dimensionModel = this.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
         : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -554,16 +541,6 @@ export class VendorFreightEntryProcessor extends EntryProcessorBase {
       VOUCHER: this.formatVoucherNumber(voucherNum, line.JOURNALNAME),
       SourceIds: [uniqueId],
     });
-  }
-
-  private async loadDimensionsMap() {
-    const map: Record<string, IFinancialDimensionValue[]> = {};
-
-    for (const key of this.requiredDimensions) {
-      map[key] = (await this.getFinancialDimensionValues(key)) || [];
-    }
-
-    return map;
   }
 
   public insertIntoDynamicsAsync(): Promise<void> {

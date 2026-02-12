@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear, getMonthKey } from '@/lib/utils';
 import {
   CashOutFreightDFOLine,
   CashOutFreightDFOLineBase,
@@ -16,8 +15,8 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
@@ -34,7 +33,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType = EntryProcessorTypes.CashOutFreight;
   private readonly MAX_LINES_PER_BATCH = 1000;
 
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -152,32 +151,15 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       `[VALIDATE] Starting validation for ${lineCount} lines`,
     );
 
-    const mainAccounts = (await this.getAllMainAccounts()).map(
-      ({ accountNumber }) => ({ accountNumber }),
-    );
-
-    const dimensionsMap: Record<string, IFinancialDimensionValue[]> = {};
-    for (const key of this.requiredDimensions) {
-      dimensionsMap[key] = (await this.getFinancialDimensionValues(key)) || [];
-    }
-
     for (const line of lines) {
-      if (line.ACCOUNTTYPE === 'Ledger') {
-        this.validateMainAccount(line, mainAccounts);
-      }
-      this.validateActivityName(line, dimensionsMap.Activity);
-      this.validateCostCenter(line, dimensionsMap.CostCenters);
-      this.validateBusinessUnit(line, dimensionsMap.BusinessUnit);
-      this.validateLocation(line, dimensionsMap.Location);
-      this.validateSalesMan(line, dimensionsMap.SalesMan);
-      this.validateFreightType(line, dimensionsMap.FreightType);
-      this.validateCoordinatorMan(line, dimensionsMap.CoordinatorMan);
-      this.validateDirection(line, dimensionsMap.Direction);
-      this.validateVendor(line, dimensionsMap.Vendor);
-
-      if (line.DimensionModel.subVendor) {
-        this.validateSubVendor(line, dimensionsMap.SubVendor);
-      }
+      await this.dimensionService.validateDimensions(line, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
+        dimensionIsRequired: {
+          SubVendor: !!line.DimensionModel?.subVendor,
+        },
+        chartNumber: this.options?.chartNumber,
+      });
     }
 
     return data;
@@ -409,8 +391,8 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
 
     const entriesByMonth = Array.from(invoiceMap.entries()).sort(
       (a, b) =>
-        getMonthKey(a[1][0].TRANSACTIONDATE).localeCompare(
-          getMonthKey(b[1][0].TRANSACTIONDATE),
+        this.toMonthKey(a[1][0].TRANSACTIONDATE).localeCompare(
+          this.toMonthKey(b[1][0].TRANSACTIONDATE),
         ) || a[0].localeCompare(b[0]),
     );
 
@@ -418,7 +400,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       if (!lines || lines.length === 0) continue;
 
       const headerLine = lines[0];
-      const invoiceMonth = getMonthKey(headerLine.TRANSACTIONDATE);
+      const invoiceMonth = this.toMonthKey(headerLine.TRANSACTIONDATE);
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -445,7 +427,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
         JOURNALBATCHNUMBER: formattedBatch,
         CATEGORYPURPOSE: 0,
         CHARGEBEARER: 0,
-        DESCRIPTION: `Vendor Payment  Freight ${formatToMonthYear(headerLine.TRANSACTIONDATE)}`,
+        DESCRIPTION: `Vendor Payment  Freight ${this.formatMonthYear(headerLine.TRANSACTIONDATE)}`,
         ISPOSTED: 'No',
         JOURNALNAME: 'P-Freight',
         LOCALINSTRUMENT: 0,
@@ -492,7 +474,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       ? creditLine.DEBITAMOUNT
       : creditLine.CREDITAMOUNT;
 
-    const dims = this.parseToDimensions(
+    const dims = this.parseDimensionString(
       creditLine.ISLEDGER
         ? creditLine.ACCOUNTDISPLAYVALUE || ''
         : creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
@@ -725,7 +707,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     line: CashOutFreightRawData,
     journalBatchNum: number,
   ): CashOutFreightDFOHeader {
-    const formattedDate = formatToMonthYear(line.TRANSDATE);
+    const formattedDate = this.formatMonthYear(line.TRANSDATE);
 
     return new CashOutFreightDFOHeader({
       JOURNALBATCHNUMBER: this.formatBatchNumber(journalBatchNum),

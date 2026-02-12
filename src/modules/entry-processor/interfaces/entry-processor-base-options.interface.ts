@@ -3,4 +3,5 @@ import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/servic
 export interface EntryProcessorBaseOptions {
   dependencies: EntryProcessorBaseDependencies;
   rateType?: string;
+  chartNumber?: string;
 }

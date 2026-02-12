@@ -10,9 +10,9 @@ import { AccountReceivableFileModel } from '@/modules/entry-processor/models/acc
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
 import { GetTaxItemGroupHeadingsQuery } from '@/modules/master-data/queries/get-tax-item-group-headings.query';
 
@@ -23,7 +23,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
   );
   readonly entryProcessorType =
     EntryProcessorTypes.AccountReceivableTruckingCreditNote;
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -116,21 +116,18 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     let invLineCount = 1;
     for (const custLine of custLines) {
       for (const ledgerLine of ledgerLines) {
-        const dims = this.parseToDimensions(
+        const dims = this.parseDimensionString(
           ledgerLine.ACCOUNTDISPLAYVALUE || '',
         );
         this.applySubCustomerMapping(dims, accounts);
-        ledgerLine.ACCOUNTDISPLAYVALUE = this.convertToStringDimensions(dims);
+        ledgerLine.ACCOUNTDISPLAYVALUE = this.toDimensionString(dims);
         const classification =
           this.getInvoiceBillingClassificationCode(custLine);
         const codes =
           this.billingClassifications.get(
             classification?.toLowerCase() || '',
           ) || [];
-        const billingCode = this.findBillingCodeFromClassification(
-          codes,
-          dims.chargeType,
-        );
+        const billingCode = this.findBillingCode(codes, dims.chargeType);
         const arLine = this.prepareAccountReceivableLine(
           invLineCount,
           dims,
@@ -146,31 +143,56 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     return out;
   }
 
-  private applySubCustomerMapping(dims: any, accounts: any[]): void {
-    if (
-      accounts.some((a: any) =>
-        a.customerAccount
-          ?.toLowerCase()
-          .includes(dims.customer?.toLowerCase() || ''),
-      )
-    ) {
-      const mapping = accounts.find((a: any) =>
+  private buildSourceId(
+    custLine: AccountReceivableFileModel,
+    ledgerLine: AccountReceivableFileModel,
+    lineNumber: number,
+  ): string {
+    if (custLine?.UniqueId !== undefined && custLine?.UniqueId !== null) {
+      return String(custLine.UniqueId);
+    }
+    return `${custLine?.VOUCHER || ''}_${custLine?.INVOICE || ''}_${lineNumber}`;
+  }
+
+  private applySubCustomerMapping(
+    dims: AccountDimensionsModel,
+    accounts: Array<{ customerAccount?: string; invoiceAccount?: string }>,
+  ): void {
+    const matchingAccount = accounts.find((a) =>
+      a.customerAccount
+        ?.toLowerCase()
+        .includes(dims.customer?.toLowerCase() || ''),
+    );
+    if (matchingAccount && dims.subCustomer) {
+      const mappingAccount = accounts.find((a) =>
         a.customerAccount
           ?.toLowerCase()
           .includes(dims.subCustomer?.toLowerCase() || ''),
       );
-      if (mapping) dims.subCustomer = mapping.invoiceAccount;
+      if (mappingAccount) {
+        dims.subCustomer = mappingAccount.invoiceAccount;
+      }
     }
   }
 
-  private findBillingCodeFromClassification(
-    codes: IBillingCode[],
+  private findBillingCode(
+    billingCodes: IBillingCode[],
     chargeType?: string,
-  ): IBillingCode | undefined {
-    if (!chargeType) return undefined;
-    return codes.find((bc) =>
-      bc.billingCode?.toLowerCase().includes(chargeType.toLowerCase()),
-    );
+    billingClassification?: string,
+  ): IBillingCode | null {
+    if (!chargeType) return null;
+    const lowerCharge = chargeType.toLowerCase();
+    const lowerClass = billingClassification?.toLowerCase();
+    let best: IBillingCode | null = null;
+    for (const bc of billingCodes) {
+      if (!bc.billingCode?.toLowerCase().includes(lowerCharge)) continue;
+      if (lowerClass && bc.billingClassification?.toLowerCase() !== lowerClass)
+        continue;
+      const len = bc.billingCode?.length ?? 0;
+      const bestLen = best?.billingCode?.length ?? 0;
+      if (!best || len > bestLen) best = bc;
+    }
+    return best;
   }
 
   async validateAsync(
@@ -179,18 +201,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynAccountReceivableLineDto[];
-    // Load dimensions and accounts
-    const accounts = await this.getAllMainAccounts();
 
-    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
-    for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues = await this.getFinancialDimensionValues(
-        dimensionKey === 'SubCustomer' ? 'Customer' : dimensionKey,
-      );
-      dimensionsMap.set(dimensionKey, dimensionValues || []);
-    }
-
-    // Get charge type dimensions from billing codes
     const chargeTypeDims: string[] = [];
     for (const billingCodes of this.billingClassifications.values()) {
       chargeTypeDims.push(
@@ -201,7 +212,6 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     }
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
 
-    // Load tax item groups from DFO (for optional SalesTaxItemGroup validation)
     const taxItemGroupRes = await this.queryBus.execute(
       new GetTaxItemGroupHeadingsQuery(
         { dataAreaId: company },
@@ -213,42 +223,15 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
       taxItemGroupRes.items.map((x) => x.taxItemGroup),
     );
 
-    // Validate each line
     for (const arLine of arData) {
-      this.validateMainAccount(
-        arLine,
-        accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
-      );
-      this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
-      this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
-      this.validateBusinessUnit(
-        arLine,
-        dimensionsMap.get('BusinessUnit') || [],
-      );
-      this.validateLocation(arLine, dimensionsMap.get('Location') || []);
-      this.validateCustomerDimension(
-        arLine,
-        dimensionsMap.get('Customer') || [],
-      );
-      this.validateSubCustomerDimension(
-        arLine,
-        dimensionsMap.get('SubCustomer') || [],
-      );
-      this.validateChargeTypeDimension(arLine, uniqueChargeTypeDims);
-      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || []);
-      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
-      this.validateTruckerType(arLine, dimensionsMap.get('TruckerType') || []);
-      this.validateTruckNumber(
-        arLine,
-        dimensionsMap.get('TruckNumber') || [],
-        false,
-      );
-      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
-      this.validateCoordinatorMan(
-        arLine,
-        dimensionsMap.get('CoordinatorMan') || [],
-      );
-      this.validateSalesTaxItemGroup(arLine, validTaxItemGroupCodes);
+      await this.dimensionService.validateDimensions(arLine, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: true,
+        dimensionIsRequired: { TruckNumber: false },
+        chargeTypeDims: uniqueChargeTypeDims,
+        validTaxItemGroupCodes,
+        chartNumber: this.options?.chartNumber,
+      });
     }
     this.procLogger.debug('data Validated');
     return data;
@@ -303,28 +286,10 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
   }
 
   /**
-   * Formats document number to 8 digits
-   */
-  private formatDocumentNumber(docNumber: string): string {
-    if (!docNumber || !docNumber.trim()) {
-      return '00000000';
-    }
-
-    const parts = docNumber.split('/');
-    const number = parseInt(parts[0], 10);
-
-    if (!isNaN(number)) {
-      return number.toString().padStart(8, '0');
-    }
-
-    return '00000000';
-  }
-
-  /**
    * Prepares account receivable line for credit note
    * Uses negative amounts (credit note logic)
    */
-  protected prepareAccountReceivableLine(
+  private prepareAccountReceivableLine(
     lineNumber: number,
     dimensions: AccountDimensionsModel,
     custLine: AccountReceivableFileModel,
@@ -332,9 +297,9 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     billingCode: IBillingCode | null,
     billingClassId: string,
   ): DynAccountReceivableLineDto {
-    const transDate = this.coerceToDate(custLine.TRANSDATE) as Date;
-    const dueDate = this.coerceToDate(custLine.DUEDATE);
-    const cashDiscountDate = this.coerceToDate(custLine.CASHDISCOUNTDATE);
+    const transDate = this.toDate(custLine.TRANSDATE) as Date;
+    const dueDate = this.toDate(custLine.DUEDATE);
+    const cashDiscountDate = this.toDate(custLine.CASHDISCOUNTDATE);
 
     const termsOfPaymentDays =
       dueDate && transDate

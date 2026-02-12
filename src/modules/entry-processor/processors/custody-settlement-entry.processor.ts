@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { formatToMonthYear } from '@/lib/utils';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
@@ -13,8 +12,8 @@ import { CustodySettlementEntryModel } from '@/modules/entry-processor/models/cu
 import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
@@ -38,7 +37,7 @@ interface MonthGroup {
 export class CustodySettlementEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType =
     EntryProcessorTypes.LedgerCustodySettlementEntry;
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -146,57 +145,22 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const arData = data as DynCustodySettlementJournalEntryDto[];
-    const accounts = await this.getAllMainAccounts();
 
-    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
-    for (const dimensionKey of this.requiredDimensions) {
-      const dimensionValues =
-        await this.getFinancialDimensionValues(dimensionKey);
-      dimensionsMap.set(dimensionKey, dimensionValues || []);
-    }
-
-    // Validate each line
     for (const arLine of arData) {
-      if (arLine.AccountType === 'Ledger') {
-        this.validateMainAccount(
-          arLine,
-          accounts.map((a: any) => ({ accountNumber: a.accountNumber })),
-        );
-      }
-      this.validateActivityName(arLine, dimensionsMap.get('Activity') || []);
-      this.validateCostCenter(arLine, dimensionsMap.get('CostCenters') || []);
-      this.validateBusinessUnit(
-        arLine,
-        dimensionsMap.get('BusinessUnit') || [],
-      );
-      this.validateLocation(arLine, dimensionsMap.get('Location') || []);
-      this.validateCustomerDimension(
-        arLine,
-        dimensionsMap.get('Customer') || [],
-        false,
-      );
-      this.validateSubCustomerDimension(
-        arLine,
-        dimensionsMap.get('SubCustomer') || [],
-        false,
-      );
-      this.validateChargeTypeDimension(
-        arLine,
-        dimensionsMap.get('ChargeType')?.map((d) => d.value) || [],
-      );
-      this.validateSalesMan(arLine, dimensionsMap.get('SalesMan') || [], false);
-      this.validateFreightType(arLine, dimensionsMap.get('FreightType') || []);
-      this.validateDirection(arLine, dimensionsMap.get('Direction') || []);
-      this.validateCoordinatorMan(
-        arLine,
-        dimensionsMap.get('CoordinatorMan') || [],
-        false,
-      );
-      if (arLine.AccountType === 'Vend') {
-        this.validateVendor(arLine, dimensionsMap.get('Vendor') || []);
-        this.validateSubVendor(arLine, dimensionsMap.get('SubVendor') || []);
-      }
-      this.validateWorker(arLine, dimensionsMap.get('Worker') || [], false);
+      await this.dimensionService.validateDimensions(arLine, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount: arLine.AccountType === 'Ledger',
+        chartNumber: this.options?.chartNumber,
+        dimensionIsRequired: {
+          Customer: false,
+          SubCustomer: false,
+          SalesMan: false,
+          CoordinatorMan: false,
+          Worker: false,
+          Vendor: arLine.AccountType === 'Vend',
+          SubVendor: arLine.AccountType === 'Vend',
+        },
+      });
     }
 
     return data;
@@ -257,7 +221,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
         : sourceJournalName === 'cashout'
           ? 'Cash Out'
           : 'Without Cash';
-    const monthYearLabel = formatToMonthYear(String(source.TRANSDATE));
+    const monthYearLabel = this.formatMonthYear(String(source.TRANSDATE));
 
     const line = new DynCustodySettlementJournalEntryDto();
     line.CustomId = parseInt(
@@ -327,7 +291,7 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
       const ledgerEntry = new CustodySettlementEntryModel();
       Object.assign(ledgerEntry, entry);
 
-      ledgerEntry.AccountDimensions = this.parseToDimensions(
+      ledgerEntry.AccountDimensions = this.parseDimensionString(
         ledgerEntry.ACCOUNTTYPE === 'Ledger'
           ? ledgerEntry.ACCOUNTDISPLAYVALUE || ''
           : ledgerEntry.DEFAULTDIMENSIONDISPLAYVALUE || '',

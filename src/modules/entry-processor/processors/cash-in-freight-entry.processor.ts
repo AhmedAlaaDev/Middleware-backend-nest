@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { getMonthKey } from '@/lib/utils';
 import { CashInFreightDFOLine } from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
 import { CashInFreightRawData } from '@/modules/cash-in/models/cash-in-freight-raw-data.model';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -11,6 +10,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetCustomersQuery } from '@/modules/master-data/queries';
@@ -29,7 +29,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType = EntryProcessorTypes.CashInFreight;
   private readonly MAX_LINES_PER_BATCH = 1000;
 
-  readonly requiredDimensions = [
+  readonly requiredDimensions: readonly DimensionKey[] = [
     'MainAccount',
     'Activity',
     'CostCenters',
@@ -145,29 +145,14 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const lineCount = lines.length;
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
-    const dimensionsMap = await this.getDimensionsMap();
-
-    const mainAccounts = await this.getMainAccounts();
-
     for (const line of lines) {
-      if (line.AccountType?.trim()?.toLowerCase() === 'ledger') {
-        this.validateMainAccount(line, mainAccounts);
-      }
-      this.validateActivityName(line, dimensionsMap.get('Activity')!);
-      this.validateCostCenter(line, dimensionsMap.get('CostCenters')!);
-      this.validateBusinessUnit(line, dimensionsMap.get('BusinessUnit')!);
-      this.validateLocation(line, dimensionsMap.get('Location')!);
-      this.validateCustomerDimension(line, dimensionsMap.get('Customer')!);
-      this.validateSubCustomerDimension(
-        line,
-        dimensionsMap.get('SubCustomer')!,
-        false,
-      );
-      // this.validateChargeTypeDimension(line, dimensionsMap.get('ChargeType')!);
-      this.validateSalesMan(line, dimensionsMap.get('SalesMan')!);
-      this.validateCoordinatorMan(line, dimensionsMap.get('CoordinatorMan')!);
-      this.validateFreightType(line, dimensionsMap.get('FreightType')!);
-      this.validateDirection(line, dimensionsMap.get('Direction')!);
+      await this.dimensionService.validateDimensions(line, {
+        requiredDimensions: this.requiredDimensions,
+        validateMainAccount:
+          line.AccountType?.trim()?.toLowerCase() === 'ledger',
+        dimensionIsRequired: { SubCustomer: false },
+        chartNumber: this.options?.chartNumber,
+      });
     }
 
     return data;
@@ -240,7 +225,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       }
 
       const headerLine = lines[0];
-      const invoiceMonth = getMonthKey(headerLine.TransactionDate);
+      const invoiceMonth = this.toMonthKey(headerLine.TransactionDate);
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -447,8 +432,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   ): Promise<CashInFreightDFOLine> {
     const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
     const dimensionModel = isLedger
-      ? this.parseToDimensions(creditLine.ACCOUNTDISPLAYVALUE)
-      : this.parseToDimensions(creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '');
+      ? this.parseDimensionString(creditLine.ACCOUNTDISPLAYVALUE)
+      : this.parseDimensionString(
+          creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
+        );
 
     const lineAmount = useDebitAmounts
       ? creditLine.DEBITAMOUNT
@@ -531,13 +518,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     );
 
     return customers?.items[0]?.name || '';
-  }
-
-  private async getMainAccounts(): Promise<{ accountNumber: string }[]> {
-    const mainAccounts = (await this.getAllMainAccounts()).map(
-      ({ accountNumber }) => ({ accountNumber }),
-    );
-    return mainAccounts;
   }
 
   private async getNextBatchNumber(): Promise<number> {

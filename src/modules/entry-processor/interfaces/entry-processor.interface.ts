@@ -1,5 +1,6 @@
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
 
 export interface RawDataModel {
   [key: string]: any;
@@ -18,7 +19,7 @@ export interface DynDataModel {
 
 export interface IEntryProcessor {
   readonly entryProcessorType: EntryProcessorTypes;
-  readonly requiredDimensions: readonly string[] | string[];
+  readonly requiredDimensions: readonly DimensionKey[];
 
   formatAndEnrichAsync(
     data: RawDataModel[],
@@ -33,7 +34,4 @@ export interface IEntryProcessor {
   ): Promise<DynDataModel[]>;
 
   insertIntoDynamicsAsync(data: DynDataModel[], company: string): Promise<void>;
-
-  parseToDimensions(dimensionString: string): AccountDimensionsModel;
-  convertToStringDimensions(dimensionsModel: AccountDimensionsModel): string;
 }
