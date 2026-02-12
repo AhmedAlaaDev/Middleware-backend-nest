@@ -13,7 +13,7 @@ import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBase } from '@/modules/entry-processor/processors/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';

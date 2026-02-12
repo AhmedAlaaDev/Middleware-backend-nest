@@ -1,22 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
-import { D365FOExchangeRate } from '@/modules/d365fo/types/d365fo-exchange-rate.type';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
-import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
-import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { CustodySettlementEntryModel } from '@/modules/entry-processor/models/custody-settlement-entry.model';
+import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
+import { EntryProcessorBase } from '@/modules/entry-processor/processors/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
@@ -33,45 +30,39 @@ interface ClosingVoucherCounter {
 interface MonthGroup {
   Year: number;
   Month: number;
-  CostCenters: CostCenterGroup[];
-}
-
-interface CostCenterGroup {
-  CostCenterId: string;
-  CostCenter: IFinancialDimensionValue;
-  Entries: DynLedgerClosingJournalEntryDto[];
+  Entries: DynCustodySettlementJournalEntryDto[];
 }
 
 @Injectable()
-export class FreightClosingEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(FreightClosingEntryProcessor.name);
-  readonly entryProcessorType = EntryProcessorTypes.LedgerFreightClosingEntry;
+export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
+  readonly entryProcessorType =
+    EntryProcessorTypes.LedgerCustodySettlementEntry;
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
     Activity: true,
     CostCenters: true,
     BusinessUnit: true,
     Location: true,
-    Customer: true,
-    SubCustomer: true,
+    Customer: false,
+    SubCustomer: false,
     ChargeType: true,
-    SalesMan: true,
-    CoordinatorMan: true,
+    SalesMan: false,
+    CoordinatorMan: false,
     FreightType: true,
     Direction: true,
-    Vendor: false,
-    SubVendor: false,
+    Vendor: false, // overridden per-line
+    SubVendor: false, // overridden per-line
     Worker: false,
   };
 
-  private readonly journalName = 'GL-Freight';
+  private readonly journalName = 'CustSettle';
 
   constructor(
     baseDeps: EntryProcessorBaseDependencies,
     private readonly generalJournalService: GeneralJournalService,
     private readonly commandBus: CommandBus,
   ) {
-    super({ dependencies: baseDeps });
+    super({ dependencies: baseDeps, rateType: 'default' });
   }
 
   async formatAndEnrichAsync(
@@ -82,15 +73,9 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
-    const costCenterDimensions = await this.loadCostCenterDimensions();
-    const sortedExchangeRates = await this.loadAndSortExchangeRates();
     const { lastBatch, lastVoucher } = await this.loadCounters(company);
     const ledgerData = this.filterAndMapLedgerData(data, accounts);
-    const groupedLedger = this.groupEntries(
-      ledgerData,
-      costCenterDimensions,
-      sortedExchangeRates,
-    );
+    const groupedLedger = await this.groupEntries(ledgerData);
     const dynData = this.processGroupedLedger(
       groupedLedger,
       lastVoucher,
@@ -98,35 +83,6 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     );
     await this.finalizeCountersAndSettings(lastBatch, lastVoucher);
     return dynData;
-  }
-
-  private async loadCostCenterDimensions(): Promise<
-    IFinancialDimensionValue[]
-  > {
-    return await this.dimensionService.getDimensionValues('CostCenters');
-  }
-
-  private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
-    const exchangeRatesRes = await this.queryBus.execute(
-      new GetExchangeRatesQuery({}, undefined, undefined),
-    );
-    const exchangeRates = exchangeRatesRes?.items ?? [];
-    const d365foRates: D365FOExchangeRate[] = (exchangeRates || []).map(
-      (rate) => ({
-        RateTypeName: rate.rateTypeName || 'Default',
-        FromCurrency: rate.fromCurrency || '',
-        ToCurrency: rate.toCurrency || '',
-        StartDate: rate.startDate || new Date().toISOString(),
-        EndDate: rate.endDate || new Date().toISOString(),
-        Rate: rate.rate || 0,
-        ConversionFactor: rate.conversionFactor?.toString(),
-        RateTypeDescription: rate.rateTypeDescription,
-      }),
-    );
-    return [...d365foRates].sort(
-      (a, b) =>
-        new Date(b.StartDate).getTime() - new Date(a.StartDate).getTime(),
-    );
   }
 
   private async loadCounters(_company: string): Promise<{
@@ -137,15 +93,16 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
       new GetSettingQuery('last.ledger.batch.number'),
     );
     const voucherSetting = await this.queryBus.execute(
-      new GetSettingQuery('last.ledger.closing.freight.voucher.number'),
+      new GetSettingQuery('last.ledger.custody.settlement.voucher.number'),
     );
     const lastBatchNumber = Number(batchSetting?.value ?? '0');
     const lastNumber = Number(voucherSetting?.value ?? '0');
     return {
-      lastBatch: { lastBatchNumber, companyBatchPrefix: '' },
+      lastBatch: { lastBatchNumber, companyBatchPrefix: 'Mesco' },
       lastVoucher: {
         lastNumber,
-        relatedSettingLogicalName: 'last.ledger.closing.freight.voucher.number',
+        relatedSettingLogicalName:
+          'last.ledger.custody.settlement.voucher.number',
       },
     };
   }
@@ -154,19 +111,12 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     groupedLedger: MonthGroup[],
     lastVoucher: ClosingVoucherCounter,
     lastBatch: ClosingBatchCounter,
-  ): DynLedgerClosingJournalEntryDto[] {
-    const dynData: DynLedgerClosingJournalEntryDto[] = [];
+  ): DynCustodySettlementJournalEntryDto[] {
+    const dynData: DynCustodySettlementJournalEntryDto[] = [];
     for (const ledgerMonth of groupedLedger) {
-      const sortedCostCenters = [...ledgerMonth.CostCenters].sort((a, b) => {
-        const aNum = parseInt(a.CostCenterId, 10) || 0;
-        const bNum = parseInt(b.CostCenterId, 10) || 0;
-        return aNum - bNum;
-      });
-      for (const costCenter of sortedCostCenters) {
-        const entries = [...costCenter.Entries];
-        this.matchVouchersToEntryPairs(entries, lastVoucher);
-        this.applyBatchNumbersAndAggregate(entries, lastBatch, dynData);
-      }
+      const entries = [...ledgerMonth.Entries];
+      this.matchVouchersToEntryPairs(entries, lastVoucher);
+      this.applyBatchNumbersAndAggregate(entries, lastBatch, dynData);
     }
     return dynData;
   }
@@ -194,11 +144,15 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     _company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    const arData = data as DynLedgerClosingJournalEntryDto[];
+    const arData = data as DynCustodySettlementJournalEntryDto[];
 
     for (const arLine of arData) {
       await this.validateDimensionsForLine(arLine, {
-        validateMainAccount: true,
+        dimensionIsRequired: {
+          MainAccount: arLine.AccountType === 'Ledger',
+          Vendor: arLine.AccountType === 'Vend',
+          SubVendor: arLine.AccountType === 'Vend',
+        },
       });
     }
 
@@ -209,7 +163,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     company: string,
   ): Promise<void> {
-    const batches = (data as DynLedgerClosingJournalEntryDto[]).reduce(
+    const batches = (data as DynCustodySettlementJournalEntryDto[]).reduce(
       (acc, entry) => {
         const batchNum = entry.JournalBatchNumber;
         if (!acc[batchNum]) {
@@ -218,7 +172,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         acc[batchNum].push(entry);
         return acc;
       },
-      {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+      {} as Record<string, DynCustodySettlementJournalEntryDto[]>,
     );
 
     for (const [journalBatchNumber, entries] of Object.entries(batches)) {
@@ -240,78 +194,31 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     }
   }
 
-  private createJournalEntryDto(
+  private async createJournalEntryDto(
     lineNumber: number,
     batchNumber: string,
     voucherNumber: string,
-    costCenterName: string,
-    source: LedgerClosingEntryModel,
+    source: CustodySettlementEntryModel,
     dimensionsModel: AccountDimensionsModel,
-    month: number,
-    year: number,
-    exchangeRates: D365FOExchangeRate[],
-  ): DynLedgerClosingJournalEntryDto {
-    let monthlyExchangeRate = 0;
-    let reportExchangeRate = 0;
-
+  ): Promise<DynCustodySettlementJournalEntryDto> {
     const transDate = new Date(source.TRANSDATE);
+    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+      String(source.TRANSDATE),
+      source.CURRENCYCODE || '',
+    );
 
-    // Determine monthly exchange rate to EGP
-    if (source.CURRENCYCODE?.toUpperCase() !== 'EGP') {
-      const rate = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'EGP' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      monthlyExchangeRate = rate?.Rate || 0;
-    } else {
-      monthlyExchangeRate = 1;
-    }
+    const sourceJournalName = source?.JOURNALNAME?.trim()?.toLowerCase() || '';
+    const descriptionSuffix =
+      sourceJournalName === 'cashin'
+        ? 'Cash In'
+        : sourceJournalName === 'cashout'
+          ? 'Cash Out'
+          : 'Without Cash';
+    const monthYearLabel = this.utilsService.formatMonthYear(
+      String(source.TRANSDATE),
+    );
 
-    // Determine reporting currency exchange rate to USD
-    if (
-      source.CURRENCYCODE?.toUpperCase() !== 'EGP' &&
-      source.CURRENCYCODE?.toUpperCase() !== 'USD'
-    ) {
-      const rate = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'USD' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      reportExchangeRate = rate?.Rate || 0;
-    } else if (source.CURRENCYCODE?.toUpperCase() === 'USD') {
-      reportExchangeRate = 1;
-    } else {
-      // Convert from EGP to USD by inverting the USD->EGP rate
-      const usdToEgp = exchangeRates.find(
-        (r) =>
-          r.FromCurrency.toUpperCase() === 'USD' &&
-          transDate >= new Date(r.StartDate) &&
-          transDate <= new Date(r.EndDate),
-      );
-      reportExchangeRate = usdToEgp?.Rate ? 1 / usdToEgp.Rate : 0;
-    }
-
-    const monthNames = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-
-    const line = new DynLedgerClosingJournalEntryDto();
+    const line = new DynCustodySettlementJournalEntryDto();
     line.CustomId = parseInt(
       `${source.UniqueId}${dimensionsModel.costCenter || ''}`,
       10,
@@ -320,7 +227,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     line.LineNumber = lineNumber;
     line.JournalBatchNumber = batchNumber;
     line.JournalName = this.journalName;
-    line.Description = `Closing Entry ${monthNames[month - 1]} ${year} (Forwarding - ${costCenterName})`;
+    line.Description = `Custody Settlement Entry ${monthYearLabel} (${descriptionSuffix})`;
     line.Voucher = voucherNumber;
     line.DimensionModel = dimensionsModel;
     line.TransDate = transDate;
@@ -333,8 +240,8 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
     line.DebitAmount = source.DEBITAMOUNT || 0;
     line.CreditAmount = source.CREDITAMOUNT || 0;
     line.CurrencyCode = source.CURRENCYCODE || '';
-    line.ExchangeRate = monthlyExchangeRate * 100;
-    line.ReportingCurrencyExchRate = reportExchangeRate * 100;
+    line.ExchangeRate = exchangeRate;
+    line.ReportingCurrencyExchRate = reportingRate;
     line.ReportingCurrencyExchRateSecondary = 0;
     line.CashDiscount = source.CASHDISCOUNT || '';
     line.CashDiscountAmount = source.CASHDISCOUNTAMOUNT || 0;
@@ -371,16 +278,18 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   private filterAndMapLedgerData(
     data: RawDataModel[],
     invoiceMappings: any[],
-  ): LedgerClosingEntryModel[] {
+  ): CustodySettlementEntryModel[] {
     const excludedEntries: string[] = [];
-    const ledgerData: LedgerClosingEntryModel[] = [];
+    const ledgerData: CustodySettlementEntryModel[] = [];
 
     for (const entry of data) {
-      const ledgerEntry = new LedgerClosingEntryModel();
+      const ledgerEntry = new CustodySettlementEntryModel();
       Object.assign(ledgerEntry, entry);
 
       ledgerEntry.AccountDimensions = this.utilsService.parseDimensionString(
-        ledgerEntry.ACCOUNTDISPLAYVALUE || '',
+        ledgerEntry.ACCOUNTTYPE === 'Ledger'
+          ? ledgerEntry.ACCOUNTDISPLAYVALUE || ''
+          : ledgerEntry.DEFAULTDIMENSIONDISPLAYVALUE || '',
       );
 
       if (
@@ -405,11 +314,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         }
       }
 
-      ledgerEntry.ACCOUNTDISPLAYVALUE =
-        this.utilsService.toDimensionStringWithSegments(
-          ledgerEntry.AccountDimensions,
-          20,
-        );
+      ledgerEntry.ACCOUNTDISPLAYVALUE = entry.ACCOUNTDISPLAYVALUE || '';
 
       if (
         !excludedEntries.some(
@@ -420,85 +325,61 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
       }
     }
 
-    return ledgerData;
+    return ledgerData.sort((a, b) => a.getLineNumber() - b.getLineNumber());
   }
 
-  private groupEntries(
-    ledgerData: LedgerClosingEntryModel[],
-    costCenters: IFinancialDimensionValue[],
-    exchangeRates: D365FOExchangeRate[],
-  ): MonthGroup[] {
-    const monthGroups = ledgerData.reduce(
-      (acc, entry) => {
-        const date = new Date(entry.TRANSDATE);
-        const year = date.getFullYear();
-        const month = date.getMonth() + 1;
-        const key = `${year}-${month}`;
+  private async groupEntries(
+    ledgerData: CustodySettlementEntryModel[],
+  ): Promise<MonthGroup[]> {
+    const monthGroups: Record<string, MonthGroup> = {};
 
-        if (!acc[key]) {
-          acc[key] = {
-            Year: year,
-            Month: month,
-            CostCenters: [],
-          };
-        }
+    for (const entry of ledgerData) {
+      const date = new Date(entry.TRANSDATE);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const key = `${year}-${month}`;
 
-        const costCenterId = entry.AccountDimensions?.costCenter || '';
-        const costCenter = costCenters.find((c) => c.value === costCenterId);
+      if (!monthGroups[key]) {
+        monthGroups[key] = {
+          Year: year,
+          Month: month,
+          Entries: [],
+        };
+      }
 
-        let costCenterGroup = acc[key].CostCenters.find(
-          (cc) => cc.CostCenterId === costCenterId,
-        );
+      const journalEntry = await this.createJournalEntryDto(
+        entry.getLineNumber(),
+        '0',
+        '',
+        entry,
+        entry.AccountDimensions!,
+      );
+      monthGroups[key].Entries.push(journalEntry);
+    }
 
-        if (!costCenterGroup && costCenter) {
-          costCenterGroup = {
-            CostCenterId: costCenterId,
-            CostCenter: costCenter,
-            Entries: [],
-          };
-          acc[key].CostCenters.push(costCenterGroup);
-        }
-
-        if (costCenterGroup) {
-          const journalEntry = this.createJournalEntryDto(
-            entry.getLineNumber(),
-            '0',
-            '',
-            costCenter?.description || costCenter?.value || '',
-            entry,
-            entry.AccountDimensions!,
-            month,
-            year,
-            exchangeRates,
-          );
-          costCenterGroup.Entries.push(journalEntry);
-        }
-
-        return acc;
-      },
-      {} as Record<string, MonthGroup>,
-    );
-
-    // Sort entries within each cost center
+    // Sort entries within each month - preserve source LineNumber order
+    // so debit/credit pairs stay consecutive (line 1–2, 3–4, etc.)
     Object.values(monthGroups).forEach((monthGroup) => {
-      monthGroup.CostCenters.forEach((ccGroup) => {
-        ccGroup.Entries.sort((a, b) => {
-          if (a.TransDate.getTime() !== b.TransDate.getTime()) {
-            return a.TransDate.getTime() - b.TransDate.getTime();
-          }
-          if (a.UniqueId !== b.UniqueId) {
-            return (a.UniqueId || 0) - (b.UniqueId || 0);
-          }
-          const aCostCenter = a.DimensionModel?.costCenter || '';
-          const bCostCenter = b.DimensionModel?.costCenter || '';
-          if (aCostCenter !== bCostCenter) {
-            return aCostCenter.localeCompare(bCostCenter);
-          }
-          if (a.DebitAmount !== b.DebitAmount) {
-            return a.DebitAmount - b.DebitAmount;
-          }
-          return a.CreditAmount - b.CreditAmount;
-        });
+      monthGroup.Entries.sort((a, b) => {
+        if (a.TransDate.getTime() !== b.TransDate.getTime()) {
+          return a.TransDate.getTime() - b.TransDate.getTime();
+        }
+        // Preserve source line order for correct debit/credit pairing
+        if (a.LineNumber !== b.LineNumber) {
+          return (a.LineNumber || 0) - (b.LineNumber || 0);
+        }
+        if (a.UniqueId !== b.UniqueId) {
+          return (a.UniqueId || 0) - (b.UniqueId || 0);
+        }
+        const aCostCenter = a.DimensionModel?.costCenter || '';
+        const bCostCenter = b.DimensionModel?.costCenter || '';
+        if (aCostCenter !== bCostCenter) {
+          return aCostCenter.localeCompare(bCostCenter);
+        }
+        if (a.DebitAmount !== b.DebitAmount) {
+          return a.DebitAmount - b.DebitAmount;
+        }
+        return a.CreditAmount - b.CreditAmount;
       });
     });
 
@@ -511,7 +392,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
   }
 
   private matchVouchersToEntryPairs(
-    entries: DynLedgerClosingJournalEntryDto[],
+    entries: DynCustodySettlementJournalEntryDto[],
     lastVoucher: ClosingVoucherCounter,
   ): void {
     const groups = entries
@@ -525,23 +406,26 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
           acc[sourceId].push(entry);
           return acc;
         },
-        {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+        {} as Record<string, DynCustodySettlementJournalEntryDto[]>,
       );
 
     for (const group of Object.values(groups)) {
       lastVoucher.lastNumber += 1;
-      const voucher = lastVoucher.lastNumber.toString();
+      const voucher = lastVoucher.lastNumber;
 
       for (const entry of group) {
-        entry.Voucher = voucher;
+        entry.Voucher = this.utilsService.formatVoucherNumber(
+          voucher,
+          this.journalName,
+        );
       }
     }
   }
 
   private applyBatchNumbersAndAggregate(
-    entries: DynLedgerClosingJournalEntryDto[],
+    entries: DynCustodySettlementJournalEntryDto[],
     lastBatch: ClosingBatchCounter,
-    dynData: DynLedgerClosingJournalEntryDto[],
+    dynData: DynCustodySettlementJournalEntryDto[],
   ): void {
     lastBatch.lastBatchNumber += 1;
     let batchLineNumber = 1;
@@ -555,7 +439,7 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
         acc[voucher].push(entry);
         return acc;
       },
-      {} as Record<string, DynLedgerClosingJournalEntryDto[]>,
+      {} as Record<string, DynCustodySettlementJournalEntryDto[]>,
     );
 
     for (const voucherEntries of Object.values(vouchers)) {
@@ -566,10 +450,9 @@ export class FreightClosingEntryProcessor extends EntryProcessorBase {
 
       for (const entry of voucherEntries) {
         entry.LineNumber = batchLineNumber++;
-        entry.JournalBatchNumber =
-          lastBatch.companyBatchPrefix && lastBatch.companyBatchPrefix.trim()
-            ? `${lastBatch.companyBatchPrefix}-${lastBatch.lastBatchNumber}`
-            : lastBatch.lastBatchNumber.toString();
+        entry.JournalBatchNumber = this.utilsService.formatBatchNumber(
+          lastBatch.lastBatchNumber,
+        );
         dynData.push(entry);
       }
     }

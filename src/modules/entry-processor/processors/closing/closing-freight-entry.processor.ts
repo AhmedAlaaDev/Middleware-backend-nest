@@ -11,7 +11,7 @@ import {
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/models/dyn-ledger-closing-journal-entry.dto';
 import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
-import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
+import { EntryProcessorBase } from '@/modules/entry-processor/processors/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
@@ -43,9 +43,9 @@ interface CostCenterGroup {
 }
 
 @Injectable()
-export class TruckingClosingEntryProcessor extends EntryProcessorBase {
-  private readonly procLogger = new Logger(TruckingClosingEntryProcessor.name);
-  readonly entryProcessorType = EntryProcessorTypes.LedgerTruckingClosingEntry;
+export class ClosingFreightEntryProcessor extends EntryProcessorBase {
+  private readonly procLogger = new Logger(ClosingFreightEntryProcessor.name);
+  readonly entryProcessorType = EntryProcessorTypes.LedgerFreightClosingEntry;
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
     Activity: true,
@@ -59,14 +59,12 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     CoordinatorMan: true,
     FreightType: true,
     Direction: true,
-    TruckerType: true,
-    TruckNumber: false,
     Vendor: false,
     SubVendor: false,
     Worker: false,
   };
 
-  private readonly journalName = 'GL-Fleet';
+  private readonly journalName = 'GL-Freight';
 
   constructor(
     baseDeps: EntryProcessorBaseDependencies,
@@ -82,7 +80,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     const accounts = await this.getAccountCustomerInvoiceMappings(
-      ServiceTypes.Trucking,
+      ServiceTypes.Freight,
     );
     const costCenterDimensions = await this.loadCostCenterDimensions();
     const sortedExchangeRates = await this.loadAndSortExchangeRates();
@@ -139,7 +137,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
       new GetSettingQuery('last.ledger.batch.number'),
     );
     const voucherSetting = await this.queryBus.execute(
-      new GetSettingQuery('last.ledger.closing.trucking.voucher.number'),
+      new GetSettingQuery('last.ledger.closing.freight.voucher.number'),
     );
     const lastBatchNumber = Number(batchSetting?.value ?? '0');
     const lastNumber = Number(voucherSetting?.value ?? '0');
@@ -147,8 +145,7 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
       lastBatch: { lastBatchNumber, companyBatchPrefix: '' },
       lastVoucher: {
         lastNumber,
-        relatedSettingLogicalName:
-          'last.ledger.closing.trucking.voucher.number',
+        relatedSettingLogicalName: 'last.ledger.closing.freight.voucher.number',
       },
     };
   }

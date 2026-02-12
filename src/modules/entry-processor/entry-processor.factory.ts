@@ -9,9 +9,9 @@ import {
   AccountReceivableTruckingEntryProcessor,
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
-  CustodySettlementEntryProcessor,
-  FreightClosingEntryProcessor,
-  TruckingClosingEntryProcessor,
+  ClosingCustodySettlementEntryProcessor,
+  ClosingFreightEntryProcessor,
+  ClosingTruckingEntryProcessor,
   VendorFreightAdjustmentEntryProcessor,
   VendorFreightEntryProcessor,
   VendorTruckingAdjustmentEntryProcessor,
@@ -28,15 +28,18 @@ export class EntryProcessorFactory {
     private readonly accountReceivableFreightCreditNoteProcessor: AccountReceivableFreightCreditNoteEntryProcessor,
     private readonly accountReceivableTruckingProcessor: AccountReceivableTruckingEntryProcessor,
     private readonly accountReceivableTruckingCreditNoteProcessor: AccountReceivableTruckingCreditNoteEntryProcessor,
+
     private readonly vendorFreightProcessor: VendorFreightEntryProcessor,
     private readonly vendorTruckingProcessor: VendorTruckingEntryProcessor,
     private readonly vendorFreightAdjustmentProcessor: VendorFreightAdjustmentEntryProcessor,
     private readonly vendorTruckingAdjustmentProcessor: VendorTruckingAdjustmentEntryProcessor,
+
     private readonly cashInFreightProcessor: CashInFreightEntryProcessor,
     private readonly cashOutFreightProcessor: CashOutFreightEntryProcessor,
-    private readonly freightClosingProcessor: FreightClosingEntryProcessor,
-    private readonly truckingClosingProcessor: TruckingClosingEntryProcessor,
-    private readonly custodySettlementProcessor: CustodySettlementEntryProcessor,
+
+    private readonly closingFreightProcessor: ClosingFreightEntryProcessor,
+    private readonly closingTruckingProcessor: ClosingTruckingEntryProcessor,
+    private readonly closingCustodySettlementProcessor: ClosingCustodySettlementEntryProcessor,
     // Add other processors here
   ) {
     this.registerProcessors();
@@ -77,15 +80,15 @@ export class EntryProcessorFactory {
     );
     this.processors.set(
       EntryProcessorTypes.LedgerFreightClosingEntry,
-      this.freightClosingProcessor,
+      this.closingFreightProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.LedgerTruckingClosingEntry,
-      this.truckingClosingProcessor,
+      this.closingTruckingProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.LedgerCustodySettlementEntry,
-      this.custodySettlementProcessor,
+      this.closingCustodySettlementProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.CashInFreight,
