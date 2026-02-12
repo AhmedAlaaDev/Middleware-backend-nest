@@ -35,8 +35,11 @@ export class ExchangeRateService {
     if (currency === toCurrency) return 100;
 
     const lookupKey = `exchange-rate:${effectiveRateType}:${currency}|${date}|${toCurrency}`;
-    return this.multiLayerCacheService.get(lookupKey, async () =>
-      this.resolveRate(currency, date, toCurrency, effectiveRateType),
+    return this.multiLayerCacheService.get(
+      lookupKey,
+      async () =>
+        this.resolveRate(currency, date, toCurrency, effectiveRateType),
+      { silent: true },
     );
   }
 
@@ -55,12 +58,16 @@ export class ExchangeRateService {
     rateType: string,
   ): Promise<IExchangeRate[]> {
     const cacheKey = `exchange-rates:${rateType}:all`;
-    return this.multiLayerCacheService.get(cacheKey, async () => {
-      const result = await this.queryBus.execute(
-        new GetExchangeRatesQuery({ rateTypeName: rateType }, 0, 10000),
-      );
-      return result?.items ?? [];
-    });
+    return this.multiLayerCacheService.get(
+      cacheKey,
+      async () => {
+        const result = await this.queryBus.execute(
+          new GetExchangeRatesQuery({ rateTypeName: rateType }, 0, 10000),
+        );
+        return result?.items ?? [];
+      },
+      { silent: true },
+    );
   }
 
   private findRateByDate(

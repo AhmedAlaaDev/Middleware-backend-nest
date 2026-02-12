@@ -11,6 +11,8 @@ export interface CacheLayerOptions {
   l3Ttl?: number;
   useL2?: boolean; // Toggle Redis ON/OFF in future
   useL3?: boolean; // Toggle DB caching
+  /** When true, skips debug logging (use in hot loops to avoid log spam). */
+  silent?: boolean;
 }
 
 @Injectable()
@@ -47,7 +49,7 @@ export class MultiLayerCacheService {
     // 1️⃣ Try L1
     const l1Value = await this.getL1<T>(key);
     if (l1Value !== undefined) {
-      this.logger.debug(`L1 HIT: ${key}`);
+      if (!opts.silent) this.logger.debug(`L1 HIT: ${key}`);
       return l1Value;
     }
 
@@ -55,7 +57,7 @@ export class MultiLayerCacheService {
     if (opts.useL2) {
       const l2Value = await this.getL2<T>(key);
       if (l2Value !== undefined) {
-        this.logger.debug(`L2 HIT: ${key}`);
+        if (!opts.silent) this.logger.debug(`L2 HIT: ${key}`);
         await this.setL1(key, l2Value, opts.l1Ttl);
         return l2Value;
       }
@@ -65,14 +67,14 @@ export class MultiLayerCacheService {
     if (opts.useL3) {
       const l3Value = await this.getL3<T>(key);
       if (l3Value !== undefined) {
-        this.logger.debug(`L3 HIT: ${key}`);
+        if (!opts.silent) this.logger.debug(`L3 HIT: ${key}`);
         await this.promoteToUpperLayers(key, l3Value, opts);
         return l3Value;
       }
     }
 
     // ❌ Cache MISS → fetch from source
-    this.logger.debug(`CACHE MISS: ${key}`);
+    if (!opts.silent) this.logger.debug(`CACHE MISS: ${key}`);
     const value = await factory();
 
     await this.setAllLayers(key, value, opts);
@@ -164,6 +166,7 @@ export class MultiLayerCacheService {
       l3Ttl: options?.l3Ttl ?? this.defaultL3Ttl,
       useL2: options?.useL2 ?? true, // Redis support ready
       useL3: options?.useL3 ?? true,
+      silent: options?.silent ?? false,
     };
   }
 }

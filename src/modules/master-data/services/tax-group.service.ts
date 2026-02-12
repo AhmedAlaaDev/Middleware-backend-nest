@@ -17,18 +17,22 @@ export class TaxGroupService {
    */
   async getValidTaxItemGroupCodes(company: string): Promise<Set<string>> {
     const cacheKey = `tax-item-group-codes:${company}`;
-    return this.multiLayerCacheService.get(cacheKey, async () => {
-      const res = await this.queryBus.execute(
-        new GetTaxItemGroupHeadingsQuery(
-          { dataAreaId: company },
-          undefined,
-          10000,
-        ),
-      );
-      return new Set(
-        res?.items?.map((x) => x.taxItemGroup).filter(Boolean) ?? [],
-      );
-    });
+    return this.multiLayerCacheService.get(
+      cacheKey,
+      async () => {
+        const res = await this.queryBus.execute(
+          new GetTaxItemGroupHeadingsQuery(
+            { dataAreaId: company },
+            undefined,
+            10000,
+          ),
+        );
+        return new Set(
+          res?.items?.map((x) => x.taxItemGroup).filter(Boolean) ?? [],
+        );
+      },
+      { silent: true },
+    );
   }
 
   /**

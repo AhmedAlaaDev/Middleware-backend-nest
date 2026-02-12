@@ -133,12 +133,16 @@ export class DimensionValidationService {
     chartNumber: string = 'Chart of Accounts',
   ): Promise<IMainAccount[]> {
     const cacheKey = `main-accounts:${chartNumber}`;
-    const result = await this.multiLayerCacheService.get(cacheKey, async () => {
-      const res = await this.queryBus.execute(
-        new GetMainAccountsQuery({ chartNumber }),
-      );
-      return res?.items || [];
-    });
+    const result = await this.multiLayerCacheService.get(
+      cacheKey,
+      async () => {
+        const res = await this.queryBus.execute(
+          new GetMainAccountsQuery({ chartNumber }),
+        );
+        return res?.items || [];
+      },
+      { silent: true },
+    );
     return result;
   }
 
@@ -146,12 +150,16 @@ export class DimensionValidationService {
     financialKey: string,
   ): Promise<IFinancialDimensionValue[]> {
     const cacheKey = `dimension-values:${financialKey}`;
-    return this.multiLayerCacheService.get(cacheKey, async () => {
-      const values = await this.queryBus.execute(
-        new GetFinancialDimensionValueQuery(financialKey),
-      );
-      return values || [];
-    });
+    return this.multiLayerCacheService.get(
+      cacheKey,
+      async () => {
+        const values = await this.queryBus.execute(
+          new GetFinancialDimensionValueQuery(financialKey),
+        );
+        return values || [];
+      },
+      { silent: true },
+    );
   }
 
   /**
