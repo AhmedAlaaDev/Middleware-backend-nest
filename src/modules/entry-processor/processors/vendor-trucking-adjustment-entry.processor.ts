@@ -7,7 +7,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 import {
@@ -27,23 +27,23 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   readonly entryProcessorType = EntryProcessorTypes.VendorTruckingAdjustment;
   private readonly MAX_LINES_PER_BATCH = 1000;
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    'FreightType',
-    'Direction',
-    'TruckerType',
-    'TruckNumber',
-    'Vendor',
-    'SubVendor',
-    'Worker',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    ChargeType: true,
+    SalesMan: true,
+    CoordinatorMan: true,
+    FreightType: true,
+    Direction: true,
+    TruckerType: true,
+    TruckNumber: true, // overridden per-line (required when truckerType 11 or 12)
+    Vendor: true,
+    SubVendor: true, // overridden per-line
+    Worker: true,
+  };
 
   constructor(baseDeps: EntryProcessorBaseDependencies) {
     super({ dependencies: baseDeps });
@@ -204,14 +204,12 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       const truckerType = line.DimensionModel?.truckerType;
       const requireTruckNumber = truckerType === '11' || truckerType === '12';
 
-      await this.dimensionService.validateDimensions(line, {
-        requiredDimensions: this.requiredDimensions,
+      await this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
           SubVendor: !!line.DimensionModel?.subVendor,
           TruckNumber: requireTruckNumber,
         },
-        chartNumber: this.options?.chartNumber,
       });
     }
 

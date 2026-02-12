@@ -8,7 +8,7 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -27,25 +27,22 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
   // --------------------------------------------------------------------------
   readonly entryProcessorType = EntryProcessorTypes.VendorTrucking;
   private readonly MAX_LINES_PER_BATCH = 1000;
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Customer',
-    'SubCustomer',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    // 'FreightType',
-    'Direction',
-    'TruckerType',
-    // 'TruckNumber',
-    'Vendor',
-    'SubVendor',
-    // 'Worker',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Customer: true,
+    SubCustomer: false,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    ChargeType: true,
+    SalesMan: true,
+    CoordinatorMan: true,
+    Direction: true,
+    TruckerType: true, // overridden per-line (required only for Ledger)
+    Vendor: true,
+    SubVendor: false,
+  };
 
   constructor(
     private readonly commandBus: CommandBus,
@@ -222,14 +219,11 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     );
 
     for (const line of lines) {
-      await this.dimensionService.validateDimensions(line, {
-        requiredDimensions: this.requiredDimensions,
+      await this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
-          SubVendor: false,
           TruckerType: line.ACCOUNTTYPE === 'Ledger',
         },
-        chartNumber: this.options?.chartNumber,
       });
     }
 

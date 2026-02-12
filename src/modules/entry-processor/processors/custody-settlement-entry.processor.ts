@@ -12,7 +12,7 @@ import { CustodySettlementEntryModel } from '@/modules/entry-processor/models/cu
 import { DynCustodySettlementJournalEntryDto } from '@/modules/entry-processor/models/dyn-custody-settlement-journal-entry.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
@@ -37,23 +37,23 @@ interface MonthGroup {
 export class CustodySettlementEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType =
     EntryProcessorTypes.LedgerCustodySettlementEntry;
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'Customer',
-    'SubCustomer',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    'FreightType',
-    'Direction',
-    'Vendor',
-    'SubVendor',
-    'Worker',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    Customer: false,
+    SubCustomer: false,
+    ChargeType: true,
+    SalesMan: false,
+    CoordinatorMan: false,
+    FreightType: true,
+    Direction: true,
+    Vendor: false, // overridden per-line
+    SubVendor: false, // overridden per-line
+    Worker: false,
+  };
 
   private readonly journalName = 'CustSettle';
 
@@ -147,16 +147,9 @@ export class CustodySettlementEntryProcessor extends EntryProcessorBase {
     const arData = data as DynCustodySettlementJournalEntryDto[];
 
     for (const arLine of arData) {
-      await this.dimensionService.validateDimensions(arLine, {
-        requiredDimensions: this.requiredDimensions,
-        validateMainAccount: arLine.AccountType === 'Ledger',
-        chartNumber: this.options?.chartNumber,
+      await this.validateDimensionsForLine(arLine, {
         dimensionIsRequired: {
-          Customer: false,
-          SubCustomer: false,
-          SalesMan: false,
-          CoordinatorMan: false,
-          Worker: false,
+          MainAccount: arLine.AccountType === 'Ledger',
           Vendor: arLine.AccountType === 'Vend',
           SubVendor: arLine.AccountType === 'Vend',
         },

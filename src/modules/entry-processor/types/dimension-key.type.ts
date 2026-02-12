@@ -16,3 +16,11 @@ export type DimensionKey =
   | 'TruckerType'
   | 'TruckNumber'
   | 'Worker';
+
+/**
+ * Map of dimension keys to whether they are required.
+ * - true = validate and require
+ * - false = validate when present, but not required
+ * Dimensions not in the object are not validated.
+ */
+export type RequiredDimensionsConfig = Partial<Record<DimensionKey, boolean>>;

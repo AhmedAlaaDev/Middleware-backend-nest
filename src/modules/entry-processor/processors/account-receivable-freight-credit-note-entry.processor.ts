@@ -10,7 +10,7 @@ import { AccountReceivableFileModel } from '@/modules/entry-processor/models/acc
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { GetBillingCodesQuery } from '@/modules/master-data/queries/get-billing-codes.query';
@@ -23,20 +23,20 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
   );
   readonly entryProcessorType =
     EntryProcessorTypes.AccountReceivableFreightCreditNote;
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'Customer',
-    'SubCustomer',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    'FreightType',
-    'Direction',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    Customer: true,
+    SubCustomer: true,
+    ChargeType: true,
+    SalesMan: true,
+    CoordinatorMan: true,
+    FreightType: true,
+    Direction: true,
+  };
 
   constructor(baseDeps: EntryProcessorBaseDependencies) {
     super({ dependencies: baseDeps });
@@ -226,12 +226,10 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     );
 
     for (const arLine of arData) {
-      await this.dimensionService.validateDimensions(arLine, {
-        requiredDimensions: this.requiredDimensions,
+      await this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
         validTaxItemGroupCodes,
-        chartNumber: this.options?.chartNumber,
       });
     }
     this.procLogger.debug('data Validated');

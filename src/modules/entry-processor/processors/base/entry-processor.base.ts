@@ -9,18 +9,21 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
-import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
+import {
+  DimensionValidationConfig,
+  DimensionValidationService,
+} from '@/modules/master-data/services/dimension-validation.service';
 import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   abstract readonly entryProcessorType: EntryProcessorTypes;
 
-  abstract readonly requiredDimensions: readonly DimensionKey[];
+  abstract readonly requiredDimensions: RequiredDimensionsConfig;
 
   protected billingClassifications: Map<string, Array<IBillingCode>> =
     new Map();
@@ -90,6 +93,21 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected formatDocumentNumber(docNumber: string): string {
     return this.utilsService.formatDocumentNumber(docNumber);
+  }
+
+  /**
+   * Validates dimensions for a line using this processor's requiredDimensions and options.
+   * Processors only pass overrides (validateMainAccount, dimensionIsRequired, etc.).
+   */
+  protected async validateDimensionsForLine(
+    line: DynDataModel,
+    overrides?: Partial<Omit<DimensionValidationConfig, 'requiredDimensions'>>,
+  ): Promise<void> {
+    await this.dimensionService.validateDimensions(line, {
+      requiredDimensions: this.requiredDimensions,
+      chartNumber: this.options?.chartNumber,
+      ...overrides,
+    });
   }
 
   protected async getAccountCustomerInvoiceMappings(serviceType: ServiceTypes) {

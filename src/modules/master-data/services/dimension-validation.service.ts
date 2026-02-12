@@ -3,14 +3,20 @@ import { QueryBus } from '@nestjs/cqrs';
 
 import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { DynAccountReceivableLineDto } from '@/modules/entry-processor/models/dyn-account-receivable-line.dto';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import {
+  DimensionKey,
+  RequiredDimensionsConfig,
+} from '@/modules/entry-processor/types/dimension-key.type';
+import { IMainAccount } from '@/modules/master-data/interfaces';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import { MultiLayerCacheService } from '@/modules/resilience/services/mutli-layer-cache.service';
 
 export interface DimensionValidationConfig {
-  requiredDimensions: readonly DimensionKey[];
+  /** Map of dimension keys to required (true) or optional (false). Keys not present are not validated. */
+  requiredDimensions: RequiredDimensionsConfig;
+  /** Per-call override for required-ness when it varies by line (e.g. SubVendor: !!line.DimensionModel?.subVendor) */
   dimensionIsRequired?: Partial<Record<DimensionKey, boolean>>;
   validateMainAccount?: boolean;
   chargeTypeDims?: string[];
@@ -38,16 +44,18 @@ export class DimensionValidationService {
       const accounts = await this.getMainAccounts(
         config.chartNumber ?? 'Chart of Accounts',
       );
-      this.validateMainAccount(
-        ar,
-        accounts.map((a) => ({ accountNumber: a.accountNumber })),
-      );
+      this.validateMainAccount(ar, accounts);
     }
 
+    const dimensionKeys = Object.keys(
+      config.requiredDimensions,
+    ) as DimensionKey[];
     const isRequired = (key: DimensionKey): boolean =>
-      config.dimensionIsRequired?.[key] ?? true;
+      config.dimensionIsRequired?.[key] ??
+      config.requiredDimensions[key] ??
+      true;
 
-    for (const key of config.requiredDimensions) {
+    for (const key of dimensionKeys) {
       const values = dimensionsMap.get(key) || [];
       switch (key) {
         case 'MainAccount':
@@ -115,10 +123,10 @@ export class DimensionValidationService {
   }
 
   private async loadDimensionsMap(
-    requiredDimensions: readonly DimensionKey[],
+    requiredDimensions: RequiredDimensionsConfig,
   ): Promise<Map<DimensionKey, IFinancialDimensionValue[]>> {
     const map = new Map<DimensionKey, IFinancialDimensionValue[]>();
-    for (const key of requiredDimensions) {
+    for (const key of Object.keys(requiredDimensions) as DimensionKey[]) {
       if (key === 'MainAccount') continue;
       const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
       const values = await this.getDimensionValues(fetchKey);
@@ -129,7 +137,7 @@ export class DimensionValidationService {
 
   private async getMainAccounts(
     chartNumber: string = 'Chart of Accounts',
-  ): Promise<Array<{ accountNumber: string }>> {
+  ): Promise<IMainAccount[]> {
     const cacheKey = `main-accounts:${chartNumber}`;
     const result = await this.multiLayerCacheService.get(cacheKey, async () => {
       const res = await this.queryBus.execute(

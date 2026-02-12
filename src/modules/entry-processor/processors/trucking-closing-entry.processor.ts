@@ -13,7 +13,7 @@ import { DynLedgerClosingJournalEntryDto } from '@/modules/entry-processor/model
 import { LedgerClosingEntryModel } from '@/modules/entry-processor/models/ledger-closing-entry.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
@@ -46,25 +46,25 @@ interface CostCenterGroup {
 export class TruckingClosingEntryProcessor extends EntryProcessorBase {
   private readonly procLogger = new Logger(TruckingClosingEntryProcessor.name);
   readonly entryProcessorType = EntryProcessorTypes.LedgerTruckingClosingEntry;
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'Customer',
-    'SubCustomer',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    'FreightType',
-    'Direction',
-    'TruckerType',
-    'TruckNumber',
-    'Vendor',
-    'SubVendor',
-    'Worker',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    Customer: true,
+    SubCustomer: true,
+    ChargeType: true,
+    SalesMan: true,
+    CoordinatorMan: true,
+    FreightType: true,
+    Direction: true,
+    TruckerType: true,
+    TruckNumber: false,
+    Vendor: false,
+    SubVendor: false,
+    Worker: false,
+  };
 
   private readonly journalName = 'GL-Fleet';
 
@@ -200,16 +200,8 @@ export class TruckingClosingEntryProcessor extends EntryProcessorBase {
     const arData = data as DynLedgerClosingJournalEntryDto[];
 
     for (const arLine of arData) {
-      await this.dimensionService.validateDimensions(arLine, {
-        requiredDimensions: this.requiredDimensions,
+      await this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
-        chartNumber: this.options?.chartNumber,
-        dimensionIsRequired: {
-          TruckNumber: false,
-          Vendor: false,
-          SubVendor: false,
-          Worker: false,
-        },
       });
     }
 

@@ -10,7 +10,10 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/base/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { DimensionKey } from '@/modules/entry-processor/types/dimension-key.type';
+import {
+  DimensionKey,
+  RequiredDimensionsConfig,
+} from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import { GetCustomersQuery } from '@/modules/master-data/queries';
@@ -29,20 +32,20 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   readonly entryProcessorType = EntryProcessorTypes.CashInFreight;
   private readonly MAX_LINES_PER_BATCH = 1000;
 
-  readonly requiredDimensions: readonly DimensionKey[] = [
-    'MainAccount',
-    'Activity',
-    'CostCenters',
-    'BusinessUnit',
-    'Location',
-    'Customer',
-    'SubCustomer',
-    'ChargeType',
-    'SalesMan',
-    'CoordinatorMan',
-    'FreightType',
-    'Direction',
-  ] as const;
+  readonly requiredDimensions: RequiredDimensionsConfig = {
+    MainAccount: true,
+    Activity: true,
+    CostCenters: true,
+    BusinessUnit: true,
+    Location: true,
+    Customer: true,
+    SubCustomer: false,
+    ChargeType: true,
+    SalesMan: true,
+    CoordinatorMan: true,
+    FreightType: true,
+    Direction: true,
+  };
 
   constructor(
     private readonly commandBus: CommandBus,
@@ -146,12 +149,9 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
-      await this.dimensionService.validateDimensions(line, {
-        requiredDimensions: this.requiredDimensions,
+      await this.validateDimensionsForLine(line, {
         validateMainAccount:
           line.AccountType?.trim()?.toLowerCase() === 'ledger',
-        dimensionIsRequired: { SubCustomer: false },
-        chartNumber: this.options?.chartNumber,
       });
     }
 
@@ -544,7 +544,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
   private async getDimensionsMap() {
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
-    for (const key of this.requiredDimensions) {
+    for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
       const dimensionValues = await this.getFinancialDimensionValues(key);
       dimensionsMap.set(key, dimensionValues || []);
     }
