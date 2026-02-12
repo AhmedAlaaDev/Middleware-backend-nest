@@ -120,11 +120,13 @@ export class MasterDataService {
     skipCount?: number,
     maxCount?: number,
   ): Promise<{ items: IMainAccount[]; total: number }> {
-    const items = await this.mainAccountRepo.getList(filter, {
-      skipCount,
-      maxCount,
-    });
-    const total = await this.mainAccountRepo.getCount(filter);
+    const [items, total] = await Promise.all([
+      this.mainAccountRepo.getList(filter, {
+        skipCount,
+        maxCount,
+      }),
+      this.mainAccountRepo.getCount(filter),
+    ]);
     return { items, total };
   }
 
