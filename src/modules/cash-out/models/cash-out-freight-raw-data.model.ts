@@ -203,7 +203,11 @@ export class CashOutFreightRawData {
   }
 
   private compare(value: unknown, equalsTo: string): boolean {
-    return this.lowerTrimed(String(value ?? '')) === this.lowerTrimed(equalsTo);
+    if (value == null || typeof value === 'object') {
+      return this.lowerTrimed('') === this.lowerTrimed(equalsTo);
+    }
+    const primitive = value as string | number | boolean;
+    return this.lowerTrimed(String(primitive)) === this.lowerTrimed(equalsTo);
   }
 
   private lookupResult<T = any>(value: LookupCell<T>): T {

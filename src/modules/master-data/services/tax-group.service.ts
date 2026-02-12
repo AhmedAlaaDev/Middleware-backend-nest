@@ -25,7 +25,9 @@ export class TaxGroupService {
           10000,
         ),
       );
-      return new Set(res?.items?.map((x) => x.taxItemGroup).filter(Boolean) ?? []);
+      return new Set(
+        res?.items?.map((x) => x.taxItemGroup).filter(Boolean) ?? [],
+      );
     });
   }
 
