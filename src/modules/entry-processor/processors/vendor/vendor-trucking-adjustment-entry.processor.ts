@@ -56,6 +56,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     const rawCount = data.length;
     this.vendorLogger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -145,7 +146,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
         const voucher = voucherNum++;
 
         // Calculate exchange rates once per invoice
-        const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+        const { exchangeRate, reportingRate } = this.fetchExchangeRates(
           headerLine.TRANSDATE,
           headerLine.CURRENCYCODE,
         );
@@ -193,6 +194,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
+    await Promise.resolve();
     const lines = data as unknown as IVendorTruckingAdjustmentDFOLine[];
     const lineCount = lines.length;
 
@@ -204,7 +206,7 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       const truckerType = line.DimensionModel?.truckerType;
       const requireTruckNumber = truckerType === '11' || truckerType === '12';
 
-      await this.validateDimensionsForLine(line, {
+      this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
           TruckNumber: requireTruckNumber,

@@ -70,6 +70,7 @@ export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
     company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
@@ -144,10 +145,11 @@ export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
     _company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await Promise.resolve();
     const arData = data as DynCustodySettlementJournalEntryDto[];
 
     for (const arLine of arData) {
-      await this.validateDimensionsForLine(arLine, {
+      this.validateDimensionsForLine(arLine, {
         dimensionIsRequired: {
           MainAccount: arLine.AccountType === 'Ledger',
           Vendor: arLine.AccountType === 'Vend',
@@ -201,8 +203,9 @@ export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
     source: CustodySettlementEntryModel,
     dimensionsModel: AccountDimensionsModel,
   ): Promise<DynCustodySettlementJournalEntryDto> {
+    await Promise.resolve();
     const transDate = new Date(source.TRANSDATE);
-    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
       String(source.TRANSDATE),
       source.CURRENCYCODE || '',
     );

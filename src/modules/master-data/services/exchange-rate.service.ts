@@ -1,77 +1,34 @@
 import { Injectable } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
 
 import { IExchangeRate } from '@/modules/master-data/interfaces/exchange-rate.interface';
-import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
-import { MultiLayerCacheService } from '@/modules/resilience/services/mutli-layer-cache.service';
+
+/** Map: rateType -> pairIndex (pairKey -> IExchangeRate[]) */
+export type ExchangeRateMap = Map<string, Map<string, IExchangeRate[]>>;
 
 @Injectable()
 export class ExchangeRateService {
-  constructor(
-    private readonly queryBus: QueryBus,
-    private readonly multiLayerCacheService: MultiLayerCacheService,
-  ) {}
-
-  async fetchExchangeRates(
-    dateString: string,
-    currency: string,
-    rateType?: string,
-  ): Promise<{ exchangeRate: number; reportingRate: number }> {
-    const effectiveRateType = rateType ?? 'default';
-    const [exchangeRate, reportingRate] = await Promise.all([
-      this.queryExchangeRate(currency, dateString, 'EGP', effectiveRateType),
-      this.queryExchangeRate(currency, dateString, 'USD', effectiveRateType),
-    ]);
-    return { exchangeRate, reportingRate };
+  /**
+   * Builds pair key index (e.g. USD|EGP -> rates). Base fetches raw IExchangeRate[],
+   * calls this, stores in exchangeRateMap by rateType.
+   */
+  buildRatesIndexByPair(rates: IExchangeRate[]): Map<string, IExchangeRate[]> {
+    const index = new Map<string, IExchangeRate[]>();
+    for (const r of rates) {
+      const from = r.fromCurrency?.toUpperCase() ?? '';
+      const to = r.toCurrency?.toUpperCase() ?? '';
+      const key = `${from}|${to}`;
+      const existing = index.get(key) ?? [];
+      existing.push(r);
+      index.set(key, existing);
+    }
+    return index;
   }
 
-  async queryExchangeRate(
-    currency: string,
-    date: string,
-    toCurrency: 'EGP' | 'USD',
-    rateType?: string,
-  ): Promise<number> {
-    const effectiveRateType = rateType ?? 'default';
-    if (currency === toCurrency) return 100;
-
-    const lookupKey = `exchange-rate:${effectiveRateType}:${currency}|${date}|${toCurrency}`;
-    return this.multiLayerCacheService.get(
-      lookupKey,
-      async () =>
-        this.resolveRate(currency, date, toCurrency, effectiveRateType),
-      { silent: true },
-    );
-  }
-
-  private async resolveRate(
-    fromCurrency: string,
-    date: string,
-    toCurrency: string,
-    rateType: string,
-  ): Promise<number> {
-    const rates = await this.loadExchangeRatesData(rateType);
-    const rate = this.findRateByDate(rates, date, fromCurrency, toCurrency);
-    return rate ? Number(rate * 100) : 100;
-  }
-
-  private async loadExchangeRatesData(
-    rateType: string,
-  ): Promise<IExchangeRate[]> {
-    const cacheKey = `exchange-rates:${rateType}:all`;
-    return this.multiLayerCacheService.get(
-      cacheKey,
-      async () => {
-        const result = await this.queryBus.execute(
-          new GetExchangeRatesQuery({ rateTypeName: rateType }, 0, 10000),
-        );
-        return result?.items ?? [];
-      },
-      { silent: true },
-    );
-  }
-
-  private findRateByDate(
-    rates: IExchangeRate[],
+  /**
+   * Finds rate by date using preloaded pair index. Pure sync lookup.
+   */
+  findRateByDate(
+    pairIndex: Map<string, IExchangeRate[]>,
     dateStr: string,
     fromCurrency: string,
     toCurrency: string,
@@ -81,11 +38,12 @@ export class ExchangeRateService {
 
     const fromUpper = fromCurrency.toUpperCase();
     const toUpper = toCurrency.toUpperCase();
+    const pairKey = `${fromUpper}|${toUpper}`;
 
-    const matching = rates.filter(
+    const pairRates = pairIndex.get(pairKey) ?? [];
+
+    const matching = pairRates.filter(
       (r) =>
-        r.fromCurrency?.toUpperCase() === fromUpper &&
-        r.toCurrency?.toUpperCase() === toUpper &&
         new Date(r.startDate).getTime() <= date.getTime() &&
         new Date(r.endDate).getTime() >= date.getTime(),
     );
@@ -98,5 +56,44 @@ export class ExchangeRateService {
         new Date(b.startDate).getTime() - new Date(a.startDate).getTime(),
     );
     return matching[0].rate;
+  }
+
+  queryExchangeRate(
+    exchangeRateMap: ExchangeRateMap,
+    rateType: string,
+    currency: string,
+    date: string,
+    toCurrency: 'EGP' | 'USD',
+  ): number {
+    if (currency === toCurrency) return 100;
+
+    const pairIndex = exchangeRateMap.get(rateType);
+    if (!pairIndex) return 100;
+
+    const rate = this.findRateByDate(pairIndex, date, currency, toCurrency);
+    return rate ? Number(rate * 100) : 100;
+  }
+
+  fetchExchangeRates(
+    exchangeRateMap: ExchangeRateMap,
+    rateType: string,
+    dateString: string,
+    currency: string,
+  ): { exchangeRate: number; reportingRate: number } {
+    const exchangeRate = this.queryExchangeRate(
+      exchangeRateMap,
+      rateType,
+      currency,
+      dateString,
+      'EGP',
+    );
+    const reportingRate = this.queryExchangeRate(
+      exchangeRateMap,
+      rateType,
+      currency,
+      dateString,
+      'USD',
+    );
+    return { exchangeRate, reportingRate };
   }
 }

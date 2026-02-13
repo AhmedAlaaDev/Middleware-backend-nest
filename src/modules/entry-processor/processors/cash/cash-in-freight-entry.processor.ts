@@ -62,6 +62,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     const rawCount = data.length;
     this.logger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -144,12 +145,13 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
+    await Promise.resolve();
     const lines = data as unknown as CashInFreightDFOLine[];
     const lineCount = lines.length;
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
-      await this.validateDimensionsForLine(line, {
+      this.validateDimensionsForLine(line, {
         validateMainAccount:
           line.AccountType?.trim()?.toLowerCase() === 'ledger',
       });
@@ -455,7 +457,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
             )
           : '';
 
-    const { exchangeRate, reportingRate } = await this.fetchExchangeRates(
+    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
       creditLine.TRANSDATE,
       creditLine.CURRENCYCODE || '',
     );
@@ -547,10 +549,22 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
   private async getDimensionsMap() {
     const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
+    const uniqueFetchKeys = new Set<string>();
     for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
-      const dimensionValues =
-        await this.dimensionService.getDimensionValues(key);
-      dimensionsMap.set(key, dimensionValues || []);
+      if (key === 'MainAccount') continue;
+      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
+      uniqueFetchKeys.add(fetchKey);
+    }
+    for (const fetchKey of uniqueFetchKeys) {
+      const dimensionValues = await this.fetchDimensionValuesRaw(fetchKey);
+      dimensionsMap.set(fetchKey, dimensionValues ?? []);
+    }
+    for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
+      if (key === 'MainAccount') continue;
+      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
+      if (!dimensionsMap.has(key)) {
+        dimensionsMap.set(key, dimensionsMap.get(fetchKey) ?? []);
+      }
     }
     return dimensionsMap;
   }

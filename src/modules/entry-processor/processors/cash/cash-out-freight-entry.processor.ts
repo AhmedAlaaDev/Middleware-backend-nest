@@ -63,6 +63,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     const rawCount = data.length;
     this.procLogger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -145,6 +146,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     data: DynDataModel[],
     _company: string,
   ): Promise<DynDataModel[]> {
+    await Promise.resolve();
     const lines = data as unknown as CashOutFreightDFOLine[];
     const lineCount = lines.length;
     this.procLogger.debug(
@@ -152,7 +154,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     );
 
     for (const line of lines) {
-      await this.validateDimensionsForLine(line, {
+      this.validateDimensionsForLine(line, {
         validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
       });
     }

@@ -79,6 +79,7 @@ export class ClosingFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
@@ -103,7 +104,7 @@ export class ClosingFreightEntryProcessor extends EntryProcessorBase {
   private async loadCostCenterDimensions(): Promise<
     IFinancialDimensionValue[]
   > {
-    return await this.dimensionService.getDimensionValues('CostCenters');
+    return this.fetchDimensionValuesRaw('CostCenters');
   }
 
   private async loadAndSortExchangeRates(): Promise<D365FOExchangeRate[]> {
@@ -194,10 +195,11 @@ export class ClosingFreightEntryProcessor extends EntryProcessorBase {
     _company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await Promise.resolve();
     const arData = data as DynLedgerClosingJournalEntryDto[];
 
     for (const arLine of arData) {
-      await this.validateDimensionsForLine(arLine, {
+      this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
       });
     }

@@ -53,6 +53,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     // Load customer-account mappings for the Trucking service
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
@@ -312,7 +313,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
 
     for (const arLine of arData) {
-      await this.validateDimensionsForLine(arLine, {
+      this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
       });

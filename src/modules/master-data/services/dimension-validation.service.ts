@@ -1,16 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { QueryBus } from '@nestjs/cqrs';
 
 import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import {
   DimensionKey,
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
-import { IMainAccount } from '@/modules/master-data/interfaces';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
-import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
-import { MultiLayerCacheService } from '@/modules/resilience/services/mutli-layer-cache.service';
 
 export interface DimensionValidationConfig {
   /** Map of dimension keys to required (true) or optional (false). Keys not present are not validated. */
@@ -23,26 +18,57 @@ export interface DimensionValidationConfig {
   chartNumber?: string;
 }
 
+export interface ValidationPreload {
+  dimensionsMap: Map<DimensionKey, Set<string>>;
+  accountNumberSet: Set<string>;
+}
+
 @Injectable()
 export class DimensionValidationService {
-  constructor(
-    private readonly queryBus: QueryBus,
-    private readonly multiLayerCacheService: MultiLayerCacheService,
-  ) {}
+  /**
+   * Builds dimensions map from raw fetch results. SubCustomer and Customer share fetchKey 'Customer'
+   * so base fetches once and both map entries get the same valueSet (no double DB hit).
+   */
+  buildDimensionsMap(
+    fetchKeyToValues: Map<string, IFinancialDimensionValue[]>,
+    requiredDimensions: RequiredDimensionsConfig,
+  ): Map<DimensionKey, Set<string>> {
+    const map = new Map<DimensionKey, Set<string>>();
+    const fetchKeyToValueSet = new Map<string, Set<string>>();
 
-  async validateDimensions(
+    const dimensionKeys = Object.keys(requiredDimensions) as DimensionKey[];
+
+    for (const key of dimensionKeys) {
+      if (key === 'MainAccount') continue;
+
+      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
+
+      let valueSet = fetchKeyToValueSet.get(fetchKey);
+      if (valueSet === undefined) {
+        const values = fetchKeyToValues.get(fetchKey) ?? [];
+        valueSet = new Set(
+          values
+            .map((v) => (v?.value || '').toLowerCase().trim())
+            .filter(Boolean),
+        );
+        fetchKeyToValueSet.set(fetchKey, valueSet);
+      }
+
+      map.set(key, valueSet);
+    }
+
+    return map;
+  }
+
+  validateDimensions(
     ar: DynDataModel,
     config: DimensionValidationConfig,
-  ): Promise<void> {
-    const dimensionsMap = await this.loadDimensionsMap(
-      config.requiredDimensions,
-    );
+    preloaded: ValidationPreload,
+  ): void {
+    const { dimensionsMap, accountNumberSet } = preloaded;
 
     if (config.validateMainAccount) {
-      const accounts = await this.getMainAccounts(
-        config.chartNumber ?? 'Chart of Accounts',
-      );
-      this.validateMainAccount(ar, accounts);
+      this.validateMainAccount(ar, accountNumberSet);
     }
 
     const dimensionKeys = Object.keys(
@@ -54,35 +80,33 @@ export class DimensionValidationService {
       true;
 
     for (const key of dimensionKeys) {
-      const values = dimensionsMap.get(key) || [];
+      const valueSet = dimensionsMap.get(key) ?? new Set<string>();
       switch (key) {
         case 'MainAccount':
           break;
         case 'Activity':
-          this.validateActivityName(ar, values, isRequired(key));
+          this.validateActivityName(ar, valueSet, isRequired(key));
           break;
         case 'CostCenters':
-          this.validateCostCenter(ar, values, isRequired(key));
+          this.validateCostCenter(ar, valueSet, isRequired(key));
           break;
         case 'BusinessUnit':
-          this.validateBusinessUnit(ar, values, isRequired(key));
+          this.validateBusinessUnit(ar, valueSet, isRequired(key));
           break;
         case 'Location':
-          this.validateLocation(ar, values, isRequired(key));
+          this.validateLocation(ar, valueSet, isRequired(key));
           break;
         case 'Customer':
-          this.validateCustomerDimension(ar, values, isRequired(key));
+          this.validateCustomerDimension(ar, valueSet, isRequired(key));
           break;
         case 'SubCustomer':
-          this.validateSubCustomerDimension(ar, values, isRequired(key));
+          this.validateSubCustomerDimension(ar, valueSet, isRequired(key));
           break;
         case 'ChargeType': {
           const allowedChargeTypes =
             (config.chargeTypeDims?.length ?? 0) > 0
               ? config.chargeTypeDims!
-              : values
-                  .map((v) => v?.value)
-                  .filter((v): v is string => Boolean(v));
+              : Array.from(valueSet);
           if (allowedChargeTypes.length > 0) {
             this.validateChargeTypeDimension(
               ar,
@@ -93,91 +117,45 @@ export class DimensionValidationService {
           break;
         }
         case 'SalesMan':
-          this.validateSalesMan(ar, values, isRequired(key));
+          this.validateSalesMan(ar, valueSet, isRequired(key));
           break;
         case 'CoordinatorMan':
-          this.validateCoordinatorMan(ar, values, isRequired(key));
+          this.validateCoordinatorMan(ar, valueSet, isRequired(key));
           break;
         case 'FreightType':
-          this.validateFreightType(ar, values, isRequired(key));
+          this.validateFreightType(ar, valueSet, isRequired(key));
           break;
         case 'Direction':
-          this.validateDirection(ar, values, isRequired(key));
+          this.validateDirection(ar, valueSet, isRequired(key));
           break;
         case 'TruckerType':
-          this.validateTruckerType(ar, values, isRequired(key));
+          this.validateTruckerType(ar, valueSet, isRequired(key));
           break;
         case 'TruckNumber':
-          this.validateTruckNumber(ar, values, isRequired(key));
+          this.validateTruckNumber(ar, valueSet, isRequired(key));
           break;
         case 'Vendor':
-          this.validateVendor(ar, values, isRequired(key));
+          this.validateVendor(ar, valueSet, isRequired(key));
           break;
         case 'SubVendor':
-          this.validateSubVendor(ar, values, isRequired(key));
+          this.validateSubVendor(ar, valueSet, isRequired(key));
           break;
         case 'Worker':
-          this.validateWorker(ar, values, isRequired(key));
+          this.validateWorker(ar, valueSet, isRequired(key));
           break;
       }
     }
   }
 
-  private async loadDimensionsMap(
-    requiredDimensions: RequiredDimensionsConfig,
-  ): Promise<Map<DimensionKey, IFinancialDimensionValue[]>> {
-    const map = new Map<DimensionKey, IFinancialDimensionValue[]>();
-    for (const key of Object.keys(requiredDimensions) as DimensionKey[]) {
-      if (key === 'MainAccount') continue;
-      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
-      const values = await this.getDimensionValues(fetchKey);
-      map.set(key, values);
-    }
-    return map;
-  }
-
-  private async getMainAccounts(
-    chartNumber: string = 'Chart of Accounts',
-  ): Promise<IMainAccount[]> {
-    const cacheKey = `main-accounts:${chartNumber}`;
-    const result = await this.multiLayerCacheService.get(
-      cacheKey,
-      async () => {
-        const res = await this.queryBus.execute(
-          new GetMainAccountsQuery({ chartNumber }),
-        );
-        return res?.items || [];
-      },
-      { silent: true },
-    );
-    return result;
-  }
-
-  async getDimensionValues(
-    financialKey: string,
-  ): Promise<IFinancialDimensionValue[]> {
-    const cacheKey = `dimension-values:${financialKey}`;
-    return this.multiLayerCacheService.get(
-      cacheKey,
-      async () => {
-        const values = await this.queryBus.execute(
-          new GetFinancialDimensionValueQuery(financialKey),
-        );
-        return values || [];
-      },
-      { silent: true },
-    );
-  }
-
   /**
    * Shared validation for dimension fields that follow the standard pattern:
    * - Required check (empty or '000')
-   * - Value must exist in allowed dimensions (partial match via includes)
+   * - Value must exist in allowed dimensions (exact match, case-insensitive)
    */
   private validateDimensionField(
     ar: DynDataModel,
     rawValue: string | undefined,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
     errorKey: string,
     label: string,
@@ -187,10 +165,7 @@ export class DimensionValidationService {
       ar.AddError(errorKey, `${label} is required`);
       return;
     }
-    if (
-      value &&
-      !dimensions.some((d) => (d?.value || '').toLowerCase().includes(value))
-    ) {
+    if (value && !valueSet.has(value)) {
       ar.AddError(
         errorKey,
         `The dimension ${rawValue ?? value} does not exist in the system.`,
@@ -200,20 +175,15 @@ export class DimensionValidationService {
 
   private validateMainAccount(
     ar: DynDataModel,
-    accounts: Array<{ accountNumber: string }>,
+    accountNumberSet: Set<string>,
   ): void {
     const dimensionsModel = ar.DimensionModel;
     if (!dimensionsModel?.mainAccount) {
       ar.AddError('MainAccount', 'Main Account is required');
       return;
     }
-    if (
-      !accounts.some((a) =>
-        a.accountNumber
-          .toLowerCase()
-          .includes(dimensionsModel.mainAccount?.toLowerCase() || ''),
-      )
-    ) {
+    const mainAccountLower = (dimensionsModel.mainAccount ?? '').toLowerCase();
+    if (mainAccountLower && !accountNumberSet.has(mainAccountLower)) {
       ar.AddError(
         'MainAccount',
         `The main account ${dimensionsModel.mainAccount} does not exist in the system.`,
@@ -223,13 +193,13 @@ export class DimensionValidationService {
 
   private validateCustomerDimension(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.customer,
-      dimensions,
+      valueSet,
       isRequired,
       'CustomerDimensions',
       'Customer',
@@ -238,13 +208,13 @@ export class DimensionValidationService {
 
   private validateSubCustomerDimension(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.subCustomer,
-      dimensions,
+      valueSet,
       isRequired,
       'SubCustomerDimensions',
       'SubCustomer',
@@ -305,13 +275,13 @@ export class DimensionValidationService {
 
   private validateActivityName(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.activityName,
-      dimensions,
+      valueSet,
       isRequired,
       'ActivityNameDimensions',
       'ActivityName',
@@ -320,13 +290,13 @@ export class DimensionValidationService {
 
   private validateCostCenter(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.costCenter,
-      dimensions,
+      valueSet,
       isRequired,
       'CostCenterDimensions',
       'CostCenter',
@@ -335,13 +305,13 @@ export class DimensionValidationService {
 
   private validateBusinessUnit(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.businessUnit,
-      dimensions,
+      valueSet,
       isRequired,
       'BusinessUnitDimensions',
       'BusinessUnit',
@@ -350,13 +320,13 @@ export class DimensionValidationService {
 
   private validateLocation(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.location,
-      dimensions,
+      valueSet,
       isRequired,
       'LocationDimensions',
       'Location',
@@ -365,13 +335,13 @@ export class DimensionValidationService {
 
   private validateFreightType(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.freightType,
-      dimensions,
+      valueSet,
       isRequired,
       'FreightTypeDimensions',
       'FreightType',
@@ -380,13 +350,13 @@ export class DimensionValidationService {
 
   private validateSalesMan(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.salesMan,
-      dimensions,
+      valueSet,
       isRequired,
       'SalesManDimensions',
       'SalesMan',
@@ -395,13 +365,13 @@ export class DimensionValidationService {
 
   private validateTruckerType(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.truckerType,
-      dimensions,
+      valueSet,
       isRequired,
       'TruckerTypeDimensions',
       'TruckerType',
@@ -410,13 +380,13 @@ export class DimensionValidationService {
 
   private validateTruckNumber(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.truckNumber,
-      dimensions,
+      valueSet,
       isRequired,
       'TruckNumberDimensions',
       'TruckNumber',
@@ -425,13 +395,13 @@ export class DimensionValidationService {
 
   private validateDirection(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.direction,
-      dimensions,
+      valueSet,
       isRequired,
       'DirectionDimensions',
       'Direction',
@@ -440,13 +410,13 @@ export class DimensionValidationService {
 
   private validateCoordinatorMan(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.coordinatorMan,
-      dimensions,
+      valueSet,
       isRequired,
       'CoordinatorManDimensions',
       'CoordinatorMan',
@@ -455,13 +425,13 @@ export class DimensionValidationService {
 
   private validateVendor(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.vendor,
-      dimensions,
+      valueSet,
       isRequired,
       'VendorDimensions',
       'Vendor',
@@ -470,13 +440,13 @@ export class DimensionValidationService {
 
   private validateSubVendor(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.subVendor,
-      dimensions,
+      valueSet,
       isRequired,
       'SubVendorDimensions',
       'SubVendor',
@@ -485,13 +455,13 @@ export class DimensionValidationService {
 
   private validateWorker(
     ar: DynDataModel,
-    dimensions: IFinancialDimensionValue[],
+    valueSet: Set<string>,
     isRequired: boolean,
   ): void {
     this.validateDimensionField(
       ar,
       ar.DimensionModel?.worker,
-      dimensions,
+      valueSet,
       isRequired,
       'WorkerDimensions',
       'Worker',

@@ -50,6 +50,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
+    await this.warmupProcessorData();
     // Load customer-account mappings for the Freight service
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
@@ -101,7 +102,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     const uniqueChargeTypeDims = Array.from(new Set(chargeTypeDims));
 
     for (const arLine of arData) {
-      await this.validateDimensionsForLine(arLine, {
+      this.validateDimensionsForLine(arLine, {
         validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
       });
