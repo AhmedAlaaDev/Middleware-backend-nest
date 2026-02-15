@@ -12,7 +12,7 @@ export class RawDataModel {
   /** Unique row id, used to build DynDataModel.SourceIds */
   UniqueId: number;
   /** Line number (source column LINENUMBER) */
-  LINENUMBER: string;
+  LINENUMBER: number;
   /** Batch number (source column JOURNALBATCHNUMBER) */
   JOURNALBATCHNUMBER: string;
   /** Voucher (source column VOUCHER) */
@@ -59,6 +59,35 @@ export class RawDataModel {
   /** Other fields from the source data */
   [key: string]: any;
 
+  constructor(data: Partial<RawDataModel>) {
+    const s = (v: unknown) => this.lookupResultAsString(v);
+    const n = (v: unknown) => this.lookupResultAsNumber(v);
+
+    this.UniqueId = n(data.UniqueId);
+    this.LINENUMBER = n(data.LINENUMBER);
+    this.JOURNALBATCHNUMBER = s(data.JOURNALBATCHNUMBER);
+    this.VOUCHER = s(data.VOUCHER);
+    this.TRANSDATE = s(data.TRANSDATE);
+    this.JOURNALNAME = s(data.JOURNALNAME);
+    this.DESCRIPTION = s(data.DESCRIPTION);
+    this.ACCOUNTTYPE = s(data.ACCOUNTTYPE);
+    this.ACCOUNTDISPLAYVALUE = s(data.ACCOUNTDISPLAYVALUE);
+    this.DEFAULTDIMENSIONDISPLAYVALUE = s(data.DEFAULTDIMENSIONDISPLAYVALUE);
+    this.FINTAGDISPLAYVALUE = s(data.FINTAGDISPLAYVALUE);
+    this.TEXT = s(data.TEXT);
+    this.DEBITAMOUNT = n(data.DEBITAMOUNT);
+    this.CREDITAMOUNT = n(data.CREDITAMOUNT);
+    this.CURRENCYCODE = s(data.CURRENCYCODE);
+    this.EXCHANGERATE = n(data.EXCHANGERATE);
+    this.DOCUMENT = s(data.DOCUMENT);
+    this.INVOICE = s(data.INVOICE);
+    this.POSTINGPROFILE = s(data.POSTINGPROFILE);
+    this.POSTINGLAYER = s(data.POSTINGLAYER);
+    this.TAXEXEMPTNUMBER = n(data.TAXEXEMPTNUMBER);
+    this.SALESTAXCODE = s(data.SALESTAXCODE);
+    this.ISPOSTED = data.ISPOSTED || 'No';
+  }
+
   protected lookupResult<T = any>(value: LookupCell<T>): T {
     if (value && typeof value === 'object' && 'result' in value) {
       return (value as any).result;
@@ -104,9 +133,9 @@ export class RawDataModel {
 export class DynDataModel {
   /** Line number within batch/journal */
   LineNumber: number;
-  /** Journal batch number (optional on AR free-text lines) */
-  BatchNumber: string;
-  /** Voucher number (optional on AR free-text lines) */
+  /** Journal batch number */
+  JournalBatchNumber: string;
+  /** Voucher number */
   Voucher: string;
   /** Source row ids for traceability (e.g. from RawDataModel.UniqueId) */
   SourceIds: string[] = [];
@@ -118,7 +147,7 @@ export class DynDataModel {
   constructor(data: RawDataModel, dimensionModel: AccountDimensionsModel) {
     this.SourceIds = data.UniqueId ? [String(data.UniqueId)] : [];
     this.LineNumber = data.LINENUMBER ? Number(data.LINENUMBER) : 0;
-    this.BatchNumber = data.JOURNALBATCHNUMBER || '';
+    this.JournalBatchNumber = data.JOURNALBATCHNUMBER || '';
     this.Voucher = data.VOUCHER || '';
     this.DimensionModel = dimensionModel;
   }

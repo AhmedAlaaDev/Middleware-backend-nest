@@ -3,10 +3,14 @@ import { QueryBus } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
-  DynDataModel,
   IEntryProcessor,
   RawDataModel,
+  DynDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+// import {
+//   RawDataModel,
+//   DynDataModel,
+// } from '@/modules/entry-processor/models/entry-processor.model';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import {
@@ -97,6 +101,12 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     data: DynDataModel[],
     company: string,
   ): Promise<void>;
+
+  protected sortRawDataByLineNumber<T extends RawDataModel>(lines: T[]): T[] {
+    return [...lines].sort(
+      (a, b) => Number(a.LINENUMBER) - Number(b.LINENUMBER),
+    );
+  }
 
   /**
    * Preloads dimensions, main accounts, and exchange rates into memory.
