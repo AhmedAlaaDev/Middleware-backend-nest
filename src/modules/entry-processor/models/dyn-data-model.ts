@@ -3,6 +3,7 @@ import { AccountDimensionsModel } from '@/modules/entry-processor/models/account
 
 export abstract class DynDataModel implements IDynDataModel {
   LineNumber?: number;
+
   DimensionModel?: AccountDimensionsModel;
   SourceIds: string[] = [];
 

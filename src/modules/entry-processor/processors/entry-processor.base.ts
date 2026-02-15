@@ -2,12 +2,12 @@ import { Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { EntryProcessorBaseOptions } from '@/modules/entry-processor/interfaces/entry-processor-base-options.interface';
 import {
   DynDataModel,
   IEntryProcessor,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import {
   DimensionKey,
@@ -41,6 +41,12 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   mainAccount: true,
   exchangeRates: true,
 };
+
+interface EntryProcessorBaseOptions {
+  dependencies: EntryProcessorBaseDependencies;
+  rateType?: string;
+  chartNumber?: string;
+}
 
 export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly baseLogger = new Logger(EntryProcessorBase.name);
