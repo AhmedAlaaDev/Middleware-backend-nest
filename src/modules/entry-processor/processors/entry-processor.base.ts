@@ -58,6 +58,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected billingClassifications: Map<string, Array<IBillingCode>> =
     new Map();
 
+  protected rateType: string;
+  protected chartNumber: string;
+
   protected dimensionsMap: Map<DimensionKey, Set<string>> | null = null;
   protected accountNumberSet: Set<string> | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
@@ -69,6 +72,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly taxGroupService: TaxGroupService;
 
   constructor(protected readonly options: EntryProcessorBaseOptions) {
+    this.rateType = options.rateType ?? 'default';
+    this.chartNumber = options.chartNumber ?? 'Chart of Accounts';
     this.queryBus = options.dependencies.queryBus;
     this.exchangeRateService = options.dependencies.exchangeRateService;
     this.utilsService = options.dependencies.utilsService;
@@ -120,9 +125,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     if (options.mainAccount) {
       const accStart = Date.now();
-      this.accountNumberSet = await this.fetchMainAccounts(
-        this.options?.chartNumber ?? 'Chart of Accounts',
-      );
+      this.accountNumberSet = await this.fetchMainAccounts(this.chartNumber);
       this.baseLogger.debug(
         `[${processorName}] Main accounts loaded in ${Date.now() - accStart}ms, count: ${this.accountNumberSet.size}`,
       );
@@ -131,7 +134,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     if (options.exchangeRates) {
       const exStart = Date.now();
       this.exchangeRateMap = this.exchangeRateMap ?? new Map();
-      await this.fetchExchangeRatesData(this.options?.rateType ?? 'default');
+      await this.fetchExchangeRatesData(this.rateType);
       this.baseLogger.debug(
         `[${processorName}] Exchange rates loaded in ${Date.now() - exStart}ms, rateTypes: ${this.exchangeRateMap.size}`,
       );
@@ -251,7 +254,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       line,
       {
         requiredDimensions: this.requiredDimensions,
-        chartNumber: this.options?.chartNumber,
+        chartNumber: this.chartNumber,
         ...overrides,
       },
       {
@@ -283,7 +286,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
     return this.exchangeRateService.fetchExchangeRates(
       this.exchangeRateMap,
-      this.options?.rateType ?? 'default',
+      this.rateType,
       dateString,
       currency,
     );
@@ -301,7 +304,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
     return this.exchangeRateService.queryExchangeRate(
       this.exchangeRateMap,
-      this.options?.rateType ?? 'default',
+      this.rateType,
       currency,
       date,
       toCurrency,
