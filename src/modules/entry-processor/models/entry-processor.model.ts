@@ -24,7 +24,7 @@ export class RawDataModel {
   /** Description */
   DESCRIPTION: string;
   /** Account type (e.g. Ledger, Vend, Cust) */
-  ACCOUNTTYPE: string;
+  ACCOUNTTYPE: 'Cust' | 'Ledger' | 'Vend' | 'Bank' | 'Petty cash';
   /** Main account display value */
   ACCOUNTDISPLAYVALUE: string;
   /** Default dimension display value */
@@ -41,6 +41,12 @@ export class RawDataModel {
   CURRENCYCODE: string;
   /** Exchange rate */
   EXCHANGERATE: number;
+  /** Exchange rate secondary */
+  EXCHANGERATESECONDARY: number;
+  /** Reporting currency exchange rate */
+  REPORTINGCURRENCYEXCHRATE: number;
+  /** Reporting currency exchange rate secondary */
+  REPORTINGCURRENCYEXCHRATESECONDARY: number;
   /** Document */
   DOCUMENT: string;
   /** Invoice */
@@ -70,7 +76,12 @@ export class RawDataModel {
     this.TRANSDATE = s(data.TRANSDATE);
     this.JOURNALNAME = s(data.JOURNALNAME);
     this.DESCRIPTION = s(data.DESCRIPTION);
-    this.ACCOUNTTYPE = s(data.ACCOUNTTYPE);
+    this.ACCOUNTTYPE = s(data.ACCOUNTTYPE) as
+      | 'Cust'
+      | 'Ledger'
+      | 'Vend'
+      | 'Bank'
+      | 'Petty cash';
     this.ACCOUNTDISPLAYVALUE = s(data.ACCOUNTDISPLAYVALUE);
     this.DEFAULTDIMENSIONDISPLAYVALUE = s(data.DEFAULTDIMENSIONDISPLAYVALUE);
     this.FINTAGDISPLAYVALUE = s(data.FINTAGDISPLAYVALUE);
@@ -79,6 +90,11 @@ export class RawDataModel {
     this.CREDITAMOUNT = n(data.CREDITAMOUNT);
     this.CURRENCYCODE = s(data.CURRENCYCODE);
     this.EXCHANGERATE = n(data.EXCHANGERATE);
+    this.EXCHANGERATESECONDARY = n(data.EXCHANGERATESECONDARY);
+    this.REPORTINGCURRENCYEXCHRATE = n(data.REPORTINGCURRENCYEXCHRATE);
+    this.REPORTINGCURRENCYEXCHRATESECONDARY = n(
+      data.REPORTINGCURRENCYEXCHRATESECONDARY,
+    );
     this.DOCUMENT = s(data.DOCUMENT);
     this.INVOICE = s(data.INVOICE);
     this.POSTINGPROFILE = s(data.POSTINGPROFILE);
@@ -141,14 +157,20 @@ export class DynDataModel {
   SourceIds: string[] = [];
   /** Dimension model for validation/posting */
   DimensionModel: AccountDimensionsModel;
+  /** Transaction date */
+  TransactionDate: string;
+  /** Journal name */
+  JournalName: string;
+  /** Description */
+  Description: string;
 
   private errors: Array<{ property: string; message: string }> = [];
 
-  constructor(data: RawDataModel, dimensionModel: AccountDimensionsModel) {
-    this.SourceIds = data.UniqueId ? [String(data.UniqueId)] : [];
-    this.LineNumber = data.LINENUMBER ? Number(data.LINENUMBER) : 0;
-    this.JournalBatchNumber = data.JOURNALBATCHNUMBER || '';
-    this.Voucher = data.VOUCHER || '';
+  constructor(data: DynDataModel, dimensionModel: AccountDimensionsModel) {
+    this.SourceIds = data.SourceIds;
+    this.LineNumber = data.LineNumber;
+    this.JournalBatchNumber = data.JournalBatchNumber;
+    this.Voucher = data.Voucher;
     this.DimensionModel = dimensionModel;
   }
 

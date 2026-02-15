@@ -1,25 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { CashInFreightDFOLine } from '@/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface';
-import { CashInFreightRawData } from '@/modules/cash-in/models/cash-in-freight-raw-data.model';
+import { CashEntryDynDataModel } from '@/modules/cash/cash-in/models/cash-entry-dyn-data.model';
+import { CashEntryRawDataModel } from '@/modules/cash/cash-in/models/cash-entry-raw-data.model';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   DynDataModel,
   RawDataModel,
-} from '@/modules/entry-processor/interfaces/entry-processor.interface';
+} from '@/modules/entry-processor/models/entry-processor.model';
 import { EntryProcessorBase } from '@/modules/entry-processor/processors/entry-processor.base';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import {
-  DimensionKey,
-  RequiredDimensionsConfig,
-} from '@/modules/entry-processor/types/dimension-key.type';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/ledger/commands/process-custody-settlement-entry.command';
-import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetCustomersQuery } from '@/modules/master-data/queries';
-import { GetSettingQuery } from '@/modules/settings/queries/get-setting.query';
 
-type RawDataInvoiceMap = Map<string, CashInFreightRawData[]>;
+type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
 @Injectable()
 export class CashInFreightEntryProcessor extends EntryProcessorBase {
@@ -62,7 +56,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    await this.warmupProcessorData();
+    this.company = company;
+
+    await this.warmupProcessorData({ customerNames: true });
+
     const rawCount = data.length;
     this.logger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -70,41 +67,37 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
     // STEP 1: Map & sort
     this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
-    const rawLines = this.mapToModels(data);
+    const rawLines = this.mapToModel(data);
     this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
+
+    // STEP 1.5: Sort lines by line number
+    this.logger.debug(
+      `[STEP 1.5] Sorting ${rawLines.length} lines by line number`,
+    );
+    const sortedLines = this.sortRawDataByLineNumber(rawLines);
+    this.logger.debug(`[STEP 1.5] Sorted to ${sortedLines.length} lines`);
 
     // STEP 2: FILTER CUSTODY SETTLEMENTS
     this.logger.debug(
-      `[STEP 2] Filtering custody settlements from ${rawLines.length} lines`,
+      `[STEP 2] Filtering custody settlements from ${sortedLines.length} lines`,
     );
     const { custodySettlementLines, otherLines } =
-      this.filteredSortedLines(rawLines);
+      this.filterLines(sortedLines);
     this.logger.debug(
-      `[FILTER] Processed ${rawLines.length} lines → ${custodySettlementLines.length} custody settlement, ${otherLines.length} other lines`,
+      `[FILTER] Processed ${sortedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${otherLines.length} customer collection, down payment and other lines`,
     );
 
     // STEP 2.5: run custody settlement with raw data (no file – already extracted from Excel)
-    if (custodySettlementLines.length > 0) {
-      this.commandBus
-        .execute(
-          new ProcessCustodySettlementEntryCommand(
-            company,
-            undefined,
-            custodySettlementLines,
-          ),
-        )
-        .catch((error) => {
-          this.logger.error(
-            `Error processing custody settlement entry: ${error}`,
-          );
-        });
-    }
+    this.logger.debug(
+      `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
+    );
+    this.processCustodySettlementLines(custodySettlementLines, company);
 
     // STEP 3: Build invoice map
     this.logger.debug(
       `[STEP 3] Building invoice map from ${otherLines.length} lines`,
     );
-    const invoiceMap = this.buildInvoiceMap(otherLines);
+    const invoiceMap = this.buildUniqueIdMap(otherLines);
     const invoiceCount = invoiceMap.size;
     this.logger.debug(`[STEP 3] Grouped into ${invoiceCount} invoices`);
 
@@ -112,41 +105,28 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 4] Building DFO lines from ${invoiceCount} invoices`,
     );
-    const dfoLines = await this.buildLines(invoiceMap, company);
+    const dfoLines = this.buildLines(invoiceMap, company);
     this.logger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
-    // STEP 5: Batch processing (rules)
-    // - MAX 1000 lines per batch
-    // - batch contains only invoices from the same month
-    // - invoice cannot be split across batches
-    this.logger.debug(`[STEP 5] Initializing batch processing`);
-    const journalBatchNum = await this.getNextBatchNumber();
-    const voucherNum = await this.getNextVoucherNumber();
+    // STEP 5: Update batch and voucher numbers
     this.logger.debug(
-      `[STEP 5] Starting with batch number: ${journalBatchNum}, voucher number: ${voucherNum}`,
+      `[STEP 5] Updating batch and voucher numbers for ${dfoLines.length} lines`,
     );
-    const updatedDfoLines = this.updateBatchAndVoucher(
-      dfoLines,
-      journalBatchNum,
-      voucherNum,
-    );
+    const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
+      lines: dfoLines,
+      startBatchNumber: 1,
+      startVoucherNumber: 1,
+      maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
+    });
     this.logger.debug(
-      `[COMPLETE] Generated ${updatedDfoLines.length} enriched lines`,
+      `[STEP 5] Updated batch and voucher numbers for ${updatedDfoLines.length} lines`,
     );
 
     return updatedDfoLines;
   }
 
-  // --------------------------------------------------------------------------
-  // VALIDATE
-  // --------------------------------------------------------------------------
-
-  public async validateAsync(
-    data: DynDataModel[],
-    _company: string,
-  ): Promise<DynDataModel[]> {
-    await Promise.resolve();
-    const lines = data as unknown as CashInFreightDFOLine[];
+  public validateAsync(data: DynDataModel[], _company: string): DynDataModel[] {
+    const lines = data as unknown as CashEntryDynDataModel[];
     const lineCount = lines.length;
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
@@ -168,22 +148,16 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
 
-  private mapToModels(data: RawDataModel[]): CashInFreightRawData[] {
-    return data.map((d) => new CashInFreightRawData(d));
+  private mapToModel(data: RawDataModel[]): CashEntryRawDataModel[] {
+    return data.map((d) => new CashEntryRawDataModel(d, 'Freight'));
   }
 
-  private sortLinesByLineNumber(
-    lines: CashInFreightRawData[],
-  ): CashInFreightRawData[] {
-    return [...lines].sort((a, b) => a.LINENUMBER - b.LINENUMBER);
-  }
-
-  private filteredSortedLines(sortedLines: CashInFreightRawData[]) {
-    const custodySettlementLines: CashInFreightRawData[] = [];
-    const otherLines: CashInFreightRawData[] = [];
+  private filterLines(sortedLines: CashEntryRawDataModel[]) {
+    const custodySettlementLines: CashEntryRawDataModel[] = [];
+    const otherLines: CashEntryRawDataModel[] = [];
 
     for (const line of sortedLines) {
-      if (line.ISCUSTODYSETTLEMENT) {
+      if (line.IsCustodySettlement) {
         custodySettlementLines.push(line);
       } else {
         otherLines.push(line);
@@ -191,381 +165,43 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     }
 
     return {
-      custodySettlementLines: this.sortLinesByLineNumber(
-        custodySettlementLines,
-      ),
-      otherLines: this.sortLinesByLineNumber(otherLines),
+      custodySettlementLines,
+      otherLines,
     };
   }
 
-  private updateBatchAndVoucher(
-    dfoLines: CashInFreightDFOLine[],
-    journalBatchNum: number,
-    voucherNum: number,
-  ): CashInFreightDFOLine[] {
-    const invoiceMap = new Map<string, CashInFreightDFOLine[]>();
-    for (const line of dfoLines) {
-      const uniqueId = String(line.PaymentId);
-      if (!invoiceMap.has(uniqueId)) {
-        invoiceMap.set(uniqueId, []);
-      }
-      invoiceMap.get(uniqueId)!.push(line);
-    }
-
-    const updatedMap = new Map<string, CashInFreightDFOLine[]>();
-
-    let currentBatchMonth: string | null = null;
-    let currentBatchLineCount = 0;
-    let currentBatchNumber = journalBatchNum;
-    let currentVoucherNum = voucherNum;
-
-    let lineNumberInBatch = 1;
-
-    for (const [uniqueId, lines] of invoiceMap.entries()) {
-      if (!lines || lines.length === 0) {
-        continue;
-      }
-
-      const headerLine = lines[0];
-      const invoiceMonth = this.utilsService.toMonthKey(
-        headerLine.TransactionDate,
-      );
-
-      const invoiceLineCount = lines.length;
-      const monthChanged = currentBatchMonth !== invoiceMonth;
-      const wouldExceedLimit =
-        currentBatchLineCount + invoiceLineCount > this.MAX_LINES_PER_BATCH;
-
-      // If month changes, or adding this invoice would exceed the max lines,
-      // we start a new batch and reset line number.
-      if (monthChanged || wouldExceedLimit) {
-        if (currentBatchMonth !== null) {
-          currentBatchNumber++;
-        }
-        currentBatchMonth = invoiceMonth;
-        currentBatchLineCount = 0;
-        lineNumberInBatch = 1;
-      }
-
-      // Edge case: a single invoice exceeds the batch limit.
-      // We keep it intact (do not split invoice), even if it exceeds 1000.
-      if (invoiceLineCount > this.MAX_LINES_PER_BATCH) {
-        this.logger.warn(
-          `Invoice ${headerLine.MarkedInvoice ?? headerLine.PaymentId} has ${invoiceLineCount} lines (> ${this.MAX_LINES_PER_BATCH}). Keeping it in a single batch.`,
-        );
-      }
-
-      const journalName = headerLine.JournalName;
-      const formattedBatch =
-        this.utilsService.formatBatchNumber(currentBatchNumber);
-      const formattedVoucher = this.utilsService.formatVoucherNumber(
-        currentVoucherNum,
-        journalName,
-      );
-
-      const updatedLines: CashInFreightDFOLine[] = [];
-
-      for (const line of lines) {
-        const updatedLine = new CashInFreightDFOLine(
-          {
-            ...line,
-            JournalBatchNumber: formattedBatch,
-            Voucher: formattedVoucher,
-            LineNumber: lineNumberInBatch,
-          },
-          line.DimensionModel,
-        );
-
-        updatedLines.push(updatedLine);
-        currentBatchLineCount++;
-        lineNumberInBatch++;
-      }
-
-      // Move to next voucher for the next invoice
-      currentVoucherNum++;
-
-      updatedMap.set(uniqueId, updatedLines);
-    }
-
-    return Array.from(updatedMap.values()).flat();
-  }
-
-  private buildInvoiceMap(
-    sortedLines: CashInFreightRawData[],
-  ): RawDataInvoiceMap {
-    const invoiceMap: RawDataInvoiceMap = new Map();
-
-    for (const line of sortedLines) {
-      const uniqueId = String(line.UniqueId);
-      if (!invoiceMap.has(uniqueId)) {
-        invoiceMap.set(uniqueId, []);
-      }
-      invoiceMap.get(uniqueId)!.push(line);
-    }
-
-    return invoiceMap;
-  }
-
-  private static readonly AMOUNT_EPSILON = 1e-6;
-
-  private async buildLines(
-    invoiceMap: RawDataInvoiceMap,
+  private processCustodySettlementLines(
+    lines: CashEntryRawDataModel[],
     company: string,
-  ): Promise<CashInFreightDFOLine[]> {
-    const allLines = Array.from(invoiceMap.values()).flat();
-    const uniqueCustomerAccounts = new Set<string>();
-    for (const line of allLines) {
-      if (
-        line.ACCOUNTTYPE?.toLowerCase() === 'cust' &&
-        line.ACCOUNTDISPLAYVALUE
-      ) {
-        uniqueCustomerAccounts.add(line.ACCOUNTDISPLAYVALUE);
-      }
-    }
+  ): void {
+    if (lines.length === 0) return;
 
-    const customerNameEntries = await Promise.all(
-      Array.from(uniqueCustomerAccounts).map(async (accountDisplayValue) => {
-        const name = await this.getCustomerName(
-          'cust',
-          accountDisplayValue,
-          company,
+    const command = new ProcessCustodySettlementEntryCommand(
+      company,
+      undefined,
+      lines,
+    );
+
+    this.commandBus
+      .execute(command)
+      .then(() => {
+        this.logger.debug(
+          `[STEP 2.5] Successfully processed ${lines.length} custody settlement lines`,
         );
-        return [accountDisplayValue, name] as const;
-      }),
-    ).then((entries) => new Map(entries));
-
-    const dfoLines: CashInFreightDFOLine[] = [];
-
-    for (const [uniqueId, lines] of invoiceMap.entries()) {
-      const debitLine = lines.find((l) => l.ISDEBIT);
-      const creditLines = lines.filter((l) => l.ISCREDIT);
-
-      if (!debitLine) {
-        const built = await Promise.all(
-          creditLines.map((creditLine) =>
-            this.buildLine(
-              null,
-              creditLine,
-              company,
-              false,
-              customerNameEntries,
-            ),
-          ),
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[STEP 2.5] Error processing custody settlement entry for ${lines.length} lines: ${error}`,
         );
-        for (let i = 0; i < built.length; i++) {
-          built[i].AddError(
-            'Invoice',
-            `Invoice ${creditLines[i].INVOICE ?? uniqueId} has no debit line.`,
-          );
-          dfoLines.push(built[i]);
-        }
-        if (creditLines.length === 0) {
-          const placeholder = lines[0];
-          if (placeholder) {
-            const dfoLine = await this.buildLine(
-              placeholder,
-              placeholder,
-              company,
-              true,
-              customerNameEntries,
-            );
-            dfoLine.AddError(
-              'Invoice',
-              `Invoice ${placeholder.INVOICE ?? uniqueId} has no debit and no credit lines.`,
-            );
-            dfoLines.push(dfoLine);
-          }
-        }
-        continue;
-      }
+      });
+  }
 
-      if (creditLines.length === 0) {
-        const dfoLine = await this.buildLine(
-          debitLine,
-          debitLine,
-          company,
-          true,
-          customerNameEntries,
-        );
-        dfoLine.AddError(
-          'Invoice',
-          `Invoice ${debitLine.INVOICE ?? uniqueId} has no credit lines.`,
-        );
-        dfoLines.push(dfoLine);
-        continue;
-      }
+  private buildLines(
+    _invoiceMap: RawDataInvoiceMap,
+    _company: string,
+  ): CashEntryDynDataModel[] {
+    const dfoLines: CashEntryDynDataModel[] = [];
 
-      const totalDebit = debitLine.DEBITAMOUNT;
-      const totalCredit = creditLines.reduce(
-        (sum, c) => sum + c.CREDITAMOUNT,
-        0,
-      );
-      const amountsMatch =
-        Math.abs(totalDebit - totalCredit) <
-        CashInFreightEntryProcessor.AMOUNT_EPSILON;
-      const balanceError = !amountsMatch
-        ? `Total credit (${totalCredit}) does not match debit (${totalDebit}) for invoice ${debitLine.INVOICE ?? uniqueId}.`
-        : null;
-
-      const built = await Promise.all(
-        creditLines.map((creditLine) =>
-          this.buildLine(
-            debitLine,
-            creditLine,
-            company,
-            false,
-            customerNameEntries,
-          ),
-        ),
-      );
-      for (const dfoLine of built) {
-        if (balanceError) {
-          dfoLine.AddError('Invoice', balanceError);
-        }
-        dfoLines.push(dfoLine);
-      }
-    }
     return dfoLines;
-  }
-
-  private async buildLine(
-    debitLine: CashInFreightRawData | null,
-    creditLine: CashInFreightRawData,
-    company: string,
-    useDebitAmounts = false,
-    customerNameMap?: Map<string, string>,
-  ): Promise<CashInFreightDFOLine> {
-    const isLedger = creditLine.ISLEDGER || debitLine?.ISLEDGER;
-    const dimensionModel = isLedger
-      ? this.utilsService.parseDimensionString(creditLine.ACCOUNTDISPLAYVALUE)
-      : this.utilsService.parseDimensionString(
-          creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-        );
-
-    const lineAmount = useDebitAmounts
-      ? creditLine.DEBITAMOUNT
-      : creditLine.CREDITAMOUNT;
-
-    const customerName =
-      customerNameMap && creditLine.ACCOUNTTYPE?.toLowerCase() === 'cust'
-        ? (customerNameMap.get(creditLine.ACCOUNTDISPLAYVALUE) ?? '')
-        : customerNameMap === undefined
-          ? await this.getCustomerName(
-              creditLine.ACCOUNTTYPE,
-              creditLine.ACCOUNTDISPLAYVALUE,
-              company,
-            )
-          : '';
-
-    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
-      creditLine.TRANSDATE,
-      creditLine.CURRENCYCODE || '',
-    );
-
-    const line = new CashInFreightDFOLine(
-      {
-        JournalBatchNumber: '',
-        LineNumber: 0,
-        AccountDisplayValue: creditLine.ACCOUNTDISPLAYVALUE,
-        OffsetAccountDisplayValue: debitLine?.ACCOUNTDISPLAYVALUE ?? '',
-        AccountType: creditLine.ACCOUNTTYPE,
-        OffsetAccountType: debitLine?.ACCOUNTTYPE ?? '',
-        DefaultDimensionsForAccountDisplayValue:
-          creditLine.DEFAULTDIMENSIONDISPLAYVALUE || '',
-        DefaultDimensionsForOffsetAccountDisplayValue:
-          debitLine?.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
-        Company: company,
-        CurrencyCode: creditLine.CURRENCYCODE || '',
-        CreditAmount: lineAmount,
-        DebitAmount: lineAmount,
-        ExchangeRate: exchangeRate,
-        TransactionDate: creditLine.TRANSDATE,
-        TransactionText: creditLine.TEXT || '',
-        PostingProfile: creditLine.POSTINGPROFILE || '',
-        MarkedInvoice: creditLine.INVOICE || '',
-        CalculateWithholdingTax: creditLine.ISWITHHOLDINGCALCULATIONENABLED
-          ? 'Yes'
-          : 'No',
-        CustomerName: customerName,
-        FinTagDisplayValue: creditLine.FINTAGDISPLAYVALUE || '',
-        OffsetFinTagDisplayValue: debitLine?.FINTAGDISPLAYVALUE ?? '',
-        OffsetTransactionText: debitLine?.TEXT ?? '',
-        IsPrepayment: creditLine.ISPREPAYMENT ? 'Yes' : 'No',
-        MarkedInvoiceCompany: company,
-        OffsetCompany: company,
-        ReportingCurrencyExchRate: reportingRate,
-        ReportingCurrencyExchRateSecondary:
-          creditLine.REPORTINGCURRENCYEXCHRATESECONDARY || 0,
-        SecondaryExchangeRate: creditLine.EXCHANGERATESECONDARY || '',
-        TaxGroup: creditLine.SALESTAXGROUP || '',
-        TransactionDateD365: creditLine.TRANSDATE,
-        Voucher: '',
-        PaymentId: creditLine.UniqueId.toString(),
-        JournalName: creditLine.JOURNALNAME,
-      },
-      dimensionModel,
-    );
-    return Promise.resolve(line);
-  }
-
-  private async getCustomerName(
-    accountType: string,
-    accountDisplayValue: string,
-    company: string,
-  ): Promise<string> {
-    if (accountType.toLowerCase() !== 'cust') return '';
-
-    const customers = await this.queryBus.execute(
-      new GetCustomersQuery({
-        company: company,
-        searchTerm: accountDisplayValue,
-      }),
-    );
-
-    return customers?.items[0]?.name || '';
-  }
-
-  private async getNextBatchNumber(): Promise<number> {
-    const value =
-      (
-        await this.queryBus.execute(
-          new GetSettingQuery('last.ledger.batch.number'),
-        )
-      )?.value ?? '0';
-
-    return Number(value) + 1;
-  }
-
-  private async getNextVoucherNumber(): Promise<number> {
-    const value =
-      (
-        await this.queryBus.execute(
-          new GetSettingQuery('last.ledger.voucher.cash.in.freight'),
-        )
-      )?.value ?? '0';
-
-    return Number(value) + 1;
-  }
-
-  private async getDimensionsMap() {
-    const dimensionsMap = new Map<string, IFinancialDimensionValue[]>();
-    const uniqueFetchKeys = new Set<string>();
-    for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
-      if (key === 'MainAccount') continue;
-      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
-      uniqueFetchKeys.add(fetchKey);
-    }
-    for (const fetchKey of uniqueFetchKeys) {
-      const dimensionValues = await this.fetchDimensionValuesRaw(fetchKey);
-      dimensionsMap.set(fetchKey, dimensionValues ?? []);
-    }
-    for (const key of Object.keys(this.requiredDimensions) as DimensionKey[]) {
-      if (key === 'MainAccount') continue;
-      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
-      if (!dimensionsMap.has(key)) {
-        dimensionsMap.set(key, dimensionsMap.get(fetchKey) ?? []);
-      }
-    }
-    return dimensionsMap;
   }
 }

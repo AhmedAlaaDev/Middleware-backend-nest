@@ -57,7 +57,7 @@ src/
     ├── data-batch/             # Batch management (CQRS: commands, queries, repositories)
     ├── entry-processor/        # Data transformation processors
     ├── master-data/            # Financial dimensions, accounts cache
-    └── [domain modules]/       # vendor, cash-in, cash-out, ledger, accounts-receivable, etc.
+    └── [domain modules]/       # vendor, cash, ledger, accounts-receivable, etc.
 ```
 
 ### Key Patterns

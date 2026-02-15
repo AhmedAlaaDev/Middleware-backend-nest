@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DynDataModel } from '@/modules/entry-processor/models/entry-processor.model';
 
 @Injectable()
 export class EntryProcessorUtilsService {
@@ -362,5 +363,94 @@ export class EntryProcessorUtilsService {
       Vend: 'Vend',
     };
     return mapping[normalized.toLowerCase()] || normalized;
+  }
+
+  /**
+   * Builds batch and voucher numbers for a list of lines.
+   */
+  updateBatchAndVoucher<T extends DynDataModel>(options: {
+    lines: T[];
+    startBatchNumber: number;
+    startVoucherNumber: number;
+    maxLinesPerBatch?: number;
+  }): T[] {
+    const {
+      lines,
+      startBatchNumber,
+      startVoucherNumber,
+      maxLinesPerBatch = 1000,
+    } = options;
+
+    const invoiceMap = new Map<string, T[]>();
+    for (const line of lines) {
+      const uniqueId = String(line.SourceIds[0]);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
+      }
+      invoiceMap.get(uniqueId)!.push(line);
+    }
+
+    const updatedMap = new Map<string, T[]>();
+
+    let currentBatchMonth: string | null = null;
+    let currentBatchLineCount = 0;
+    let currentBatchNumber = startBatchNumber;
+    let currentVoucherNum = startVoucherNumber;
+
+    let lineNumberInBatch = 1;
+
+    for (const [uniqueId, lines] of invoiceMap.entries()) {
+      if (!lines || lines.length === 0) {
+        continue;
+      }
+
+      const headerLine = lines[0];
+      const invoiceMonth = this.toMonthKey(headerLine.TransactionDate);
+
+      const invoiceLineCount = lines.length;
+      const monthChanged = currentBatchMonth !== invoiceMonth;
+      const wouldExceedLimit =
+        currentBatchLineCount + invoiceLineCount > maxLinesPerBatch;
+
+      // If month changes, or adding this invoice would exceed the max lines,
+      // we start a new batch and reset line number.
+      if (monthChanged || wouldExceedLimit) {
+        if (currentBatchMonth !== null) {
+          currentBatchNumber++;
+        }
+        currentBatchMonth = invoiceMonth;
+        currentBatchLineCount = 0;
+        lineNumberInBatch = 1;
+      }
+
+      const journalName = headerLine.JournalName;
+      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
+      const formattedVoucher = this.formatVoucherNumber(
+        currentVoucherNum,
+        journalName,
+      );
+
+      const updatedLines: T[] = [];
+
+      for (const line of lines) {
+        const updatedLine: T = {
+          ...line,
+          JournalBatchNumber: formattedBatch,
+          Voucher: formattedVoucher,
+          LineNumber: lineNumberInBatch,
+        };
+
+        updatedLines.push(updatedLine);
+        currentBatchLineCount++;
+        lineNumberInBatch++;
+      }
+
+      // Move to next voucher for the next invoice
+      currentVoucherNum++;
+
+      updatedMap.set(uniqueId, updatedLines);
+    }
+
+    return Array.from(updatedMap.values()).flat();
   }
 }

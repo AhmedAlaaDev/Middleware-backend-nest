@@ -6,8 +6,8 @@ import {
   CashOutFreightDFOLineBase,
   CashOutFreightDFOHeader,
   CashOutFreightDFOSettled,
-} from '@/modules/cash-out/interfaces/cash-out-freight-dfo-data.interface';
-import { CashOutFreightRawData } from '@/modules/cash-out/models/cash-out-freight-raw-data.model';
+} from '@/modules/cash/cash-out/interfaces/cash-out-freight-dfo-data.interface';
+import { CashOutFreightRawData } from '@/modules/cash/cash-out/models/cash-out-freight-raw-data.model';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   DynDataModel,

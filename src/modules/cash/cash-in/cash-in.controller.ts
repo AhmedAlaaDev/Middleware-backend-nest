@@ -4,8 +4,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { ExcelFile } from '@/common/decorators/excel-file.decorator';
-import { ProcessCashInFreightCommand } from '@/modules/cash-in/commands/process-cash-in-freight.comand';
-import { CashInFreightDocDto } from '@/modules/cash-in/dtos/cash-in-freight-doc.dto';
+import { ProcessCashInFreightCommand } from '@/modules/cash/cash-in/commands/process-cash-in-freight.comand';
+import { CashInFreightDocDto } from '@/modules/cash/cash-in/dtos/cash-in-freight-doc.dto';
 
 /**
  * Data Migration - Cash-In

@@ -31,7 +31,7 @@ export interface IEntryProcessor {
     data: DynDataModel[],
     company: string,
     billingClassId?: string,
-  ): Promise<DynDataModel[]>;
+  ): Promise<DynDataModel[]> | DynDataModel[];
 
   insertIntoDynamicsAsync(data: DynDataModel[], company: string): Promise<void>;
 }

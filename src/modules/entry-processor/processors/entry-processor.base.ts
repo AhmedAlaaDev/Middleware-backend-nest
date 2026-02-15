@@ -7,10 +7,10 @@ import {
   RawDataModel,
   DynDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-// import {
-//   RawDataModel,
-//   DynDataModel,
-// } from '@/modules/entry-processor/models/entry-processor.model';
+import {
+  RawDataModel as NewRawDataModel,
+  DynDataModel as NewDynDataModel,
+} from '@/modules/entry-processor/models/entry-processor.model';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import {
@@ -20,6 +20,7 @@ import {
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { GetCustomersQuery } from '@/modules/master-data/queries';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
@@ -38,12 +39,14 @@ export interface WarmupProcessorDataOptions {
   dimensions?: boolean;
   mainAccount?: boolean;
   exchangeRates?: boolean;
+  customerNames?: boolean;
 }
 
 const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   dimensions: true,
   mainAccount: true,
   exchangeRates: true,
+  customerNames: false,
 };
 
 interface EntryProcessorBaseOptions {
@@ -68,6 +71,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected dimensionsMap: Map<DimensionKey, Set<string>> | null = null;
   protected accountNumberSet: Set<string> | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
+  protected customerNameMap: Map<string, string> | null = null;
 
   protected readonly queryBus: QueryBus;
   protected readonly exchangeRateService: ExchangeRateService;
@@ -75,9 +79,12 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly dimensionService: DimensionValidationService;
   protected readonly taxGroupService: TaxGroupService;
 
+  private _company: string;
+
   constructor(protected readonly options: EntryProcessorBaseOptions) {
     this.rateType = options.rateType ?? 'default';
     this.chartNumber = options.chartNumber ?? 'Chart of Accounts';
+    this._company = 'm-p';
     this.queryBus = options.dependencies.queryBus;
     this.exchangeRateService = options.dependencies.exchangeRateService;
     this.utilsService = options.dependencies.utilsService;
@@ -85,20 +92,31 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     this.taxGroupService = options.dependencies.taxGroupService;
   }
 
+  protected set company(company: string) {
+    this._company = company;
+  }
+
+  protected get company(): string {
+    return this._company;
+  }
+
   abstract formatAndEnrichAsync(
-    data: RawDataModel[],
+    data: RawDataModel[] | NewRawDataModel[],
     company: string,
     billingClassId?: string,
-  ): Promise<DynDataModel[]>;
+  ): Promise<DynDataModel[] | NewDynDataModel[]>;
 
   abstract validateAsync(
-    data: DynDataModel[],
+    data: DynDataModel[] | NewDynDataModel[],
     company: string,
     billingClassId?: string,
-  ): Promise<DynDataModel[]>;
+  ):
+    | Promise<DynDataModel[] | NewDynDataModel[]>
+    | DynDataModel[]
+    | NewDynDataModel[];
 
   abstract insertIntoDynamicsAsync(
-    data: DynDataModel[],
+    data: DynDataModel[] | NewDynDataModel[],
     company: string,
   ): Promise<void>;
 
@@ -106,6 +124,29 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     return [...lines].sort(
       (a, b) => Number(a.LINENUMBER) - Number(b.LINENUMBER),
     );
+  }
+
+  protected buildUniqueIdMap<T extends RawDataModel>(
+    lines: T[],
+  ): Map<string, T[]> {
+    const uniqueIdMap: Map<string, T[]> = new Map();
+
+    for (const line of lines) {
+      if (!line.UniqueId) {
+        this.baseLogger.error(
+          `[${this.constructor.name}] Line has no UniqueId: ${JSON.stringify(line, null, 2)}`,
+        );
+        continue;
+      }
+
+      const uniqueId = String(line.UniqueId);
+      if (!uniqueIdMap.has(uniqueId)) {
+        uniqueIdMap.set(uniqueId, []);
+      }
+      uniqueIdMap.get(uniqueId)!.push(line);
+    }
+
+    return uniqueIdMap;
   }
 
   /**
@@ -147,6 +188,14 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       await this.fetchExchangeRatesData(this.rateType);
       this.baseLogger.debug(
         `[${processorName}] Exchange rates loaded in ${Date.now() - exStart}ms, rateTypes: ${this.exchangeRateMap.size}`,
+      );
+    }
+
+    if (options.customerNames) {
+      const customerStart = Date.now();
+      this.customerNameMap = await this.fetchCustomerNames(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Customer names loaded in ${Date.now() - customerStart}ms, count: ${this.customerNameMap.size}`,
       );
     }
 
@@ -212,6 +261,54 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         .map((a) => a.accountNumber?.toLowerCase().trim())
         .filter(Boolean) as string[],
     );
+  }
+
+  protected async fetchCustomerNames(
+    company: string,
+  ): Promise<Map<string, string>> {
+    this.baseLogger.debug(
+      `[${this.constructor.name}] Fetching customer names for company: ${company}`,
+    );
+
+    const pageSize = 1500;
+    let skipCount = 0;
+    const allItems: { customerAccount?: string; name?: string }[] = [];
+    let hasMore = true;
+
+    while (hasMore) {
+      const res = await this.queryBus.execute(
+        new GetCustomersQuery({ company }, skipCount, pageSize),
+      );
+      const pageItems = res?.items ?? [];
+      allItems.push(...pageItems);
+      if (pageItems.length < pageSize) {
+        hasMore = false;
+      } else {
+        skipCount += pageSize;
+      }
+    }
+
+    const customerNameMap = new Map<string, string>();
+
+    for (const item of allItems) {
+      const customerAccount = item?.customerAccount?.toLowerCase()?.trim();
+      const name = item?.name?.trim();
+
+      if (!name || !customerAccount) continue;
+      customerNameMap.set(customerAccount, name);
+    }
+
+    return customerNameMap;
+  }
+
+  protected getCustomerName(customerAccount: string): string | undefined {
+    if (!this.customerNameMap) {
+      throw new Error(
+        'warmupProcessorData must be called before getCustomerName',
+      );
+    }
+
+    return this.customerNameMap.get(customerAccount?.toLowerCase().trim());
   }
 
   /**

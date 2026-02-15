@@ -94,22 +94,25 @@ All processors MUST follow these rules:
 
 ## File Structure Reference
 
-### Example: `cash-in` Module Structure
+### Example: `cash` Module Structure (cash-in subdomain)
 
 ```
-src/modules/cash-in/
-├── cash-in.module.ts                    # Module definition
-├── cash-in.controller.ts                # REST API endpoints
-├── commands/
-│   ├── process-cash-in-freight.comand.ts # Command class
-│   └── handlers/
-│       └── process-cash-in-freight.handler.ts  # Command handler
-├── dtos/
-│   └── cash-in-freight-doc.dto.ts       # DTO for API requests
-├── interfaces/
-│   └── cash-in-freight-dfo-data.interface.ts  # DFO data interfaces
-└── models/
-    └── cash-in-freight-raw-data.model.ts     # Raw Excel data model
+src/modules/cash/
+├── cash.module.ts                       # Unified module (cash-in + cash-out)
+├── cash-in/
+│   ├── cash-in.controller.ts            # REST API endpoints
+│   ├── commands/
+│   │   ├── process-cash-in-freight.comand.ts # Command class
+│   │   └── handlers/
+│   │       └── process-cash-in-freight.handler.ts  # Command handler
+│   ├── dtos/
+│   │   └── cash-in-freight-doc.dto.ts   # DTO for API requests
+│   ├── interfaces/
+│   │   └── cash-in-freight-dfo-data.interface.ts  # DFO data interfaces
+│   └── models/
+│       └── cash-in-freight-raw-data.model.ts     # Raw Excel data model
+└── cash-out/
+    └── ... (similar structure)
 ```
 
 ### Entry Processor Location
@@ -161,7 +164,7 @@ export class {EntryName}RawData {
 }
 ```
 
-**Reference**: See `src/modules/cash-in/models/cash-in-freight-raw-data.model.ts`
+**Reference**: See `src/modules/cash/cash-in/models/cash-in-freight-raw-data.model.ts`
 
 ---
 
@@ -228,7 +231,7 @@ export class {EntryName}DFOLine extends {EntryName}DFOLineBase implements DynDat
 }
 ```
 
-**Reference**: See `src/modules/cash-in/interfaces/cash-in-freight-dfo-data.interface.ts`
+**Reference**: See `src/modules/cash/cash-in/interfaces/cash-in-freight-dfo-data.interface.ts`
 
 ---
 
@@ -407,7 +410,7 @@ export class {EntryName}EntryProcessor extends EntryProcessorBase {
 
 **References**:
 
-- `src/modules/entry-processor/processors/cash-in-freight-entry.processor.ts`
+- `src/modules/entry-processor/processors/cash/cash-in-freight-entry.processor.ts`
 - `src/modules/entry-processor/processors/vendor-trucking-entry.processor.ts`
 
 ---
@@ -877,8 +880,8 @@ export class AppModule {}
 
 ## References
 
-- Example Module: `src/modules/cash-in/`
-- Example Processor: `src/modules/entry-processor/processors/cash-in-freight-entry.processor.ts`
+- Example Module: `src/modules/cash/` (contains cash-in and cash-out subdomains)
+- Example Processor: `src/modules/entry-processor/processors/cash/cash-in-freight-entry.processor.ts`
 - Base Processor: `src/modules/entry-processor/processors/base/entry-processor.base.ts`
 - Processor Factory: `src/modules/entry-processor/entry-processor.factory.ts`
 - EntryProcessorTypes Enum: `src/modules/data-batch/enums/data-batch.enum.ts`
