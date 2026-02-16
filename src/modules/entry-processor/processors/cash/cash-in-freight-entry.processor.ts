@@ -47,10 +47,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     BusinessUnit: true,
     Location: true,
     Customer: true,
-    SubCustomer: false,
-    ChargeType: true,
-    SalesMan: true,
-    CoordinatorMan: true,
+    SubCustomer: true,
+    ChargeType: false,
+    SalesMan: false,
+    CoordinatorMan: false,
     FreightType: true,
     Direction: true,
   };
@@ -455,6 +455,6 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       textPart = 'INVOICE';
     }
 
-    return `${number.toString().padStart(9, '0')}/${textPart}`;
+    return `${number.toString().padStart(9, '0')}/${textPart.toUpperCase()}`;
   }
 }
