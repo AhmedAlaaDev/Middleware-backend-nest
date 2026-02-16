@@ -1,3 +1,4 @@
+import { EntryAccountType } from '@/common/types/entry-account-type.type';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 
 type LookupCell<T = any> = { formula?: string; result?: T } | T;
@@ -163,15 +164,24 @@ export class DynDataModel {
   JournalName: string;
   /** Description */
   Description: string;
+  /** Account type */
+  AccountType: EntryAccountType;
 
   private errors: Array<{ property: string; message: string }> = [];
 
-  constructor(data: DynDataModel, dimensionModel: AccountDimensionsModel) {
-    this.SourceIds = data.SourceIds;
-    this.LineNumber = data.LineNumber;
-    this.JournalBatchNumber = data.JournalBatchNumber;
-    this.Voucher = data.Voucher;
+  constructor(
+    data: Partial<DynDataModel>,
+    dimensionModel: AccountDimensionsModel,
+  ) {
+    this.SourceIds = data.SourceIds || [];
+    this.LineNumber = data.LineNumber || 0;
+    this.JournalBatchNumber = data.JournalBatchNumber || '';
+    this.Voucher = data.Voucher || '';
     this.DimensionModel = dimensionModel;
+    this.AccountType = data.AccountType || ('' as EntryAccountType);
+    this.TransactionDate = data.TransactionDate || '';
+    this.JournalName = data.JournalName || '';
+    this.Description = data.Description || '';
   }
 
   public get ErrorCount(): number {

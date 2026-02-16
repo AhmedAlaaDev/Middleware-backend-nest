@@ -19,7 +19,7 @@ export class EntryProcessorUtilsService {
   /**
    * Parses a pipe-separated dimension string into AccountDimensionsModel.
    */
-  parseDimensionString(dimensionString: string): AccountDimensionsModel {
+  parseDimensionString(dimensionString?: string): AccountDimensionsModel {
     if (!dimensionString || !dimensionString.trim()) {
       return {
         mainAccount: undefined,

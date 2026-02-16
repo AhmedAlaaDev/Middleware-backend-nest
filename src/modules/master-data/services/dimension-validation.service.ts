@@ -12,7 +12,7 @@ export interface DimensionValidationConfig {
   requiredDimensions: RequiredDimensionsConfig;
   /** Per-call override for required-ness when it varies by line (e.g. SubVendor: !!line.DimensionModel?.subVendor) */
   dimensionIsRequired?: Partial<Record<DimensionKey, boolean>>;
-  validateMainAccount?: boolean;
+
   chargeTypeDims?: string[];
   /** Chart of accounts to use for main account validation. Defaults to 'Chart of Accounts'. */
   chartNumber?: string;
@@ -67,10 +67,6 @@ export class DimensionValidationService {
   ): void {
     const { dimensionsMap, accountNumberSet } = preloaded;
 
-    if (config.validateMainAccount) {
-      this.validateMainAccount(ar, accountNumberSet);
-    }
-
     const dimensionKeys = Object.keys(
       config.requiredDimensions,
     ) as DimensionKey[];
@@ -83,6 +79,9 @@ export class DimensionValidationService {
       const valueSet = dimensionsMap.get(key) ?? new Set<string>();
       switch (key) {
         case 'MainAccount':
+          if (ar.AccountType === 'Ledger') {
+            this.validateMainAccount(ar, accountNumberSet, isRequired(key));
+          }
           break;
         case 'Activity':
           this.validateActivityName(ar, valueSet, isRequired(key));
@@ -176,19 +175,16 @@ export class DimensionValidationService {
   private validateMainAccount(
     ar: DynDataModel,
     accountNumberSet: Set<string>,
+    isRequired: boolean,
   ): void {
-    const dimensionsModel = ar.DimensionModel;
-    if (!dimensionsModel?.mainAccount) {
-      ar.AddError('MainAccount', 'Main Account is required');
-      return;
-    }
-    const mainAccountLower = (dimensionsModel.mainAccount ?? '').toLowerCase();
-    if (mainAccountLower && !accountNumberSet.has(mainAccountLower)) {
-      ar.AddError(
-        'MainAccount',
-        `The main account ${dimensionsModel.mainAccount} does not exist in the system.`,
-      );
-    }
+    this.validateDimensionField(
+      ar,
+      ar.DimensionModel?.mainAccount,
+      accountNumberSet,
+      isRequired,
+      'MainAccountDimensions',
+      'Main Account',
+    );
   }
 
   private validateCustomerDimension(

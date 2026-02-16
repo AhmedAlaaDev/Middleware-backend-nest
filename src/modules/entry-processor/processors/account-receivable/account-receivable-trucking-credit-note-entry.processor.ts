@@ -215,7 +215,6 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
 
     for (const arLine of arData) {
       this.validateDimensionsForLine(arLine, {
-        validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
       });
       await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);

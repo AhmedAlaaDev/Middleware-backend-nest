@@ -199,9 +199,7 @@ export class ClosingFreightEntryProcessor extends EntryProcessorBase {
     const arData = data as DynLedgerClosingJournalEntryDto[];
 
     for (const arLine of arData) {
-      this.validateDimensionsForLine(arLine, {
-        validateMainAccount: true,
-      });
+      this.validateDimensionsForLine(arLine);
     }
 
     return data;

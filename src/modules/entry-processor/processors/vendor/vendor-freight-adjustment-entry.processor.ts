@@ -201,9 +201,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     );
 
     for (const line of lines) {
-      this.validateDimensionsForLine(line, {
-        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
-      });
+      this.validateDimensionsForLine(line);
     }
 
     return data;

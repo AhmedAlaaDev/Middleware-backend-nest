@@ -207,7 +207,6 @@ export class VendorTruckingAdjustmentEntryProcessor extends EntryProcessorBase {
       const requireTruckNumber = truckerType === '11' || truckerType === '12';
 
       this.validateDimensionsForLine(line, {
-        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
           TruckNumber: requireTruckNumber,
         },

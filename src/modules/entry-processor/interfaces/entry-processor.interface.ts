@@ -29,7 +29,7 @@ export interface IEntryProcessor {
 
   validateAsync(
     data: DynDataModel[],
-    company: string,
+    company?: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> | DynDataModel[];
 

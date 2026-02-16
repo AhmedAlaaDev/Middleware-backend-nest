@@ -4,6 +4,7 @@ import { CommandBus } from '@nestjs/cqrs';
 import { CashEntryDynDataModel } from '@/modules/cash/cash-in/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/cash-in/models/cash-entry-raw-data.model';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import {
   DynDataModel,
   RawDataModel,
@@ -25,6 +26,19 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
   readonly entryProcessorType = EntryProcessorTypes.CashInFreight;
   private readonly MAX_LINES_PER_BATCH = 1000;
+  private readonly NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
+    '122201',
+    '122202',
+    '122203',
+    '122204',
+    '123510',
+  ];
+  private readonly SETTLEMENT_MAIN_ACCOUNTS = ['421103'];
+  private readonly JOURNAL_NAME = 'Cust-Pay';
+
+  private _tempSet = new Set<string>();
+
+  private settlementLines: CashEntryRawDataModel[] = [];
 
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
@@ -91,7 +105,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
     );
-    this.processCustodySettlementLines(custodySettlementLines, company);
+    this.processCustodySettlementLines(custodySettlementLines);
 
     // STEP 3: Build invoice map
     this.logger.debug(
@@ -101,11 +115,26 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const invoiceCount = invoiceMap.size;
     this.logger.debug(`[STEP 3] Grouped into ${invoiceCount} invoices`);
 
+    // STEP 3.5: Check invoice balanced after FX
+    this.logger.debug(
+      `[STEP 3.5] Checking invoice balanced after FX for ${invoiceCount} invoices`,
+    );
+    this.checkInvoiceBalancedAfterFx(invoiceMap);
+    this.logger.debug(`[STEP 3.5] Checked invoice balanced after FX`);
+
+    if (this.unbalancedUniqueIds.size > 0) {
+      this.logger.error(
+        `[STEP 3.5] Found ${this.unbalancedUniqueIds.size} unbalanced invoices after FX`,
+      );
+    } else {
+      this.logger.debug(`[STEP 3.5] All invoices are balanced after FX`);
+    }
+
     // STEP 4: Build DFO lines
     this.logger.debug(
       `[STEP 4] Building DFO lines from ${invoiceCount} invoices`,
     );
-    const dfoLines = this.buildLines(invoiceMap, company);
+    const dfoLines = this.buildInvoiceLines(invoiceMap);
     this.logger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
     // STEP 5: Update batch and voucher numbers
@@ -122,19 +151,21 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       `[STEP 5] Updated batch and voucher numbers for ${updatedDfoLines.length} lines`,
     );
 
-    return updatedDfoLines;
+    return updatedDfoLines.map(
+      (line) => new CashEntryDynDataModel(line.DimensionModel, line),
+    );
   }
 
-  public validateAsync(data: DynDataModel[], _company: string): DynDataModel[] {
+  public validateAsync(data: DynDataModel[]): DynDataModel[] {
     const lines = data as unknown as CashEntryDynDataModel[];
     const lineCount = lines.length;
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
-      this.validateDimensionsForLine(line, {
-        validateMainAccount:
-          line.AccountType?.trim()?.toLowerCase() === 'ledger',
-      });
+      if (this.unbalancedUniqueIds.has(line.SourceIds[0])) {
+        line.AddError('UnbalancedInvoice', 'Invoice is unbalanced after FX');
+      }
+      this.validateDimensionsForLine(line);
     }
 
     return data;
@@ -170,14 +201,11 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     };
   }
 
-  private processCustodySettlementLines(
-    lines: CashEntryRawDataModel[],
-    company: string,
-  ): void {
+  private processCustodySettlementLines(lines: CashEntryRawDataModel[]): void {
     if (lines.length === 0) return;
 
     const command = new ProcessCustodySettlementEntryCommand(
-      company,
+      this.company,
       undefined,
       lines,
     );
@@ -196,12 +224,237 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       });
   }
 
-  private buildLines(
-    _invoiceMap: RawDataInvoiceMap,
-    _company: string,
+  private buildInvoiceLines(
+    invoiceMap: RawDataInvoiceMap,
   ): CashEntryDynDataModel[] {
     const dfoLines: CashEntryDynDataModel[] = [];
 
+    for (const [sourceId, lines] of invoiceMap.entries()) {
+      dfoLines.push(...this.buildLines(sourceId, lines));
+    }
+
     return dfoLines;
+  }
+
+  private buildLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+  ): CashEntryDynDataModel[] {
+    const invoiceLines: CashEntryDynDataModel[] = [];
+    const invoiceLineCount = lines.length;
+
+    switch (invoiceLineCount) {
+      case 2:
+        invoiceLines.push(...this.caseTwoLines(sourceId, lines));
+        break;
+      default:
+        invoiceLines.push(...this.caseMoreThanTwoLines(sourceId, lines));
+    }
+
+    return invoiceLines;
+  }
+
+  private caseTwoLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+  ): CashEntryDynDataModel[] {
+    const accountLine = lines.find((l) => l.IsCustomer);
+    const offsetLine = lines.find((l) => !l.IsCustomer);
+
+    return [this.buildLine(sourceId, accountLine, offsetLine)];
+  }
+
+  private caseMoreThanTwoLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+  ): CashEntryDynDataModel[] {
+    const withoutSettlement = this.filterOutSettlementLines(lines);
+
+    const accountLines = withoutSettlement.filter((l) => l.IsCustomer);
+    const offsetLines = withoutSettlement.filter((l) => !l.IsCustomer);
+
+    if (offsetLines.length > 1) {
+      for (const line of offsetLines) {
+        this._tempSet.add(line.UniqueId.toString());
+      }
+    }
+
+    return offsetLines
+      .map((offLine) => {
+        return accountLines.map((accLine) => {
+          accLine.CREDITAMOUNT = offLine.DEBITAMOUNT;
+          return this.buildLine(sourceId, accLine, offLine);
+        });
+      })
+      .flat();
+  }
+
+  private buildLine(
+    sourceId: string,
+    accountLine?: CashEntryRawDataModel,
+    offsetLine?: CashEntryRawDataModel,
+  ): CashEntryDynDataModel {
+    const dimensions = this.utilsService.parseDimensionString(
+      offsetLine?.ACCOUNTTYPE === 'Ledger'
+        ? offsetLine?.ACCOUNTDISPLAYVALUE
+        : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE,
+    );
+
+    if (!accountLine || !offsetLine) {
+      const line = new CashEntryDynDataModel(dimensions, {
+        SourceIds: [sourceId],
+      });
+      line.AddError('InvalidInvoice', 'No Cust or offset line found');
+      return line;
+    }
+
+    if (dimensions.mainAccount === '123510') {
+      dimensions.mainAccount = '122204';
+    }
+
+    const isNotesReceivable = this.isNotesReceivableLine(
+      offsetLine,
+      dimensions,
+    );
+
+    const formattedDate = this.utilsService.formatMonthYear(
+      accountLine.TRANSDATE,
+    );
+    const description = `Customer Collection - Freight ${formattedDate} (${accountLine.VoucherType})`;
+    const paymentReference = isNotesReceivable
+      ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - Freight`
+      : '';
+
+    const dimensionStr = this.utilsService.toDimensionString(dimensions);
+
+    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
+      offsetLine.TRANSDATE,
+      offsetLine.CURRENCYCODE,
+    );
+
+    const markedInvoice = this.formatInvoice(
+      accountLine.INVOICE || offsetLine.INVOICE,
+    );
+
+    return new CashEntryDynDataModel(dimensions, {
+      SourceIds: [sourceId],
+      Description: description,
+      Company: this.company,
+      AccountType: accountLine.ACCOUNTTYPE,
+      OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
+      PaymentMethod: this.getMethodOfPayment(dimensions.mainAccount),
+      PaymentReference: paymentReference,
+      JournalName: this.JOURNAL_NAME,
+      TransactionDate: accountLine.TRANSDATE,
+      AccountDisplayValue: dimensionStr,
+      OffsetAccountDisplayValue: dimensionStr,
+      FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
+      OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
+      CreditAmount: accountLine.CREDITAMOUNT,
+      DebitAmount: offsetLine.DEBITAMOUNT,
+      CurrencyCode: offsetLine.CURRENCYCODE,
+      ExchangeRate: exchangeRate,
+      ReportingCurrencyExchRate: reportingRate,
+      IsPrepayment: accountLine.PREPAYMENT,
+      CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
+      DefaultDimensionsForAccountDisplayValue:
+        accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      DefaultDimensionsForOffsetAccountDisplayValue:
+        offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      SalesTaxGroup: offsetLine.SALESTAXGROUP,
+      OffsetCompany: this.company,
+      PostingProfile: 'Cust-PP',
+      MarkedInvoice: markedInvoice,
+      MarkedInvoiceCompany: this.company,
+      VoucherType: accountLine.VOUCHERTYPE,
+      OffsetVoucherType: offsetLine.VOUCHERTYPE,
+    });
+  }
+
+  private isNotesReceivableLine(
+    line: CashEntryRawDataModel,
+    dimensions: AccountDimensionsModel,
+  ): boolean {
+    const accountType = line.ACCOUNTTYPE;
+    const mainAccount = dimensions.mainAccount;
+
+    if (accountType !== 'Ledger') return false;
+
+    if (!mainAccount) return false;
+
+    return this.NOTES_RECEIVABLE_MAIN_ACCOUNTS.includes(mainAccount);
+  }
+
+  private isSettlementLine(
+    line: CashEntryRawDataModel,
+    dimensions: AccountDimensionsModel,
+  ): boolean {
+    const accountType = line.ACCOUNTTYPE;
+    const mainAccount = dimensions.mainAccount;
+
+    if (accountType !== 'Ledger') return false;
+
+    if (!mainAccount) return false;
+
+    return this.SETTLEMENT_MAIN_ACCOUNTS.includes(mainAccount);
+  }
+
+  private filterOutSettlementLines(
+    lines: CashEntryRawDataModel[],
+  ): CashEntryRawDataModel[] {
+    const withoutSettlement: CashEntryRawDataModel[] = [];
+    for (const line of lines) {
+      const dimensions = this.utilsService.parseDimensionString(
+        line.ACCOUNTDISPLAYVALUE,
+      );
+      if (this.isSettlementLine(line, dimensions)) {
+        this.settlementLines.push(line);
+      } else {
+        withoutSettlement.push(line);
+      }
+    }
+
+    return withoutSettlement;
+  }
+
+  private getMethodOfPayment(mainAccount?: string): string {
+    if (!mainAccount) return '';
+
+    return (
+      {
+        '122201': 'NR – EGP',
+        '122202': 'NR – USD',
+        '122203': 'NR – EUR',
+        '122204': 'NR – GBP',
+        '123510': 'NR – GBP',
+      }[mainAccount] || ''
+    );
+  }
+
+  private formatInvoice(invoice?: string): string {
+    const trimmedInvoice = invoice?.trim();
+    if (!trimmedInvoice) return '';
+
+    const parts = trimmedInvoice.split('/');
+
+    const numberPart = parts[0]?.trim();
+    let textPart = parts[1]?.trim()?.toLowerCase();
+
+    const number = parseInt(numberPart, 10);
+    if (isNaN(number)) return '';
+
+    if (textPart.includes('نولون')) {
+      textPart = 'OF-FW';
+    }
+
+    if (textPart.includes('import') && textPart.includes('store')) {
+      textPart = 'INVOICE';
+    }
+
+    if (textPart.includes('dekheila') && textPart.includes('storage')) {
+      textPart = 'INVOICE';
+    }
+
+    return `${number.toString().padStart(9, '0')}/${textPart}`;
   }
 }

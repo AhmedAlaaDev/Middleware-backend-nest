@@ -72,6 +72,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected accountNumberSet: Set<string> | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
   protected customerNameMap: Map<string, string> | null = null;
+  protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
   protected readonly exchangeRateService: ExchangeRateService;
@@ -126,9 +127,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     );
   }
 
-  protected buildUniqueIdMap<T extends RawDataModel>(
-    lines: T[],
-  ): Map<string, T[]> {
+  protected;
+  buildUniqueIdMap<T extends RawDataModel>(lines: T[]): Map<string, T[]> {
     const uniqueIdMap: Map<string, T[]> = new Map();
 
     for (const line of lines) {
@@ -416,5 +416,27 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       date,
       toCurrency,
     );
+  }
+
+  protected checkInvoiceBalancedAfterFx(
+    invoiceMap: Map<string, RawDataModel[]>,
+  ): Set<string> {
+    this.unbalancedUniqueIds.clear();
+
+    for (const [uniqueId, lines] of invoiceMap) {
+      let totalDebit = 0;
+      let totalCredit = 0;
+
+      for (const line of lines) {
+        totalDebit += line.DEBITAMOUNT * line.EXCHANGERATE;
+        totalCredit += line.CREDITAMOUNT * line.EXCHANGERATE;
+      }
+
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        this.unbalancedUniqueIds.add(uniqueId);
+      }
+    }
+
+    return this.unbalancedUniqueIds;
   }
 }

@@ -103,7 +103,6 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
 
     for (const arLine of arData) {
       this.validateDimensionsForLine(arLine, {
-        validateMainAccount: true,
         chargeTypeDims: uniqueChargeTypeDims,
       });
       await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);

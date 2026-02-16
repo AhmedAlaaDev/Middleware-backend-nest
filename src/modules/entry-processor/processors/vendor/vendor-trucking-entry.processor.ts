@@ -222,7 +222,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
 
     for (const line of lines) {
       this.validateDimensionsForLine(line, {
-        validateMainAccount: line.ACCOUNTTYPE === 'Ledger',
         dimensionIsRequired: {
           TruckerType: line.ACCOUNTTYPE === 'Ledger',
         },
