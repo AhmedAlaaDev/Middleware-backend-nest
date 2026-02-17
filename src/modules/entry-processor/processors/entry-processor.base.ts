@@ -36,9 +36,25 @@ import {
 import { TaxGroupService } from '@/modules/master-data/services/tax-group.service';
 
 export interface WarmupProcessorDataOptions {
+  /**
+   * Whether to fetch dimensions from the database.
+   * @default true
+   */
   dimensions?: boolean;
+  /**
+   * Whether to fetch main accounts from the database.
+   * @default true
+   */
   mainAccount?: boolean;
+  /**
+   * Whether to fetch exchange rates from the database.
+   * @default true
+   */
   exchangeRates?: boolean;
+  /**
+   * Whether to fetch customer names from the database.
+   * @default false
+   */
   customerNames?: boolean;
 }
 
@@ -419,24 +435,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   }
 
   protected checkInvoiceBalancedAfterFx(
-    invoiceMap: Map<string, RawDataModel[]>,
+    invoiceMap: Map<string, NewRawDataModel[]>,
   ): Set<string> {
-    this.unbalancedUniqueIds.clear();
-
-    for (const [uniqueId, lines] of invoiceMap) {
-      let totalDebit = 0;
-      let totalCredit = 0;
-
-      for (const line of lines) {
-        totalDebit += line.DEBITAMOUNT * line.EXCHANGERATE;
-        totalCredit += line.CREDITAMOUNT * line.EXCHANGERATE;
-      }
-
-      if (Math.abs(totalDebit - totalCredit) > 0.01) {
-        this.unbalancedUniqueIds.add(uniqueId);
-      }
-    }
-
-    return this.unbalancedUniqueIds;
+    return this.utilsService.checkInvoiceBalancedAfterFx(
+      invoiceMap,
+      this.unbalancedUniqueIds,
+    );
   }
 }

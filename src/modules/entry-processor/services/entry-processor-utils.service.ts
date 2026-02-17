@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { DynDataModel } from '@/modules/entry-processor/models/entry-processor.model';
+import {
+  DynDataModel,
+  RawDataModel,
+} from '@/modules/entry-processor/models/entry-processor.model';
 
 @Injectable()
 export class EntryProcessorUtilsService {
@@ -452,5 +455,31 @@ export class EntryProcessorUtilsService {
     }
 
     return Array.from(updatedMap.values()).flat();
+  }
+
+  /**
+   * Checks if the invoice is balanced after FX conversion.
+   */
+  checkInvoiceBalancedAfterFx(
+    invoiceMap: Map<string, RawDataModel[]>,
+    unbalancedUniqueIds: Set<string>,
+  ): Set<string> {
+    unbalancedUniqueIds.clear();
+
+    for (const [uniqueId, lines] of invoiceMap) {
+      let totalDebit = 0;
+      let totalCredit = 0;
+
+      for (const line of lines) {
+        totalDebit += line.DEBITAMOUNT * line.EXCHANGERATE;
+        totalCredit += line.CREDITAMOUNT * line.EXCHANGERATE;
+      }
+
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        unbalancedUniqueIds.add(uniqueId);
+      }
+    }
+
+    return unbalancedUniqueIds;
   }
 }
