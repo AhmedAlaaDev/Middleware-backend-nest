@@ -54,7 +54,12 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    await this.warmupProcessorData();
+    this.company = company;
+
+    await this.warmupProcessorData({
+      vendorTaxNumberAndTermsOfPayment: true,
+    });
+
     const rawCount = data.length;
     this.vendorLogger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -155,7 +160,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
         }
 
         // Process invoice lines
-        const invoiceLineObjects = await this.processInvoiceLines(
+        const invoiceLineObjects = this.processInvoiceLines(
           lines,
           company,
           currentHeader,
@@ -216,26 +221,6 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
       new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
     );
     return (custodyVendorsRes?.items ?? []).map((v) => v.vendorAccountNumber);
-  }
-
-  private async getVendorTaxNumberAndTermsOfPayment(
-    company: string,
-    vendorAccountNumber: string,
-  ): Promise<{ taxNumber: string; termsOfPayment: string }> {
-    const vendorRes = await this.queryBus.execute(
-      new GetVendorsQuery({ company, accountNumbers: [vendorAccountNumber] }),
-    );
-
-    const vendors = vendorRes?.items ?? [];
-    if (vendors.length === 0) {
-      return { taxNumber: '', termsOfPayment: '' };
-    }
-
-    // regesteriation id
-    const taxNumber = vendors[0].salesTaxGroupCode || '';
-    const termsOfPayment = vendors[0].defaultPaymentTermsName || '';
-
-    return { taxNumber, termsOfPayment };
   }
 
   private filterRawData(
@@ -389,7 +374,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     eData.push(...batchLines);
   }
 
-  private async processInvoiceLines(
+  private processInvoiceLines(
     invoiceLines: VendorFreightAdjustmentRawData[],
     company: string,
     header: IVendorFreightAdjustmentDFOHeader,
@@ -397,11 +382,11 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     reportingRate: number,
     voucher: number,
     lineNumber: () => number,
-  ): Promise<IVendorFreightAdjustmentDFOLine[]> {
+  ): IVendorFreightAdjustmentDFOLine[] {
     const lineObjects: IVendorFreightAdjustmentDFOLine[] = [];
 
     for (const line of invoiceLines) {
-      const obj = await this.buildLine(
+      const obj = this.buildLine(
         line,
         header,
         company,
@@ -469,7 +454,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     return Number(value) + 1;
   }
 
-  private async buildLine(
+  private buildLine(
     line: VendorFreightAdjustmentRawData,
     header: IVendorFreightAdjustmentDFOHeader,
     company: string,
@@ -478,7 +463,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     uniqueId: string,
     voucherNum: number,
     lineNumber: number,
-  ): Promise<IVendorFreightAdjustmentDFOLine> {
+  ): IVendorFreightAdjustmentDFOLine {
     const dimensionModel = this.utilsService.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
@@ -486,10 +471,7 @@ export class VendorFreightAdjustmentEntryProcessor extends EntryProcessorBase {
     );
 
     const { taxNumber: _tax, termsOfPayment } = line.ISVENDOR
-      ? await this.getVendorTaxNumberAndTermsOfPayment(
-          company,
-          line.ACCOUNTDISPLAYVALUE,
-        )
+      ? this.getVendorTaxNumberAndTermsOfPayment(line.ACCOUNTDISPLAYVALUE)
       : { taxNumber: '', termsOfPayment: '' };
 
     // Normalize currency, company codes, and TransactionType

@@ -484,4 +484,35 @@ export class EntryProcessorUtilsService {
 
     return unbalancedUniqueIds;
   }
+
+  /**
+   * Make invoice unique per UniqueId: first UniqueId keeps the invoice, duplicates get suffix _1, _2, ...
+   */
+  suffixDuplicateInvoices<T extends EntryRawDataModel>(rawDate: T[]): T[] {
+    const normalizedInv = (inv: string) => inv?.toLowerCase().trim() ?? '';
+    const invoiceToUniqueIds = new Map<string, number[]>();
+
+    for (const line of rawDate) {
+      const key = normalizedInv(line.INVOICE);
+      if (!key) continue;
+      let ids = invoiceToUniqueIds.get(key);
+      if (!ids) {
+        ids = [];
+        invoiceToUniqueIds.set(key, ids);
+      }
+      if (!ids.includes(line.UniqueId)) ids.push(line.UniqueId);
+    }
+
+    for (const line of rawDate) {
+      const key = normalizedInv(line.INVOICE);
+      const uniqueIds = invoiceToUniqueIds.get(key);
+      if (!uniqueIds || uniqueIds.length <= 1) continue;
+      const index = uniqueIds.indexOf(line.UniqueId);
+      if (index >= 1) {
+        line.INVOICE = `${line.INVOICE}_${index}`;
+      }
+    }
+
+    return rawDate;
+  }
 }

@@ -18,9 +18,13 @@ import {
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
+import { IVendor } from '@/modules/master-data/interfaces';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { GetCustomersQuery } from '@/modules/master-data/queries';
+import {
+  GetCustomersQuery,
+  GetVendorsQuery,
+} from '@/modules/master-data/queries';
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
@@ -56,6 +60,11 @@ export interface WarmupProcessorDataOptions {
    * @default false
    */
   customerNames?: boolean;
+  /**
+   * Whether to fetch vendor tax number and terms of payment from the database.
+   * @default false
+   */
+  vendorTaxNumberAndTermsOfPayment?: boolean;
 }
 
 const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
@@ -63,6 +72,7 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   mainAccount: true,
   exchangeRates: true,
   customerNames: false,
+  vendorTaxNumberAndTermsOfPayment: false,
 };
 
 interface EntryProcessorBaseOptions {
@@ -88,6 +98,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected accountNumberSet: Set<string> | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
   protected customerNameMap: Map<string, string> | null = null;
+  protected vendorTaxNumberAndTermsOfPaymentMap: Map<
+    string,
+    { taxNumber: string; termsOfPayment: string }
+  > | null = null;
   protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
@@ -227,6 +241,15 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       );
     }
 
+    if (options.vendorTaxNumberAndTermsOfPayment) {
+      const vendorStart = Date.now();
+      this.vendorTaxNumberAndTermsOfPaymentMap =
+        await this.fetchVendorTaxNumberAndTermsOfPayment(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Vendor tax number and terms of payment loaded in ${Date.now() - vendorStart}ms, count: ${this.vendorTaxNumberAndTermsOfPaymentMap.size}`,
+      );
+    }
+
     this.baseLogger.debug(
       `[${processorName}] warmupProcessorData completed in ${Date.now() - startMs}ms`,
     );
@@ -337,6 +360,72 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
 
     return this.customerNameMap.get(customerAccount?.toLowerCase().trim());
+  }
+
+  protected async fetchVendorTaxNumberAndTermsOfPayment(
+    company: string,
+  ): Promise<Map<string, { taxNumber: string; termsOfPayment: string }>> {
+    this.baseLogger.debug(
+      `[${this.constructor.name}] Fetching vendor tax number and terms of payment for company: ${company}`,
+    );
+
+    const pageSize = 1500;
+    let skipCount = 0;
+    const allItems: IVendor[] = [];
+    let hasMore = true;
+
+    while (hasMore) {
+      const vendorRes = await this.queryBus.execute(
+        new GetVendorsQuery({ company }, skipCount, pageSize),
+      );
+      const pageItems = vendorRes?.items ?? [];
+      allItems.push(...pageItems);
+      if (pageItems.length < pageSize) {
+        hasMore = false;
+      } else {
+        skipCount += pageSize;
+      }
+    }
+
+    const vendorTaxNumberAndTermsOfPaymentMap = new Map<
+      string,
+      { taxNumber: string; termsOfPayment: string }
+    >();
+
+    for (const item of allItems) {
+      const vendorAccountNumber = item.vendorAccountNumber
+        ?.toLowerCase()
+        .trim();
+
+      if (!vendorAccountNumber) continue;
+
+      vendorTaxNumberAndTermsOfPaymentMap.set(vendorAccountNumber, {
+        taxNumber: item.salesTaxGroupCode || '',
+        termsOfPayment: item.defaultPaymentTermsName || '',
+      });
+    }
+
+    return vendorTaxNumberAndTermsOfPaymentMap;
+  }
+
+  protected getVendorTaxNumberAndTermsOfPayment(vendorAccount: string): {
+    taxNumber: string;
+    termsOfPayment: string;
+  } {
+    if (!this.vendorTaxNumberAndTermsOfPaymentMap) {
+      throw new Error(
+        'warmupProcessorData must be called before getVendorTaxNumberAndTermsOfPayment',
+      );
+    }
+
+    const vendorAccountNumber = vendorAccount.toLowerCase().trim();
+
+    return (
+      this.vendorTaxNumberAndTermsOfPaymentMap.get(vendorAccountNumber) ?? {
+        taxNumber: '',
+        termsOfPayment: '',
+      }
+    );
   }
 
   /**

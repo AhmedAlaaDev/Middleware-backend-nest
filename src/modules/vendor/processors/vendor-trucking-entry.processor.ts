@@ -58,7 +58,11 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     data: RawDataModel[],
     company: string,
   ): Promise<DynDataModel[]> {
-    await this.warmupProcessorData();
+    this.company = company;
+
+    await this.warmupProcessorData({
+      vendorTaxNumberAndTermsOfPayment: true,
+    });
     const rawCount = data.length;
     this.vendorLogger.debug(
       `Starting formatAndEnrichAsync with ${rawCount} raw records`,
@@ -178,7 +182,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
         }
 
         // Process invoice lines
-        const invoiceLineObjects = await this.processInvoiceLines(
+        const invoiceLineObjects = this.processInvoiceLines(
           lines,
           company,
           currentHeader,
@@ -240,26 +244,6 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
       new GetVendorsQuery({ company, vendorGroupIds: ['Custody'] }),
     );
     return (custodyVendorsRes?.items ?? []).map((v) => v.vendorAccountNumber);
-  }
-
-  private async getVendorTaxNumberAndTermsOfPayment(
-    company: string,
-    vendorAccountNumber: string,
-  ): Promise<{ taxNumber: string; termsOfPayment: string }> {
-    const vendorRes = await this.queryBus.execute(
-      new GetVendorsQuery({ company, accountNumbers: [vendorAccountNumber] }),
-    );
-
-    const vendors = vendorRes?.items ?? [];
-    if (vendors.length === 0) {
-      return { taxNumber: '', termsOfPayment: '' };
-    }
-
-    // regesteriation id
-    const taxNumber = vendors[0].salesTaxGroupCode || '';
-    const termsOfPayment = vendors[0].defaultPaymentTermsName || '';
-
-    return { taxNumber, termsOfPayment };
   }
 
   private filterRawData(
@@ -385,17 +369,17 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     eData.push(...batchLines);
   }
 
-  private async processInvoiceLines(
+  private processInvoiceLines(
     invoiceLines: VendorTruckingRawData[],
     company: string,
     header: IVendorTruckingDFOHeader,
     voucher: number,
     lineNumber: () => number,
-  ): Promise<IVendorTruckingDFOLine[]> {
+  ): IVendorTruckingDFOLine[] {
     const lineObjects: IVendorTruckingDFOLine[] = [];
 
     for (const line of invoiceLines) {
-      const obj = await this.buildLine(
+      const obj = this.buildLine(
         line,
         header,
         company,
@@ -464,14 +448,14 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     return Number(value) + 1;
   }
 
-  private async buildLine(
+  private buildLine(
     line: VendorTruckingRawData,
     header: IVendorTruckingDFOHeader,
     company: string,
     uniqueId: string,
     voucherNum: number,
     lineNumber: number,
-  ): Promise<IVendorTruckingDFOLine> {
+  ): IVendorTruckingDFOLine {
     const dimensionModel = this.utilsService.parseDimensionString(
       line.ISLEDGER
         ? line.ACCOUNTDISPLAYVALUE
@@ -479,10 +463,7 @@ export class VendorTruckingEntryProcessor extends EntryProcessorBase {
     );
 
     const vendorInfo = line.ISVENDOR
-      ? await this.getVendorTaxNumberAndTermsOfPayment(
-          company,
-          line.ACCOUNTDISPLAYVALUE,
-        )
+      ? this.getVendorTaxNumberAndTermsOfPayment(line.ACCOUNTDISPLAYVALUE)
       : { taxNumber: '', termsOfPayment: '' };
     const termsOfPayment = vendorInfo.termsOfPayment;
 
