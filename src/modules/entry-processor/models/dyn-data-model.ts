@@ -1,10 +1,10 @@
-import { DynDataModel as IDynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DynDataModel as IDynDataModel } from '@/modules/entry-processor/interfaces';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 export abstract class DynDataModel implements IDynDataModel {
   LineNumber?: number;
 
-  DimensionModel?: AccountDimensionsModel;
+  DimensionModel?: EntryDimensionsModel;
   SourceIds: string[] = [];
 
   private errors: Array<{ property: string; message: string }> = [];

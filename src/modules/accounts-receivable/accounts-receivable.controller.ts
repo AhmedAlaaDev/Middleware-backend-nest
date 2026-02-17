@@ -9,15 +9,19 @@ import { CommandBus } from '@nestjs/cqrs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 
-import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
-import { PostARBatchToDFOCommand } from '@/modules/accounts-receivable/commands/post-ar-batch-to-dfo.command';
-import { ProcessARFreightCreditNoteCommand } from '@/modules/accounts-receivable/commands/process-ar-freight-credit-note.command';
-import { ProcessARFreightCommand } from '@/modules/accounts-receivable/commands/process-ar-freight.command';
-import { ProcessARTruckingCreditNoteCommand } from '@/modules/accounts-receivable/commands/process-ar-trucking-credit-note.command';
-import { ProcessARTruckingCommand } from '@/modules/accounts-receivable/commands/process-ar-trucking.command';
-import { ARFreightDto } from '@/modules/accounts-receivable/dtos/ar-freight.dto';
-import { ARTruckingDto } from '@/modules/accounts-receivable/dtos/ar-trucking.dto';
-import { PostToDFODto } from '@/modules/accounts-receivable/dtos/post-to-dfo.dto';
+import { ExcelFilePipe } from '@/common/pipes';
+import {
+  PostARBatchToDFOCommand,
+  ProcessARFreightCommand,
+  ProcessARFreightCreditNoteCommand,
+  ProcessARTruckingCommand,
+  ProcessARTruckingCreditNoteCommand,
+} from '@/modules/accounts-receivable/commands';
+import {
+  ARFreightDto,
+  ARTruckingDto,
+  PostToDFODto,
+} from '@/modules/accounts-receivable/dtos';
 
 /**
  * Data Migration - Account Receivable

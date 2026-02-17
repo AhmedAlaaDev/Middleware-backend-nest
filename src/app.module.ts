@@ -14,10 +14,10 @@ import {
 import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { CashModule } from '@/modules/cash/cash.module';
+import { ClosingModule } from '@/modules/closing/closing.module';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
-import { LedgerModule } from '@/modules/ledger/ledger.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
@@ -53,7 +53,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     AuthModule,
     VendorModule,
     CashModule,
-    LedgerModule,
+    ClosingModule,
     AccountsReceivableModule,
     DataBatchModule,
     MasterDataModule,

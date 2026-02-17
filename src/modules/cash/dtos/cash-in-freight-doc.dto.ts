@@ -1,3 +1,3 @@
-import { ExcelFileCompanyIdDto } from '@/common/dtos/excel-file-company-id.dto';
+import { ExcelFileCompanyIdDto } from '@/common/dtos';
 
 export class CashInFreightDocDto extends ExcelFileCompanyIdDto {}

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import {
-  DynDataModel,
-  RawDataModel,
-} from '@/modules/entry-processor/models/entry-processor.model';
+  EntryDimensionsModel,
+  EntryDynDataModel,
+  EntryRawDataModel,
+} from '@/modules/entry-processor/models';
 
 @Injectable()
 export class EntryProcessorUtilsService {
@@ -22,7 +22,7 @@ export class EntryProcessorUtilsService {
   /**
    * Parses a pipe-separated dimension string into AccountDimensionsModel.
    */
-  parseDimensionString(dimensionString?: string): AccountDimensionsModel {
+  parseDimensionString(dimensionString?: string): EntryDimensionsModel {
     if (!dimensionString || !dimensionString.trim()) {
       return {
         mainAccount: undefined,
@@ -134,7 +134,7 @@ export class EntryProcessorUtilsService {
   /**
    * Converts AccountDimensionsModel to pipe-separated string.
    */
-  toDimensionString(dimensionsModel: AccountDimensionsModel | null): string {
+  toDimensionString(dimensionsModel: EntryDimensionsModel | null): string {
     if (!dimensionsModel) {
       return '';
     }
@@ -175,7 +175,7 @@ export class EntryProcessorUtilsService {
    * Converts AccountDimensionsModel to pipe-separated string with padding to required segments.
    */
   toDimensionStringWithSegments(
-    dimensionsModel: AccountDimensionsModel | null,
+    dimensionsModel: EntryDimensionsModel | null,
     requiredSegments: number,
   ): string {
     const base = this.toDimensionString(dimensionsModel);
@@ -371,7 +371,7 @@ export class EntryProcessorUtilsService {
   /**
    * Builds batch and voucher numbers for a list of lines.
    */
-  updateBatchAndVoucher<T extends DynDataModel>(options: {
+  updateBatchAndVoucher<T extends EntryDynDataModel>(options: {
     lines: T[];
     startBatchNumber: number;
     startVoucherNumber: number;
@@ -461,7 +461,7 @@ export class EntryProcessorUtilsService {
    * Checks if the invoice is balanced after FX conversion.
    */
   checkInvoiceBalancedAfterFx(
-    invoiceMap: Map<string, RawDataModel[]>,
+    invoiceMap: Map<string, EntryRawDataModel[]>,
     unbalancedUniqueIds: Set<string>,
   ): Set<string> {
     unbalancedUniqueIds.clear();

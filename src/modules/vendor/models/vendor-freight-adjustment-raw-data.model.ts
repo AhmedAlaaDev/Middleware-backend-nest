@@ -1,4 +1,4 @@
-import { RawDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { RawDataModel } from '@/modules/entry-processor/interfaces';
 
 export class VendorFreightAdjustmentRawData {
   UniqueId: number;

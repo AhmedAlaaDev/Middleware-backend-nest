@@ -1,10 +1,10 @@
-import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
+import { DynDataModel } from '@/modules/entry-processor/interfaces';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 class VendorFreightAdjustmentDFOLine {
   header: IVendorFreightAdjustmentDFOHeader;
   LineNumber: number;
-  DimensionModel: AccountDimensionsModel;
+  DimensionModel: EntryDimensionsModel;
 
   JOURNALBATCHNUMBER: string;
   ACCOUNTTYPE: 'Vend' | 'Ledger';

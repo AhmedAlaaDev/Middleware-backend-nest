@@ -1,8 +1,10 @@
-import { EntryAccountType } from '@/common/types/entry-account-type.type';
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { DynDataModel } from '@/modules/entry-processor/models/entry-processor.model';
+import { EntryAccountType } from '@/common/types/entry-account.type';
+import {
+  EntryDimensionsModel,
+  EntryDynDataModel,
+} from '@/modules/entry-processor/models';
 
-export class CashEntryDynDataModel extends DynDataModel {
+export class CashEntryDynDataModel extends EntryDynDataModel {
   AccountDisplayValue: string;
   OffsetAccountDisplayValue: string;
 
@@ -44,7 +46,7 @@ export class CashEntryDynDataModel extends DynDataModel {
   OffsetVoucherType: string;
 
   constructor(
-    dimensionModel: AccountDimensionsModel,
+    dimensionModel: EntryDimensionsModel,
     data: Partial<CashEntryDynDataModel>,
   ) {
     super(data, dimensionModel);

@@ -1,6 +1,6 @@
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
-import { RequiredDimensionsConfig } from '@/modules/entry-processor/types/dimension-key.type';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
+import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 
 export interface RawDataModel {
   [key: string]: any;
@@ -10,7 +10,7 @@ export interface DynDataModel {
   LineNumber?: number;
   ErrorCount: number;
   ErrorsText: string;
-  DimensionModel?: AccountDimensionsModel;
+  DimensionModel?: EntryDimensionsModel;
   SourceIds: string[];
   GetErrors(): string[];
   AddError(property: string, message: string): void;

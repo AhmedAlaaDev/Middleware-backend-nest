@@ -1,23 +1,29 @@
 import { Injectable } from '@nestjs/common';
 
-import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
-import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import {
-  AccountReceivableFreightCreditNoteEntryProcessor,
   AccountReceivableFreightEntryProcessor,
+  AccountReceivableFreightCreditNoteEntryProcessor,
   AccountReceivableTruckingCreditNoteEntryProcessor,
   AccountReceivableTruckingEntryProcessor,
+} from '@/modules/accounts-receivable/processors';
+import {
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
+} from '@/modules/cash/processors';
+import {
   ClosingCustodySettlementEntryProcessor,
   ClosingFreightDifferenceEntryProcessor,
   ClosingFreightEntryProcessor,
   ClosingTruckingEntryProcessor,
+} from '@/modules/closing/processors';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
+import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import {
   VendorFreightAdjustmentEntryProcessor,
   VendorFreightEntryProcessor,
   VendorTruckingAdjustmentEntryProcessor,
   VendorTruckingEntryProcessor,
-} from '@/modules/entry-processor/processors';
+} from '@/modules/vendor/processors';
 
 @Injectable()
 export class EntryProcessorFactory {

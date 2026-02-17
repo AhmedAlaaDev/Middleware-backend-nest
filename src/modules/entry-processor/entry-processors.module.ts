@@ -1,28 +1,36 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 
-import { D365FOModule } from '@/modules/d365fo/d365fo.module';
-import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import {
-  AccountReceivableFreightCreditNoteEntryProcessor,
   AccountReceivableFreightEntryProcessor,
+  AccountReceivableFreightCreditNoteEntryProcessor,
   AccountReceivableTruckingCreditNoteEntryProcessor,
   AccountReceivableTruckingEntryProcessor,
+} from '@/modules/accounts-receivable/processors';
+import {
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
+} from '@/modules/cash/processors';
+import {
   ClosingCustodySettlementEntryProcessor,
   ClosingFreightDifferenceEntryProcessor,
   ClosingFreightEntryProcessor,
   ClosingTruckingEntryProcessor,
-  VendorFreightAdjustmentEntryProcessor,
-  VendorFreightEntryProcessor,
-  VendorTruckingAdjustmentEntryProcessor,
-  VendorTruckingEntryProcessor,
-} from '@/modules/entry-processor/processors';
-import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
-import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
+} from '@/modules/closing/processors';
+import { D365FOModule } from '@/modules/d365fo/d365fo.module';
+import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import {
+  EntryProcessorBaseDependencies,
+  EntryProcessorUtilsService,
+} from '@/modules/entry-processor/services';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
+import {
+  VendorFreightEntryProcessor,
+  VendorFreightAdjustmentEntryProcessor,
+  VendorTruckingEntryProcessor,
+  VendorTruckingAdjustmentEntryProcessor,
+} from '@/modules/vendor/processors';
 
 const EntryProcessors = [
   AccountReceivableFreightEntryProcessor,

@@ -6,12 +6,22 @@ import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processor
 import { ExcelModule } from '@/modules/excel/excel.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { QueueModule } from '@/modules/queue/queue.module';
-import { PostVendorBatchToDFOHandler } from '@/modules/vendor/commands/handlers/post-vendor-batch-to-dfo.handler';
-import { ProcessVendorFreightAdjustmentHandler } from '@/modules/vendor/commands/handlers/process-vendor-freight-adjustment.handler';
-import { ProcessVendorFreightHandler } from '@/modules/vendor/commands/handlers/process-vendor-freight.handler';
-import { ProcessVendorTruckingAdjustmentHandler } from '@/modules/vendor/commands/handlers/process-vendor-trucking-adjustment.handler';
-import { ProcessVendorTruckingHandler } from '@/modules/vendor/commands/handlers/process-vendor-trucking.handler';
+import {
+  PostVendorBatchToDFOHandler,
+  ProcessVendorFreightAdjustmentHandler,
+  ProcessVendorFreightHandler,
+  ProcessVendorTruckingAdjustmentHandler,
+  ProcessVendorTruckingHandler,
+} from '@/modules/vendor/handlers';
 import { VendorController } from '@/modules/vendor/vendor.controller';
+
+const CommandHandlers = [
+  PostVendorBatchToDFOHandler,
+  ProcessVendorFreightAdjustmentHandler,
+  ProcessVendorFreightHandler,
+  ProcessVendorTruckingAdjustmentHandler,
+  ProcessVendorTruckingHandler,
+];
 
 @Module({
   imports: [
@@ -23,12 +33,6 @@ import { VendorController } from '@/modules/vendor/vendor.controller';
     QueueModule,
   ],
   controllers: [VendorController],
-  providers: [
-    ProcessVendorFreightHandler,
-    ProcessVendorFreightAdjustmentHandler,
-    ProcessVendorTruckingHandler,
-    ProcessVendorTruckingAdjustmentHandler,
-    PostVendorBatchToDFOHandler,
-  ],
+  providers: [...CommandHandlers],
 })
 export class VendorModule {}
