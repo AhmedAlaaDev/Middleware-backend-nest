@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
-import { CashEntryDynDataModel } from '@/modules/cash/cash-in/models/cash-entry-dyn-data.model';
-import { CashEntryRawDataModel } from '@/modules/cash/cash-in/models/cash-entry-raw-data.model';
+import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
+import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { AccountDimensionsModel } from '@/modules/entry-processor/models/account-dimensions.model';
 import {

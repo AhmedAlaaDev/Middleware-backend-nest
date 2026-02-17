@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { ProcessCashInFreightCommand } from '@/modules/cash/cash-in/commands/process-cash-in-freight.comand';
+import { ProcessCashInFreightCommand } from '@/modules/cash/commands/process-cash-in-freight.comand';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
