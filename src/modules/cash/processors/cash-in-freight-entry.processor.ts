@@ -345,7 +345,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       PaymentMethod: this.getMethodOfPayment(dimensions.mainAccount),
       PaymentReference: paymentReference,
       JournalName: this.JOURNAL_NAME,
-      TransactionDate: accountLine.TRANSDATE,
+      TransDate: accountLine.TRANSDATE,
       AccountDisplayValue: dimensionStr,
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
@@ -353,21 +353,20 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       CreditAmount: accountLine.CREDITAMOUNT,
       DebitAmount: offsetLine.DEBITAMOUNT,
       CurrencyCode: offsetLine.CURRENCYCODE,
-      ExchangeRate: exchangeRate,
+      ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
-      IsPrepayment: accountLine.PREPAYMENT,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
-      DefaultDimensionsForAccountDisplayValue:
-        accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
-      DefaultDimensionsForOffsetAccountDisplayValue:
+      DefaultDimensionDisplayValue: accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      OffsetDefaultDimensionDisplayValue:
         offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
       OffsetCompany: this.company,
       PostingProfile: 'Cust-PP',
-      MarkedInvoice: markedInvoice,
-      MarkedInvoiceCompany: this.company,
-      VoucherType: accountLine.VOUCHERTYPE,
-      OffsetVoucherType: offsetLine.VOUCHERTYPE,
+      Invoice: markedInvoice,
+      dataAreaId: this.company,
+      ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
+      Document: accountLine.DOCUMENT,
+      DueDate: accountLine.DUEDATE,
     });
   }
 

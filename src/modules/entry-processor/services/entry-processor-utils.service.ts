@@ -408,7 +408,9 @@ export class EntryProcessorUtilsService {
       }
 
       const headerLine = lines[0];
-      const invoiceMonth = this.toMonthKey(headerLine.TransactionDate);
+      const invoiceMonth = this.toMonthKey(
+        headerLine.TransDate || headerLine.Date,
+      );
 
       const invoiceLineCount = lines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;

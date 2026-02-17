@@ -1,4 +1,4 @@
-import { LookupCell } from '@/common/types';
+import { EntryAccountType, LookupCell } from '@/common/types';
 
 /**
  * Source (raw) row from import (e.g. Excel/CSV).
@@ -22,7 +22,7 @@ export class EntryRawDataModel {
   /** Description */
   DESCRIPTION: string;
   /** Account type (e.g. Ledger, Vend, Cust) */
-  ACCOUNTTYPE: 'Cust' | 'Ledger' | 'Vend' | 'Bank' | 'Petty cash';
+  ACCOUNTTYPE: EntryAccountType;
   /** Main account display value */
   ACCOUNTDISPLAYVALUE: string;
   /** Default dimension display value */
@@ -59,6 +59,45 @@ export class EntryRawDataModel {
   SALESTAXCODE: string;
   /** Is posted */
   ISPOSTED: 'Yes' | 'No';
+  /** Prepayment */
+  PREPAYMENT: 'Yes' | 'No';
+  /** Sales tax group */
+  SALESTAXGROUP: string;
+  /** Item sales tax group */
+  ITEMSALESTAXGROUP: string;
+  /** Item with holding tax group code */
+  ISWITHHOLDINGCALCULATIONENABLED: 'Yes' | 'No';
+  /** Item with holding tax group code */
+  ITEMWITHHOLDINGTAXGROUPCODE: string;
+  /** Override sales tax */
+  OVERRIDESALESTAX: string;
+  /** Document date */
+  DOCUMENTDATE: string;
+  /** Due date */
+  DUEDATE: string;
+  /** Payment method */
+  PAYMENTMETHOD: string;
+  /** Payment reference */
+  PAYMENTREFERENCE: string;
+  /** Cash discount */
+  CASHDISCOUNT: number;
+  /** Cash discount amount */
+  CASHDISCOUNTAMOUNT: number;
+  /** Cash discount date */
+  CASHDISCOUNTDATE: string;
+  /** Payment id */
+  PAYMENTID: string;
+  /** Quantity */
+  QUANTITY: number;
+  /** Reverse date */
+  REVERSEDATE: string;
+  /** Reverse entry */
+  REVERSEENTRY: 'Yes' | 'No';
+
+  /** Is credit */
+  IsCredit: boolean;
+  /** Is debit */
+  IsDebit: boolean;
 
   /** Other fields from the source data */
   [key: string]: any;
@@ -74,12 +113,7 @@ export class EntryRawDataModel {
     this.TRANSDATE = s(data.TRANSDATE);
     this.JOURNALNAME = s(data.JOURNALNAME);
     this.DESCRIPTION = s(data.DESCRIPTION);
-    this.ACCOUNTTYPE = s(data.ACCOUNTTYPE) as
-      | 'Cust'
-      | 'Ledger'
-      | 'Vend'
-      | 'Bank'
-      | 'Petty cash';
+    this.ACCOUNTTYPE = s(data.ACCOUNTTYPE) as EntryAccountType;
     this.ACCOUNTDISPLAYVALUE = s(data.ACCOUNTDISPLAYVALUE);
     this.DEFAULTDIMENSIONDISPLAYVALUE = s(data.DEFAULTDIMENSIONDISPLAYVALUE);
     this.FINTAGDISPLAYVALUE = s(data.FINTAGDISPLAYVALUE);
@@ -100,6 +134,27 @@ export class EntryRawDataModel {
     this.TAXEXEMPTNUMBER = n(data.TAXEXEMPTNUMBER);
     this.SALESTAXCODE = s(data.SALESTAXCODE);
     this.ISPOSTED = data.ISPOSTED || 'No';
+    this.PREPAYMENT = (s(data?.PREPAYMENT) as 'Yes' | 'No') || 'No';
+    this.SALESTAXGROUP = s(data?.SALESTAXGROUP);
+    this.ITEMSALESTAXGROUP = s(data?.ITEMSALESTAXGROUP);
+    this.ISWITHHOLDINGCALCULATIONENABLED =
+      (s(data?.ISWITHHOLDINGCALCULATIONENABLED) as 'Yes' | 'No') || 'No';
+    this.ITEMWITHHOLDINGTAXGROUPCODE = s(data?.ITEMWITHHOLDINGTAXGROUPCODE);
+    this.DOCUMENTDATE = s(data?.DOCUMENTDATE);
+    this.DUEDATE = s(data?.DUEDATE);
+    this.PAYMENTMETHOD = s(data?.PAYMENTMETHOD);
+    this.PAYMENTREFERENCE = s(data?.PAYMENTREFERENCE);
+    this.CASHDISCOUNT = Number(n(data?.CASHDISCOUNT)) || 0;
+    this.CASHDISCOUNTAMOUNT = Number(n(data?.CASHDISCOUNTAMOUNT)) || 0;
+    this.CASHDISCOUNTDATE = s(data?.CASHDISCOUNTDATE);
+    this.OVERRIDESALESTAX = s(data?.OVERRIDESALESTAX);
+    this.PAYMENTID = s(data?.PAYMENTID);
+    this.QUANTITY = Number(n(data?.QUANTITY)) || 0;
+    this.REVERSEDATE = s(data?.REVERSEDATE);
+    this.REVERSEENTRY = (s(data?.REVERSEENTRY) as 'Yes' | 'No') || 'No';
+
+    this.IsCredit = n(this.CREDITAMOUNT) > 0;
+    this.IsDebit = n(this.DEBITAMOUNT) > 0;
   }
 
   protected lookupResult<T = any>(value: LookupCell<T>): T {
