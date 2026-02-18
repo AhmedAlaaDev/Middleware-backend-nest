@@ -7,8 +7,6 @@ export const ENTRY_PROCESSOR_NAMES = {
     'AccountReceivableTruckingCreditNoteEntryProcessor',
   VENDOR_FREIGHT: 'VendorFreightEntryProcessor',
   VENDOR_TRUCKING: 'VendorTruckingEntryProcessor',
-  VENDOR_FREIGHT_ADJUSTMENT: 'VendorFreightAdjustmentEntryProcessor',
-  VENDOR_TRUCKING_ADJUSTMENT: 'VendorTruckingAdjustmentEntryProcessor',
   LEDGER_FREIGHT_CLOSING_ENTRY: 'ClosingFreightEntryProcessor',
   LEDGER_TRUCKING_CLOSING_ENTRY: 'ClosingTruckingEntryProcessor',
   LEDGER_CUSTODY_SETTLEMENT_ENTRY: 'ClosingCustodySettlementEntryProcessor',

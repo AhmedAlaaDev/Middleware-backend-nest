@@ -8,7 +8,7 @@ import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
 import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands';
-import { VendorFreightAdjustmentRawData } from '@/modules/vendor/models';
+import { VendorFreightRawData } from '@/modules/vendor/models';
 
 @CommandHandler(ProcessVendorFreightAdjustmentCommand)
 @Injectable()
@@ -25,9 +25,7 @@ export class ProcessVendorFreightAdjustmentHandler implements ICommandHandler<Pr
   }: ProcessVendorFreightAdjustmentCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
     const rawData =
-      await this.excelService.excelToJson<VendorFreightAdjustmentRawData>(
-        fileBuffer,
-      );
+      await this.excelService.excelToJson<VendorFreightRawData>(fileBuffer);
 
     const isFreight = rawData.every(
       (d) => d.JOURNALNAME && d.JOURNALNAME.toLowerCase().includes('freight'),
@@ -35,8 +33,8 @@ export class ProcessVendorFreightAdjustmentHandler implements ICommandHandler<Pr
 
     if (!isFreight) throw new BadRequestException('Not a freight journal');
 
-    const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.VendorFreightAdjustment,
+    const processor = this.processorFactory.getProcessor(
+      EntryProcessorTypes.VendorFreight,
     );
 
     const enriched = await processor.formatAndEnrichAsync(rawData, company);
@@ -44,12 +42,14 @@ export class ProcessVendorFreightAdjustmentHandler implements ICommandHandler<Pr
     const validated = await processor.validateAsync(enriched, company);
 
     const dataBatch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.VendorFreightAdjustment,
-      ENTRY_PROCESSOR_NAMES.VENDOR_FREIGHT_ADJUSTMENT,
+      EntryProcessorTypes.VendorFreight,
+      ENTRY_PROCESSOR_NAMES.VENDOR_FREIGHT,
       company,
       `Vendor Freight Adjustment ${Date.now()}`,
       rawData,
       validated,
+      undefined,
+      'last.ledger.vendor.freight.voucher.number',
     );
 
     return dataBatch;

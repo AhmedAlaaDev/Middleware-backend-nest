@@ -19,7 +19,7 @@ import {
   PostVendorBatchToDFOCommand,
   PostVendorBatchToDFOResult,
 } from '@/modules/vendor/commands';
-import { VendorFreightDFOLine } from '@/modules/vendor/interfaces';
+import { VendorEntryDynDataModel } from '@/modules/vendor/models';
 
 @CommandHandler(PostVendorBatchToDFOCommand)
 @Injectable()
@@ -87,36 +87,38 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
-   * Groups enhanced records by JOURNALBATCHNUMBER using cursor streaming (memory-efficient)
+   * Groups enhanced records by journal batch number (supports both header and header-less line shapes).
    */
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
-  ): Promise<Map<string, IDataEnhancedRecord<VendorFreightDFOLine>[]>> {
+  ): Promise<Map<string, IDataEnhancedRecord<VendorEntryDynDataModel>[]>> {
     const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
     const journalGroups = new Map<
       string,
-      IDataEnhancedRecord<VendorFreightDFOLine>[]
+      IDataEnhancedRecord<VendorEntryDynDataModel>[]
     >();
     let recordCount = 0;
 
     for await (const record of recordsStream) {
       recordCount++;
-      const data = record.data as unknown as VendorFreightDFOLine;
+      const data = record.data as unknown as VendorEntryDynDataModel;
 
-      if (!this.isValidRecord(data, record.id)) {
+      if (!this.isValidVendorRecord(data, record.id)) {
         continue;
       }
 
-      const journalBatchNumber = data.JOURNALBATCHNUMBER;
+      const journalBatchNumber = this.getLineJournalBatchNumber(data);
       if (!journalGroups.has(journalBatchNumber)) {
         journalGroups.set(journalBatchNumber, []);
       }
 
       journalGroups
         .get(journalBatchNumber)!
-        .push(record as unknown as IDataEnhancedRecord<VendorFreightDFOLine>);
+        .push(
+          record as unknown as IDataEnhancedRecord<VendorEntryDynDataModel>,
+        );
     }
 
     if (recordCount === 0) {
@@ -130,24 +132,24 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     return journalGroups;
   }
 
-  /**
-   * Checks if a record is valid for processing
-   */
-  private isValidRecord(
-    data: VendorFreightDFOLine,
+  private getLineJournalBatchNumber(line: VendorEntryDynDataModel): string {
+    return line.JournalBatchNumber ?? '';
+  }
+
+  private isValidVendorRecord(
+    data: VendorEntryDynDataModel,
     recordId: string,
-  ): data is VendorFreightDFOLine {
+  ): boolean {
     if (!data || typeof data !== 'object') {
       return false;
     }
-
-    if (!data.JOURNALBATCHNUMBER) {
+    const batchNum = this.getLineJournalBatchNumber(data);
+    if (!batchNum?.trim()) {
       this.logger.warn(
-        `Skipping record ${recordId}: missing JOURNALBATCHNUMBER`,
+        `Skipping record ${recordId}: missing JOURNALBATCHNUMBER/JournalBatchNumber`,
       );
       return false;
     }
-
     return true;
   }
 
@@ -155,7 +157,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    * Maps grouped records to D365FO request types
    */
   private mapToD365FORequests(
-    journalGroups: Map<string, IDataEnhancedRecord<VendorFreightDFOLine>[]>,
+    journalGroups: Map<string, IDataEnhancedRecord<VendorEntryDynDataModel>[]>,
     company: string,
   ): Array<{
     header: D365FOVendorInvoiceJournalHeaderRequest;
@@ -179,91 +181,124 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
-   * Maps the first line of a journal group to a header request
+   * Maps the first line of a journal group to a header request.
+   * Supports both lines with a `header` property and header-less (VendorEntryDynDataModel) lines.
    */
   private mapHeaderFromLines(
-    lines: IDataEnhancedRecord<VendorFreightDFOLine>[],
+    lines: IDataEnhancedRecord<VendorEntryDynDataModel>[],
     company: string,
   ): D365FOVendorInvoiceJournalHeaderRequest {
     const firstLine = lines[0].data;
-    const header = firstLine.header;
 
-    // Header info comes from the header property on each line
+    if (firstLine?.JournalBatchNumber != null) {
+      return {
+        dataAreaId: company,
+        JournalBatchNumber: firstLine.JournalBatchNumber,
+        JournalName: firstLine.JournalName ?? '',
+        Description: firstLine.Description ?? '',
+      };
+    }
+
+    // Header-less shape (e.g. VendorEntryDynDataModel): derive from first line
+    const journalBatchNumber = this.getLineJournalBatchNumber(firstLine);
+    const journalName = firstLine.JournalName ?? '';
+    const description = firstLine.Description ?? '';
     return {
       dataAreaId: company,
-      JournalBatchNumber: header.JOURNALBATCHNUMBER,
-      JournalName: header.JOURNALNAME,
-      OverrideSalesTax: this.convertToYesNo(header.OVERRIDESALESTAX),
-      Description: header.DESCRIPTION,
-      SalesTaxIncluded: this.convertToYesNo(header.SALESTAXINCLUDED),
+      JournalBatchNumber: journalBatchNumber,
+      JournalName: journalName,
+      Description: description,
     };
   }
 
   /**
    * Maps journal lines to D365FO line requests.
-   * For Ledger lines, D365FO expects AccountDisplayValue as full LedgerDimensionDisplayValue
-   * (MainAccount|Dim1|Dim2|...) per the active Ledger dimension format.
+   * Normalizes both PascalCase (VendorEntryDynDataModel) and uppercase (VendorFreightDFOLine) property names.
    */
   private mapLines(
-    lines: IDataEnhancedRecord<VendorFreightDFOLine>[],
+    lines: IDataEnhancedRecord<VendorEntryDynDataModel>[],
     company: string,
   ): D365FOVendorInvoiceJournalLineRequest[] {
     return lines.map((lineRecord) => {
       const line = lineRecord.data;
 
-      const accountDisplayValue =
-        line.ACCOUNTTYPE === 'Ledger' &&
-        line.DEFAULTDIMENSIONDISPLAYVALUE?.trim()
-          ? line.ACCOUNTDISPLAYVALUE + line.DEFAULTDIMENSIONDISPLAYVALUE.trim()
-          : line.ACCOUNTDISPLAYVALUE;
+      const accountType = line.AccountType ?? '';
+      const accountDisplayValue = line.AccountDisplayValue ?? '';
+      const defaultDim = line.DefaultDimensionDisplayValue ?? '';
+
+      const displayValue =
+        accountType === 'Ledger' && defaultDim?.trim()
+          ? accountDisplayValue + defaultDim.trim()
+          : accountDisplayValue;
+
+      const journalBatchNumber = this.getLineJournalBatchNumber(line);
+      const lineNumber = line.LineNumber ?? 0;
+      const postingProfile = line.PostingProfile ?? '';
+      const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
+      const offsetDefaultDim = line.OffsetDefaultDimensionDisplayValue ?? '';
+      const finTag = line.FinTagDisplayValue ?? '';
+      const offsetFinTag = line.OffsetFinTagDisplayValue ?? '';
+      const reportingRate = line.ReportingCurrencyExchRate ?? 0;
+      const termsOfPayment = line.TermsOfPayment ?? '';
+      const exchRateSecond = line.ExchRateSecond ?? 0;
+      const transactionType = 'Vendor';
+      const methodOfPayment = line.MethodOfPayment ?? '';
+      const exchRate = line.ExchRate ?? 1;
+      const document = line.Document ?? '';
+      const description = line.Description ?? '';
+      const invoice = line.Invoice ?? '';
+      const date = line.Date ?? '';
+      const voucher = line.Voucher ?? '';
+      const currency = line.Currency ?? '';
+      const itemWithholding = line.ItemWithholdingTaxGroupCode ?? '';
+      const offsetAccountType = line.OffsetAccountType ?? '';
+      const invoiceDate = line.InvoiceDate ?? date;
+      const debit = Number(line.Debit ?? 0);
+      const offsetCompany = line.OffsetCompany ?? '';
+      const dueDate = line.DueDate ?? '';
+      const salesTaxGroup = line.SalesTaxGroup ?? '';
+      const itemSalesTaxGroup = line.ItemSalesTaxGroup ?? '';
+      const credit = Number(line.Credit ?? 0);
+      const lineCompany = line.Company ?? company;
 
       return {
         dataAreaId: company,
-        JournalBatchNumber: line.JOURNALBATCHNUMBER,
-        LineNumber: line.LineNumber,
-        AccountDisplayValue: accountDisplayValue,
-        PostingProfile: line.POSTINGPROFILE,
-        OffsetAccountDisplayValue: line.OFFSETACCOUNTDISPLAYVALUE,
-        OffsetDefaultDimensionDisplayValue: this.toOptionalTrimmedString(
-          line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
-        ),
-        DefaultDimensionDisplayValue: this.toOptionalTrimmedString(
-          line.DEFAULTDIMENSIONDISPLAYVALUE,
-        ),
-        // FinTagDisplayValue / OffsetFinTagDisplayValue omitted: D365FO resolves them via
-        // FINTAGCREATEUNICODEHASH and FINTAGDATAENTITYSFKCACHE; if that SQL function is
-        // missing or misconfigured, posting fails. Omit to allow lines to post.
-        FinTagDisplayValue: line.FINTAGDISPLAYVALUE,
-        OffsetFinTagDisplayValue: line.OFFSETFINTAGDISPLAYVALUE,
-        ReportingCurrencyExchRate: line.REPORTINGCURRENCYEXCHRATE,
-        AccountType: line.ACCOUNTTYPE,
-        TermsOfPayment: line.TERMSOFPAYMENT,
-        ExchRateSecond: line.EXCHRATESECOND || 0,
-        TransactionType: line.TRANSACTIONTYPE,
-        MethodOfPayment: this.toOptionalTrimmedString(line.METHODOFPAYMENT),
-        ExchRate: line.EXCHRATE ?? 1,
-        Document: line.DOCUMENT ? String(line.DOCUMENT) : undefined,
-        Description: this.toOptionalTrimmedString(line.DESCRIPTION),
-        Invoice: line.INVOICE,
-        Date: this.formatDate(line.DATE),
-        Voucher: line.VOUCHER ? String(line.VOUCHER) : undefined,
-        // TaxExemptNumber: this.toOptionalTrimmedString(line.TAXEXEMPTNUMBER),
-        Currency: line.CURRENCY,
-        ItemWithholdingTaxGroupCode: this.toOptionalTrimmedString(
-          line.ITEMWITHHOLDINGTAXGROUPCODE,
-        ),
-        OffsetAccountType: line.OFFSETACCOUNTTYPE,
-        InvoiceDate: line.INVOICEDATE
-          ? this.formatDate(line.INVOICEDATE)
-          : this.formatDate(line.DATE),
-        Debit: line.DEBIT || 0,
-        OffsetCompany: line.OFFSETCOMPANY,
-        DueDate: line.DUEDATE ? this.formatDate(line.DUEDATE) : undefined,
-        OverrideSalesTax: this.convertToYesNo(line.OVERRIDESALESTAX),
-        SalesTaxGroup: this.toOptionalTrimmedString(line.SALESTAXGROUP),
-        ItemSalesTaxGroup: this.toOptionalTrimmedString(line.ITEMSALESTAXGROUP),
-        Credit: line.CREDIT || 0,
-        Company: line.COMPANY || company,
+        JournalBatchNumber: journalBatchNumber,
+        LineNumber: lineNumber,
+        AccountDisplayValue: displayValue,
+        PostingProfile: postingProfile,
+        OffsetAccountDisplayValue: offsetAccountDisplayValue,
+        OffsetDefaultDimensionDisplayValue:
+          this.toOptionalTrimmedString(offsetDefaultDim),
+        DefaultDimensionDisplayValue: this.toOptionalTrimmedString(defaultDim),
+        FinTagDisplayValue: finTag,
+        OffsetFinTagDisplayValue: offsetFinTag,
+        ReportingCurrencyExchRate: reportingRate,
+        AccountType: accountType as 'Vend' | 'Ledger',
+        TermsOfPayment: this.toOptionalTrimmedString(termsOfPayment),
+        ExchRateSecond: exchRateSecond || 0,
+        TransactionType: transactionType,
+        MethodOfPayment: this.toOptionalTrimmedString(methodOfPayment),
+        ExchRate: exchRate,
+        Document: document != null ? String(document) : undefined,
+        Description: this.toOptionalTrimmedString(description),
+        Invoice: invoice,
+        Date: this.formatDate(date),
+        Voucher: voucher != null ? String(voucher) : undefined,
+        Currency: currency,
+        ItemWithholdingTaxGroupCode:
+          this.toOptionalTrimmedString(itemWithholding),
+        OffsetAccountType: offsetAccountType,
+        InvoiceDate: invoiceDate
+          ? this.formatDate(invoiceDate)
+          : this.formatDate(date),
+        Debit: debit,
+        OffsetCompany: offsetCompany,
+        DueDate: dueDate ? this.formatDate(dueDate) : undefined,
+        SalesTaxGroup: this.toOptionalTrimmedString(salesTaxGroup),
+        ItemSalesTaxGroup: this.toOptionalTrimmedString(itemSalesTaxGroup),
+        Credit: credit,
+        Company: lineCompany,
       } as D365FOVendorInvoiceJournalLineRequest;
     });
   }
@@ -386,20 +421,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (!header.JournalName?.trim()) {
       missingFields.push('JournalName');
     }
-    if (
-      !header.OverrideSalesTax ||
-      !['Yes', 'No'].includes(header.OverrideSalesTax)
-    ) {
-      missingFields.push('OverrideSalesTax');
-    }
     if (!header.Description?.trim()) {
       missingFields.push('Description');
-    }
-    if (
-      !header.SalesTaxIncluded ||
-      !['Yes', 'No'].includes(header.SalesTaxIncluded)
-    ) {
-      missingFields.push('SalesTaxIncluded');
     }
 
     return missingFields;
@@ -594,24 +617,5 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       return parsed.toISOString();
     }
     throw new Error(`Invalid date type: ${typeof date}`);
-  }
-
-  /**
-   * Converts various boolean/string values to "Yes" or "No"
-   */
-  private convertToYesNo(
-    value: string | boolean | undefined | null,
-  ): 'Yes' | 'No' {
-    if (value === null || value === undefined) {
-      return 'No';
-    }
-    if (typeof value === 'boolean') {
-      return value ? 'Yes' : 'No';
-    }
-    const str = String(value).trim().toLowerCase();
-    if (str === 'yes' || str === 'true' || str === '1') {
-      return 'Yes';
-    }
-    return 'No';
   }
 }

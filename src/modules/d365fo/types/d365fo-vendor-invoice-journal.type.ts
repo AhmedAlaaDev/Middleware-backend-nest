@@ -5,9 +5,9 @@ export interface D365FOVendorInvoiceJournalHeaderRequest {
   dataAreaId: string;
   JournalBatchNumber: string;
   JournalName: string;
-  OverrideSalesTax: 'Yes' | 'No';
+  // OverrideSalesTax: 'Yes' | 'No';
   Description: string;
-  SalesTaxIncluded: 'Yes' | 'No';
+  // SalesTaxIncluded: 'Yes' | 'No';
 }
 
 /**
