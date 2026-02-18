@@ -147,6 +147,22 @@ export class ODataQueryBuilderService {
   }
 
   /**
+   * Greater than or equal for Edm.DateTimeOffset (OData datetime literal, no quotes).
+   * Use for D365FO date/datetime fields to avoid 400 from quoted literals.
+   */
+  public geDateTime(field: string, isoDateTime: string): string {
+    return `${field} ge ${isoDateTime}`;
+  }
+
+  /**
+   * Less than for Edm.DateTimeOffset (OData datetime literal, no quotes).
+   * Use for D365FO date/datetime fields to avoid 400 from quoted literals.
+   */
+  public ltDateTime(field: string, isoDateTime: string): string {
+    return `${field} lt ${isoDateTime}`;
+  }
+
+  /**
    * Helper method to create 'contains' filter
    */
   public contains(field: string, value: string): string {

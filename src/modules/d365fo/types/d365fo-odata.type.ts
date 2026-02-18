@@ -5,5 +5,6 @@
 export interface D365FOODataResponse<T> {
   '@odata.context'?: string;
   '@odata.count'?: number;
+  '@odata.nextLink'?: string;
   value: T[];
 }

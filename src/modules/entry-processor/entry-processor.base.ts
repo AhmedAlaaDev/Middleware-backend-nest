@@ -1,6 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
+import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
+import {
+  FreeTextInvoiceHeaderDto,
+  GetFreeTextInvoicesByInvoiceDateRangeParams,
+} from '@/modules/d365fo/types';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   IEntryProcessor,
@@ -102,6 +107,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     string,
     { taxNumber: string; termsOfPayment: string }
   > | null = null;
+  protected freeTextInvoiceMap: Map<string, FreeTextInvoiceHeaderDto[]> | null =
+    null;
   protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
@@ -109,6 +116,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly utilsService: EntryProcessorUtilsService;
   protected readonly dimensionService: DimensionValidationService;
   protected readonly taxGroupService: TaxGroupService;
+  protected readonly freeTextInvoiceService: FreeTextInvoiceService;
 
   private _company: string;
 
@@ -121,6 +129,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     this.utilsService = options.dependencies.utilsService;
     this.dimensionService = options.dependencies.dimensionService;
     this.taxGroupService = options.dependencies.taxGroupService;
+    this.freeTextInvoiceService = options.dependencies.freeTextInvoiceService;
   }
 
   protected set company(company: string) {
@@ -533,5 +542,52 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       date,
       toCurrency,
     );
+  }
+
+  protected async fetchFreeTextInvoices(options: {
+    dateStrings: string[];
+  }): Promise<Map<string, FreeTextInvoiceHeaderDto[]>> {
+    const dateStrings = [
+      ...new Set(options.dateStrings.filter((d): d is string => Boolean(d))),
+    ];
+
+    const { from, to } =
+      this.utilsService.toInvoiceDateRangeFromDateStrings(dateStrings);
+
+    this.baseLogger.debug(
+      `Using free text invoice date range [${from}, ${to}) from ${dateStrings.length} unique line date(s)`,
+    );
+
+    const params: GetFreeTextInvoicesByInvoiceDateRangeParams = {
+      company: this.company,
+      from,
+      to,
+    };
+    const freeTextInvoices =
+      await this.freeTextInvoiceService.getFreeTextInvoicesByInvoiceDateRange(
+        params,
+      );
+
+    if (!this.freeTextInvoiceMap) {
+      this.freeTextInvoiceMap = new Map();
+    }
+    for (const invoice of freeTextInvoices) {
+      const key = (invoice.invoiceNumber ?? '').trim().toLowerCase();
+      const arr = this.freeTextInvoiceMap.get(key) ?? [];
+      arr.push(invoice);
+      this.freeTextInvoiceMap.set(key, arr);
+    }
+
+    const mapSize = this.freeTextInvoiceMap.size;
+    const duplicateCount = [...this.freeTextInvoiceMap.values()].filter(
+      (arr) => arr.length > 1,
+    ).length;
+    if (freeTextInvoices.length !== mapSize || duplicateCount > 0) {
+      this.baseLogger.debug(
+        `Free text invoices: ${freeTextInvoices.length} headers → ${mapSize} invoice number(s), ${duplicateCount} with duplicates`,
+      );
+    }
+
+    return this.freeTextInvoiceMap;
   }
 }

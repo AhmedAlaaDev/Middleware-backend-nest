@@ -289,6 +289,57 @@ export class EntryProcessorUtilsService {
   }
 
   /**
+   * Converts an array of date strings to from/to range for getFreeTextInvoicesByInvoiceDateRange.
+   * Returns a wide range: from first day of previous month to last day of next month (exclusive).
+   * Example: dates in Jan 2026 → from 2025-12-01 to 2026-03-01 (exclusive, so includes Feb 2026).
+   * Empty array returns from and to as the same instant so the range is empty.
+   */
+  toInvoiceDateRangeFromDateStrings(dateStrings: string[]): {
+    from: string;
+    to: string;
+  } {
+    if (!dateStrings?.length) {
+      const now = new Date().toISOString();
+      return { from: now, to: now };
+    }
+    const parsed = dateStrings
+      .map((s) => (typeof s === 'string' ? s.trim() : String(s)))
+      .filter(Boolean)
+      .map((s) => new Date(s))
+      .filter((d) => !isNaN(d.getTime()));
+    if (parsed.length === 0) {
+      const now = new Date().toISOString();
+      return { from: now, to: now };
+    }
+    // Normalize to start-of-day UTC and dedupe by day
+    const dayTimestamps = new Set(
+      parsed.map((d) => {
+        const day = new Date(d);
+        day.setUTCHours(0, 0, 0, 0);
+        return day.getTime();
+      }),
+    );
+    const min = new Date(Math.min(...dayTimestamps));
+    const max = new Date(Math.max(...dayTimestamps));
+
+    // from = first day of previous month (relative to min date)
+    const fromDate = new Date(min);
+    fromDate.setUTCDate(1); // First day of min's month
+    fromDate.setUTCMonth(fromDate.getUTCMonth() - 1); // Previous month
+    fromDate.setUTCHours(0, 0, 0, 0);
+    const from = fromDate.toISOString();
+
+    // to = first day of month after next month (exclusive, so includes last day of next month)
+    const toDate = new Date(max);
+    toDate.setUTCDate(1); // First day of max's month
+    toDate.setUTCMonth(toDate.getUTCMonth() + 2); // Two months ahead (next month + 1)
+    toDate.setUTCHours(0, 0, 0, 0);
+    const to = toDate.toISOString();
+
+    return { from, to };
+  }
+
+  /**
    * Gets month key as YYYY-MM string.
    */
   toMonthKey(dateStr: string): string {

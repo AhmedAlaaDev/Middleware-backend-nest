@@ -102,10 +102,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 2.5: run custody settlement with raw data (no file – already extracted from Excel)
-    this.logger.debug(
-      `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
-    );
-    this.processCustodySettlementLines(custodySettlementLines);
+    // this.logger.debug(
+    //   `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
+    // );
+    // this.processCustodySettlementLines(custodySettlementLines);
 
     // STEP 3: Build invoice map
     this.logger.debug(
@@ -151,6 +151,17 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       `[STEP 5] Updated batch and voucher numbers for ${updatedDfoLines.length} lines`,
     );
 
+    // STEP 6: Fetch free text invoices
+    this.logger.debug(
+      `[STEP 6] Fetching free text invoices for ${updatedDfoLines.length} lines`,
+    );
+    await this.fetchFreeTextInvoices({
+      dateStrings: updatedDfoLines.map((line) => line.TransDate ?? line.Date),
+    });
+    this.logger.debug(
+      `[STEP 6] Fetched free text invoices ${this.freeTextInvoiceMap?.size} invoices`,
+    );
+
     return updatedDfoLines.map(
       (line) => new CashEntryDynDataModel(line.DimensionModel, line),
     );
@@ -165,7 +176,46 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       if (this.unbalancedUniqueIds.has(line.SourceIds[0])) {
         line.AddError('UnbalancedInvoice', 'Invoice is unbalanced after FX');
       }
+
       this.validateDimensionsForLine(line);
+
+      if (this.freeTextInvoiceMap) {
+        const invoiceKey = (line.Invoice ?? '').trim().toLowerCase();
+
+        if (!invoiceKey) {
+          line.AddError('Invoice', 'Invoice is missing');
+          continue;
+        }
+
+        const entries = this.freeTextInvoiceMap.get(invoiceKey);
+
+        if (!entries?.length) {
+          line.AddError(
+            'Invoice',
+            `Free text invoice (${line.Invoice}) not exists in D365FO`,
+          );
+          continue;
+        }
+
+        const atLeastOnePosted = entries.some((e) => e.isPosted);
+
+        if (entries.length > 1) {
+          const notPostedCount = entries.filter((e) => !e.isPosted).length;
+          const duplicateMessage =
+            notPostedCount > 0
+              ? `Duplicate free text invoices in D365FO: (${line.Invoice}) has ${entries.length} matching records. ${notPostedCount} of these are not posted. Resolve duplicates in D365FO.`
+              : `Duplicate free text invoices in D365FO: (${line.Invoice}) has ${entries.length} matching records. Resolve duplicates in D365FO.`;
+          line.AddError('Invoice', duplicateMessage);
+          continue;
+        }
+
+        if (!atLeastOnePosted) {
+          line.AddError(
+            'Invoice',
+            `(${line.Invoice}) exists in D365FO but is not posted (IsPosted=No)`,
+          );
+        }
+      }
     }
 
     return data;

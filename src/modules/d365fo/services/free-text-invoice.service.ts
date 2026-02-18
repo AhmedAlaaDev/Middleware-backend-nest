@@ -7,7 +7,14 @@ import { ODataQueryBuilderService } from './odata-query-builder.service';
 import {
   D365FOFreeTextInvoiceHeaderRequest,
   D365FOFreeTextInvoiceLineRequest,
+  GetFreeTextInvoicesByInvoiceDateRangeParams,
+  GetFreeTextInvoicesByInvoiceDateRangeResult,
+  FreeTextInvoiceLookupResult,
+  GetByInvoiceNumbersOptions,
 } from '@/modules/d365fo/types';
+
+/** D365FO OData $batch limit: max 200 query operations per batch message. */
+const D365FO_BATCH_MAX_PARTS = 200;
 
 /**
  * Service for managing free text invoices in D365FO
@@ -401,5 +408,368 @@ export class FreeTextInvoiceService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Get free text invoice status (exists, isPosted, company) by invoice numbers via OData $batch.
+   * Chunks requests with configurable size and concurrency.
+   * D365FO allows at most 200 operations per batch; chunkSize is capped at that limit.
+   */
+  public async getByInvoiceNumbers(
+    options: GetByInvoiceNumbersOptions,
+  ): Promise<FreeTextInvoiceLookupResult[]> {
+    const { invoiceNumbers, company } = options;
+    const chunkSize = Math.min(
+      D365FO_BATCH_MAX_PARTS,
+      Math.max(1, options.chunkSize ?? 250),
+    );
+    const concurrency = Math.min(10, Math.max(1, options.concurrency ?? 3));
+
+    if (invoiceNumbers.length === 0) {
+      return [];
+    }
+
+    const chunks = this.chunkArray(invoiceNumbers, chunkSize);
+    const totalChunks = chunks.length;
+
+    this.logger.debug(
+      `Getting ${invoiceNumbers.length} free text invoices by numbers for company '${company}' in ${totalChunks} chunks (chunkSize=${chunkSize}, concurrency=${concurrency})`,
+    );
+
+    const startTime = Date.now();
+    const allResults: FreeTextInvoiceLookupResult[] = [];
+
+    try {
+      for (let i = 0; i < chunks.length; i += concurrency) {
+        const wave = chunks.slice(i, i + concurrency);
+        const waveResults = await Promise.all(
+          wave.map((chunk, j) => {
+            const chunkIndex = i + j + 1;
+            return this.processBatchChunk(
+              chunk,
+              company,
+              chunkIndex,
+              totalChunks,
+            );
+          }),
+        );
+        for (const results of waveResults) {
+          allResults.push(...results);
+        }
+      }
+
+      const existsCount = allResults.filter((r) => r.exists).length;
+      const postedCount = allResults.filter((r) => r.isPosted).length;
+      const durationMs = Date.now() - startTime;
+      this.logger.log(
+        `Got ${allResults.length} invoices by numbers: ${existsCount} exist, ${postedCount} posted (${durationMs}ms)`,
+      );
+
+      return allResults;
+    } catch (error) {
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+      this.logger.error(
+        `Get by invoice numbers failed: ${errorDetails}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(`Get by invoice numbers failed: ${errorDetails}`);
+    }
+  }
+
+  public async getFreeTextInvoicesByInvoiceDateRange(
+    params: GetFreeTextInvoicesByInvoiceDateRangeParams,
+  ): Promise<GetFreeTextInvoicesByInvoiceDateRangeResult> {
+    const company = params.company?.trim();
+    if (!company) {
+      throw new Error('company is required');
+    }
+
+    const fromISO = this.coerceToIsoString(params.from, 'from');
+    const toISO = this.coerceToIsoString(params.to, 'to');
+
+    if (Date.parse(fromISO) >= Date.parse(toISO)) {
+      throw new Error(`from must be before to (from=${fromISO}, to=${toISO})`);
+    }
+
+    // D365FO OData expects datetime without milliseconds, e.g. 2026-01-01T00:00:00Z
+    const fromOData = this.toODataDateTime(fromISO);
+    const toOData = this.toODataDateTime(toISO);
+
+    this.logger.debug(
+      `[QUERY] Fetching FreeTextInvoiceHeaders for company '${company}' by InvoiceDate range [${fromOData}, ${toOData})`,
+    );
+
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      this.queryBuilder.geDateTime('InvoiceDate', fromOData),
+      this.queryBuilder.ltDateTime('InvoiceDate', toOData),
+    );
+
+    let endpoint = this.queryBuilder.buildQuery(
+      '/data/FreeTextInvoiceHeaders',
+      {
+        select: ['dataAreaId', 'FreeTextNumber', 'IsPosted', 'InvoiceDate'],
+        filter,
+        orderBy: 'InvoiceDate asc',
+        crossCompany: true,
+      },
+    );
+
+    type RawHeader = {
+      dataAreaId: string;
+      FreeTextNumber: string;
+      IsPosted: string;
+      InvoiceDate: string;
+    };
+
+    const allRows: RawHeader[] = [];
+    let pages = 0;
+
+    while (true) {
+      pages += 1;
+      const response = await this.d365foClient.get<RawHeader>(endpoint, {
+        useCache: false,
+      });
+
+      allRows.push(...(response.value ?? []));
+
+      const nextLink = response['@odata.nextLink'];
+      if (!nextLink) break;
+
+      endpoint = this.getEndpointFromNextLink(nextLink);
+    }
+
+    this.logger.debug(
+      `[QUERY] Fetched ${allRows.length} FreeTextInvoiceHeaders in ${pages} page(s) for company '${company}' by InvoiceDate range`,
+    );
+
+    return allRows.map((row) => ({
+      invoiceNumber: row.FreeTextNumber,
+      company: row.dataAreaId,
+      isPosted: row.IsPosted === 'Yes',
+      invoiceDate: row.InvoiceDate,
+    }));
+  }
+
+  private chunkArray<T>(arr: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      result.push(arr.slice(i, i + size));
+    }
+    return result;
+  }
+
+  /**
+   * Format ISO string for D365FO OData $filter (no milliseconds): 2026-01-01T00:00:00Z
+   */
+  private toODataDateTime(iso: string): string {
+    return iso.replace(/\.\d{3}Z$/i, 'Z');
+  }
+
+  private coerceToIsoString(
+    input: string | Date,
+    fieldName: 'from' | 'to',
+  ): string {
+    if (input instanceof Date) {
+      if (isNaN(input.getTime())) {
+        throw new Error(`Invalid ${fieldName} date`);
+      }
+      return input.toISOString();
+    }
+
+    const date = new Date(input);
+    if (isNaN(date.getTime())) {
+      throw new Error(`Invalid ${fieldName} date string: ${input}`);
+    }
+    return date.toISOString();
+  }
+
+  private getEndpointFromNextLink(nextLink: string): string {
+    try {
+      const url = new URL(nextLink);
+      return `${url.pathname}${url.search}`;
+    } catch {
+      // In case server returns a relative nextLink, fall back to using it as-is.
+      return nextLink;
+    }
+  }
+
+  private async processBatchChunk(
+    invoiceNumbers: string[],
+    company: string,
+    chunkIndex: number,
+    totalChunks: number,
+  ): Promise<FreeTextInvoiceLookupResult[]> {
+    const startMs = Date.now();
+    const boundary =
+      'batch_' +
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const body = this.buildBatchRequestBody(invoiceNumbers, company, boundary);
+
+    try {
+      const response = await this.d365foClient.post<string, string>(
+        '/data/$batch',
+        body,
+        {
+          headers: {
+            'Content-Type': `multipart/mixed; boundary="${boundary}"`,
+            'OData-MaxVersion': '4.0',
+            Accept: 'multipart/mixed',
+          },
+        },
+      );
+
+      const responseBody =
+        typeof response === 'string' ? response : String(response);
+      const responseBoundary = this.extractBoundaryFromMultipart(responseBody);
+      const results = this.parseBatchResponse(
+        responseBody,
+        responseBoundary ?? boundary,
+        invoiceNumbers,
+        company,
+      );
+
+      const durationMs = Date.now() - startMs;
+      this.logger.debug(
+        `Batch chunk ${chunkIndex}/${totalChunks} (${invoiceNumbers.length} invoices) completed in ${durationMs}ms`,
+      );
+
+      return results;
+    } catch (error: unknown) {
+      const firstInv = invoiceNumbers[0] ?? '';
+      const lastInv = invoiceNumbers[invoiceNumbers.length - 1] ?? '';
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status;
+      const responseData = (error as { response?: { data?: unknown } })
+        ?.response?.data;
+      if (status === 400 && responseData !== undefined) {
+        this.logger.error(
+          `Get by invoice numbers batch 400 response body: ${typeof responseData === 'string' ? responseData : JSON.stringify(responseData)}`,
+        );
+      }
+      this.logger.error(
+        `Get by invoice numbers failed at chunk ${chunkIndex}/${totalChunks} (invoices ${firstInv}–${lastInv}): ${errorDetails}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(
+        `Get by invoice numbers failed at chunk ${chunkIndex} (invoices ${firstInv}–${lastInv}): ${errorDetails}`,
+      );
+    }
+  }
+
+  private buildBatchRequestBody(
+    invoiceNumbers: string[],
+    company: string,
+    boundary: string,
+  ): string {
+    const CRLF = '\r\n';
+    const safe = (s: string) => s.replace(/'/g, "''");
+    const parts: string[] = [];
+
+    for (const invoiceNumber of invoiceNumbers) {
+      const filter = `dataAreaId eq '${safe(company)}' and FreeTextNumber eq '${safe(invoiceNumber)}'`;
+      const path = `/data/FreeTextInvoiceHeaders?cross-company=true&$select=dataAreaId,FreeTextNumber,IsPosted&$filter=${encodeURIComponent(filter)}`;
+      parts.push(
+        `--${boundary}${CRLF}`,
+        `Content-Type: application/http${CRLF}`,
+        `Content-Transfer-Encoding: binary${CRLF}`,
+        `${CRLF}`,
+        `GET ${path} HTTP/1.1${CRLF}`,
+        `${CRLF}`,
+      );
+    }
+    parts.push(`--${boundary}--${CRLF}`);
+    return parts.join('');
+  }
+
+  private extractBoundaryFromMultipart(body: string): string | null {
+    const firstLine =
+      body
+        .trim()
+        .split(/\r\n|\n/)[0]
+        ?.trim() ?? '';
+    if (firstLine.startsWith('--')) {
+      return firstLine.slice(2).replace(/-+$/, '').trim() || null;
+    }
+    return null;
+  }
+
+  private parseBatchResponse(
+    body: string,
+    boundary: string,
+    invoiceNumbers: string[],
+    company: string,
+  ): FreeTextInvoiceLookupResult[] {
+    const CRLF = '\r\n';
+    const normalizedBoundary = boundary
+      .replace(/-+$/, '')
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = `\n${body}`
+      .split(new RegExp(`\\r?\\n--${normalizedBoundary}(?:--)?\\r?\\n`))
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0 && p.includes('HTTP/'));
+
+    const results: FreeTextInvoiceLookupResult[] = [];
+
+    for (let i = 0; i < invoiceNumbers.length; i++) {
+      const invoiceNumber = invoiceNumbers[i];
+      const defaultResult: FreeTextInvoiceLookupResult = {
+        invoiceNumber,
+        exists: false,
+        isPosted: false,
+        company,
+      };
+
+      const part = parts[i];
+      if (!part) {
+        results.push(defaultResult);
+        continue;
+      }
+
+      const httpStart = part.indexOf('HTTP/');
+      if (httpStart === -1) {
+        results.push(defaultResult);
+        continue;
+      }
+
+      const statusLine = part.slice(httpStart).split(CRLF)[0] ?? '';
+      const statusCode = parseInt(statusLine.split(/\s+/)[1] ?? '0', 10);
+      if (statusCode < 200 || statusCode >= 300) {
+        results.push(defaultResult);
+        continue;
+      }
+
+      const bodyStart = part.indexOf('\r\n\r\n', httpStart);
+      const bodyStr = bodyStart >= 0 ? part.slice(bodyStart + 4).trim() : '';
+      if (!bodyStr || !bodyStr.startsWith('{')) {
+        results.push(defaultResult);
+        continue;
+      }
+
+      try {
+        const data = JSON.parse(bodyStr) as {
+          value?: Array<{ dataAreaId?: string; IsPosted?: string }>;
+        };
+        const value = data?.value;
+        if (!value || value.length === 0) {
+          results.push(defaultResult);
+          continue;
+        }
+        const record = value[0];
+        results.push({
+          invoiceNumber,
+          exists: true,
+          isPosted: record.IsPosted === 'Yes',
+          company: record.dataAreaId ?? company,
+        });
+      } catch {
+        results.push(defaultResult);
+      }
+    }
+
+    return results;
   }
 }
