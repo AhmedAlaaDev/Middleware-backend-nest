@@ -8,7 +8,7 @@ import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
 import { ProcessVendorFreightAdjustmentCommand } from '@/modules/vendor/commands';
-import { VendorFreightRawData } from '@/modules/vendor/models';
+import { VendorEntryRawDataModel } from '@/modules/vendor/models';
 
 @CommandHandler(ProcessVendorFreightAdjustmentCommand)
 @Injectable()
@@ -25,7 +25,7 @@ export class ProcessVendorFreightAdjustmentHandler implements ICommandHandler<Pr
   }: ProcessVendorFreightAdjustmentCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
     const rawData =
-      await this.excelService.excelToJson<VendorFreightRawData>(fileBuffer);
+      await this.excelService.excelToJson<VendorEntryRawDataModel>(fileBuffer);
 
     const isFreight = rawData.every(
       (d) => d.JOURNALNAME && d.JOURNALNAME.toLowerCase().includes('freight'),

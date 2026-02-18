@@ -125,7 +125,7 @@ import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 4. Parent/sibling/index imports
 
 ### Naming Conventions
-- Raw data models: `{EntryName}RawData` (e.g., `VendorFreightRawData`)
+- Raw data models: `{EntryName}RawData` (e.g., `VendorEntryRawDataModel`)
 - DFO interfaces: `{EntryName}DFOLine`, `{EntryName}DFOHeader`
 - Processors: `{EntryName}EntryProcessor`
 - Commands: `Process{EntryName}Command`
