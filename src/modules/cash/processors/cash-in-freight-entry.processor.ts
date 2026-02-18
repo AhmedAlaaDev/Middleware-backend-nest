@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
+import { capitalize } from '@/lib/utils';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
@@ -156,7 +157,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       `[STEP 6] Fetching free text invoices for ${updatedDfoLines.length} lines`,
     );
     await this.fetchFreeTextInvoices({
-      dateStrings: updatedDfoLines.map((line) => line.TransDate ?? line.Date),
+      invoiceNumbers: updatedDfoLines.map((line) => line.Invoice ?? ''),
     });
     this.logger.debug(
       `[STEP 6] Fetched free text invoices ${this.freeTextInvoiceMap?.size} invoices`,
@@ -487,23 +488,53 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const parts = trimmedInvoice.split('/');
 
     const numberPart = parts[0]?.trim();
-    let textPart = parts[1]?.trim()?.toLowerCase();
+    const textParts = parts[1]
+      ?.trim()
+      ?.toLowerCase()
+      ?.split(' ')
+      ?.filter(Boolean);
 
     const number = parseInt(numberPart, 10);
     if (isNaN(number)) return '';
 
-    if (textPart.includes('نولون')) {
-      textPart = 'OF-FW';
+    const REJECTED_NUMBERS = [
+      '0',
+      '00',
+      '000',
+      '0000',
+      '00000',
+      '000000',
+      '0000000',
+      '00000000',
+      '000000000',
+      '0000000000',
+    ];
+    if (REJECTED_NUMBERS.includes(number.toString())) return '';
+
+    let newTextPart: string = parts[1]?.trim();
+
+    if (textParts.includes('نولون')) {
+      newTextPart = 'OF-FW';
     }
 
-    if (textPart.includes('import') && textPart.includes('store')) {
-      textPart = 'INVOICE';
+    if (textParts.includes('import') && textParts.includes('store')) {
+      newTextPart = 'INVOICE';
     }
 
-    if (textPart.includes('dekheila') && textPart.includes('storage')) {
-      textPart = 'INVOICE';
+    if (textParts.includes('import') && textParts.includes('stor')) {
+      newTextPart = 'INVOICE';
     }
 
-    return `${number.toString().padStart(9, '0')}/${textPart.toUpperCase()}`;
+    if (textParts.includes('dekheila') && textParts.includes('storage')) {
+      newTextPart = 'INVOICE';
+    }
+
+    const lowercasedTextPart = newTextPart?.toLowerCase();
+    const suffix =
+      lowercasedTextPart === 'invoice'
+        ? capitalize(newTextPart)
+        : newTextPart?.toUpperCase();
+
+    return `${number.toString().padStart(9, '0')}/${suffix}`;
   }
 }

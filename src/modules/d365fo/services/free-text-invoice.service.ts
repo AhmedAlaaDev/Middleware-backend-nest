@@ -421,7 +421,7 @@ export class FreeTextInvoiceService {
     const { invoiceNumbers, company } = options;
     const chunkSize = Math.min(
       D365FO_BATCH_MAX_PARTS,
-      Math.max(1, options.chunkSize ?? 250),
+      Math.max(1, options.chunkSize ?? 200),
     );
     const concurrency = Math.min(10, Math.max(1, options.concurrency ?? 3));
 

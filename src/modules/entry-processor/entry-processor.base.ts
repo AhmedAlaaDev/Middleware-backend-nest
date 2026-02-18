@@ -3,8 +3,8 @@ import { QueryBus } from '@nestjs/cqrs';
 
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import {
-  FreeTextInvoiceHeaderDto,
-  GetFreeTextInvoicesByInvoiceDateRangeParams,
+  FreeTextInvoiceLookupResult,
+  GetByInvoiceNumbersOptions,
 } from '@/modules/d365fo/types';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import {
@@ -107,8 +107,10 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     string,
     { taxNumber: string; termsOfPayment: string }
   > | null = null;
-  protected freeTextInvoiceMap: Map<string, FreeTextInvoiceHeaderDto[]> | null =
-    null;
+  protected freeTextInvoiceMap: Map<
+    string,
+    FreeTextInvoiceLookupResult[]
+  > | null = null;
   protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
@@ -544,37 +546,50 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     );
   }
 
+  /**
+   * Fetches free text invoices by invoice numbers (not by date range) so that
+   * invoices with older dates are still found. Uses batch lookup with 10 chunks
+   * in parallel.
+   */
   protected async fetchFreeTextInvoices(options: {
-    dateStrings: string[];
-  }): Promise<Map<string, FreeTextInvoiceHeaderDto[]>> {
-    const dateStrings = [
-      ...new Set(options.dateStrings.filter((d): d is string => Boolean(d))),
+    invoiceNumbers: string[];
+  }): Promise<Map<string, FreeTextInvoiceLookupResult[]>> {
+    const invoiceNumbers = [
+      ...new Set(
+        options.invoiceNumbers
+          .map((n) => (n ?? '').trim())
+          .filter((n): n is string => Boolean(n)),
+      ),
     ];
 
-    const { from, to } =
-      this.utilsService.toInvoiceDateRangeFromDateStrings(dateStrings);
+    if (invoiceNumbers.length === 0) {
+      this.baseLogger.debug(
+        'No invoice numbers to fetch; skipping free text invoice lookup',
+      );
+      this.freeTextInvoiceMap = new Map();
+      return this.freeTextInvoiceMap;
+    }
 
     this.baseLogger.debug(
-      `Using free text invoice date range [${from}, ${to}) from ${dateStrings.length} unique line date(s)`,
+      `Fetching ${invoiceNumbers.length} free text invoices by number (concurrency=10)`,
     );
 
-    const params: GetFreeTextInvoicesByInvoiceDateRangeParams = {
+    const params: GetByInvoiceNumbersOptions = {
       company: this.company,
-      from,
-      to,
+      invoiceNumbers,
+      concurrency: 10,
     };
-    const freeTextInvoices =
-      await this.freeTextInvoiceService.getFreeTextInvoicesByInvoiceDateRange(
-        params,
-      );
+    const results =
+      await this.freeTextInvoiceService.getByInvoiceNumbers(params);
 
     if (!this.freeTextInvoiceMap) {
       this.freeTextInvoiceMap = new Map();
     }
-    for (const invoice of freeTextInvoices) {
-      const key = (invoice.invoiceNumber ?? '').trim().toLowerCase();
+    for (const result of results) {
+      if (!result.exists) continue;
+      const key = (result.invoiceNumber ?? '').trim().toLowerCase();
       const arr = this.freeTextInvoiceMap.get(key) ?? [];
-      arr.push(invoice);
+      arr.push(result);
       this.freeTextInvoiceMap.set(key, arr);
     }
 
@@ -582,9 +597,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const duplicateCount = [...this.freeTextInvoiceMap.values()].filter(
       (arr) => arr.length > 1,
     ).length;
-    if (freeTextInvoices.length !== mapSize || duplicateCount > 0) {
+    if (results.length !== mapSize || duplicateCount > 0) {
       this.baseLogger.debug(
-        `Free text invoices: ${freeTextInvoices.length} headers → ${mapSize} invoice number(s), ${duplicateCount} with duplicates`,
+        `Free text invoices: ${results.length} lookup results → ${mapSize} invoice number(s), ${duplicateCount} with duplicates`,
       );
     }
 
