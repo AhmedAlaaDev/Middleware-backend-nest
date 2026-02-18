@@ -758,13 +758,15 @@ export class FreeTextInvoiceService {
           results.push(defaultResult);
           continue;
         }
-        const record = value[0];
-        results.push({
-          invoiceNumber,
-          exists: true,
-          isPosted: record.IsPosted === 'Yes',
-          company: record.dataAreaId ?? company,
-        });
+        // Push one result per record so duplicates in D365 are returned and the processor can show them
+        for (const record of value) {
+          results.push({
+            invoiceNumber,
+            exists: true,
+            isPosted: record.IsPosted === 'Yes',
+            company: record.dataAreaId ?? company,
+          });
+        }
       } catch {
         results.push(defaultResult);
       }
