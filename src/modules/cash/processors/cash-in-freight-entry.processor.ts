@@ -103,10 +103,10 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     );
 
     // STEP 2.5: run custody settlement with raw data (no file – already extracted from Excel)
-    // this.logger.debug(
-    //   `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
-    // );
-    // this.processCustodySettlementLines(custodySettlementLines);
+    this.logger.debug(
+      `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
+    );
+    this.processCustodySettlementLines(custodySettlementLines);
 
     // STEP 3: Build invoice map
     this.logger.debug(
