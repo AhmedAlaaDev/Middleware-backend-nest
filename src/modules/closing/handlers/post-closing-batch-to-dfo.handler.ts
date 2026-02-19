@@ -264,9 +264,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       SalesTaxGroup: line.SalesTaxGroup,
       ItemSalesTaxGroup: line.ItemSalesTaxGroup,
       ExchRate: line.ExchangeRate,
-      // TODO: remove after microsoft ticket is solved
-      FinTagDisplayValue: '',
-      // FinTagDisplayValue: line.FinTagDisplayValue || '',
+      FinTagDisplayValue: line.FinTagDisplayValue || '',
     };
   }
 
@@ -354,7 +352,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
     ) {
       missing.push('DebitAmount or CreditAmount');
     }
-    // if (!line.FinTagDisplayValue?.trim()) missing.push('FinTagDisplayValue');
+    if (!line.FinTagDisplayValue?.trim()) missing.push('FinTagDisplayValue');
     return missing;
   }
 
