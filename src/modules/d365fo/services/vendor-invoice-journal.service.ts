@@ -219,7 +219,7 @@ export class VendorInvoiceJournalService {
     data: D365FOVendorInvoiceJournalLineRequest,
   ): Promise<any> {
     this.logger.debug(
-      `Posting vendor invoice journal line for company: ${data.Company}, batch: ${data.JournalBatchNumber}, line: ${data.LineNumber}`,
+      `Posting vendor invoice journal line for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}, line: ${data.LineNumber}`,
     );
 
     // Remove FullPrimaryRemittanceAddress from line body before posting

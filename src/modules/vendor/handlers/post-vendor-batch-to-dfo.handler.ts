@@ -234,10 +234,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const journalBatchNumber = this.getLineJournalBatchNumber(line);
       const lineNumber = line.LineNumber ?? 0;
       const postingProfile = line.PostingProfile ?? '';
-      const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
-      const offsetDefaultDim = line.OffsetDefaultDimensionDisplayValue ?? '';
       const finTag = line.FinTagDisplayValue ?? '';
-      const offsetFinTag = line.OffsetFinTagDisplayValue ?? '';
       const reportingRate = line.ReportingCurrencyExchRate ?? 0;
       const termsOfPayment = line.TermsOfPayment ?? '';
       const exchRateSecond = line.ExchRateSecond ?? 0;
@@ -251,15 +248,12 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const voucher = line.Voucher ?? '';
       const currency = line.Currency ?? '';
       const itemWithholding = line.ItemWithholdingTaxGroupCode ?? '';
-      const offsetAccountType = line.OffsetAccountType ?? '';
       const invoiceDate = line.InvoiceDate ?? date;
       const debit = Number(line.Debit ?? 0);
-      const offsetCompany = line.OffsetCompany ?? '';
       const dueDate = line.DueDate ?? '';
       const salesTaxGroup = line.SalesTaxGroup ?? '';
       const itemSalesTaxGroup = line.ItemSalesTaxGroup ?? '';
       const credit = Number(line.Credit ?? 0);
-      const lineCompany = line.Company ?? company;
 
       return {
         dataAreaId: company,
@@ -267,12 +261,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         LineNumber: lineNumber,
         AccountDisplayValue: displayValue,
         PostingProfile: postingProfile,
-        OffsetAccountDisplayValue: offsetAccountDisplayValue,
-        OffsetDefaultDimensionDisplayValue:
-          this.toOptionalTrimmedString(offsetDefaultDim),
         DefaultDimensionDisplayValue: this.toOptionalTrimmedString(defaultDim),
         FinTagDisplayValue: finTag,
-        OffsetFinTagDisplayValue: offsetFinTag,
         ReportingCurrencyExchRate: reportingRate,
         AccountType: accountType as 'Vend' | 'Ledger',
         TermsOfPayment: this.toOptionalTrimmedString(termsOfPayment),
@@ -288,17 +278,14 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         Currency: currency,
         ItemWithholdingTaxGroupCode:
           this.toOptionalTrimmedString(itemWithholding),
-        OffsetAccountType: offsetAccountType,
         InvoiceDate: invoiceDate
           ? this.formatDate(invoiceDate)
           : this.formatDate(date),
         Debit: debit,
-        OffsetCompany: offsetCompany,
         DueDate: dueDate ? this.formatDate(dueDate) : undefined,
         SalesTaxGroup: this.toOptionalTrimmedString(salesTaxGroup),
         ItemSalesTaxGroup: this.toOptionalTrimmedString(itemSalesTaxGroup),
         Credit: credit,
-        Company: lineCompany,
       } as D365FOVendorInvoiceJournalLineRequest;
     });
   }
@@ -448,10 +435,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (!line.AccountDisplayValue?.trim()) {
       missingFields.push('AccountDisplayValue');
     }
-    // Static value - PostingProfile is required
-    // if (!line.PostingProfile?.trim()) {
-    //   missingFields.push('PostingProfile');
-    // }
     if (!line.AccountType || !['Vend', 'Ledger'].includes(line.AccountType)) {
       missingFields.push('AccountType');
     }
@@ -482,46 +465,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (!line.TransactionType?.trim()) {
       missingFields.push('TransactionType');
     }
-    if (
-      !line.OverrideSalesTax ||
-      !['Yes', 'No'].includes(line.OverrideSalesTax)
-    ) {
-      missingFields.push('OverrideSalesTax');
-    }
-    // if (!line.OffsetAccountType?.trim()) {
-    //   missingFields.push('OffsetAccountType');
-    // }
-    // if (!line.OffsetAccountDisplayValue?.trim()) {
-    //   missingFields.push('OffsetAccountDisplayValue');
-    // }
-    if (!line.OffsetCompany?.trim()) {
-      missingFields.push('OffsetCompany');
-    }
-    // if (!line.DefaultDimensionDisplayValue?.trim()) {
-    //   missingFields.push('DefaultDimensionDisplayValue');
-    // }
-    if (!line.Company?.trim()) {
-      missingFields.push('Company');
-    }
     if (!line.FinTagDisplayValue?.trim()) {
       missingFields.push('FinTagDisplayValue');
     }
-    // Static value - ITMCostArea is required
-    // if (!line.ITMCostArea?.trim()) {
-    //   missingFields.push('ITMCostArea');
-    // }
-
-    // Optional fields are not validated (they can be empty/undefined):
-    // - OffsetDefaultDimensionDisplayValue
-    // - OffsetFinTagDisplayValue
-    // - MethodOfPayment
-    // - CashDiscount
-    // - TaxExemptNumber
-    // - ItemWithholdingTaxGroupCode
-    // - ItemSalesTaxGroup
-    // - SalesTaxCode
-    // - SalesTaxGroup
-    // - OffsetTransactionText
 
     return missingFields;
   }
