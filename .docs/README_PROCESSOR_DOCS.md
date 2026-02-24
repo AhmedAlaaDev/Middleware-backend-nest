@@ -8,6 +8,7 @@ This directory contains tools to generate HTML documentation for processor types
 - **`generate-processor-docs.py`** - Python script that generates HTML from the data file
 - **`CLOSING_PROCESSORS.html`** - Generated documentation for closing entry processors
 - **`VENDOR_PROCESSORS.html`** - Generated documentation for vendor (AP) processors
+- **`CASH_PROCESSORS.html`** - Generated documentation for cash-in-freight (Cust-Pay) processors
 
 ## How to Update Documentation
 
@@ -39,6 +40,7 @@ The script will:
 - Read `processor-docs-data.json`
 - Generate `CLOSING_PROCESSORS.html`
 - Generate `VENDOR_PROCESSORS.html`
+- Generate `CASH_PROCESSORS.html`
 
 ## Data File Structure
 

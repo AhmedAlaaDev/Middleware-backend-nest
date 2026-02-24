@@ -184,5 +184,71 @@
       "exchangeRates": "Exchange rates are calculated per invoice header: monthly rate to EGP and reporting rate to USD based on transaction date.",
       "vendorLookup": "For vendor lines, the processor looks up vendor tax number and terms of payment from D365FO master data."
     }
+  },
+  "cash": {
+    "title": "Cash In Freight Processors",
+    "description": "D365FO Middleware - Technical Documentation",
+    "overview": "The Cash In Freight processor transforms raw Excel/file data into structured D365 Finance & Operations (D365FO) customer payment (Cust-Pay) journal entries for freight customer collections, down payments, and related cash-in transactions. It handles data mapping and enrichment, financial dimension parsing and validation, custody settlement filtering, invoice balancing after FX, free text invoice validation, and exchange rate calculations. Custody settlement lines are routed to a separate custody settlement flow.",
+    "processors": [
+      {
+        "name": "CashInFreightEntryProcessor",
+        "serviceType": "Freight",
+        "journalName": "Cust-Pay",
+        "entryProcessorType": "CashInFreight",
+        "canInsertToD365": false,
+        "description": "Customer Collection - Freight {monthYear} ({voucherType})"
+      }
+    ],
+    "requiredDimensions": {
+      "common": [
+        "MainAccount",
+        "Activity",
+        "CostCenters",
+        "BusinessUnit",
+        "Location",
+        "Customer",
+        "SubCustomer",
+        "FreightType",
+        "Direction"
+      ],
+      "optional": [
+        "ChargeType",
+        "SalesMan",
+        "CoordinatorMan"
+      ]
+    },
+    "inputColumns": [
+      {"name": "LINENUMBER", "type": "Number", "required": false, "description": "Line sequence number for ordering"},
+      {"name": "JOURNALBATCHNUMBER", "type": "String", "required": false, "description": "Journal batch identifier"},
+      {"name": "JOURNALNAME", "type": "String", "required": false, "description": "Journal name"},
+      {"name": "VOUCHER", "type": "String", "required": true, "description": "Voucher number for grouping lines"},
+      {"name": "TRANSDATE", "type": "Date", "required": true, "description": "Transaction date"},
+      {"name": "ACCOUNTTYPE", "type": "String", "required": true, "description": "Account type (Ledger, Cust, Bank, etc.)"},
+      {"name": "ACCOUNTDISPLAYVALUE", "type": "String", "required": true, "description": "Pipe-separated dimension string"},
+      {"name": "DEFAULTDIMENSIONDISPLAYVALUE", "type": "String", "required": false, "description": "Header default dimension display value"},
+      {"name": "FINTAGDISPLAYVALUE", "type": "String", "required": false, "description": "Financial tag display value"},
+      {"name": "SafeType", "type": "String", "required": true, "description": "Safe type: Customer Collection, Custody Settlement, DownPayment, Custody Issue, Direct, Other, Vendor Payment"},
+      {"name": "VoucherType", "type": "String", "required": false, "description": "Voucher type (e.g. Cash, Cheque, Deposit, POS)"},
+      {"name": "TEXT", "type": "String", "required": false, "description": "Line description/text"},
+      {"name": "DESCRIPTION", "type": "String", "required": false, "description": "Line description"},
+      {"name": "DEBITAMOUNT", "type": "Number", "required": true, "description": "Debit amount"},
+      {"name": "CREDITAMOUNT", "type": "Number", "required": true, "description": "Credit amount"},
+      {"name": "CURRENCYCODE", "type": "String", "required": true, "description": "Currency code (e.g., USD, EUR, EGP)"},
+      {"name": "SALESTAXGROUP", "type": "String", "required": false, "description": "Sales tax group code"},
+      {"name": "DOCUMENT", "type": "String", "required": false, "description": "Document reference number"},
+      {"name": "DUEDATE", "type": "Date", "required": false, "description": "Payment due date"},
+      {"name": "INVOICE", "type": "String", "required": false, "description": "Invoice number (e.g. number/suffix)"},
+      {"name": "PAYMENTREFERENCE", "type": "String", "required": false, "description": "Payment reference"},
+      {"name": "EXCHANGERATESECONDARY", "type": "Number", "required": false, "description": "Secondary exchange rate"}
+    ],
+    "specialBehaviors": {
+      "custodySettlementFiltering": "Lines with SafeType 'Custody Settlement' are excluded from the main flow and sent to ProcessCustodySettlementEntryCommand for separate custody settlement processing.",
+      "invoiceGrouping": "Lines are grouped by UniqueId (invoice group). Each group can have 2 lines (customer + offset) or more; settlement lines (main account 421103) are filtered out before building DFO lines.",
+      "invoiceBalancing": "After FX, each invoice group must balance (debits = credits). Unbalanced invoices are tracked and validation errors are attached.",
+      "freeTextInvoiceValidation": "Each output line's Invoice number is validated against D365FO free text invoices: must exist, be unique, and be posted.",
+      "notesReceivable": "Offset lines with Ledger account type and main accounts 122201, 122202, 122203, 122204, 123510 are treated as Notes Receivable; OffsetAccountType is set to Bank and PaymentMethod to NR – EGP/USD/EUR/GBP.",
+      "invoiceFormat": "Invoice is normalized to 9-digit number + suffix (e.g. 000012345/INVOICE, 000012345/OF-FW). Rejected number patterns (e.g. 0, 00) are cleared. Keywords like 'نولون' map to OF-FW, 'import store' to INVOICE.",
+      "batchProcessing": "Entries are grouped by invoice. New batches are created when the batch would exceed 1000 lines. Batch and voucher numbers are sequential starting from 1."
+    }
   }
 }

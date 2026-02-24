@@ -55,8 +55,9 @@ def generate_html(data, output_file):
     processors = data['processors']
     input_columns = data['inputColumns']
     
-    # Determine if this is closing or vendor
+    # Determine doc type: closing, vendor, or cash
     is_closing = 'closing' in output_file.lower()
+    is_cash = 'cash' in output_file.lower()
     
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -438,6 +439,17 @@ def generate_html(data, output_file):
                 <li><a href="#special-behaviors">10. Special Behaviors</a></li>
                 <li><a href="#error-handling">11. Error Handling</a></li>
                 <li><a href="#examples">12. Examples</a></li>'''
+    elif is_cash:
+        html += '''
+                <li><a href="#output-mapping">5. Output Mapping (D365FO)</a></li>
+                <li><a href="#validation">6. Validation Rules</a></li>
+                <li><a href="#processing-flow">7. Processing Flow</a></li>
+                <li><a href="#batch-processing">8. Batch Processing</a></li>
+                <li><a href="#custody-settlement-filtering">9. Custody Settlement Filtering</a></li>
+                <li><a href="#exchange-rates">10. Exchange Rate Calculation</a></li>
+                <li><a href="#special-behaviors">11. Special Behaviors</a></li>
+                <li><a href="#error-handling">12. Error Handling</a></li>
+                <li><a href="#examples">13. Examples</a></li>'''
     else:
         html += '''
                 <li><a href="#output-mapping">5. Output Mapping (D365FO)</a></li>
@@ -467,6 +479,12 @@ def generate_html(data, output_file):
         html += '''
                 <li>Month and cost center grouping</li>
                 <li>Journal entry creation in D365FO</li>'''
+    elif is_cash:
+        html += '''
+                <li>Custody settlement filtering (separate flow)</li>
+                <li>Invoice balancing after FX</li>
+                <li>Free text invoice validation</li>
+                <li>Customer payment (Cust-Pay) journal creation</li>'''
     else:
         html += '''
                 <li>Custody account filtering</li>
@@ -488,12 +506,19 @@ def generate_html(data, output_file):
     
     html += f'</p>\n            {generate_processor_table(processors)}'
     
-    if not is_closing:
+    if not is_closing and not is_cash:
         html += '''
             
             <div class="info-box warning">
                 <strong>*Insert Limitation</strong>
                 Vendor processors do not directly insert into D365FO. They prepare and validate the data for manual processing or future integration.
+            </div>'''
+    if is_cash:
+        html += '''
+            
+            <div class="info-box warning">
+                <strong>*Insert Limitation</strong>
+                The Cash In Freight processor does not directly insert into D365FO. It prepares and validates the data for manual processing or future integration.
             </div>'''
     
     # Required dimensions section
@@ -505,6 +530,11 @@ def generate_html(data, output_file):
         html += '\n            <h4>Trucking Closing Processor</h4>'
         html += f'\n            <p>Same as Freight, <strong>plus</strong>:</p>'
         html += f'\n            {generate_dimension_table(data["requiredDimensions"]["truckingOnly"])}'
+    elif is_cash:
+        html += '\n            <h4>Cash In Freight Processor</h4>'
+        html += f'\n            {generate_dimension_table(data["requiredDimensions"]["common"])}'
+        if data["requiredDimensions"].get("optional"):
+            html += f'\n            <h4>Optional Dimensions</h4>\n            <p>{", ".join(data["requiredDimensions"]["optional"])}</p>'
     else:
         html += '\n            <h4>Freight Processors (Entry & Adjustment)</h4>'
         html += f'\n            {generate_dimension_table(data["requiredDimensions"]["freight"])}'
@@ -523,17 +553,26 @@ def generate_html(data, output_file):
     
     if is_closing:
         html += ' Each row represents a ledger entry line.</p>'
+    elif is_cash:
+        html += ' Each row represents a <strong>Customer (Cust)</strong>, <strong>Ledger</strong>, or <strong>Bank</strong> line. <span class="code">SafeType</span> identifies the transaction type (e.g. Customer Collection, Custody Settlement).</p>'
     else:
         html += ' Each row represents either a <strong>Vendor (Vend)</strong> line or a <strong>Ledger</strong> line.</p>'
     
     html += f'\n            {generate_input_table(input_columns)}'
     
-    if not is_closing:
+    if not is_closing and not is_cash:
         html += '''
             
             <div class="info-box note">
                 <strong>Line Grouping</strong>
                 Lines are grouped by <span class="code">VOUCHER</span> + <span class="code">INVOICE</span> combination. Each group should contain one <span class="code">Vend</span> line (header) and one or more <span class="code">Ledger</span> lines (detail).
+            </div>'''
+    if is_cash:
+        html += '''
+            
+            <div class="info-box note">
+                <strong>Line Grouping</strong>
+                Lines are grouped by UniqueId (invoice group). Custody Settlement lines are processed separately. Other lines are grouped into invoices; each invoice typically has customer/account lines and offset lines. Settlement lines (main account 421103) are filtered out before building DFO lines.
             </div>'''
     
     html += '''
@@ -670,6 +709,71 @@ MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|V
                     </tr>
                 </tbody>
             </table>'''
+    elif is_cash:
+        html += '''
+            <p>After processing, each line is transformed into a customer payment journal entry (Cust-Pay) for D365FO:</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Output Field</th>
+                        <th>Source</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code">JournalName</span></td>
+                        <td>Fixed</td>
+                        <td>Cust-Pay</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">Description</span></td>
+                        <td>Generated</td>
+                        <td>Customer Collection - Freight {monthYear} ({voucherType})</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">TransDate</span></td>
+                        <td>TRANSDATE</td>
+                        <td>Transaction date</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">AccountDisplayValue</span> / <span class="code">OffsetAccountDisplayValue</span></td>
+                        <td>Parsed dimensions</td>
+                        <td>Dimension string</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CreditAmount</span> / <span class="code">DebitAmount</span></td>
+                        <td>CREDITAMOUNT / DEBITAMOUNT</td>
+                        <td>Amounts from account and offset lines</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">CurrencyCode</span></td>
+                        <td>CURRENCYCODE</td>
+                        <td>Currency code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">ExchRate</span> / <span class="code">ReportingCurrencyExchRate</span></td>
+                        <td>Calculated</td>
+                        <td>Exchange rate to EGP and reporting rate to USD (per transaction date)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">PaymentMethod</span></td>
+                        <td>Derived</td>
+                        <td>NR – EGP/USD/EUR/GBP for Notes Receivable main accounts (122201–122204, 123510)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">Invoice</span></td>
+                        <td>Formatted</td>
+                        <td>9-digit number + suffix (e.g. 000012345/INVOICE)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code">PostingProfile</span></td>
+                        <td>Fixed</td>
+                        <td>Cust-PP</td>
+                    </tr>
+                </tbody>
+            </table>'''
     else:
         html += '''
             <p>After processing, each line is transformed into a vendor journal entry DTO object for D365FO integration:</p>
@@ -756,6 +860,10 @@ MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|V
         html += f'\n            {generate_dimension_table(data["requiredDimensions"]["common"])}'
         html += '\n            <h4>Additional Validations for Trucking</h4>'
         html += f'\n            {generate_dimension_table(data["requiredDimensions"]["truckingOnly"])}'
+    elif is_cash:
+        html += '\n            <h4>Cash In Freight Processor</h4>'
+        html += f'\n            {generate_dimension_table(data["requiredDimensions"]["common"])}'
+        html += '\n            <p>Additionally, lines with <span class="code">UnbalancedInvoice</span> (invoice not balanced after FX) and invalid or unposted <span class="code">Invoice</span> (free text invoice) receive validation errors.</p>'
     else:
         html += '\n            <h4>Freight Processors</h4>'
         html += f'\n            {generate_dimension_table(data["requiredDimensions"]["freight"])}'
@@ -820,6 +928,34 @@ MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|V
                         <li>Create journal lines for each entry</li>
                     </ul>
                 </li>
+            </ol>'''
+    elif is_cash:
+        html += '''
+            <h3>Stage 1: Format and Enrich (<span class="code">formatAndEnrichAsync</span>)</h3>
+            <ol style="margin-left: 20px; margin-bottom: 20px;">
+                <li>Warm up processor data (customer names)</li>
+                <li>Map raw data to <span class="code">CashEntryRawDataModel</span> (type Freight)</li>
+                <li>Sort lines by line number</li>
+                <li>Filter lines: Custody Settlement vs other (Customer Collection, down payment, etc.)</li>
+                <li>Process custody settlement lines via <span class="code">ProcessCustodySettlementEntryCommand</span></li>
+                <li>Build invoice map (group by UniqueId)</li>
+                <li>Check invoice balanced after FX; track unbalanced IDs</li>
+                <li>Build DFO lines from invoice map (2-line or multi-line logic; filter settlement lines)</li>
+                <li>Update batch and voucher numbers (max 1000 lines per batch)</li>
+                <li>Fetch free text invoices from D365FO for validation</li>
+            </ol>
+
+            <h3>Stage 2: Validate (<span class="code">validateAsync</span>)</h3>
+            <ol style="margin-left: 20px; margin-bottom: 20px;">
+                <li>For each line: attach error if source invoice is in unbalanced set</li>
+                <li>Validate required dimensions per line</li>
+                <li>Validate Invoice: must exist in D365FO, be unique, and be posted</li>
+            </ol>
+
+            <h3>Stage 3: Insert to Dynamics (<span class="code">insertIntoDynamicsAsync</span>)</h3>
+            <ol style="margin-left: 20px;">
+                <li>Currently not implemented - returns resolved promise</li>
+                <li>Data is prepared for manual processing or future integration</li>
             </ol>'''
     else:
         html += '''
@@ -899,6 +1035,58 @@ MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|V
                 <li>If currency is EGP: invert USD→EGP rate</li>
                 <li>Otherwise: lookup exchange rate from D365FO for the transaction date</li>
                 <li>Rate is multiplied by 100 for storage</li>
+            </ul>
+        </section>'''
+    elif is_cash:
+        html += '''
+        <!-- Section 8: Batch Processing -->
+        <section id="batch-processing">
+            <h2>8. Batch Processing</h2>
+            <p>Entries are processed in batches with the following rules:</p>
+            
+            <h3>Batch Creation Rules</h3>
+            <ul style="margin-left: 20px;">
+                <li>A new batch is created when adding entries would exceed 1000 lines</li>
+                <li>Each batch has a unique sequential batch number (starting from 1)</li>
+            </ul>
+            
+            <h3>Voucher Assignment</h3>
+            <p>Each invoice (grouped by UniqueId) gets a unique sequential voucher number. Vouchers are assigned per invoice group.</p>
+            
+            <h3>Line Numbering</h3>
+            <p>Within each batch, line numbers are sequential starting from 1. Line numbers reset when a new batch is created.</p>
+        </section>
+
+        <!-- Section 9: Custody Settlement Filtering -->
+        <section id="custody-settlement-filtering">
+            <h2>9. Custody Settlement Filtering</h2>
+            <p>Lines with <span class="code">SafeType = 'Custody Settlement'</span> are excluded from the main cash-in flow:</p>
+            
+            <div class="info-box warning">
+                <strong>Filtering Logic</strong>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li>Raw lines are split into <strong>custody settlement lines</strong> and <strong>other lines</strong> (Customer Collection, down payment, etc.)</li>
+                    <li>Custody settlement lines are sent to <span class="code">ProcessCustodySettlementEntryCommand</span> for separate processing (no file; raw data is passed directly)</li>
+                    <li>Only the other lines continue through the main pipeline (invoice map, DFO lines, validation)</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Section 10: Exchange Rate Calculation -->
+        <section id="exchange-rates">
+            <h2>10. Exchange Rate Calculation</h2>
+            <p>Exchange rates are calculated per line/transaction date:</p>
+            
+            <h3>Monthly Exchange Rate (to EGP)</h3>
+            <ul style="margin-left: 20px;">
+                <li>If currency is EGP: rate = 100 (100%)</li>
+                <li>Otherwise: lookup exchange rate from D365FO for the transaction date</li>
+            </ul>
+            
+            <h3>Reporting Currency Exchange Rate (to USD)</h3>
+            <ul style="margin-left: 20px;">
+                <li>If currency is USD: rate = 100 (100%)</li>
+                <li>Otherwise: lookup reporting rate from D365FO for the transaction date</li>
             </ul>
         </section>'''
     else:
@@ -1022,6 +1210,10 @@ MainAccount|CostCenter|ActivityName|BusinessUnit|Location|Customer|SubCustomer|V
                 <li>Debit amount (ascending)</li>
                 <li>Credit amount (ascending)</li>
             </ol>'''
+    elif is_cash:
+        if 'specialBehaviors' in data:
+            for behavior, description in data['specialBehaviors'].items():
+                html += f'\n            <h3>{behavior.replace("_", " ").title()}</h3>\n            <p>{description}</p>'
     else:
         html += '''
             <h3>Vendor Master Data Lookup</h3>
@@ -1153,6 +1345,48 @@ ITEMSALESTAXGROUP: <span class="string">"14%SUPPLIE"</span>
   <span class="string">"ReportingCurrencyExchRate"</span>: 30.5
 }}
             </div>'''
+    elif is_cash:
+        html += '''
+            <h3>Example 1: Cash In Freight Input</h3>
+            <div class="code-block">
+<span class="comment">// Row 1 (Customer/Account line):</span>
+LINENUMBER: 1
+VOUCHER: <span class="string">"V00001"</span>
+SafeType: <span class="string">"Customer Collection"</span>
+VoucherType: <span class="string">"Cash"</span>
+ACCOUNTTYPE: <span class="string">"Cust"</span>
+ACCOUNTDISPLAYVALUE: <span class="string">"CUST001"</span>
+DEFAULTDIMENSIONDISPLAYVALUE: <span class="string">"122201|CC001|ACT001|BU001|CAI|CUST001|SUBCUST001|||FREIGHT|||Receivable|||Import|||"</span>
+TRANSDATE: <span class="string">"2024-01-15"</span>
+CREDITAMOUNT: 10000.00
+DEBITAMOUNT: 0
+INVOICE: <span class="string">"12345/INVOICE"</span>
+CURRENCYCODE: <span class="string">"EGP"</span>
+
+<span class="comment">// Row 2 (Offset line):</span>
+LINENUMBER: 2
+VOUCHER: <span class="string">"V00001"</span>
+ACCOUNTTYPE: <span class="string">"Ledger"</span>
+ACCOUNTDISPLAYVALUE: <span class="string">"122201|CC001|ACT001|BU001|CAI|CUST001|SUBCUST001|||FREIGHT|||Receivable|||Import|||"</span>
+DEBITAMOUNT: 10000.00
+CREDITAMOUNT: 0
+CURRENCYCODE: <span class="string">"EGP"</span>
+            </div>
+
+            <h3>Example 2: Expected Output</h3>
+            <div class="code-block">
+{{
+  <span class="string">"JournalName"</span>: <span class="string">"Cust-Pay"</span>,
+  <span class="string">"Description"</span>: <span class="string">"Customer Collection - Freight January 2024 (Cash)"</span>,
+  <span class="string">"AccountDisplayValue"</span>: <span class="string">"122201|CC001|..."</span>,
+  <span class="string">"CreditAmount"</span>: 10000.00,
+  <span class="string">"DebitAmount"</span>: 10000.00,
+  <span class="string">"CurrencyCode"</span>: <span class="string">"EGP"</span>,
+  <span class="string">"PaymentMethod"</span>: <span class="string">"NR – EGP"</span>,
+  <span class="string">"Invoice"</span>: <span class="string">"000012345/INVOICE"</span>,
+  <span class="string">"PostingProfile"</span>: <span class="string">"Cust-PP"</span>
+}}
+            </div>'''
     else:
         html += '''
             <h3>Example 1: Vendor Invoice Input</h3>
@@ -1235,6 +1469,14 @@ def main():
     with open(vendor_output, 'w', encoding='utf-8') as f:
         f.write(vendor_html)
     print(f"Generated: {vendor_output}")
+
+    # Generate cash processors HTML
+    cash_data = all_data['cash']
+    cash_html = generate_html(cash_data, 'CASH_PROCESSORS.html')
+    cash_output = output_dir / 'CASH_PROCESSORS.html'
+    with open(cash_output, 'w', encoding='utf-8') as f:
+        f.write(cash_html)
+    print(f"Generated: {cash_output}")
     
     print("\nDocumentation generation complete!")
 
