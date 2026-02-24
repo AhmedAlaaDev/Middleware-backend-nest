@@ -254,6 +254,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const salesTaxGroup = line.SalesTaxGroup ?? '';
       const itemSalesTaxGroup = line.ItemSalesTaxGroup ?? '';
       const credit = Number(line.Credit ?? 0);
+      const paymId = line.PaymId ?? '';
 
       return {
         dataAreaId: company,
@@ -285,6 +286,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         DueDate: dueDate ? this.formatDate(dueDate) : undefined,
         SalesTaxGroup: this.toOptionalTrimmedString(salesTaxGroup),
         ItemSalesTaxGroup: this.toOptionalTrimmedString(itemSalesTaxGroup),
+        PaymId: paymId,
         Credit: credit,
       } as D365FOVendorInvoiceJournalLineRequest;
     });
