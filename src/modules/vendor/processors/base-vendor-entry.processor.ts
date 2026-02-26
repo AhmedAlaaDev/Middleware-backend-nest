@@ -79,15 +79,30 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       );
     }
 
+    this.logger.debug(`[STEP 4] Building ${invoiceCount} DFO lines`);
     const dfoLines = this.buildInvoiceLines(invoiceMap);
+    this.logger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
+    this.logger.debug(`[STEP 5] Sorting ${dfoLines.length} DFO lines`);
+    const sortedDfoLines = this.sortDfoLines(dfoLines);
+    this.logger.debug(`[STEP 5] Sorted ${sortedDfoLines.length} DFO lines`);
+
+    this.logger.debug(
+      `[STEP 6] Updating batch and voucher for ${sortedDfoLines.length} DFO lines`,
+    );
     const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
-      lines: dfoLines,
+      lines: sortedDfoLines,
       startBatchNumber: 1,
       startVoucherNumber: 1,
       maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
     });
+    this.logger.debug(
+      `[STEP 6] Updated batch and voucher for ${updatedDfoLines.length} DFO lines`,
+    );
 
+    this.logger.debug(
+      `[STEP 7] Mapping ${updatedDfoLines.length} DFO lines to DynDataModel`,
+    );
     return updatedDfoLines.map(
       (line) => new VendorEntryDynDataModel(line.DimensionModel, line),
     );
@@ -281,5 +296,11 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
         .toLowerCase()
         .trim() === 'vend'
     );
+  }
+
+  protected sortDfoLines(
+    lines: VendorEntryDynDataModel[],
+  ): VendorEntryDynDataModel[] {
+    return lines.sort((a, b) => a.Invoice.localeCompare(b.Invoice));
   }
 }
