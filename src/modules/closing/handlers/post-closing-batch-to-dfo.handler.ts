@@ -89,6 +89,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       EntryProcessorTypes.LedgerFreightClosingEntry,
       EntryProcessorTypes.LedgerTruckingClosingEntry,
       EntryProcessorTypes.LedgerCustodySettlementEntry,
+      EntryProcessorTypes.LedgerClosingFreightDifference,
     ];
     if (!allowedTypes.includes(batch.entryProcessorType)) {
       throw new BadRequestException(
