@@ -148,18 +148,24 @@ export class DimensionValidationService {
   }
 
   /**
-   * Builds a context string with CostCenter only when present on the row (e.g. "(CostCenter => CC1) ").
-   * Included in dimension error messages so the row can be identified.
+   * Builds a context string with CostCenter when present on the row.
+   * Included in dimension error messages so the user can identify the row (e.g. "CostCenter: CC1 | ").
    */
   private getDimensionContext(dim: EntryDimensionsModel | undefined): string {
     if (!dim?.costCenter) return '';
     const v = String(dim.costCenter).trim();
     if (v === '' || v.toLowerCase() === '000') return '';
-    return `(CostCenter => ${v}) `;
+    return `CostCenter: ${v} | `;
+  }
+
+  /** Returns true if the value contains any spaces (invalid for dimension values). */
+  private static hasSpaces(value: string | undefined): boolean {
+    return typeof value === 'string' && /\s/.test(value);
   }
 
   /**
    * Shared validation for dimension fields that follow the standard pattern:
+   * - No spaces allowed in dimension values
    * - Required check (empty or '000')
    * - Value must exist in allowed dimensions (exact match, case-insensitive)
    */
@@ -172,15 +178,30 @@ export class DimensionValidationService {
     label: string,
   ): void {
     const ctx = this.getDimensionContext(ar.DimensionModel);
-    const value = (rawValue ?? '').trim().toLowerCase();
-    if (isRequired && (!value || value === '000')) {
-      ar.AddError(errorKey, `${ctx}(${label} => ) ${label} is required`);
+    const sourceValue = (rawValue ?? '').trim();
+    const value = sourceValue.toLowerCase();
+
+    if (DimensionValidationService.hasSpaces(rawValue)) {
+      ar.AddError(
+        errorKey,
+        `${ctx}Dimension "${label}" must not contain spaces. Value from your file: "${rawValue ?? sourceValue}". Remove spaces and use a valid dimension value.`,
+      );
       return;
     }
+
+    if (isRequired && (!value || value === '000')) {
+      const fromFile = sourceValue ? `"${sourceValue}"` : '(empty or 000)';
+      ar.AddError(
+        errorKey,
+        `${ctx}Dimension "${label}" is required. Value from your file: ${fromFile}.`,
+      );
+      return;
+    }
+
     if (value && !valueSet.has(value)) {
       ar.AddError(
         errorKey,
-        `${ctx}(${label} => ${rawValue ?? value}) The dimension ${rawValue ?? value} does not exist in the system.`,
+        `${ctx}Dimension "${label}" value from your file "${rawValue ?? sourceValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
       );
     }
   }
@@ -267,18 +288,33 @@ export class DimensionValidationService {
     normalizer: (s: string) => string = (s) => s.toLowerCase().trim(),
   ): void {
     const ctx = this.getDimensionContext(ar.DimensionModel);
-    const value = (rawValue ?? '').trim();
-    if (isRequired && (!value || value.toLowerCase() === '000')) {
-      ar.AddError(errorKey, `${ctx}(${label} => ) ${label} is required`);
+    const sourceValue = (rawValue ?? '').trim();
+    const value = sourceValue;
+
+    if (DimensionValidationService.hasSpaces(rawValue)) {
+      ar.AddError(
+        errorKey,
+        `${ctx}Dimension "${label}" must not contain spaces. Value from your file: "${rawValue ?? sourceValue}". Remove spaces and use a valid dimension value.`,
+      );
       return;
     }
+
+    if (isRequired && (!value || value.toLowerCase() === '000')) {
+      const fromFile = sourceValue ? `"${sourceValue}"` : '(empty or 000)';
+      ar.AddError(
+        errorKey,
+        `${ctx}Dimension "${label}" is required. Value from your file: ${fromFile}.`,
+      );
+      return;
+    }
+
     if (
       value &&
       !allowedValues.some((d) => normalizer(d) === normalizer(value))
     ) {
       ar.AddError(
         errorKey,
-        `${ctx}(${label} => ${rawValue ?? value}) The dimension ${rawValue ?? value} does not exist in the system.`,
+        `${ctx}Dimension "${label}" value from your file "${rawValue ?? sourceValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
       );
     }
   }
