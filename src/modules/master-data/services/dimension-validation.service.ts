@@ -6,6 +6,7 @@ import {
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 export interface DimensionValidationConfig {
   /** Map of dimension keys to required (true) or optional (false). Keys not present are not validated. */
@@ -147,6 +148,17 @@ export class DimensionValidationService {
   }
 
   /**
+   * Builds a context string with CostCenter only when present on the row (e.g. "(CostCenter => CC1) ").
+   * Included in dimension error messages so the row can be identified.
+   */
+  private getDimensionContext(dim: EntryDimensionsModel | undefined): string {
+    if (!dim?.costCenter) return '';
+    const v = String(dim.costCenter).trim();
+    if (v === '' || v.toLowerCase() === '000') return '';
+    return `(CostCenter => ${v}) `;
+  }
+
+  /**
    * Shared validation for dimension fields that follow the standard pattern:
    * - Required check (empty or '000')
    * - Value must exist in allowed dimensions (exact match, case-insensitive)
@@ -159,15 +171,16 @@ export class DimensionValidationService {
     errorKey: string,
     label: string,
   ): void {
+    const ctx = this.getDimensionContext(ar.DimensionModel);
     const value = (rawValue ?? '').trim().toLowerCase();
     if (isRequired && (!value || value === '000')) {
-      ar.AddError(errorKey, `${label} is required`);
+      ar.AddError(errorKey, `${ctx}(${label} => ) ${label} is required`);
       return;
     }
     if (value && !valueSet.has(value)) {
       ar.AddError(
         errorKey,
-        `The dimension ${rawValue ?? value} does not exist in the system.`,
+        `${ctx}(${label} => ${rawValue ?? value}) The dimension ${rawValue ?? value} does not exist in the system.`,
       );
     }
   }
@@ -253,9 +266,10 @@ export class DimensionValidationService {
     label: string,
     normalizer: (s: string) => string = (s) => s.toLowerCase().trim(),
   ): void {
+    const ctx = this.getDimensionContext(ar.DimensionModel);
     const value = (rawValue ?? '').trim();
     if (isRequired && (!value || value.toLowerCase() === '000')) {
-      ar.AddError(errorKey, `${label} is required`);
+      ar.AddError(errorKey, `${ctx}(${label} => ) ${label} is required`);
       return;
     }
     if (
@@ -264,7 +278,7 @@ export class DimensionValidationService {
     ) {
       ar.AddError(
         errorKey,
-        `The dimension ${rawValue ?? value} does not exist in the system.`,
+        `${ctx}(${label} => ${rawValue ?? value}) The dimension ${rawValue ?? value} does not exist in the system.`,
       );
     }
   }
