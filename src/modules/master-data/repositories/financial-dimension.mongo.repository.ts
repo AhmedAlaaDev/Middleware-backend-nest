@@ -95,8 +95,13 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IFinancialDimensionValue[]> {
     const q: Record<string, unknown> = {};
-    if (filter.financialDimensionKey)
-      q['financialDimensionKey'] = filter.financialDimensionKey;
+    if (filter.financialDimensionKey) {
+      // Case-insensitive match so processor keys (e.g. SubVendor) match DB keys from D365 sync (e.g. Subvendor)
+      q['financialDimensionKey'] = {
+        $regex: `^${this.escapeRegExp(filter.financialDimensionKey)}$`,
+        $options: 'i',
+      };
+    }
     if (filter.value) {
       // Case-insensitive partial match to support UI filtering/search
       q['value'] = {
