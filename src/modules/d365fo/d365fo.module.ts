@@ -17,6 +17,7 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
 import { PaymentTermsService } from '@/modules/d365fo/services/payment-terms.service';
 import { TaxItemGroupHeadingService } from '@/modules/d365fo/services/tax-item-group-heading.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
+import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
 
 @Module({
@@ -36,6 +37,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     ChartOfAccountsService,
     VendorService,
     VendorInvoiceJournalService,
+    VendorPaymentJournalService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
@@ -56,6 +58,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     ChartOfAccountsService,
     VendorService,
     VendorInvoiceJournalService,
+    VendorPaymentJournalService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,

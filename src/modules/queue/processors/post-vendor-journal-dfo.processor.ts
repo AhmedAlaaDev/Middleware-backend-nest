@@ -12,7 +12,9 @@ import {
   DfoRollbackService,
 } from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
+import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
 import { VendorJournalPostingStrategy } from '@/modules/queue/strategies/vendor-journal-posting.strategy';
+import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/vendor-payment-journal-posting.strategy';
 
 const LINE_CHUNK_SIZE = 20;
 const ROLLBACK_CHUNK_SIZE = 20;
@@ -22,7 +24,8 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
   private readonly logger = new Logger(PostVendorJournalDFOProcessor.name);
 
   constructor(
-    private readonly strategy: VendorJournalPostingStrategy,
+    private readonly vendorJournalStrategy: VendorJournalPostingStrategy,
+    private readonly vendorPaymentJournalStrategy: VendorPaymentJournalPostingStrategy,
     private readonly dataBatchService: DataBatchService,
     private readonly dfoRollbackService: DfoRollbackService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
@@ -35,12 +38,31 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
       `[JOB] Processing VJ job ${job.id} for batch ${job.data.batchId}`,
     );
     const payload = job.data;
-    if (!payload.groupedJournals?.length) {
-      throw new Error('No groupedJournals or empty');
+    const isPayment =
+      payload.journalKind === 'payment' &&
+      payload.paymentGroupedJournals &&
+      payload.paymentGroupedJournals.length > 0;
+    const isInvoice =
+      (payload.journalKind === 'invoice' || !payload.journalKind) &&
+      payload.groupedJournals &&
+      payload.groupedJournals.length > 0;
+
+    if (!isPayment && !isInvoice) {
+      throw new Error(
+        'No groupedJournals or paymentGroupedJournals; set journalKind and provide the matching payload',
+      );
     }
+
+    const strategy: IDfoPostingStrategy = isPayment
+      ? this.vendorPaymentJournalStrategy
+      : this.vendorJournalStrategy;
+    const journals = isPayment
+      ? payload.paymentGroupedJournals!
+      : (payload.groupedJournals ?? []);
+
     const errorCollector = new PostingErrorCollector();
     try {
-      await this.executePosting(payload, errorCollector);
+      await this.executePosting(payload, strategy, journals, errorCollector);
       this.logger.log(`Job ${job.id} completed successfully`);
     } catch (error) {
       const msg = this.dfoErrorExtractor.extractMessage(error);
@@ -56,19 +78,22 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
 
   private async executePosting(
     data: PostVendorJournalDFOJobPayload,
+    strategy: IDfoPostingStrategy,
+    journals: Array<{ header: unknown; lines: unknown[] }>,
     errorCollector: PostingErrorCollector,
   ): Promise<void> {
-    const { batchId, company, groupedJournals } = data;
+    const { batchId, company } = data;
     const createdHeaders: CreatedHeader[] = [];
     this.logger.log(
-      `[POST] Starting sequential posting: ${groupedJournals.length} headers for batch ${batchId}`,
+      `[POST] Starting sequential posting: ${journals.length} headers for batch ${batchId}`,
     );
     try {
-      for (let i = 0; i < groupedJournals.length; i++) {
+      for (let i = 0; i < journals.length; i++) {
         await this.postOneGroup(
-          groupedJournals[i],
+          strategy,
+          journals[i],
           i + 1,
-          groupedJournals.length,
+          journals.length,
           company,
           createdHeaders,
           errorCollector,
@@ -88,7 +113,7 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
           `[ROLLBACK] Rolling back ${createdHeaders.length} headers`,
         );
         const rollbackResult = await this.dfoRollbackService.rollbackAll(
-          this.strategy,
+          strategy,
           createdHeaders,
           ROLLBACK_CHUNK_SIZE,
           errorCollector,
@@ -108,14 +133,15 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
   }
 
   private async postOneGroup(
-    journal: PostVendorJournalDFOJobPayload['groupedJournals'][0],
+    strategy: IDfoPostingStrategy,
+    journal: { header: unknown; lines: unknown[] },
     index: number,
     total: number,
     company: string,
     createdHeaders: CreatedHeader[],
     _errorCollector: PostingErrorCollector,
   ): Promise<void> {
-    const headerResult = await this.strategy.postHeadersInBatches(
+    const headerResult = await strategy.postHeadersInBatches(
       [journal.header],
       1,
     );
@@ -127,7 +153,7 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
     const headerKey = headerResult.headerIds[0];
     createdHeaders.push({ headerKey, dataAreaId: company });
     this.logger.log(`[POST] Header ${index}/${total} created: ${headerKey}`);
-    const postedLines = await this.strategy.postLinesForHeader(
+    const postedLines = await strategy.postLinesForHeader(
       headerKey,
       journal.lines,
       company,

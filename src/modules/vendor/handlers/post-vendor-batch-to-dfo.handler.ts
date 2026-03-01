@@ -9,8 +9,13 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import {
   D365FOVendorInvoiceJournalHeaderRequest,
   D365FOVendorInvoiceJournalLineRequest,
+  D365FOVendorPaymentJournalHeaderRequest,
+  D365FOVendorPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
-import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
+import {
+  DataBatchStatus,
+  EntryProcessorTypes,
+} from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
@@ -52,6 +57,23 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
     const journalGroups = await this.groupRecordsByJournalBatchNumber(batchId);
 
+    const isPaymentBatch =
+      batch.entryProcessorType === EntryProcessorTypes.VendorPaymentFreight ||
+      batch.entryProcessorType === EntryProcessorTypes.VendorPaymentTrucking;
+
+    if (isPaymentBatch) {
+      const paymentGroupedJournals = this.mapToD365FOPaymentRequests(
+        journalGroups,
+        batch.company,
+      );
+      this.validatePaymentJournals(paymentGroupedJournals);
+      await this.prepareBatchForPosting(batchId);
+      return await this.enqueuePostingJob(batchId, batch.company, {
+        journalKind: 'payment',
+        paymentGroupedJournals,
+      });
+    }
+
     const groupedJournals = this.mapToD365FORequests(
       journalGroups,
       batch.company,
@@ -60,19 +82,12 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     const journalsToQueue = this.applyTestingMode(groupedJournals);
     this.validateJournals(journalsToQueue);
 
-    // console.log(JSON.stringify(journalsToQueue, null, 2));
-    // return {
-    //   jobId: '123',
-    //   message: 'Batch 123 queued for posting to D365FO. Job ID: 123',
-    // };
-
     await this.prepareBatchForPosting(batchId);
 
-    return await this.enqueuePostingJob(
-      batchId,
-      batch.company,
-      journalsToQueue,
-    );
+    return await this.enqueuePostingJob(batchId, batch.company, {
+      journalKind: 'invoice',
+      groupedJournals: journalsToQueue,
+    });
   }
 
   /**
@@ -331,6 +346,90 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     return [limited];
   }
 
+  /**
+   * Maps grouped records to D365FO vendor payment request types (headers + payment lines).
+   */
+  private mapToD365FOPaymentRequests(
+    journalGroups: Map<string, IDataEnhancedRecord<VendorEntryDynDataModel>[]>,
+    company: string,
+  ): Array<{
+    header: D365FOVendorPaymentJournalHeaderRequest;
+    lines: D365FOVendorPaymentJournalLineRequest[];
+  }> {
+    const result: Array<{
+      header: D365FOVendorPaymentJournalHeaderRequest;
+      lines: D365FOVendorPaymentJournalLineRequest[];
+    }> = [];
+
+    for (const [_journalBatchNumber, lines] of journalGroups.entries()) {
+      if (lines.length === 0) continue;
+
+      const header = this.mapHeaderFromLines(
+        lines,
+        company,
+      ) as D365FOVendorPaymentJournalHeaderRequest;
+      const mappedLines = this.mapLinesToPaymentRequest(lines, company);
+
+      result.push({ header, lines: mappedLines });
+    }
+
+    return result;
+  }
+
+  /**
+   * Maps journal lines to D365FO vendor payment journal line requests.
+   * Uses CreditAmount/DebitAmount, TransactionDate, TransactionText, CurrencyCode, etc.
+   */
+  private mapLinesToPaymentRequest(
+    lines: IDataEnhancedRecord<VendorEntryDynDataModel>[],
+    company: string,
+  ): D365FOVendorPaymentJournalLineRequest[] {
+    return lines.map((lineRecord) => {
+      const line = lineRecord.data;
+
+      const accountType = (line.AccountType ?? '') as 'Vend' | 'Ledger';
+      const accountDisplayValue = line.AccountDisplayValue ?? '';
+      const defaultDim = line.DefaultDimensionDisplayValue ?? '';
+      const displayValue =
+        accountType === 'Ledger' && defaultDim?.trim()
+          ? accountDisplayValue + defaultDim.trim()
+          : accountDisplayValue;
+
+      const journalBatchNumber = this.getLineJournalBatchNumber(line);
+      const date = line.Date ?? '';
+      const credit = Number(line.Credit ?? 0);
+      const debit = Number(line.Debit ?? 0);
+
+      return {
+        dataAreaId: company,
+        JournalBatchNumber: journalBatchNumber,
+        LineNumber: line.LineNumber ?? 0,
+        AccountDisplayValue: displayValue,
+        AccountType: accountType,
+        PaymentId: this.toOptionalTrimmedString(line.PaymId),
+        FinTagDisplayValue: this.toOptionalTrimmedString(
+          line.FinTagDisplayValue,
+        ),
+        TransactionDate: this.formatDate(date),
+        PostingProfile: line.PostingProfile ?? '',
+        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate ?? 0,
+        ReportingCurrencyExchRateSecondary:
+          line.ReportingCurrencyExchRateSecondary ?? 0,
+        TransactionText: this.toOptionalTrimmedString(line.Description),
+        CurrencyCode: line.Currency ?? '',
+        ExchangeRate: line.ExchRate ?? 1,
+        CreditAmount: credit,
+        DebitAmount: debit,
+        Voucher: this.toOptionalTrimmedString(line.Voucher),
+        DefaultDimensionsForAccountDisplayValue: this.toOptionalTrimmedString(
+          defaultDim || line.DefaultDimensionDisplayValue,
+        ),
+        Company: company,
+        MarkedInvoice: this.toOptionalTrimmedString(line.Invoice),
+      } as D365FOVendorPaymentJournalLineRequest;
+    });
+  }
+
   private toOptionalTrimmedString(
     value: string | undefined | null,
   ): string | undefined {
@@ -475,6 +574,104 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
+   * Validates payment journal headers and lines
+   */
+  private validatePaymentJournals(
+    groupedJournals: Array<{
+      header: D365FOVendorPaymentJournalHeaderRequest;
+      lines: D365FOVendorPaymentJournalLineRequest[];
+    }>,
+  ): void {
+    const validationErrors: Array<{
+      journalIndex?: number;
+      lineNumber?: number;
+      missingFields: string[];
+    }> = [];
+
+    groupedJournals.forEach((journal, journalIndex) => {
+      const headerErrors = this.validatePaymentHeader(journal.header);
+      if (headerErrors.length > 0) {
+        validationErrors.push({
+          journalIndex,
+          missingFields: headerErrors,
+        });
+      }
+
+      journal.lines.forEach((line) => {
+        const lineErrors = this.validatePaymentLine(line);
+        if (lineErrors.length > 0) {
+          validationErrors.push({
+            journalIndex,
+            lineNumber: line.LineNumber,
+            missingFields: lineErrors,
+          });
+        }
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      const errorMessages = validationErrors.map((error) => {
+        if (error.lineNumber !== undefined) {
+          return `Line ${error.lineNumber}: missing fields [${error.missingFields.join(', ')}]`;
+        }
+        return `Journal header (index ${error.journalIndex}): missing fields [${error.missingFields.join(', ')}]`;
+      });
+
+      throw new BadRequestException({
+        message: 'Validation failed for vendor payment journal data',
+        errors: validationErrors,
+        details: errorMessages.join('; '),
+      });
+    }
+  }
+
+  private validatePaymentHeader(
+    header: D365FOVendorPaymentJournalHeaderRequest,
+  ): string[] {
+    const missingFields: string[] = [];
+    if (!header.dataAreaId?.trim()) missingFields.push('dataAreaId');
+    if (!header.JournalBatchNumber?.trim())
+      missingFields.push('JournalBatchNumber');
+    if (!header.JournalName?.trim()) missingFields.push('JournalName');
+    if (!header.Description?.trim()) missingFields.push('Description');
+    return missingFields;
+  }
+
+  private validatePaymentLine(
+    line: D365FOVendorPaymentJournalLineRequest,
+  ): string[] {
+    const missingFields: string[] = [];
+    if (!line.dataAreaId?.trim()) missingFields.push('dataAreaId');
+    if (!line.JournalBatchNumber?.trim())
+      missingFields.push('JournalBatchNumber');
+    if (line.LineNumber === undefined || line.LineNumber === null)
+      missingFields.push('LineNumber');
+    if (!line.AccountDisplayValue?.trim())
+      missingFields.push('AccountDisplayValue');
+    if (!line.AccountType || !['Vend', 'Ledger'].includes(line.AccountType))
+      missingFields.push('AccountType');
+    if (!line.CurrencyCode?.trim()) missingFields.push('CurrencyCode');
+    if (!line.TransactionDate?.trim()) missingFields.push('TransactionDate');
+    if (!line.PostingProfile?.trim()) missingFields.push('PostingProfile');
+    if (line.ExchangeRate === undefined || line.ExchangeRate === null)
+      missingFields.push('ExchangeRate');
+    if (line.CreditAmount === undefined || line.CreditAmount === null)
+      missingFields.push('CreditAmount');
+    if (line.DebitAmount === undefined || line.DebitAmount === null)
+      missingFields.push('DebitAmount');
+    if (!line.OffsetAccountType?.trim())
+      missingFields.push('OffsetAccountType');
+    if (!line.OffsetAccountDisplayValue?.trim())
+      missingFields.push('OffsetAccountDisplayValue');
+    if (!line.Company?.trim()) missingFields.push('Company');
+    if (!line.OffsetCompany?.trim()) missingFields.push('OffsetCompany');
+    if (line.CreditAmount > 0 && line.DebitAmount > 0) {
+      missingFields.push('CreditAmount and DebitAmount cannot both be > 0');
+    }
+    return missingFields;
+  }
+
+  /**
    * Prepares batch for posting by updating status and clearing errors
    */
   private async prepareBatchForPosting(batchId: string): Promise<void> {
@@ -488,29 +685,52 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
-   * Enqueues the posting job and returns the result
+   * Enqueues the posting job and returns the result.
+   * Supports both invoice and payment journal kinds.
    */
   private async enqueuePostingJob(
     batchId: string,
     company: string,
-    groupedJournals: Array<{
-      header: D365FOVendorInvoiceJournalHeaderRequest;
-      lines: D365FOVendorInvoiceJournalLineRequest[];
-    }>,
+    payload: {
+      journalKind: 'invoice' | 'payment';
+      groupedJournals?: Array<{
+        header: D365FOVendorInvoiceJournalHeaderRequest;
+        lines: D365FOVendorInvoiceJournalLineRequest[];
+      }>;
+      paymentGroupedJournals?: Array<{
+        header: D365FOVendorPaymentJournalHeaderRequest;
+        lines: D365FOVendorPaymentJournalLineRequest[];
+      }>;
+    },
   ): Promise<PostVendorBatchToDFOResult> {
+    const jobData = {
+      batchId,
+      company,
+      journalKind: payload.journalKind,
+      sourceModule: 'VENDOR' as const,
+      ...(payload.journalKind === 'invoice' &&
+        payload.groupedJournals && {
+          groupedJournals: payload.groupedJournals,
+        }),
+      ...(payload.journalKind === 'payment' &&
+        payload.paymentGroupedJournals && {
+          paymentGroupedJournals: payload.paymentGroupedJournals,
+        }),
+    };
+
     const job = await this.queueService.addJob(
       QUEUES.DFO_VENDOR_JOURNAL,
       'post-vendor-batch-to-dfo',
-      {
-        batchId,
-        company,
-        groupedJournals,
-        sourceModule: 'VENDOR',
-      },
+      jobData,
     );
 
+    const journalCount =
+      payload.journalKind === 'invoice'
+        ? (payload.groupedJournals?.length ?? 0)
+        : (payload.paymentGroupedJournals?.length ?? 0);
+
     this.logger.log(
-      `Enqueued job ${job.id} for batch ${batchId} with ${groupedJournals.length} journal batches`,
+      `Enqueued job ${job.id} for batch ${batchId} (${payload.journalKind}) with ${journalCount} journal batches`,
     );
 
     return {
