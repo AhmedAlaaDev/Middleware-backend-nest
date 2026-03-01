@@ -648,23 +648,16 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       missingFields.push('LineNumber');
     if (!line.AccountDisplayValue?.trim())
       missingFields.push('AccountDisplayValue');
-    if (!line.AccountType || !['Vend', 'Ledger'].includes(line.AccountType))
-      missingFields.push('AccountType');
+    if (!line.AccountType?.trim()) missingFields.push('AccountType');
     if (!line.CurrencyCode?.trim()) missingFields.push('CurrencyCode');
     if (!line.TransactionDate?.trim()) missingFields.push('TransactionDate');
-    if (!line.PostingProfile?.trim()) missingFields.push('PostingProfile');
     if (line.ExchangeRate === undefined || line.ExchangeRate === null)
       missingFields.push('ExchangeRate');
     if (line.CreditAmount === undefined || line.CreditAmount === null)
       missingFields.push('CreditAmount');
     if (line.DebitAmount === undefined || line.DebitAmount === null)
       missingFields.push('DebitAmount');
-    if (!line.OffsetAccountType?.trim())
-      missingFields.push('OffsetAccountType');
-    if (!line.OffsetAccountDisplayValue?.trim())
-      missingFields.push('OffsetAccountDisplayValue');
     if (!line.Company?.trim()) missingFields.push('Company');
-    if (!line.OffsetCompany?.trim()) missingFields.push('OffsetCompany');
     if (line.CreditAmount > 0 && line.DebitAmount > 0) {
       missingFields.push('CreditAmount and DebitAmount cannot both be > 0');
     }
