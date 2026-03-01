@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -12,8 +12,7 @@ import { VendorEntryRawDataModel } from '@/modules/vendor/models';
 
 @CommandHandler(ProcessVendorPaymentTruckingCommand)
 @Injectable()
-export class ProcessVendorPaymentTruckingHandler
-  implements ICommandHandler<ProcessVendorPaymentTruckingCommand> {
+export class ProcessVendorPaymentTruckingHandler implements ICommandHandler<ProcessVendorPaymentTruckingCommand> {
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
@@ -27,15 +26,6 @@ export class ProcessVendorPaymentTruckingHandler
     const company = companyId || 'm-p';
     const rawData =
       await this.excelService.excelToJson<VendorEntryRawDataModel>(fileBuffer);
-
-    const isPaymentTrucking = rawData.every(
-      (d) =>
-        d.JOURNALNAME &&
-        d.JOURNALNAME.toLowerCase().includes('p-fleet'),
-    );
-
-    if (!isPaymentTrucking)
-      throw new BadRequestException('Not a vendor payment trucking journal');
 
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.VendorPaymentTrucking,
