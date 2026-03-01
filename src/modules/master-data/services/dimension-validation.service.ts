@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
 import { DynDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 import {
   DimensionKey,
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
-import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 export interface DimensionValidationConfig {
   /** Map of dimension keys to required (true) or optional (false). Keys not present are not validated. */
