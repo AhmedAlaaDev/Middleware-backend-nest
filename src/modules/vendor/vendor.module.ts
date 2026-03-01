@@ -10,6 +10,8 @@ import {
   PostVendorBatchToDFOHandler,
   ProcessVendorFreightAdjustmentHandler,
   ProcessVendorFreightHandler,
+  ProcessVendorPaymentFreightHandler,
+  ProcessVendorPaymentTruckingHandler,
   ProcessVendorTruckingAdjustmentHandler,
   ProcessVendorTruckingHandler,
 } from '@/modules/vendor/handlers';
@@ -19,6 +21,8 @@ const CommandHandlers = [
   PostVendorBatchToDFOHandler,
   ProcessVendorFreightAdjustmentHandler,
   ProcessVendorFreightHandler,
+  ProcessVendorPaymentFreightHandler,
+  ProcessVendorPaymentTruckingHandler,
   ProcessVendorTruckingAdjustmentHandler,
   ProcessVendorTruckingHandler,
 ];

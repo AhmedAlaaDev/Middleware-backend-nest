@@ -20,6 +20,8 @@ import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum'
 import { IEntryProcessor } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import {
   VendorFreightEntryProcessor,
+  VendorPaymentFreightEntryProcessor,
+  VendorPaymentTruckingEntryProcessor,
   VendorTruckingEntryProcessor,
 } from '@/modules/vendor/processors';
 
@@ -36,6 +38,8 @@ export class EntryProcessorFactory {
 
     private readonly vendorFreightProcessor: VendorFreightEntryProcessor,
     private readonly vendorTruckingProcessor: VendorTruckingEntryProcessor,
+    private readonly vendorPaymentFreightProcessor: VendorPaymentFreightEntryProcessor,
+    private readonly vendorPaymentTruckingProcessor: VendorPaymentTruckingEntryProcessor,
 
     private readonly cashInFreightProcessor: CashInFreightEntryProcessor,
     private readonly cashOutFreightProcessor: CashOutFreightEntryProcessor,
@@ -73,6 +77,14 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.VendorTrucking,
       this.vendorTruckingProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.VendorPaymentFreight,
+      this.vendorPaymentFreightProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.VendorPaymentTrucking,
+      this.vendorPaymentTruckingProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.LedgerFreightClosingEntry,

@@ -27,6 +27,8 @@ import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import {
   VendorFreightEntryProcessor,
+  VendorPaymentFreightEntryProcessor,
+  VendorPaymentTruckingEntryProcessor,
   VendorTruckingEntryProcessor,
 } from '@/modules/vendor/processors';
 
@@ -37,6 +39,8 @@ const EntryProcessors = [
   AccountReceivableTruckingCreditNoteEntryProcessor,
   VendorFreightEntryProcessor,
   VendorTruckingEntryProcessor,
+  VendorPaymentFreightEntryProcessor,
+  VendorPaymentTruckingEntryProcessor,
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
   ClosingFreightEntryProcessor,

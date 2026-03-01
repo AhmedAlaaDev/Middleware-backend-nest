@@ -8,6 +8,8 @@ import {
   PostVendorBatchToDFOCommand,
   ProcessVendorFreightAdjustmentCommand,
   ProcessVendorFreightCommand,
+  ProcessVendorPaymentFreightCommand,
+  ProcessVendorPaymentTruckingCommand,
   ProcessVendorTruckingAdjustmentCommand,
   ProcessVendorTruckingCommand,
 } from '@/modules/vendor/commands';
@@ -64,6 +66,48 @@ export class VendorController {
   ) {
     const result = await this.commandBus.execute(
       new ProcessVendorFreightAdjustmentCommand(file.buffer, companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Vendor Payment Freight (P-Freight)
+   */
+  @Post('Payment-Freight')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: VendorFreightDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async paymentFreight(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: VendorFreightDocDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessVendorPaymentFreightCommand(file.buffer, companyId),
+    );
+
+    return result;
+  }
+
+  /**
+   * Vendor Payment Trucking (P-Fleet)
+   */
+  @Post('Payment-Trucking')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: VendorTruckingDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async paymentTrucking(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: VendorTruckingDocDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessVendorPaymentTruckingCommand(file.buffer, companyId),
     );
 
     return result;

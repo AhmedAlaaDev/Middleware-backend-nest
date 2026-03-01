@@ -30,4 +30,6 @@ export enum EntryProcessorTypes {
   CashOutFreight = 22,
   LedgerCustodySettlementEntry = 23,
   LedgerClosingFreightDifference = 24,
+  VendorPaymentFreight = 25,
+  VendorPaymentTrucking = 26,
 }
