@@ -9,14 +9,13 @@ import {
 @Injectable()
 export class EntryProcessorUtilsService {
   /**
-   * Normalizes a dimension segment (capitalize first letter).
+   * Returns the dimension segment as-is (no case normalization).
+   * Callers apply .trim() when parsing. Preserves original values from the source file.
    */
   normalizeDimensionSegment(input: unknown): string {
     if (input === null || input === undefined) return '';
     if (typeof input !== 'string' && typeof input !== 'number') return '';
-    const s = typeof input === 'string' ? input : String(input);
-    const lower = s.toLowerCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
+    return typeof input === 'string' ? input : String(input);
   }
 
   /**

@@ -158,16 +158,11 @@ export class DimensionValidationService {
     return `CostCenter: ${v} | `;
   }
 
-  /** Returns true if the value contains any spaces (invalid for dimension values). */
-  private static hasSpaces(value: string | undefined): boolean {
-    return typeof value === 'string' && /\s/.test(value);
-  }
-
   /**
    * Shared validation for dimension fields that follow the standard pattern:
-   * - No spaces allowed in dimension values
    * - Required check (empty or '000')
    * - Value must exist in allowed dimensions (exact match, case-insensitive)
+   * Messages always show the value exactly as received from the source file (rawValue).
    */
   private validateDimensionField(
     ar: DynDataModel,
@@ -178,19 +173,13 @@ export class DimensionValidationService {
     label: string,
   ): void {
     const ctx = this.getDimensionContext(ar.DimensionModel);
-    const sourceValue = (rawValue ?? '').trim();
-    const value = sourceValue.toLowerCase();
+    const valueForLookup = (rawValue ?? '').trim().toLowerCase();
+    const displayValue =
+      rawValue !== undefined && rawValue !== null ? rawValue : '';
 
-    if (DimensionValidationService.hasSpaces(rawValue)) {
-      ar.AddError(
-        errorKey,
-        `${ctx}Dimension "${label}" must not contain spaces. Value from your file: "${rawValue ?? sourceValue}". Remove spaces and use a valid dimension value.`,
-      );
-      return;
-    }
-
-    if (isRequired && (!value || value === '000')) {
-      const fromFile = sourceValue ? `"${sourceValue}"` : '(empty or 000)';
+    if (isRequired && (!valueForLookup || valueForLookup === '000')) {
+      const fromFile =
+        displayValue !== '' ? `"${displayValue}"` : '(empty or 000)';
       ar.AddError(
         errorKey,
         `${ctx}Dimension "${label}" is required. Value from your file: ${fromFile}.`,
@@ -198,10 +187,10 @@ export class DimensionValidationService {
       return;
     }
 
-    if (value && !valueSet.has(value)) {
+    if (valueForLookup && !valueSet.has(valueForLookup)) {
       ar.AddError(
         errorKey,
-        `${ctx}Dimension "${label}" value from your file "${rawValue ?? sourceValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
+        `${ctx}Dimension "${label}" value from your file "${displayValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
       );
     }
   }
@@ -277,6 +266,7 @@ export class DimensionValidationService {
   /**
    * Validates a dimension field against a list of allowed strings.
    * Uses exact match after optional normalizer (e.g. ChargeType needs -of/-or stripped).
+   * Messages always show the value exactly as received from the source file (rawValue).
    */
   private validateDimensionFieldFromStrings(
     ar: DynDataModel,
@@ -288,19 +278,16 @@ export class DimensionValidationService {
     normalizer: (s: string) => string = (s) => s.toLowerCase().trim(),
   ): void {
     const ctx = this.getDimensionContext(ar.DimensionModel);
-    const sourceValue = (rawValue ?? '').trim();
-    const value = sourceValue;
+    const valueForLookup = (rawValue ?? '').trim();
+    const displayValue =
+      rawValue !== undefined && rawValue !== null ? rawValue : '';
 
-    if (DimensionValidationService.hasSpaces(rawValue)) {
-      ar.AddError(
-        errorKey,
-        `${ctx}Dimension "${label}" must not contain spaces. Value from your file: "${rawValue ?? sourceValue}". Remove spaces and use a valid dimension value.`,
-      );
-      return;
-    }
-
-    if (isRequired && (!value || value.toLowerCase() === '000')) {
-      const fromFile = sourceValue ? `"${sourceValue}"` : '(empty or 000)';
+    if (
+      isRequired &&
+      (!valueForLookup || valueForLookup.toLowerCase() === '000')
+    ) {
+      const fromFile =
+        displayValue !== '' ? `"${displayValue}"` : '(empty or 000)';
       ar.AddError(
         errorKey,
         `${ctx}Dimension "${label}" is required. Value from your file: ${fromFile}.`,
@@ -309,12 +296,12 @@ export class DimensionValidationService {
     }
 
     if (
-      value &&
-      !allowedValues.some((d) => normalizer(d) === normalizer(value))
+      valueForLookup &&
+      !allowedValues.some((d) => normalizer(d) === normalizer(valueForLookup))
     ) {
       ar.AddError(
         errorKey,
-        `${ctx}Dimension "${label}" value from your file "${rawValue ?? sourceValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
+        `${ctx}Dimension "${label}" value from your file "${displayValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
       );
     }
   }
