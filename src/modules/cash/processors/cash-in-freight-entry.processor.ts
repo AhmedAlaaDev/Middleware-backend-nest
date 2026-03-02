@@ -397,10 +397,13 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       PaymentReference: paymentReference,
       JournalName: this.JOURNAL_NAME,
       TransDate: accountLine.TRANSDATE,
-      AccountDisplayValue: dimensionStr,
-      OffsetAccountDisplayValue: dimensionStr,
+      AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
+      OffsetAccountDisplayValue: offsetLine.ACCOUNTDISPLAYVALUE,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
-      OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
+      OffsetFinTagDisplayValue:
+        offsetLine.ACCOUNTTYPE === 'Ledger'
+          ? dimensionStr
+          : offsetLine.FINTAGDISPLAYVALUE,
       CreditAmount: accountLine.CREDITAMOUNT,
       DebitAmount: offsetLine.DEBITAMOUNT,
       CurrencyCode: offsetLine.CURRENCYCODE,
