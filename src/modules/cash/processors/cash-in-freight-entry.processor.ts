@@ -374,7 +374,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const description = `Customer Collection - Freight ${formattedDate} (${accountLine.VoucherType})`;
     const paymentReference = isNotesReceivable
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - Freight`
-      : '';
+      : offsetLine.DESCRIPTION || '';
 
     const dimensionStr = this.utilsService.toDimensionString(dimensions);
 
