@@ -352,7 +352,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethod: this.getMethodOfPayment(dimensions.mainAccount),
+      PaymentMethodName: this.getMethodOfPayment(dimensions.mainAccount),
       PaymentReference: paymentReference,
       JournalName: this.JOURNAL_NAME,
       TransDate: accountLine.TRANSDATE,

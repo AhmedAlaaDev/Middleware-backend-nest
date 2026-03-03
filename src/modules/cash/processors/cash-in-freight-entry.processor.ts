@@ -157,7 +157,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       `[STEP 6] Fetching free text invoices for ${updatedDfoLines.length} lines`,
     );
     await this.fetchFreeTextInvoices({
-      invoiceNumbers: updatedDfoLines.map((line) => line.Invoice ?? ''),
+      invoiceNumbers: updatedDfoLines.map((line) => line.MarkedInvoice ?? ''),
     });
     this.logger.debug(
       `[STEP 6] Fetched free text invoices ${this.freeTextInvoiceMap?.size} invoices`,

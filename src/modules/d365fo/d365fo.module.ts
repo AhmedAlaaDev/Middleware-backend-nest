@@ -9,6 +9,7 @@ import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.ser
 import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { ExchangeRateService } from '@/modules/d365fo/services/exchange-rate.service';
+import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import { FreeTextInvoiceFinTagService } from '@/modules/d365fo/services/free-text-invoice-fin-tag.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
@@ -38,6 +39,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     VendorPaymentJournalService,
+    CustomerPaymentJournalService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
@@ -59,6 +61,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorService,
     VendorInvoiceJournalService,
     VendorPaymentJournalService,
+    CustomerPaymentJournalService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,

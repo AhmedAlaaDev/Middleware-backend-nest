@@ -7,8 +7,13 @@ import { ExcelFile } from '@/common/decorators';
 import {
   ProcessCashInFreightCommand,
   ProcessCashOutFreightCommand,
+  PostCashBatchToDFOCommand,
 } from '@/modules/cash/commands';
-import { CashInFreightDocDto, CashOutFreightDocDto } from '@/modules/cash/dtos';
+import {
+  CashInFreightDocDto,
+  CashOutFreightDocDto,
+  PostToDFODto,
+} from '@/modules/cash/dtos';
 
 /**
  * Data Migration - Cash (single controller for Cash-In and Cash-Out)
@@ -53,6 +58,20 @@ export class CashController {
   ) {
     return this.commandBus.execute(
       new ProcessCashInFreightCommand(file.buffer, companyId),
+    );
+  }
+
+  /**
+   * Post cash batch to D365FO (CustomerPaymentJournalHeaders/Lines)
+   */
+  @Post('PostToDFO')
+  @ApiBody({
+    description: 'Post cash batch enhanced records to D365FO',
+    type: PostToDFODto,
+  })
+  public async postToDFO(@Body() body: PostToDFODto) {
+    return this.commandBus.execute(
+      new PostCashBatchToDFOCommand(body.batchId),
     );
   }
 }

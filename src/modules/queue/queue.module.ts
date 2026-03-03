@@ -11,23 +11,27 @@ import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-
 import { PostFreeTextInvoiceDFOProcessor } from '@/modules/queue/processors/post-free-text-invoice-dfo.processor';
 import { PostLedgerJournalDFOProcessor } from '@/modules/queue/processors/post-ledger-journal-dfo.processor';
 import { PostVendorJournalDFOProcessor } from '@/modules/queue/processors/post-vendor-journal-dfo.processor';
+import { PostCustomerPaymentJournalDFOProcessor } from '@/modules/queue/processors/post-customer-payment-journal-dfo.processor';
 import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
 import { QueueService } from '@/modules/queue/services/queue.service';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
 import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
 import { VendorJournalPostingStrategy } from '@/modules/queue/strategies/vendor-journal-posting.strategy';
 import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/vendor-payment-journal-posting.strategy';
+import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
 
 const processors = [
   PostFreeTextInvoiceDFOProcessor,
   PostVendorJournalDFOProcessor,
   PostLedgerJournalDFOProcessor,
+  PostCustomerPaymentJournalDFOProcessor,
   MasterDataSyncProcessor,
 ];
 const strategies = [
   FreeTextInvoicePostingStrategy,
   VendorJournalPostingStrategy,
   VendorPaymentJournalPostingStrategy,
+  CustomerPaymentJournalPostingStrategy,
   LedgerJournalPostingStrategy,
 ];
 const queueServices = [DfoRollbackService, QueueService];

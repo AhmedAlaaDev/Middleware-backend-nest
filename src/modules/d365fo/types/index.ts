@@ -8,6 +8,7 @@ export * from './d365fo-exchange-rate.type';
 export * from './d365fo-free-text-invoice.type';
 export * from './d365fo-vendor-invoice-journal.type';
 export * from './d365fo-vendor-payment-journal.type';
+export * from './d365fo-customer-payment-journal.type';
 export * from './payment-terms.type';
 export * from './tax-item-group-heading.type';
 export * from './d365fo-ledger.type';

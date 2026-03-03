@@ -5,6 +5,7 @@ import { CashController } from '@/modules/cash/cash.controller';
 import {
   ProcessCashInFreightHandler,
   ProcessCashOutFreightHandler,
+  PostCashBatchToDFOHandler,
 } from '@/modules/cash/handlers';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
@@ -14,6 +15,7 @@ import { MasterDataModule } from '@/modules/master-data/master-data.module';
 const CommandHandlers = [
   ProcessCashInFreightHandler,
   ProcessCashOutFreightHandler,
+  PostCashBatchToDFOHandler,
 ];
 
 @Module({
