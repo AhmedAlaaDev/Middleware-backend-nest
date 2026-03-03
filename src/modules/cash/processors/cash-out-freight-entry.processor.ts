@@ -294,16 +294,26 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
   ): CashEntryDynDataModel {
-    const dimensions = this.utilsService.parseDimensionString(
+    const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
         ? offsetLine?.ACCOUNTDISPLAYVALUE
-        : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE,
-    );
+        : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
+
+    const segmentLength =
+      this.utilsService.getDimensionSegmentLength(dimensionString);
+
+    const dimensions = this.utilsService.parseDimensionString(dimensionString);
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
         SourceIds: [sourceId],
       });
+      if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
+        line.AddError(
+          'Dimensions',
+          `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
+        );
+      }
       line.AddError('InvalidInvoice', 'No Cust or offset line found');
       return line;
     }
@@ -336,7 +346,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       accountLine.INVOICE || offsetLine.INVOICE,
     );
 
-    return new CashEntryDynDataModel(dimensions, {
+    const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
       Company: this.company,
@@ -368,6 +378,15 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DueDate: accountLine.DUEDATE,
     });
+
+    if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
+      dynLine.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
+      );
+    }
+
+    return dynLine;
   }
 
   private isNotesReceivableLine(

@@ -220,11 +220,14 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     line: VendorEntryRawDataModel,
   ): VendorEntryDynDataModel {
-    const dimensions = this.utilsService.parseDimensionString(
-      this.isLedger(line)
-        ? line.ACCOUNTDISPLAYVALUE
-        : line.DEFAULTDIMENSIONDISPLAYVALUE || '',
-    );
+    const dimensionString = this.isLedger(line)
+      ? line.ACCOUNTDISPLAYVALUE
+      : line.DEFAULTDIMENSIONDISPLAYVALUE || '';
+
+    const segmentLength =
+      this.utilsService.getDimensionSegmentLength(dimensionString);
+
+    const dimensions = this.utilsService.parseDimensionString(dimensionString);
 
     const vendorInfo = this.isVendor(line)
       ? this.getVendorTaxNumberAndTermsOfPayment(line.ACCOUNTDISPLAYVALUE)
@@ -244,7 +247,7 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
       'yes';
 
-    return new VendorEntryDynDataModel(dimensions, {
+    const dynLine = new VendorEntryDynDataModel(dimensions, {
       dataAreaId: this.company,
       Description: `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}`,
       JournalName: this.getJournalName(),
@@ -278,6 +281,15 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       Voucher: line?.VOUCHER,
       SourceIds: [sourceId],
     });
+
+    if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
+      dynLine.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
+      );
+    }
+
+    return dynLine;
   }
 
   protected isLedger(line: VendorEntryRawDataModel): boolean {

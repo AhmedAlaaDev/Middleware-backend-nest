@@ -370,6 +370,18 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
     line.IsPosted = 'No';
     line.SourceIds = [source.UniqueId.toString()];
 
+    if (
+      typeof source.dimensionSegmentLength === 'number' &&
+      !this.utilsService.isValidDimensionSegmentLength(
+        source.dimensionSegmentLength,
+      )
+    ) {
+      line.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${source.dimensionSegmentLength}. Expected 19 or 20 segments.`,
+      );
+    }
+
     return line;
   }
 
@@ -384,9 +396,12 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
       const ledgerEntry = new ClosingEntryModel();
       Object.assign(ledgerEntry, entry);
 
-      ledgerEntry.AccountDimensions = this.utilsService.parseDimensionString(
-        ledgerEntry.ACCOUNTDISPLAYVALUE || '',
-      );
+      const rawDimensionString = ledgerEntry.ACCOUNTDISPLAYVALUE || '';
+      ledgerEntry.dimensionSegmentLength =
+        this.utilsService.getDimensionSegmentLength(rawDimensionString);
+
+      ledgerEntry.AccountDimensions =
+        this.utilsService.parseDimensionString(rawDimensionString);
 
       if (
         invoiceMappings.some((a: any) =>

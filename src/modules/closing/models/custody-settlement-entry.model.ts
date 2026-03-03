@@ -52,6 +52,9 @@ export class CustodySettlementEntryModel {
 
   AccountDimensions?: EntryDimensionsModel;
 
+  /** Number of segments in the source dimension string (ACCOUNTDISPLAYVALUE or DEFAULTDIMENSIONDISPLAYVALUE). */
+  dimensionSegmentLength?: number;
+
   getLineNumber(): number {
     if (this.LINENUMBER == null || this.LINENUMBER === '') {
       throw new Error('LINENUMBER is null or not set.');

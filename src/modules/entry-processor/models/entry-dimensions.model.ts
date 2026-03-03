@@ -18,4 +18,5 @@ export class EntryDimensionsModel {
   worker?: string;
   fixedAsset?: string;
   lease?: string;
+  bankAccount?: string;
 }

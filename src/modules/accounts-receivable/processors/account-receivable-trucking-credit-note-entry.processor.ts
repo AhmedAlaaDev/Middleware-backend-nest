@@ -118,9 +118,10 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     let invLineCount = 1;
     for (const custLine of custLines) {
       for (const ledgerLine of ledgerLines) {
-        const dims = this.utilsService.parseDimensionString(
-          ledgerLine.ACCOUNTDISPLAYVALUE || '',
-        );
+        const rawDimensionString = ledgerLine.ACCOUNTDISPLAYVALUE || '';
+        const segmentLength =
+          this.utilsService.getDimensionSegmentLength(rawDimensionString);
+        const dims = this.utilsService.parseDimensionString(rawDimensionString);
         this.applySubCustomerMapping(dims, accounts);
         ledgerLine.ACCOUNTDISPLAYVALUE =
           this.utilsService.toDimensionString(dims);
@@ -138,6 +139,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
           ledgerLine,
           billingCode || null,
           classification || '',
+          segmentLength,
         );
         out.push(arLine);
         invLineCount++;
@@ -284,6 +286,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     ledgerLine: AccountReceivableFileModel,
     billingCode: IBillingCode | null,
     billingClassId: string,
+    dimensionSegmentLength: number,
   ): DynAccountReceivableLineModel {
     const transDate = this.utilsService.toDate(custLine.TRANSDATE) as Date;
     const dueDate = this.utilsService.toDate(custLine.DUEDATE);
@@ -361,6 +364,15 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
       line.AddError(
         'BillingCode',
         `Could not found a billing code related to this charge type ${dimensions.chargeType}`,
+      );
+    }
+
+    if (
+      !this.utilsService.isValidDimensionSegmentLength(dimensionSegmentLength)
+    ) {
+      line.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${dimensionSegmentLength}. Expected 19 or 20 segments.`,
       );
     }
 

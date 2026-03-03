@@ -140,9 +140,10 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
         continue;
       }
       if (type === 'ledger' && currentCustLine !== null) {
-        const dims = this.utilsService.parseDimensionString(
-          line.ACCOUNTDISPLAYVALUE || '',
-        );
+        const rawDimensionString = line.ACCOUNTDISPLAYVALUE || '';
+        const segmentLength =
+          this.utilsService.getDimensionSegmentLength(rawDimensionString);
+        const dims = this.utilsService.parseDimensionString(rawDimensionString);
         this.applySubCustomerMapping(dims, accounts);
         line.ACCOUNTDISPLAYVALUE = this.utilsService.toDimensionString(dims);
         const billingCode = this.findBillingCode(
@@ -157,6 +158,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
           line,
           billingCode,
           billingClassId || '',
+          segmentLength,
         );
         invLineCount++;
         accLines.push(arLine);
@@ -224,6 +226,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     ledgerLine: AccountReceivableFileModel,
     billingCode: BillingCode | null,
     billingClassId: string,
+    dimensionSegmentLength: number,
   ): DynAccountReceivableLineModel {
     const transDate = this.utilsService.toDate(custLine.TRANSDATE) as Date;
     const dueDate = this.utilsService.toDate(custLine.DUEDATE);
@@ -291,6 +294,15 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
       line.AddError(
         'BillingCode',
         `Could not found a billing code related to this charge type ${dimensions.chargeType}`,
+      );
+    }
+
+    if (
+      !this.utilsService.isValidDimensionSegmentLength(dimensionSegmentLength)
+    ) {
+      line.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${dimensionSegmentLength}. Expected 19 or 20 segments.`,
       );
     }
 

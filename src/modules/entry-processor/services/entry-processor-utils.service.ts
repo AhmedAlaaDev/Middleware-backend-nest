@@ -43,6 +43,7 @@ export class EntryProcessorUtilsService {
         worker: undefined,
         fixedAsset: undefined,
         lease: undefined,
+        bankAccount: undefined,
       };
     }
 
@@ -127,7 +128,28 @@ export class EntryProcessorUtilsService {
         parts.length > 18
           ? this.normalizeDimensionSegment(parts[18])?.trim()
           : undefined,
+      bankAccount:
+        parts.length > 19
+          ? this.normalizeDimensionSegment(parts[19])?.trim()
+          : undefined,
     };
+  }
+
+  /**
+   * Returns the number of pipe-separated segments in a dimension string.
+   */
+  getDimensionSegmentLength(dimensionString?: string | null): number {
+    if (!dimensionString) {
+      return 0;
+    }
+    return String(dimensionString).split('|').length;
+  }
+
+  /**
+   * Returns true if the dimension segment length is allowed (19 or 20).
+   */
+  isValidDimensionSegmentLength(segmentLength: number): boolean {
+    return segmentLength === 19 || segmentLength === 20;
   }
 
   /**
@@ -158,6 +180,7 @@ export class EntryProcessorUtilsService {
       dimensionsModel.worker,
       dimensionsModel.fixedAsset,
       dimensionsModel.lease,
+      dimensionsModel.bankAccount,
     ];
 
     const normalize = (v: unknown) => {
