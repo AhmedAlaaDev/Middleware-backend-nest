@@ -508,11 +508,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const parts = trimmedInvoice.split('/');
 
     const numberPart = parts[0]?.trim();
-    const textParts = parts[1]
-      ?.trim()
-      ?.toLowerCase()
-      ?.split(' ')
-      ?.filter(Boolean);
+    const textLower = parts[1]?.trim()?.toLowerCase() ?? '';
 
     const number = parseInt(numberPart, 10);
     if (isNaN(number)) return '';
@@ -533,19 +529,16 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
 
     let newTextPart: string = parts[1]?.trim();
 
-    if (textParts.includes('نولون')) {
+    if (/نولون/.test(textLower)) {
       newTextPart = 'OF-FW';
     }
 
-    if (textParts.includes('import') && textParts.includes('store')) {
-      newTextPart = 'INVOICE';
-    }
-
-    if (textParts.includes('import') && textParts.includes('stor')) {
-      newTextPart = 'INVOICE';
-    }
-
-    if (textParts.includes('dekheila') && textParts.includes('storage')) {
+    const invoicePatterns = [
+      /\bimport\b.*\bstore\b|\bstore\b.*\bimport\b/,
+      /\bimport\b.*\bstor\b|\bstor\b.*\bimport\b/,
+      /\bdekheila\b.*\bstorage\b|\bstorage\b.*\bdekheila\b/,
+    ];
+    if (invoicePatterns.some((re) => re.test(textLower))) {
       newTextPart = 'INVOICE';
     }
 
