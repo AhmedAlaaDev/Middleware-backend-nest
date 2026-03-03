@@ -395,13 +395,14 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
+      TransactionText: description,
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethod: this.getMethodOfPayment(dimensions.mainAccount),
+      PaymentMethodName: this.getMethodOfPayment(dimensions.mainAccount),
       PaymentReference: paymentReference,
       JournalName: this.JOURNAL_NAME,
-      TransDate: accountLine.TRANSDATE,
+      TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
       OffsetAccountDisplayValue: offsetLine.ACCOUNTDISPLAYVALUE,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
@@ -412,20 +413,22 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       CreditAmount: accountLine.CREDITAMOUNT,
       DebitAmount: offsetLine.DEBITAMOUNT,
       CurrencyCode: offsetLine.CURRENCYCODE,
-      ExchRate: exchangeRate,
+      ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
-      DefaultDimensionDisplayValue: accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
-      OffsetDefaultDimensionDisplayValue:
+      DefaultDimensionsForAccountDisplayValue:
+        accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      DefaultDimensionsForOffsetAccountDisplayValue:
         offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
       OffsetCompany: this.company,
       PostingProfile: 'Cust-PP',
-      Invoice: markedInvoice,
+      MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
-      ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
+      SecondaryExchangeRate: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
       DueDate: accountLine.DUEDATE,
+      PaymentId: sourceId,
     });
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {

@@ -546,8 +546,29 @@ export class EntryProcessorUtilsService {
       let totalCredit = 0;
 
       for (const line of lines) {
-        totalDebit += line.DEBITAMOUNT * line.EXCHANGERATE;
-        totalCredit += line.CREDITAMOUNT * line.EXCHANGERATE;
+        const currencyCode = (line.CURRENCYCODE ?? '').trim().toUpperCase();
+
+        // Treat base-currency lines (EGP) as already in base, so FX factor = 1.
+        // For foreign currencies, normalize inconsistent exchange rate scales:
+        // - 47.65  → 47.65
+        // - 4765   → 47.65  (divide by 100)
+        // - 0.4765 → 47.65  (multiply by 100)
+        let fxRate = 1;
+
+        if (currencyCode !== 'EGP' && currencyCode) {
+          let rate = Number(line.EXCHANGERATE) || 0;
+
+          if (rate >= 1000) {
+            rate = rate / 100;
+          } else if (rate > 0 && rate < 0.1) {
+            rate = rate * 100;
+          }
+
+          fxRate = rate || 1;
+        }
+
+        totalDebit += line.DEBITAMOUNT * fxRate;
+        totalCredit += line.CREDITAMOUNT * fxRate;
       }
 
       if (Math.abs(totalDebit - totalCredit) > 0.01) {
