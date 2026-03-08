@@ -248,7 +248,7 @@ export class EntryProcessorUtilsService {
     isCreditNote: boolean,
   ): string {
     let numberPart = invoiceNumber || '';
-    numberPart = numberPart.split('-')?.pop()?.trim() || '';
+    numberPart = numberPart.split('/')?.shift()?.trim() || '';
 
     const number = parseInt(numberPart, 10);
     const paddedNumber = !isNaN(number)
