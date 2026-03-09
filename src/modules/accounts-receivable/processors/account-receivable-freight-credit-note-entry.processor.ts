@@ -48,7 +48,8 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     company: string,
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    await this.warmupProcessorData();
+    this.company = company;
+    await this.warmupProcessorData({ taxItemGroupCodes: true });
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
     );
@@ -202,11 +203,11 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
     return best;
   }
 
-  async validateAsync(
+  validateAsync(
     data: DynDataModel[],
-    company: string,
+    _company: string,
     _billingClassId?: string,
-  ): Promise<DynDataModel[]> {
+  ): DynDataModel[] {
     const arData = data as DynAccountReceivableLineModel[];
 
     const chargeTypeDims: string[] = [];
@@ -223,7 +224,7 @@ export class AccountReceivableFreightCreditNoteEntryProcessor extends EntryProce
       this.validateDimensionsForLine(arLine, {
         chargeTypeDims: uniqueChargeTypeDims,
       });
-      await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);
+      this.validateSalesTaxItemGroupForLine(arLine);
     }
     this.procLogger.debug('data Validated');
     return data;

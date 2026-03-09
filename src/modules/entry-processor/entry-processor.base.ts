@@ -70,6 +70,11 @@ export interface WarmupProcessorDataOptions {
    * @default false
    */
   vendorTaxNumberAndTermsOfPayment?: boolean;
+  /**
+   * Whether to fetch valid tax item group codes for this.company (for sync validation).
+   * @default false
+   */
+  taxItemGroupCodes?: boolean;
 }
 
 const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
@@ -78,6 +83,7 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   exchangeRates: true,
   customerNames: false,
   vendorTaxNumberAndTermsOfPayment: false,
+  taxItemGroupCodes: false,
 };
 
 interface EntryProcessorBaseOptions {
@@ -111,6 +117,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     string,
     FreeTextInvoiceLookupResult[]
   > | null = null;
+  protected validTaxItemGroupCodes: Set<string> | null = null;
   protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
@@ -258,6 +265,15 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         await this.fetchVendorTaxNumberAndTermsOfPayment(this.company);
       this.baseLogger.debug(
         `[${processorName}] Vendor tax number and terms of payment loaded in ${Date.now() - vendorStart}ms, count: ${this.vendorTaxNumberAndTermsOfPaymentMap.size}`,
+      );
+    }
+
+    if (options.taxItemGroupCodes) {
+      const taxStart = Date.now();
+      this.validTaxItemGroupCodes =
+        await this.taxGroupService.getTaxItemGroupCodes(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Tax item group codes loaded in ${Date.now() - taxStart}ms, count: ${this.validTaxItemGroupCodes.size}`,
       );
     }
 
@@ -496,6 +512,22 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         dimensionsMap: this.dimensionsMap,
         accountNumberSet: this.accountNumberSet,
       },
+    );
+  }
+
+  /**
+   * Validates that the line's SalesTaxItemGroup is in the warmed-up valid codes.
+   * Sync — call without await. Requires warmupProcessorData({ taxItemGroupCodes: true }) first.
+   */
+  protected validateSalesTaxItemGroupForLine(line: DynDataModel): void {
+    if (!this.validTaxItemGroupCodes) {
+      throw new Error(
+        'warmupProcessorData({ taxItemGroupCodes: true }) must be called before validateSalesTaxItemGroupForLine',
+      );
+    }
+    this.taxGroupService.validateSalesTaxItemGroupSync(
+      line,
+      this.validTaxItemGroupCodes,
     );
   }
 

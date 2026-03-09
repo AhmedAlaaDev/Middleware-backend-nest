@@ -52,7 +52,8 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     company: string,
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
-    await this.warmupProcessorData();
+    this.company = company;
+    await this.warmupProcessorData({ taxItemGroupCodes: true });
     // Load customer-account mappings for the Freight service
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Freight,
@@ -86,11 +87,11 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
     return results;
   }
 
-  async validateAsync(
+  validateAsync(
     data: DynDataModel[],
-    company: string,
+    _company: string,
     billingClassId?: string,
-  ): Promise<DynDataModel[]> {
+  ): DynDataModel[] {
     const arData = data as DynAccountReceivableLineModel[];
 
     const chargeTypeDims: string[] = [];
@@ -107,7 +108,7 @@ export class AccountReceivableFreightEntryProcessor extends EntryProcessorBase {
       this.validateDimensionsForLine(arLine, {
         chargeTypeDims: uniqueChargeTypeDims,
       });
-      await this.taxGroupService.validateSalesTaxItemGroup(arLine, company);
+      this.validateSalesTaxItemGroupForLine(arLine);
     }
     this.procLogger.debug('data Validated');
     return data;
