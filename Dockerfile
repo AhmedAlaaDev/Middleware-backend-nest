@@ -2,7 +2,7 @@
 # Stage 1: Dependencies
 FROM node:20-alpine AS dependencies
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /app
 # Copy package files
 COPY package.json pnpm-lock.yaml* ./
@@ -14,7 +14,7 @@ RUN pnpm install --frozen-lockfile --prefer-offline
 # Stage 2: Build
 FROM node:20-alpine AS build
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /app
 # Copy dependencies from previous stage
 COPY --from=dependencies /app/node_modules ./node_modules
@@ -31,7 +31,7 @@ FROM node:20-alpine AS production
 WORKDIR /app
 
 # Install pnpm (pin version for stable cache)
-RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
+RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 
 # Create non-root user early (needed for COPY --chown + writable dirs)
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
@@ -61,7 +61,7 @@ CMD ["node", "dist/main.js"]
 # Stage 4: Development (for hot reload)
 FROM node:20-alpine AS development
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /app
 # Copy package files
 COPY package.json pnpm-lock.yaml* ./
