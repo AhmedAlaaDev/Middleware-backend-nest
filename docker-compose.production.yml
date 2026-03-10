@@ -30,8 +30,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    mem_limit: 700m
-    cpus: 0.7
+    mem_limit: 2g
+    cpus: 1.0
 
   mongodb:
     image: mongodb/mongodb-community-server:8.0.4-ubi8
