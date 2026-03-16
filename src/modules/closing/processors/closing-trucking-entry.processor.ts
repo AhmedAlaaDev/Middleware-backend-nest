@@ -57,8 +57,8 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
     Customer: true,
     SubCustomer: true,
     ChargeType: true,
-    SalesMan: true,
-    CoordinatorMan: true,
+    SalesMan: false,
+    CoordinatorMan: false,
     FreightType: true,
     Direction: true,
     TruckerType: true,
@@ -402,6 +402,11 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
 
       ledgerEntry.AccountDimensions =
         this.utilsService.parseDimensionString(rawDimensionString);
+
+      // Closing trucking does not use Worker dimension
+      if (ledgerEntry.AccountDimensions) {
+        ledgerEntry.AccountDimensions.worker = undefined;
+      }
 
       if (
         invoiceMappings.some((a: any) =>
