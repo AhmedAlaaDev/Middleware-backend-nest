@@ -42,7 +42,12 @@ export class DimensionValidationService {
     for (const key of dimensionKeys) {
       if (key === 'MainAccount') continue;
 
-      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
+      const fetchKey =
+        key === 'SubCustomer'
+          ? 'Customer'
+          : key === 'SubVendor'
+            ? 'Vendor'
+            : key;
 
       let valueSet = fetchKeyToValueSet.get(fetchKey);
       if (valueSet === undefined) {
@@ -476,9 +481,32 @@ export class DimensionValidationService {
     valueSet: Set<string>,
     isRequired: boolean,
   ): void {
+    const dim = ar.DimensionModel;
+    const rawSubVendor = dim?.subVendor;
+    const rawVendor = dim?.vendor;
+
+    const hasSubVendor =
+      (rawSubVendor ?? '').trim() !== '' &&
+      (rawSubVendor ?? '').trim().toLowerCase() !== '000';
+    const hasVendor =
+      (rawVendor ?? '').trim() !== '' &&
+      (rawVendor ?? '').trim().toLowerCase() !== '000';
+
+    if (hasSubVendor && !hasVendor) {
+      const ctx = this.getDimensionContext(dim);
+      const displaySubVendor =
+        rawSubVendor !== undefined && rawSubVendor !== null ? rawSubVendor : '';
+
+      ar.AddError(
+        'SubVendorDimensions',
+        `${ctx}Dimension "Vendor" is required when "SubVendor" is provided. SubVendor value from your file: "${displaySubVendor}".`,
+      );
+      return;
+    }
+
     this.validateDimensionField(
       ar,
-      ar.DimensionModel?.subVendor,
+      rawSubVendor,
       valueSet,
       isRequired,
       'SubVendorDimensions',

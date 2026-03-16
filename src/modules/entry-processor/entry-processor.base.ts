@@ -289,7 +289,12 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const uniqueFetchKeys = new Set<string>();
     for (const key of dimensionKeys) {
       if (key === 'MainAccount') continue;
-      const fetchKey = key === 'SubCustomer' ? 'Customer' : key;
+      const fetchKey =
+        key === 'SubCustomer'
+          ? 'Customer'
+          : key === 'SubVendor'
+            ? 'Vendor'
+            : key;
       uniqueFetchKeys.add(fetchKey);
     }
 
