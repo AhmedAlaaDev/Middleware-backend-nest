@@ -171,10 +171,15 @@ export class CustomerPaymentJournalService {
 
     return this.retryService.executeWithRetry(
       async () => {
+        const { Voucher: _omitVoucher, ...lineData } = data as any;
+
         return await this.d365foClient.post<
-          D365FOCustomerPaymentJournalLineRequest,
+          Omit<
+            D365FOCustomerPaymentJournalLineRequest,
+            'JournalBatchNumber' | 'Voucher'
+          >,
           unknown
-        >('/data/CustomerPaymentJournalLines', data);
+        >('/data/CustomerPaymentJournalLines', lineData);
       },
       {
         retries: 3,

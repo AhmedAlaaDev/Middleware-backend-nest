@@ -32,7 +32,9 @@ export class VendorPaymentJournalService {
   public async postHeader(
     data: D365FOVendorPaymentJournalHeaderRequest,
   ): Promise<D365FOVendorPaymentJournalHeaderResponse> {
-    this.logger.log(`[HEADER] Creating payment header for company: ${data.dataAreaId}`);
+    this.logger.log(
+      `[HEADER] Creating payment header for company: ${data.dataAreaId}`,
+    );
 
     const { JournalBatchNumber: _omit, ...payload } = data;
 
@@ -167,10 +169,15 @@ export class VendorPaymentJournalService {
 
     return this.retryService.executeWithRetry(
       async () => {
+        const { Voucher: _omitVoucher, ...lineData } = data as any;
+
         return await this.d365foClient.post<
-          D365FOVendorPaymentJournalLineRequest,
+          Omit<
+            D365FOVendorPaymentJournalLineRequest,
+            'JournalBatchNumber' | 'Voucher'
+          >,
           unknown
-        >('/data/VendorPaymentJournalLines', data);
+        >('/data/VendorPaymentJournalLines', lineData);
       },
       {
         retries: 3,

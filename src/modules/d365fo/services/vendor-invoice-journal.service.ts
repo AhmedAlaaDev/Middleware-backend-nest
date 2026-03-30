@@ -223,7 +223,11 @@ export class VendorInvoiceJournalService {
     );
 
     // Remove FullPrimaryRemittanceAddress from line body before posting
-    const { FullPrimaryRemittanceAddress, ...lineData } = data as any;
+    const {
+      FullPrimaryRemittanceAddress,
+      Voucher: _omitVoucher,
+      ...lineData
+    } = data as any;
 
     // Use retry service with custom condition for concurrency conflicts
     return this.retryService.executeWithRetry(
