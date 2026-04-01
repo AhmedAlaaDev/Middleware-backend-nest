@@ -47,6 +47,10 @@ interface CostCenterGroup {
 @Injectable()
 export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
   private readonly procLogger = new Logger(ClosingTruckingEntryProcessor.name);
+  private readonly SOKHNA_BRANCH_CODE = '014';
+  private readonly TRUCKING_COST_CENTER_CODE = '2101';
+  private readonly DEFAULT_SALESMAN_CODE = '3314';
+  private readonly DEFAULT_COORDINATOR_CODE = '3149';
   readonly entryProcessorType = EntryProcessorTypes.LedgerTruckingClosingEntry;
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
@@ -403,6 +407,8 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
       ledgerEntry.AccountDimensions =
         this.utilsService.parseDimensionString(rawDimensionString);
 
+      this.applySokhnaTruckingDimensionFallback(ledgerEntry.AccountDimensions);
+
       // Closing trucking does not use Worker dimension
       if (ledgerEntry.AccountDimensions) {
         ledgerEntry.AccountDimensions.worker = undefined;
@@ -446,6 +452,26 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
     }
 
     return ledgerData;
+  }
+
+  private applySokhnaTruckingDimensionFallback(
+    dimensions?: EntryDimensionsModel,
+  ): void {
+    if (!dimensions) return;
+
+    const isSokhnaTruckingEntry =
+      dimensions.location?.trim() === this.SOKHNA_BRANCH_CODE &&
+      dimensions.costCenter?.trim() === this.TRUCKING_COST_CENTER_CODE;
+
+    if (!isSokhnaTruckingEntry) return;
+
+    if (!dimensions.salesMan?.trim()) {
+      dimensions.salesMan = this.DEFAULT_SALESMAN_CODE;
+    }
+
+    if (!dimensions.coordinatorMan?.trim()) {
+      dimensions.coordinatorMan = this.DEFAULT_COORDINATOR_CODE;
+    }
   }
 
   private groupEntries(

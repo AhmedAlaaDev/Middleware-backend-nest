@@ -6,10 +6,15 @@ import { EntryDynDataModel } from '@/modules/entry-processor/models';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 import { VendorEntryDynDataModel } from '@/modules/vendor/models';
+import { VendorEntryRawDataModel } from '@/modules/vendor/models/vendor-entry-raw-data.model';
 import { BaseVendorEntryProcessor } from '@/modules/vendor/processors/base-vendor-entry.processor';
 
 @Injectable()
 export class VendorTruckingEntryProcessor extends BaseVendorEntryProcessor {
+  private readonly SOKHNA_BRANCH_CODE = '014';
+  private readonly TRUCKING_COST_CENTER_CODE = '2101';
+  private readonly DEFAULT_SALESMAN_CODE = '3314';
+  private readonly DEFAULT_COORDINATOR_CODE = '3149';
   readonly entryProcessorType = EntryProcessorTypes.VendorTrucking;
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
@@ -41,6 +46,61 @@ export class VendorTruckingEntryProcessor extends BaseVendorEntryProcessor {
 
   protected getDescriptionPrefix(): string {
     return 'Vendor Invoice Fleet';
+  }
+
+  protected buildLine(
+    sourceId: string,
+    line: VendorEntryRawDataModel,
+  ): VendorEntryDynDataModel {
+    const dynLine = super.buildLine(sourceId, line);
+    const dimensions = dynLine.DimensionModel;
+    if (!dimensions) {
+      return dynLine;
+    }
+
+    const isSokhnaTruckingEntry =
+      dimensions.location?.trim() === this.SOKHNA_BRANCH_CODE &&
+      dimensions.costCenter?.trim() === this.TRUCKING_COST_CENTER_CODE;
+
+    if (!isSokhnaTruckingEntry) {
+      return dynLine;
+    }
+
+    if (!dimensions.salesMan?.trim()) {
+      dimensions.salesMan = this.DEFAULT_SALESMAN_CODE;
+    }
+
+    if (!dimensions.coordinatorMan?.trim()) {
+      dimensions.coordinatorMan = this.DEFAULT_COORDINATOR_CODE;
+    }
+
+    const expectedSegments = this.utilsService.isValidDimensionSegmentLength(
+      this.utilsService.getDimensionSegmentLength(
+        this.isLedger(line)
+          ? line.ACCOUNTDISPLAYVALUE
+          : line.DEFAULTDIMENSIONDISPLAYVALUE,
+      ),
+    )
+      ? this.utilsService.getDimensionSegmentLength(
+          this.isLedger(line)
+            ? line.ACCOUNTDISPLAYVALUE
+            : line.DEFAULTDIMENSIONDISPLAYVALUE,
+        )
+      : 20;
+
+    const normalizedDimensionString =
+      this.utilsService.toDimensionStringWithSegments(
+        dimensions,
+        expectedSegments,
+      );
+
+    if (this.isLedger(line)) {
+      dynLine.AccountDisplayValue = normalizedDimensionString;
+    } else {
+      dynLine.DefaultDimensionDisplayValue = normalizedDimensionString;
+    }
+
+    return dynLine;
   }
 
   public validateAsync(data: EntryDynDataModel[]): EntryDynDataModel[] {
