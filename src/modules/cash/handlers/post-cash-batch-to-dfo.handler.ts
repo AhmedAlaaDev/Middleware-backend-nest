@@ -78,6 +78,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     const allowed = [
       EntryProcessorTypes.CashInFreight,
       EntryProcessorTypes.CashOutFreight,
+      EntryProcessorTypes.CashInTrucking,
+      EntryProcessorTypes.CashOutTrucking,
     ];
     if (!allowed.includes(entryProcessorType)) {
       throw new BadRequestException(

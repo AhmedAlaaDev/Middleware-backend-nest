@@ -4,7 +4,9 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { CashController } from '@/modules/cash/cash.controller';
 import {
   ProcessCashInFreightHandler,
+  ProcessCashInTruckingHandler,
   ProcessCashOutFreightHandler,
+  ProcessCashOutTruckingHandler,
   PostCashBatchToDFOHandler,
 } from '@/modules/cash/handlers';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
@@ -15,6 +17,8 @@ import { MasterDataModule } from '@/modules/master-data/master-data.module';
 const CommandHandlers = [
   ProcessCashInFreightHandler,
   ProcessCashOutFreightHandler,
+  ProcessCashInTruckingHandler,
+  ProcessCashOutTruckingHandler,
   PostCashBatchToDFOHandler,
 ];
 

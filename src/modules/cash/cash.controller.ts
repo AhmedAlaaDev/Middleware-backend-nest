@@ -6,12 +6,16 @@ import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
 import { ExcelFile } from '@/common/decorators';
 import {
   ProcessCashInFreightCommand,
+  ProcessCashInTruckingCommand,
   ProcessCashOutFreightCommand,
+  ProcessCashOutTruckingCommand,
   PostCashBatchToDFOCommand,
 } from '@/modules/cash/commands';
 import {
   CashInFreightDocDto,
+  CashInTruckingDocDto,
   CashOutFreightDocDto,
+  CashOutTruckingDocDto,
   PostToDFODto,
 } from '@/modules/cash/dtos';
 
@@ -58,6 +62,44 @@ export class CashController {
   ) {
     return this.commandBus.execute(
       new ProcessCashInFreightCommand(file.buffer, companyId),
+    );
+  }
+
+  /**
+   * Cash-Out Fleet (trucking) Document
+   */
+  @Post('CashOut-Trucking-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: CashOutTruckingDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async cashOutTruckingDocument(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashOutTruckingDocDto,
+  ) {
+    return this.commandBus.execute(
+      new ProcessCashOutTruckingCommand(file.buffer, companyId),
+    );
+  }
+
+  /**
+   * Cash-In Fleet (trucking) Document
+   */
+  @Post('CashIn-Trucking-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: CashInTruckingDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async cashInTruckingDocument(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInTruckingDocDto,
+  ) {
+    return this.commandBus.execute(
+      new ProcessCashInTruckingCommand(file.buffer, companyId),
     );
   }
 

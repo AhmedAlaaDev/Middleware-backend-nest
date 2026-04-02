@@ -8,7 +8,9 @@ import {
 } from '@/modules/accounts-receivable/processors';
 import {
   CashInFreightEntryProcessor,
+  CashInTruckingEntryProcessor,
   CashOutFreightEntryProcessor,
+  CashOutTruckingEntryProcessor,
 } from '@/modules/cash/processors';
 import {
   ClosingCustodySettlementEntryProcessor,
@@ -43,6 +45,8 @@ export class EntryProcessorFactory {
 
     private readonly cashInFreightProcessor: CashInFreightEntryProcessor,
     private readonly cashOutFreightProcessor: CashOutFreightEntryProcessor,
+    private readonly cashInTruckingProcessor: CashInTruckingEntryProcessor,
+    private readonly cashOutTruckingProcessor: CashOutTruckingEntryProcessor,
 
     private readonly closingFreightProcessor: ClosingFreightEntryProcessor,
     private readonly closingFreightDifferenceProcessor: ClosingFreightDifferenceEntryProcessor,
@@ -109,6 +113,14 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.CashOutFreight,
       this.cashOutFreightProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.CashInTrucking,
+      this.cashInTruckingProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.CashOutTrucking,
+      this.cashOutTruckingProcessor,
     );
     // Register other processors
   }

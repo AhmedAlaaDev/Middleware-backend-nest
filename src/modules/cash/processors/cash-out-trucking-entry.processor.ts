@@ -8,8 +8,8 @@ import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/servic
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 
 @Injectable()
-export class CashInFreightEntryProcessor extends BaseCashEntryProcessor {
-  readonly entryProcessorType = EntryProcessorTypes.CashInFreight;
+export class CashOutTruckingEntryProcessor extends BaseCashEntryProcessor {
+  readonly entryProcessorType = EntryProcessorTypes.CashOutTrucking;
 
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: true,
@@ -22,8 +22,8 @@ export class CashInFreightEntryProcessor extends BaseCashEntryProcessor {
     ChargeType: false,
     SalesMan: false,
     CoordinatorMan: false,
-    FreightType: true,
     Direction: true,
+    TruckerType: true,
   };
 
   constructor(
@@ -34,10 +34,10 @@ export class CashInFreightEntryProcessor extends BaseCashEntryProcessor {
   }
 
   protected isInbound(): boolean {
-    return true;
+    return false;
   }
 
   protected isTrucking(): boolean {
-    return false;
+    return true;
   }
 }

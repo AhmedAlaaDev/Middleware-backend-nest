@@ -15,4 +15,6 @@ export const ENTRY_PROCESSOR_NAMES = {
   LEDGER_CLOSING_FREIGHT_DIFFERENCE: 'ClosingFreightDifferenceEntryProcessor',
   CASH_IN_FREIGHT: 'CashInFreightEntryProcessor',
   CASH_OUT_FREIGHT: 'CashOutFreightEntryProcessor',
+  CASH_IN_TRUCKING: 'CashInTruckingEntryProcessor',
+  CASH_OUT_TRUCKING: 'CashOutTruckingEntryProcessor',
 } as const;

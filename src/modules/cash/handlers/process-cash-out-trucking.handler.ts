@@ -1,18 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { ProcessCashOutTruckingCommand } from '@/modules/cash/commands/process-cash-out-trucking.command';
+import { CashEntryRawDataModel } from '@/modules/cash/models';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
-import { ProcessVendorPaymentTruckingCommand } from '@/modules/vendor/commands';
-import { VendorEntryRawDataModel } from '@/modules/vendor/models';
 
-@CommandHandler(ProcessVendorPaymentTruckingCommand)
+@CommandHandler(ProcessCashOutTruckingCommand)
 @Injectable()
-export class ProcessVendorPaymentTruckingHandler implements ICommandHandler<ProcessVendorPaymentTruckingCommand> {
+export class ProcessCashOutTruckingHandler implements ICommandHandler<ProcessCashOutTruckingCommand> {
   constructor(
     private readonly excelService: ExcelService,
     private readonly processorFactory: EntryProcessorFactory,
@@ -22,39 +22,32 @@ export class ProcessVendorPaymentTruckingHandler implements ICommandHandler<Proc
   public async execute({
     companyId,
     fileBuffer,
-    rawData,
-  }: ProcessVendorPaymentTruckingCommand): Promise<IDataBatch> {
+  }: ProcessCashOutTruckingCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
 
-    if (!fileBuffer && !rawData) {
-      throw new BadRequestException(
-        'No file or raw data provided for vendor payment trucking entry',
-      );
-    }
+    const rawData =
+      await this.excelService.excelToJson<CashEntryRawDataModel>(fileBuffer);
 
     if (!rawData || rawData.length === 0) {
-      rawData = await this.excelService.excelToJson<VendorEntryRawDataModel>(
-        fileBuffer as Buffer<ArrayBufferLike>,
-      );
+      throw new BadRequestException('Empty file');
     }
 
     const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.VendorPaymentTrucking,
+      EntryProcessorTypes.CashOutTrucking,
     );
 
     const enriched = await processor.formatAndEnrichAsync(rawData, company);
-
     const validated = await processor.validateAsync(enriched, company);
 
     const dataBatch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.VendorPaymentTrucking,
-      ENTRY_PROCESSOR_NAMES.VENDOR_PAYMENT_TRUCKING,
+      EntryProcessorTypes.CashOutTrucking,
+      ENTRY_PROCESSOR_NAMES.CASH_OUT_TRUCKING,
       company,
-      `Vendor Payment Fleet ${Date.now()}`,
+      `Cash-Out Fleet ${Date.now()}`,
       rawData,
       validated,
       undefined,
-      'last.ledger.vendor.trucking.voucher.number',
+      'last.ledger.voucher.cash.out.trucking',
     );
 
     return dataBatch;

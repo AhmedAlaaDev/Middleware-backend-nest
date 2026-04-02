@@ -9,7 +9,9 @@ import {
 } from '@/modules/accounts-receivable/processors';
 import {
   CashInFreightEntryProcessor,
+  CashInTruckingEntryProcessor,
   CashOutFreightEntryProcessor,
+  CashOutTruckingEntryProcessor,
 } from '@/modules/cash/processors';
 import {
   ClosingCustodySettlementEntryProcessor,
@@ -43,6 +45,8 @@ const EntryProcessors = [
   VendorPaymentTruckingEntryProcessor,
   CashInFreightEntryProcessor,
   CashOutFreightEntryProcessor,
+  CashInTruckingEntryProcessor,
+  CashOutTruckingEntryProcessor,
   ClosingFreightEntryProcessor,
   ClosingFreightDifferenceEntryProcessor,
   ClosingTruckingEntryProcessor,

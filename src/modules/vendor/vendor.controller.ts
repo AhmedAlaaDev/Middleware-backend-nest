@@ -107,7 +107,7 @@ export class VendorController {
     @Body() { companyId }: VendorTruckingDocDto,
   ) {
     const result = await this.commandBus.execute(
-      new ProcessVendorPaymentTruckingCommand(file.buffer, companyId),
+      new ProcessVendorPaymentTruckingCommand(companyId!, file.buffer),
     );
 
     return result;
