@@ -70,8 +70,6 @@ export class CashController {
     type: PostToDFODto,
   })
   public async postToDFO(@Body() body: PostToDFODto) {
-    return this.commandBus.execute(
-      new PostCashBatchToDFOCommand(body.batchId),
-    );
+    return this.commandBus.execute(new PostCashBatchToDFOCommand(body.batchId));
   }
 }

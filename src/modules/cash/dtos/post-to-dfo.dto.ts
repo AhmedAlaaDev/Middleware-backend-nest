@@ -10,4 +10,3 @@ export class PostToDFODto {
   @IsString()
   batchId: string;
 }
-

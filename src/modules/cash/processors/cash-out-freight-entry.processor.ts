@@ -13,6 +13,7 @@ import {
 } from '@/modules/entry-processor/models';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
+import { ProcessVendorPaymentFreightCommand } from '@/modules/vendor/commands';
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
@@ -34,7 +35,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     '123510',
   ];
   private readonly SETTLEMENT_MAIN_ACCOUNTS = ['421103'];
-  private readonly JOURNAL_NAME = 'Cust-Pay';
+  private readonly JOURNAL_NAME = 'CashOut';
 
   private _tempSet = new Set<string>();
 
@@ -95,7 +96,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 2] Filtering custody settlements from ${sortedLines.length} lines`,
     );
-    const { custodySettlementLines, otherLines } =
+    const { custodySettlementLines, otherLines, vendorPayment } =
       this.filterLines(sortedLines);
     this.logger.debug(
       `[FILTER] Processed ${sortedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${otherLines.length} customer collection, down payment and other lines`,
@@ -106,6 +107,12 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
     );
     this.processCustodySettlementLines(custodySettlementLines);
+
+    // STEP 2.5: run vendor payment with raw data (no file – already extracted from Excel)
+    this.logger.debug(
+      `[STEP 2.5] Processing ${vendorPayment.length} vendor payment lines`,
+    );
+    this.processVendorPaymentLines(vendorPayment);
 
     // STEP 3: Build invoice map
     this.logger.debug(
@@ -141,7 +148,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 5] Updating batch and voucher numbers for ${dfoLines.length} lines`,
     );
-    const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
+    const updatedDfoLines = this.utilsService.updateCashBatchAndVoucher({
       lines: dfoLines,
       startBatchNumber: 1,
       startVoucherNumber: 1,
@@ -185,11 +192,14 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
 
   private filterLines(sortedLines: CashEntryRawDataModel[]) {
     const custodySettlementLines: CashEntryRawDataModel[] = [];
+    const vendorPayment: CashEntryRawDataModel[] = [];
     const otherLines: CashEntryRawDataModel[] = [];
 
     for (const line of sortedLines) {
       if (line.IsCustodySettlement) {
         custodySettlementLines.push(line);
+      } else if (line.IsVendorPayment || line.IsCustodyIssue) {
+        vendorPayment.push(line);
       } else {
         otherLines.push(line);
       }
@@ -198,6 +208,7 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
     return {
       custodySettlementLines,
       otherLines,
+      vendorPayment,
     };
   }
 
@@ -220,6 +231,29 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       .catch((error) => {
         this.logger.error(
           `[STEP 2.5] Error processing custody settlement entry for ${lines.length} lines: ${error}`,
+        );
+      });
+  }
+
+  private processVendorPaymentLines(lines: CashEntryRawDataModel[]): void {
+    if (lines.length === 0) return;
+
+    const command = new ProcessVendorPaymentFreightCommand(
+      this.company,
+      undefined,
+      lines,
+    );
+
+    this.commandBus
+      .execute(command)
+      .then(() => {
+        this.logger.debug(
+          `[STEP 2.5] Successfully processed ${lines.length} vendor payment lines`,
+        );
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[STEP 2.5] Error processing vendor payment entry for ${lines.length} lines: ${error}`,
         );
       });
   }
@@ -356,6 +390,8 @@ export class CashOutFreightEntryProcessor extends EntryProcessorBase {
       PaymentReference: paymentReference,
       JournalName: this.JOURNAL_NAME,
       TransDate: accountLine.TRANSDATE,
+      TransactionDate: accountLine.TRANSDATE,
+      VoucherType: accountLine.VoucherType,
       AccountDisplayValue: dimensionStr,
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,

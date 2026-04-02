@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -22,10 +22,21 @@ export class ProcessVendorPaymentFreightHandler implements ICommandHandler<Proce
   public async execute({
     companyId,
     fileBuffer,
+    rawData,
   }: ProcessVendorPaymentFreightCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
-    const rawData =
-      await this.excelService.excelToJson<VendorEntryRawDataModel>(fileBuffer);
+
+    if (!fileBuffer && !rawData) {
+      throw new BadRequestException(
+        'No file or raw data provided for custody settlement entry',
+      );
+    }
+
+    if (!rawData || rawData.length === 0) {
+      rawData = await this.excelService.excelToJson<VendorEntryRawDataModel>(
+        fileBuffer as Buffer<ArrayBufferLike>,
+      );
+    }
 
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.VendorPaymentFreight,

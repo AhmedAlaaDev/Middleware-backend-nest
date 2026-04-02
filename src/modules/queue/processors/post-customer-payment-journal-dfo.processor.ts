@@ -12,8 +12,8 @@ import {
   DfoRollbackService,
 } from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
-import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
+import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
 
 const LINE_CHUNK_SIZE = 20;
 const ROLLBACK_CHUNK_SIZE = 20;
@@ -192,4 +192,3 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     await this.dataBatchService.updateDfoIdsAsync(batchId, all);
   }
 }
-

@@ -482,7 +482,10 @@ export class EntryProcessorUtilsService {
 
       const headerLine = lines[0];
       const invoiceMonth = this.toMonthKey(
-        headerLine.TransDate || headerLine.Date,
+        headerLine.TransDate ||
+          headerLine.Date ||
+          headerLine.TransactionDate ||
+          '',
       );
 
       const invoiceLineCount = lines.length;
@@ -530,6 +533,135 @@ export class EntryProcessorUtilsService {
     }
 
     return Array.from(updatedMap.values()).flat();
+  }
+
+  /**
+   * Cash module only: same rules as `updateBatchAndVoucher` (same calendar month per batch,
+   * max lines, uniqueId kept together), and a batch never mixes voucher buckets.
+   * Invoice groups are ordered Cash → Cheque → Other (Visa, Transfer, Deposit, POS, etc.)
+   * before batching, preserving original order within each bucket so all cash lines are
+   * processed in one contiguous block (then cheque, then others), still split by month/line cap.
+   */
+  updateCashBatchAndVoucher<
+    T extends EntryDynDataModel & {
+      VoucherType?: string;
+      TransactionDate?: string;
+    },
+  >(options: {
+    lines: T[];
+    startBatchNumber: number;
+    startVoucherNumber: number;
+    maxLinesPerBatch?: number;
+  }): T[] {
+    const {
+      lines,
+      startBatchNumber,
+      startVoucherNumber,
+      maxLinesPerBatch = 1000,
+    } = options;
+
+    const invoiceMap = new Map<string, T[]>();
+    for (const line of lines) {
+      const uniqueId = String(line.SourceIds[0]);
+      if (!invoiceMap.has(uniqueId)) {
+        invoiceMap.set(uniqueId, []);
+      }
+      invoiceMap.get(uniqueId)!.push(line);
+    }
+
+    const sortedEntries = Array.from(invoiceMap.entries()).sort((a, b) => {
+      const ra = this.cashVoucherTypeBucketRank(a[1][0]?.VoucherType);
+      const rb = this.cashVoucherTypeBucketRank(b[1][0]?.VoucherType);
+      return ra - rb;
+    });
+
+    const updatedMap = new Map<string, T[]>();
+
+    let currentBatchMonth: string | null = null;
+    let currentBatchLineCount = 0;
+    let currentBatchNumber = startBatchNumber;
+    let currentVoucherNum = startVoucherNumber;
+    let currentVoucherBucket: 'cash' | 'cheque' | 'other' | null = null;
+
+    let lineNumberInBatch = 1;
+
+    for (const [uniqueId, groupedLines] of sortedEntries) {
+      if (!groupedLines || groupedLines.length === 0) {
+        continue;
+      }
+
+      const headerLine = groupedLines[0];
+      const invoiceMonth = this.toMonthKey(
+        headerLine.TransDate ||
+          headerLine.Date ||
+          headerLine.TransactionDate ||
+          '',
+      );
+      const voucherBucket = this.cashVoucherTypeBucket(headerLine.VoucherType);
+
+      const invoiceLineCount = groupedLines.length;
+      const monthChanged = currentBatchMonth !== invoiceMonth;
+      const wouldExceedLimit =
+        currentBatchLineCount + invoiceLineCount > maxLinesPerBatch;
+      const bucketChanged =
+        currentVoucherBucket !== null && currentVoucherBucket !== voucherBucket;
+
+      if (monthChanged || wouldExceedLimit || bucketChanged) {
+        if (currentBatchMonth !== null) {
+          currentBatchNumber++;
+        }
+        currentBatchMonth = invoiceMonth;
+        currentBatchLineCount = 0;
+        lineNumberInBatch = 1;
+      }
+
+      currentVoucherBucket = voucherBucket;
+
+      const journalName = headerLine.JournalName;
+      const formattedBatch = this.formatBatchNumber(currentBatchNumber);
+      const formattedVoucher = this.formatVoucherNumber(
+        currentVoucherNum,
+        journalName,
+      );
+
+      const updatedLines: T[] = [];
+
+      for (const line of groupedLines) {
+        const updatedLine: T = {
+          ...line,
+          JournalBatchNumber: formattedBatch,
+          Voucher: formattedVoucher,
+          LineNumber: lineNumberInBatch,
+        };
+
+        updatedLines.push(updatedLine);
+        currentBatchLineCount++;
+        lineNumberInBatch++;
+      }
+
+      currentVoucherNum++;
+
+      updatedMap.set(uniqueId, updatedLines);
+    }
+
+    return Array.from(updatedMap.values()).flat();
+  }
+
+  private cashVoucherTypeBucket(
+    voucherType: string | undefined,
+  ): 'cash' | 'cheque' | 'other' {
+    const v = (voucherType ?? '').trim().toLowerCase();
+    if (v === 'cash') return 'cash';
+    if (v === 'cheque') return 'cheque';
+    return 'other';
+  }
+
+  /** Sort key: cash (0) → cheque (1) → other (2). */
+  private cashVoucherTypeBucketRank(voucherType: string | undefined): number {
+    const b = this.cashVoucherTypeBucket(voucherType);
+    if (b === 'cash') return 0;
+    if (b === 'cheque') return 1;
+    return 2;
   }
 
   /**

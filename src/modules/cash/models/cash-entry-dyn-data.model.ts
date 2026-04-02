@@ -1,3 +1,4 @@
+import { EntrySafeType, EntryVoucherType } from '@/modules/cash/types';
 import {
   EntryDimensionsModel,
   EntryDynDataModel,
@@ -43,6 +44,11 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
   /** Marked invoice */
   MarkedInvoice: string;
 
+  /** Safe type */
+  SafeType: EntrySafeType;
+  /** Voucher type */
+  VoucherType: EntryVoucherType;
+
   constructor(
     dimensionModel: EntryDimensionsModel,
     data: Partial<CashEntryDynDataModel>,
@@ -67,5 +73,7 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
     this.DefaultDimensionsForOffsetAccountDisplayValue =
       data.DefaultDimensionsForOffsetAccountDisplayValue || '';
     this.MarkedInvoice = data.MarkedInvoice || '';
+    this.SafeType = data.SafeType || ('' as EntrySafeType);
+    this.VoucherType = data.VoucherType || ('' as EntryVoucherType);
   }
 }

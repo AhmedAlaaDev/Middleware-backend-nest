@@ -64,6 +64,7 @@ export class EntryDynDataModel {
   InvoiceDate: string;
   /** Transaction date */
   TransDate: string;
+  TransactionDate: string;
   /** Date */
   Date: string;
 

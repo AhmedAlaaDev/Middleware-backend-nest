@@ -10,4 +10,3 @@ export class PostCashBatchToDFOCommand extends Command<PostCashBatchToDFOResult>
     super();
   }
 }
-

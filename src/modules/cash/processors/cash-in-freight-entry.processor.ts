@@ -142,7 +142,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 5] Updating batch and voucher numbers for ${dfoLines.length} lines`,
     );
-    const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
+    const updatedDfoLines = this.utilsService.updateCashBatchAndVoucher({
       lines: dfoLines,
       startBatchNumber: 1,
       startVoucherNumber: 1,
@@ -324,11 +324,11 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
     const accountLines = withoutSettlement.filter((l) => l.IsCustomer);
     const offsetLines = withoutSettlement.filter((l) => !l.IsCustomer);
 
-    if (offsetLines.length > 1) {
-      for (const line of offsetLines) {
-        this._tempSet.add(line.UniqueId.toString());
-      }
-    }
+    // if (offsetLines.length > 1) {
+    //   for (const line of offsetLines) {
+    //     this._tempSet.add(line.UniqueId.toString());
+    //   }
+    // }
 
     return offsetLines
       .map((offLine) => {
@@ -377,6 +377,7 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       accountLine.TRANSDATE,
     );
     const description = `Customer Collection - Freight ${formattedDate} (${accountLine.VoucherType})`;
+
     const paymentReference = isNotesReceivable
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - Freight`
       : offsetLine.DESCRIPTION || '';
@@ -429,6 +430,8 @@ export class CashInFreightEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
+      SafeType: accountLine.SafeType,
+      VoucherType: accountLine.VoucherType,
     });
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {

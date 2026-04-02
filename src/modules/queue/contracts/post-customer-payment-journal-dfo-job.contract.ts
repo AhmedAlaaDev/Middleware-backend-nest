@@ -13,4 +13,3 @@ export interface PostCustomerPaymentJournalDFOJobPayload {
   correlationId?: string;
   sourceModule?: 'CASH';
 }
-

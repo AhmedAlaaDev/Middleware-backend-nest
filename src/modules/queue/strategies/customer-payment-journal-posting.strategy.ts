@@ -151,4 +151,3 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     );
   }
 }
-
