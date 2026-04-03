@@ -4,8 +4,8 @@ FROM node:20-alpine AS dependencies
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /app
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
+# Copy package files (workspace file required: lockfile overrides must match)
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 # Install dependencies
 RUN pnpm install --frozen-lockfile --prefer-offline
 
@@ -37,7 +37,7 @@ RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 
 # Copy package files and install production deps once
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 RUN pnpm install --prod --frozen-lockfile --prefer-offline
 
 # Copy built application from build stage with correct ownership
@@ -64,7 +64,7 @@ FROM node:20-alpine AS development
 RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /app
 # Copy package files
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 # Install all dependencies (including dev dependencies)
 RUN pnpm install --frozen-lockfile
 # Copy source code
