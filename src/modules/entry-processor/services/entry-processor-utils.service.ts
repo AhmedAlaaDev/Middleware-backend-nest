@@ -21,8 +21,22 @@ export class EntryProcessorUtilsService {
   /**
    * Parses a pipe-separated dimension string into AccountDimensionsModel.
    */
-  parseDimensionString(dimensionString?: string): EntryDimensionsModel {
-    if (!dimensionString || !dimensionString.trim()) {
+  parseDimensionString(dimensionString?: unknown): EntryDimensionsModel {
+    // Some import/mapping steps may produce objects like { formula, result }.
+    // We only support parsing the final pipe-separated result string.
+    const normalizedInput = (() => {
+      if (dimensionString === null || dimensionString === undefined) return '';
+      if (typeof dimensionString === 'string') return dimensionString;
+      if (typeof dimensionString === 'number') return String(dimensionString);
+      if (typeof dimensionString === 'object') {
+        const asAny = dimensionString as { result?: unknown };
+        if (typeof asAny.result === 'string') return asAny.result;
+        if (typeof asAny.result === 'number') return String(asAny.result);
+      }
+      return '';
+    })();
+
+    if (!normalizedInput || !normalizedInput.trim()) {
       return {
         mainAccount: undefined,
         costCenter: undefined,
@@ -47,7 +61,7 @@ export class EntryProcessorUtilsService {
       };
     }
 
-    const parts = dimensionString.split('|');
+    const parts = normalizedInput.split('|');
 
     return {
       mainAccount:
