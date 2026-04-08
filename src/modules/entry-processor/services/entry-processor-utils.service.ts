@@ -8,6 +8,18 @@ import {
 
 @Injectable()
 export class EntryProcessorUtilsService {
+  private normalizeDimensionInput(dimensionString?: unknown): string {
+    if (dimensionString === null || dimensionString === undefined) return '';
+    if (typeof dimensionString === 'string') return dimensionString;
+    if (typeof dimensionString === 'number') return String(dimensionString);
+    if (typeof dimensionString === 'object') {
+      const asAny = dimensionString as { result?: unknown };
+      if (typeof asAny.result === 'string') return asAny.result;
+      if (typeof asAny.result === 'number') return String(asAny.result);
+    }
+    return '';
+  }
+
   /**
    * Returns the dimension segment as-is (no case normalization).
    * Callers apply .trim() when parsing. Preserves original values from the source file.
@@ -24,17 +36,7 @@ export class EntryProcessorUtilsService {
   parseDimensionString(dimensionString?: unknown): EntryDimensionsModel {
     // Some import/mapping steps may produce objects like { formula, result }.
     // We only support parsing the final pipe-separated result string.
-    const normalizedInput = (() => {
-      if (dimensionString === null || dimensionString === undefined) return '';
-      if (typeof dimensionString === 'string') return dimensionString;
-      if (typeof dimensionString === 'number') return String(dimensionString);
-      if (typeof dimensionString === 'object') {
-        const asAny = dimensionString as { result?: unknown };
-        if (typeof asAny.result === 'string') return asAny.result;
-        if (typeof asAny.result === 'number') return String(asAny.result);
-      }
-      return '';
-    })();
+    const normalizedInput = this.normalizeDimensionInput(dimensionString);
 
     if (!normalizedInput || !normalizedInput.trim()) {
       return {
@@ -152,11 +154,12 @@ export class EntryProcessorUtilsService {
   /**
    * Returns the number of pipe-separated segments in a dimension string.
    */
-  getDimensionSegmentLength(dimensionString?: string | null): number {
-    if (!dimensionString) {
+  getDimensionSegmentLength(dimensionString?: unknown): number {
+    const normalizedInput = this.normalizeDimensionInput(dimensionString);
+    if (!normalizedInput) {
       return 0;
     }
-    return String(dimensionString).split('|').length;
+    return normalizedInput.split('|').length;
   }
 
   /**
