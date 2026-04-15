@@ -271,6 +271,10 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const credit = Number(line.Credit ?? 0);
       const paymId = line.PaymId ?? '';
 
+      this.assertValidDateInput(date, 'Date', lineNumber);
+      this.assertValidDateInput(invoiceDate, 'InvoiceDate', lineNumber);
+      this.assertValidDateInput(dueDate, 'DueDate', lineNumber);
+
       return {
         dataAreaId: company,
         JournalBatchNumber: journalBatchNumber,
@@ -399,11 +403,14 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const date = line.Date ?? '';
       const credit = Number(line.Credit ?? 0);
       const debit = Number(line.Debit ?? 0);
+      const lineNumber = line.LineNumber ?? 0;
+
+      this.assertValidDateInput(date, 'TransactionDate', lineNumber);
 
       return {
         dataAreaId: company,
         JournalBatchNumber: journalBatchNumber,
-        LineNumber: line.LineNumber ?? 0,
+        LineNumber: lineNumber,
         AccountDisplayValue: displayValue,
         AccountType: accountType,
         PaymentId: this.toOptionalTrimmedString(line.PaymId),
@@ -764,7 +771,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
    */
   private formatDate(date?: Date | string): string {
     if (!date) {
-      throw new Error('Date is required');
+      return '';
     }
     if (date instanceof Date) {
       return date.toISOString();
@@ -773,10 +780,41 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       // Try to parse and format
       const parsed = new Date(date);
       if (isNaN(parsed.getTime())) {
-        throw new Error(`Invalid date format: ${date}`);
+        return '';
       }
       return parsed.toISOString();
     }
-    throw new Error(`Invalid date type: ${typeof date}`);
+    return '';
+  }
+
+  private assertValidDateInput(
+    date: Date | string | undefined,
+    fieldName: string,
+    lineNumber: number,
+  ): void {
+    if (date === undefined || date === null) {
+      return;
+    }
+
+    if (date instanceof Date) {
+      if (isNaN(date.getTime())) {
+        throw new BadRequestException(
+          `Line ${lineNumber}: invalid ${fieldName} format`,
+        );
+      }
+      return;
+    }
+
+    const value = String(date).trim();
+    if (!value) {
+      return;
+    }
+
+    const parsed = new Date(value);
+    if (isNaN(parsed.getTime())) {
+      throw new BadRequestException(
+        `Line ${lineNumber}: invalid ${fieldName} format (${value})`,
+      );
+    }
   }
 }
