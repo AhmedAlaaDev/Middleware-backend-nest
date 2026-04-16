@@ -139,7 +139,12 @@ export class EntryRawDataModel {
     this.ITEMSALESTAXGROUP = s(data?.ITEMSALESTAXGROUP);
     this.ISWITHHOLDINGCALCULATIONENABLED =
       (s(data?.ISWITHHOLDINGCALCULATIONENABLED) as 'Yes' | 'No') || 'No';
-    this.ITEMWITHHOLDINGTAXGROUPCODE = s(data?.ITEMWITHHOLDINGTAXGROUPCODE);
+    this.ITEMWITHHOLDINGTAXGROUPCODE = this.compare(
+      s(data?.ITEMWITHHOLDINGTAXGROUPCODE),
+      '0',
+    )
+      ? ''
+      : s(data?.ITEMWITHHOLDINGTAXGROUPCODE);
     this.DOCUMENTDATE = this.normalizeDate(data?.DOCUMENTDATE);
     this.DUEDATE = this.normalizeDate(data?.DUEDATE);
     this.PAYMENTMETHOD = s(data?.PAYMENTMETHOD);
