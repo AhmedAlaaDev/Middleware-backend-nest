@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cash Module – Business Report</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 10.5pt;
+      color: #1a1a1a;
+      background: #f0f2f5;
+      line-height: 1.6;
+    }
+
+    /* ── Page shell ── */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 20px auto;
+      background: #fff;
+      padding: 18mm 16mm 18mm 16mm;
+      box-shadow: 0 4px 24px rgba(0,0,0,.12);
+    }
+
+    /* ── Header / title block ── */
+    .report-header {
+      border-bottom: 3px solid #1a56a0;
+      padding-bottom: 12px;
+      margin-bottom: 24px;
+    }
+    .report-header .label {
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .report-header h1 {
+      font-size: 20pt;
+      font-weight: 700;
+      color: #1a3a6b;
+      line-height: 1.2;
+    }
+    .report-header .subtitle {
+      font-size: 10pt;
+      color: #4b5563;
+      margin-top: 4px;
+    }
+    .meta-row {
+      display: flex;
+      gap: 24px;
+      margin-top: 10px;
+      font-size: 8.5pt;
+      color: #6b7280;
+    }
+    .meta-row span strong { color: #374151; }
+
+    /* ── Table of contents ── */
+    .toc {
+      background: #f8fafc;
+      border: 1px solid #dde3ec;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin-bottom: 28px;
+    }
+    .toc h2 {
+      font-size: 9pt;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+    .toc ol { padding-left: 18px; }
+    .toc li { margin-bottom: 3px; }
+    .toc a {
+      color: #1a56a0;
+      text-decoration: none;
+      font-size: 9.5pt;
+    }
+    .toc a:hover { text-decoration: underline; }
+
+    /* ── Section headings ── */
+    section { margin-bottom: 30px; }
+
+    h2.section-title {
+      font-size: 13pt;
+      font-weight: 700;
+      color: #1a3a6b;
+      border-left: 4px solid #1a56a0;
+      padding-left: 10px;
+      margin-bottom: 14px;
+      page-break-after: avoid;
+    }
+
+    h3.sub-title {
+      font-size: 10.5pt;
+      font-weight: 600;
+      color: #1e3a5f;
+      margin: 14px 0 6px 0;
+      page-break-after: avoid;
+    }
+
+    p { margin-bottom: 8px; }
+
+    /* ── Notice boxes ── */
+    .notice {
+      border-radius: 5px;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 9.5pt;
+      line-height: 1.55;
+    }
+    .notice-info  { background: #eff6ff; border-left: 4px solid #3b82f6; color: #1e3a5f; }
+    .notice-warn  { background: #fffbeb; border-left: 4px solid #f59e0b; color: #78350f; }
+    .notice-alert { background: #fff1f2; border-left: 4px solid #ef4444; color: #7f1d1d; }
+    .notice-ok    { background: #f0fdf4; border-left: 4px solid #22c55e; color: #14532d; }
+    .notice strong { font-weight: 700; }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+      margin: 10px 0 16px 0;
+      page-break-inside: avoid;
+    }
+    thead tr { background: #1a56a0; color: #fff; }
+    thead th {
+      text-align: left;
+      padding: 7px 10px;
+      font-weight: 600;
+      font-size: 8.5pt;
+      letter-spacing: .04em;
+    }
+    tbody tr:nth-child(even) { background: #f7f9fc; }
+    tbody tr:hover { background: #edf2fb; }
+    tbody td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #e5e9f0;
+      vertical-align: top;
+    }
+    td.required { color: #c0392b; font-weight: 600; }
+    td.optional { color: #6b7280; }
+    td.values   { font-family: 'Courier New', monospace; font-size: 8pt; color: #374151; }
+
+    /* ── Two-column grid ── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 20px;
+    }
+
+    /* ── Bullet list ── */
+    ul.blist {
+      padding-left: 18px;
+      margin: 6px 0 10px 0;
+    }
+    ul.blist li { margin-bottom: 4px; }
+
+    /* ── Step list ── */
+    ol.steps {
+      padding-left: 20px;
+      margin: 6px 0 10px 0;
+    }
+    ol.steps li { margin-bottom: 6px; }
+    ol.steps li strong { color: #1a3a6b; }
+
+    /* ── Badge chips ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 8pt;
+      font-weight: 600;
+      margin: 1px 2px;
+    }
+    .badge-blue   { background: #dbeafe; color: #1e40af; }
+    .badge-green  { background: #d1fae5; color: #065f46; }
+    .badge-orange { background: #ffedd5; color: #9a3412; }
+    .badge-gray   { background: #e5e7eb; color: #374151; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+
+    /* ══════════════════════════════════════════════
+       PROCESS FLOW DIAGRAM
+    ══════════════════════════════════════════════ */
+    .flow-wrapper {
+      margin: 16px 0 4px 0;
+      page-break-inside: avoid;
+    }
+
+    /* Two rows, 4 cards each, connected by arrows */
+    .flow-row {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-bottom: 0;
+    }
+
+    .flow-row + .flow-connector-down {
+      display: flex;
+      justify-content: flex-end;
+      padding-right: 0;
+      margin: 0;
+    }
+
+    /* Each card + its trailing arrow is wrapped */
+    .flow-cell {
+      display: flex;
+      align-items: center;
+      flex: 1;
+    }
+
+    .flow-card {
+      flex: 1;
+      background: #f0f6ff;
+      border: 1.5px solid #93b8e8;
+      border-radius: 7px;
+      padding: 9px 8px 8px 8px;
+      text-align: center;
+      min-height: 68px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .flow-card .fc-icon {
+      font-size: 15pt;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .flow-card .fc-label {
+      font-size: 8pt;
+      font-weight: 700;
+      color: #1a3a6b;
+      line-height: 1.25;
+    }
+
+    .flow-card .fc-sub {
+      font-size: 7.5pt;
+      color: #4b6a96;
+      margin-top: 2px;
+      line-height: 1.2;
+    }
+
+    /* Highlighted card variant */
+    .flow-card.flow-card-accent {
+      background: #1a56a0;
+      border-color: #1a3a6b;
+    }
+    .flow-card.flow-card-accent .fc-label { color: #fff; }
+    .flow-card.flow-card-accent .fc-sub   { color: #c3d9f7; }
+
+    /* Right arrow between cards in a row */
+    .flow-arrow-right {
+      flex: 0 0 18px;
+      text-align: center;
+      font-size: 13pt;
+      color: #1a56a0;
+      font-weight: 700;
+      line-height: 1;
+      align-self: center;
+      padding: 0 1px;
+    }
+
+    /* Down-turn connector: last card of row 1 curves down to first card of row 2 */
+    .flow-turn {
+      display: flex;
+      align-items: center;
+      margin: 4px 0;
+    }
+    .flow-turn-spacer {
+      flex: 1;
+    }
+    .flow-turn-arrow {
+      flex: 0 0 18px;
+      text-align: center;
+      font-size: 11pt;
+      color: #1a56a0;
+      font-weight: 700;
+    }
+    /* row 2 runs right-to-left visually via direction:rtl trick for the arrow,
+       but we keep LTR layout and just reverse the row to show return path */
+    .flow-row-2 {
+      display: flex;
+      align-items: stretch;
+      flex-direction: row-reverse; /* right-to-left layout */
+      gap: 0;
+    }
+    .flow-row-2 .flow-arrow-right {
+      /* arrow still points left in reversed row */
+      transform: scaleX(-1);
+    }
+
+    /* ── Voucher bucket diagram ── */
+    .bucket-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .bucket-card {
+      border-radius: 6px;
+      padding: 10px 12px;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+    .bucket-cash   { background: #ecfdf5; border: 1.5px solid #6ee7b7; }
+    .bucket-cheque { background: #eff6ff; border: 1.5px solid #93c5fd; }
+    .bucket-other  { background: #f5f3ff; border: 1.5px solid #c4b5fd; }
+    .bucket-card .bc-label {
+      font-size: 9.5pt;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+    .bucket-cash   .bc-label { color: #065f46; }
+    .bucket-cheque .bc-label { color: #1e40af; }
+    .bucket-other  .bc-label { color: #5b21b6; }
+    .bucket-card .bc-values {
+      font-size: 8pt;
+      color: #4b5563;
+      line-height: 1.4;
+    }
+
+    /* ── Line consolidation example box ── */
+    .example-box {
+      border: 1.5px dashed #93b8e8;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin: 12px 0;
+      background: #f8fafd;
+      font-size: 9pt;
+      page-break-inside: avoid;
+    }
+    .example-box .ex-title {
+      font-size: 8.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #1a56a0;
+      margin-bottom: 8px;
+    }
+    .example-box table {
+      margin: 0;
+      font-size: 8.5pt;
+    }
+    .example-box table thead tr { background: #4a7cc7; }
+    .example-box .ex-arrow {
+      text-align: center;
+      font-size: 14pt;
+      color: #1a56a0;
+      padding: 5px 0;
+    }
+    .example-box .ex-result {
+      background: #e6f0ff;
+      border: 1px solid #93b8e8;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 8.5pt;
+      margin-top: 2px;
+    }
+    .example-box .ex-result strong { color: #1a3a6b; }
+
+    /* ── Footer ── */
+    .report-footer {
+      border-top: 1px solid #dde3ec;
+      margin-top: 36px;
+      padding-top: 10px;
+      font-size: 8pt;
+      color: #9ca3af;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Print styles ── */
+    @media print {
+      body  { background: none; }
+      .page { margin: 0; box-shadow: none; padding: 14mm 12mm; }
+      a     { color: inherit; text-decoration: none; }
+      .notice-warn, .notice-alert,
+      .notice-ok, .notice-info    { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      thead tr                    { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .flow-card, .bucket-card, .flow-card.flow-card-accent
+                                  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      h2.section-title            { page-break-before: auto; }
+      section                     { page-break-inside: avoid; }
+      .flow-wrapper               { page-break-inside: avoid; }
+      .example-box                { page-break-inside: avoid; }
+    }
+
+    @page {
+      size: A4;
+      margin: 14mm 12mm;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════════ HEADER -->
+  <header class="report-header">
+    <div class="label">Business Report</div>
+    <h1>Cash Module</h1>
+    <div class="subtitle">Data Migration Middleware &mdash; D365 Finance &amp; Operations</div>
+    <div class="meta-row">
+      <span><strong>Module:</strong> Cash (Cash-In &amp; Cash-Out)</span>
+      <span><strong>Version:</strong> 1.1</span>
+      <span><strong>Date:</strong> April 2026</span>
+      <span><strong>Status:</strong> <span class="badge badge-orange">Mapping Active &nbsp;|&nbsp; D365FO Posting Pending</span></span>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════ TOC -->
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#overview">What the Cash Module Does</a></li>
+      <li><a href="#input">Excel Input Data</a></li>
+      <li><a href="#validations">Validations &amp; Business Checks</a></li>
+      <li><a href="#flow">How the System Processes Your Data</a></li>
+      <li><a href="#mapping">Data Transformation &amp; Mapping</a></li>
+      <li><a href="#output">Expected Output</a></li>
+      <li><a href="#downloads">What You Can Download</a></li>
+      <li><a href="#limitations">Current Limitations</a></li>
+    </ol>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════════ 1. OVERVIEW -->
+  <section id="overview">
+    <h2 class="section-title">1 &nbsp; What the Cash Module Does</h2>
+
+    <p>
+      The <strong>Cash Module</strong> is part of the Data Migration Middleware system. Its purpose is to
+      receive cash transaction data exported from the ICT source system in Excel format, validate and
+      clean it, convert it into the format required by Microsoft Dynamics 365 Finance &amp; Operations
+      (D365FO), and store the results in the system for review and download.
+    </p>
+
+    <p>
+      The module handles <strong>four distinct transaction types</strong>, each uploaded through a
+      dedicated endpoint:
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Transaction Type</th>
+          <th>Direction</th>
+          <th>Business Line</th>
+          <th>D365FO Journal Name</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Cash-In Freight</strong></td>
+          <td><span class="badge badge-green">Inbound</span></td>
+          <td>Freight / Forwarding</td>
+          <td>Cust-Pay</td>
+        </tr>
+        <tr>
+          <td><strong>Cash-In Trucking</strong></td>
+          <td><span class="badge badge-green">Inbound</span></td>
+          <td>Fleet / Trucking</td>
+          <td>Cust-Fleet</td>
+        </tr>
+        <tr>
+          <td><strong>Cash-Out Freight</strong></td>
+          <td><span class="badge badge-orange">Outbound</span></td>
+          <td>Freight / Forwarding</td>
+          <td>CashOut</td>
+        </tr>
+        <tr>
+          <td><strong>Cash-Out Trucking</strong></td>
+          <td><span class="badge badge-orange">Outbound</span></td>
+          <td>Fleet / Trucking</td>
+          <td>CashOut-Fleet</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="notice notice-info">
+      <strong>Cash-In vs Cash-Out:</strong> Cash-In transactions represent money received from
+      customers (customer collections, down-payments, etc.). Cash-Out transactions represent
+      payments made by the company (custody settlements, vendor payments, direct disbursements, etc.).
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 2. INPUT -->
+  <section id="input">
+    <h2 class="section-title">2 &nbsp; Excel Input Data</h2>
+
+    <p>
+      Each upload consists of a single <strong>Excel file</strong> (.xlsx or .xls) and an optional
+      <strong>Company ID</strong>. The Excel file must contain one row per journal line as exported
+      from the ICT source system.
+    </p>
+
+    <div class="notice notice-warn">
+      <strong>Important:</strong> Each of the four transaction types must be uploaded separately
+      through its own dedicated upload form. A single file cannot mix Freight and Trucking, or
+      Cash-In and Cash-Out transactions.
+    </div>
+
+    <h3 class="sub-title">Core Transaction Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Description</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LINENUMBER</td><td>Sequential line number within the batch</td><td class="required">Required</td></tr>
+        <tr><td>JOURNALBATCHNUMBER</td><td>Source journal batch reference</td><td class="required">Required</td></tr>
+        <tr><td>VOUCHER</td><td>Voucher number</td><td class="required">Required</td></tr>
+        <tr><td>TRANSDATE</td><td>Transaction date</td><td class="required">Required</td></tr>
+        <tr><td>DESCRIPTION</td><td>Transaction description / narrative</td><td class="required">Required</td></tr>
+        <tr><td>INVOICE</td><td>Invoice reference number</td><td class="required">Required</td></tr>
+        <tr><td>DOCUMENT</td><td>Supporting document reference</td><td class="optional">Optional</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Account &amp; Offset Account Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Description</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ACCOUNTTYPE</td><td>Account type: <span class="values">Cust / Ledger / Vend / Bank / Petty Cash</span></td><td class="required">Required</td></tr>
+        <tr><td>ACCOUNTDISPLAYVALUE</td><td>Main account code or customer account number</td><td class="required">Required</td></tr>
+        <tr><td>DEFAULTDIMENSIONDISPLAYVALUE</td><td>Financial dimensions for the account line</td><td class="required">Required</td></tr>
+        <tr><td>FINTAGDISPLAYVALUE</td><td>Financial tag for the account line</td><td class="optional">Optional</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Amount &amp; Currency Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Description</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>DEBITAMOUNT</td><td>Debit amount (leave blank if credit)</td><td class="required">Required</td></tr>
+        <tr><td>CREDITAMOUNT</td><td>Credit amount (leave blank if debit)</td><td class="required">Required</td></tr>
+        <tr><td>CURRENCYCODE</td><td>ISO currency code (e.g. EGP, USD)</td><td class="required">Required</td></tr>
+        <tr><td>EXCHANGERATE</td><td>Exchange rate to company currency</td><td class="optional">Optional</td></tr>
+        <tr><td>EXCHANGERATESECONDARY</td><td>Secondary exchange rate (if applicable)</td><td class="optional">Optional</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Payment Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Description</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PAYMENTMETHOD</td><td>Payment method code in D365FO</td><td class="required">Required</td></tr>
+        <tr><td>PAYMENTREFERENCE</td><td>Payment reference or cheque number</td><td class="optional">Optional</td></tr>
+        <tr><td>PAYMENTID</td><td>Internal payment identifier</td><td class="optional">Optional</td></tr>
+        <tr><td>PREPAYMENT</td><td>Whether this is a prepayment: <span class="values">Yes / No</span></td><td class="optional">Optional</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Cash-Specific Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Accepted Values</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>SafeType</td>
+          <td class="values">
+            Customer Collection<br/>
+            Custody Settlement<br/>
+            DownPayment<br/>
+            Custody Issue<br/>
+            Direct<br/>
+            Vendor Payment<br/>
+            Other
+          </td>
+          <td>Classifies the nature of the safe transaction</td>
+        </tr>
+        <tr>
+          <td>VoucherType</td>
+          <td class="values">
+            Cash&nbsp;/ Cheque&nbsp;/ Deposit<br/>
+            POS&nbsp;/ PrePayment&nbsp;/ Transfer&nbsp;/ Visa
+          </td>
+          <td>Describes the physical payment instrument used. This field also controls how batches are grouped (see Section&nbsp;5).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Tax &amp; Other Fields</h3>
+    <table>
+      <thead>
+        <tr><th>Column Name</th><th>Description</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>SALESTAXCODE</td><td>VAT / tax code</td><td class="optional">Optional</td></tr>
+        <tr><td>SALESTAXGROUP</td><td>Tax group</td><td class="optional">Optional</td></tr>
+        <tr><td>ITEMSALESTAXGROUP</td><td>Item-level tax group</td><td class="optional">Optional</td></tr>
+        <tr><td>ISWITHHOLDINGCALCULATIONENABLED</td><td>Withholding tax flag: <span class="values">Yes / No</span></td><td class="optional">Optional</td></tr>
+        <tr><td>ITEMWITHHOLDINGTAXGROUPCODE</td><td>Withholding tax group code</td><td class="optional">Optional</td></tr>
+        <tr><td>DUEDATE</td><td>Payment due date</td><td class="optional">Optional</td></tr>
+        <tr><td>DOCUMENTDATE</td><td>Document date</td><td class="optional">Optional</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-title">Dimension Requirements by Type</h3>
+    <p>
+      Financial dimensions embedded in <strong>DEFAULTDIMENSIONDISPLAYVALUE</strong> must include
+      the following segments depending on the transaction type:
+    </p>
+    <table>
+      <thead>
+        <tr><th>Transaction Type</th><th>Required Dimensions</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Cash-In Freight &amp; Cash-Out Freight</td>
+          <td><span class="badge badge-blue">FreightType</span> <span class="badge badge-blue">Direction</span></td>
+        </tr>
+        <tr>
+          <td>Cash-In Trucking &amp; Cash-Out Trucking</td>
+          <td><span class="badge badge-blue">TruckerType</span> <span class="badge badge-blue">Direction</span> <em style="font-size:8.5pt;">(TruckerType required on Ledger lines)</em></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 3. VALIDATIONS -->
+  <section id="validations">
+    <h2 class="section-title">3 &nbsp; Validations &amp; Business Checks</h2>
+
+    <p>
+      Before any data is saved, the system runs a series of checks. Rows that fail validation are
+      flagged with an error message. The batch is still saved so you can review and correct the
+      issues before re-uploading.
+    </p>
+
+    <h3 class="sub-title">File-Level Checks</h3>
+    <ul class="blist">
+      <li>The uploaded file must be in Excel format (<strong>.xlsx</strong> or <strong>.xls</strong>). Other file types are rejected immediately.</li>
+      <li>An empty file with no data rows is rejected with an error.</li>
+      <li>Each batch is limited to a maximum of <strong>1,000 lines</strong>. Larger files must be split before upload.</li>
+    </ul>
+
+    <h3 class="sub-title">Invoice Balance Check</h3>
+    <ul class="blist">
+      <li>For each unique invoice, the total <strong>debit amounts must equal the total credit amounts</strong>. Exchange rates are taken into account during this check. An unbalanced invoice is flagged as an error on all its related lines.</li>
+    </ul>
+
+    <h3 class="sub-title">Dimension Validation</h3>
+    <ul class="blist">
+      <li>Each line's financial dimensions are checked against the dimension master data.</li>
+      <li>For <strong>Trucking</strong> transactions: any line with Account Type = <em>Ledger</em> must have a value for the <strong>TruckerType</strong> dimension.</li>
+      <li>For <strong>Freight</strong> transactions: <strong>FreightType</strong> and <strong>Direction</strong> dimensions must be present.</li>
+    </ul>
+
+    <h3 class="sub-title">Cash-In Invoice Checks (against D365FO)</h3>
+    <div class="notice notice-info">
+      Cash-In transactions are matched against existing invoices in D365FO. The following
+      checks apply:
+    </div>
+    <ul class="blist">
+      <li><strong>Invoice must exist:</strong> the invoice reference in the Excel file must correspond to an existing free-text invoice in D365FO. If not found, the line is flagged.</li>
+      <li><strong>Invoice must be posted:</strong> only invoices that have already been posted (confirmed) in D365FO can be settled. Unposted invoices are flagged.</li>
+      <li><strong>No duplicate settlement:</strong> if the same invoice number appears more than once in D365FO, the line is flagged and the duplicates must be resolved in D365FO first.</li>
+    </ul>
+
+    <h3 class="sub-title">Special Handling on Cash-Out</h3>
+    <ul class="blist">
+      <li>Lines with <strong>SafeType = "Custody Settlement"</strong> or <strong>"Vendor Payment"</strong> are automatically separated from the main cash journal and routed to their own dedicated processing flows. They do <em>not</em> appear in the main cash output.</li>
+    </ul>
+
+    <div class="notice notice-warn">
+      <strong>Validation Errors:</strong> Lines with errors are included in the saved batch but are
+      clearly marked. You should download the mapped data file to review all flagged rows before
+      proceeding further.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 4. PROCESS FLOW -->
+  <section id="flow">
+    <h2 class="section-title">4 &nbsp; How the System Processes Your Data</h2>
+
+    <p>
+      The diagram below shows the end-to-end journey of your uploaded data, from the Excel file
+      you provide to the output you can download.
+    </p>
+
+    <!-- ── Flow diagram ── -->
+    <div class="flow-wrapper">
+
+      <!-- ROW 1 -->
+      <div class="flow-row">
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">📂</div>
+            <div class="fc-label">Upload Excel File</div>
+            <div class="fc-sub">ICT source rows<br/>+ Company ID</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">✔</div>
+            <div class="fc-label">Validate Data</div>
+            <div class="fc-sub">File format, required<br/>fields, balances,<br/>dimensions</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">🏷</div>
+            <div class="fc-label">Classify by<br/>Payment Instrument</div>
+            <div class="fc-sub">Cash · Cheque<br/>or Other</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">🔗</div>
+            <div class="fc-label">Group Related<br/>Source Lines</div>
+            <div class="fc-sub">Match debit &amp; credit<br/>sides by invoice</div>
+          </div>
+        </div>
+
+      </div><!-- /flow-row -->
+
+      <!-- Down-turn arrow -->
+      <div style="display:flex;justify-content:flex-end;align-items:center;height:22px;padding-right:0;">
+        <span style="font-size:13pt;color:#1a56a0;font-weight:700;padding-right:4px;">&#8627;</span>
+      </div>
+
+      <!-- ROW 2 (reversed visual order, right-to-left) -->
+      <div class="flow-row-2">
+
+        <div class="flow-cell">
+          <div class="flow-card flow-card-accent">
+            <div class="fc-icon" style="color:#fff;">⬇</div>
+            <div class="fc-label">Download Results</div>
+            <div class="fc-sub">Source Excel<br/>+ Mapped Excel</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">💾</div>
+            <div class="fc-label">Store Source &amp;<br/>Mapped Data</div>
+            <div class="fc-sub">Batch saved<br/>with status</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">📦</div>
+            <div class="fc-label">Assign Batches<br/>&amp; Vouchers</div>
+            <div class="fc-sub">By month &amp;<br/>payment type</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow-right">›</div>
+
+        <div class="flow-cell">
+          <div class="flow-card">
+            <div class="fc-icon">↔</div>
+            <div class="fc-label">Build Journal Lines</div>
+            <div class="fc-sub">Account side +<br/>Offset side per line</div>
+          </div>
+        </div>
+
+      </div><!-- /flow-row-2 -->
+    </div><!-- /flow-wrapper -->
+
+    <div class="notice notice-info" style="margin-top:14px;">
+      <strong>What this means for you:</strong> You upload one Excel file. The system handles all
+      classification, grouping, and formatting automatically. You receive a clean, D365FO-ready
+      data file to download — without manually reorganising the source rows.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 5. MAPPING -->
+  <section id="mapping">
+    <h2 class="section-title">5 &nbsp; Data Transformation &amp; Mapping</h2>
+
+    <p>
+      Once validation is complete, the system transforms the source data into the structure
+      required by D365FO&rsquo;s Customer Payment Journal. The key transformations are described below.
+    </p>
+
+    <!-- ─── 5a. Line consolidation ─── -->
+    <h3 class="sub-title">How Source Rows Are Converted to Journal Lines</h3>
+
+    <p>
+      The ICT source system exports <strong>one row per accounting entry side</strong>. This means a
+      single payment transaction typically appears as at least two rows in the Excel file &mdash; one
+      row for the customer (who paid) and one row for the ledger account (where the money was recorded).
+    </p>
+
+    <p>
+      The system analyses these rows and <strong>pairs the two sides together</strong> to form a single
+      destination journal line. Each destination line carries both sides of the transaction:
+    </p>
+
+    <ul class="blist">
+      <li><strong>Account side:</strong> the customer who made or received the payment.</li>
+      <li><strong>Offset side:</strong> the ledger or bank account on the other side of the transaction.</li>
+    </ul>
+
+    <p>
+      As a result, the number of output lines in the mapped file is typically
+      <strong>half the number of source rows</strong> — or fewer, when settlement lines are filtered
+      out (see Section&nbsp;3).
+    </p>
+
+    <div class="example-box">
+      <div class="ex-title">Example &mdash; Simple Payment (2 source rows → 1 journal line)</div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Account Type</th><th>Direction</th><th>Amount</th><th>Invoice</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Customer</td><td>Credit (payment received)</td><td>5,000 EGP</td><td>12345/OF-FW</td></tr>
+          <tr><td>2</td><td>Ledger</td><td>Debit (recorded to account)</td><td>5,000 EGP</td><td>12345/OF-FW</td></tr>
+        </tbody>
+      </table>
+      <div class="ex-arrow">&#8595;</div>
+      <div class="ex-result">
+        <strong>1 destination journal line:</strong>&nbsp;
+        Account = Customer &nbsp;|&nbsp; Offset = Ledger Account &nbsp;|&nbsp;
+        Amount = 5,000 EGP &nbsp;|&nbsp; Invoice = 000012345/OF-FW
+      </div>
+    </div>
+
+    <div class="notice notice-warn">
+      <strong>The output row count will differ from the input row count.</strong> This is expected
+      behaviour. If you upload 100 source rows, you may receive 50 or fewer destination journal
+      lines. The mapped data file shows exactly how source rows were combined.
+    </div>
+
+    <!-- ─── 5b. Batch separation by payment instrument ─── -->
+    <h3 class="sub-title">How Transactions Are Grouped into Batches</h3>
+
+    <p>
+      After the journal lines are built, the system groups them into separate batches before
+      assigning batch and voucher numbers. A batch is <strong>never allowed to mix different payment
+      instrument types</strong>. The system uses three groups:
+    </p>
+
+    <div class="bucket-grid">
+      <div class="bucket-card bucket-cash">
+        <div class="bc-label">&#128181; Cash</div>
+        <div class="bc-values">Transactions paid in physical cash</div>
+      </div>
+      <div class="bucket-card bucket-cheque">
+        <div class="bc-label">&#9989; Cheque</div>
+        <div class="bc-values">Transactions paid by cheque</div>
+      </div>
+      <div class="bucket-card bucket-other">
+        <div class="bc-label">&#9733; Other</div>
+        <div class="bc-values">Visa, Transfer, Deposit,<br/>POS, PrePayment, etc.</div>
+      </div>
+    </div>
+
+    <p>
+      All Cash transactions are processed first as a group, then Cheque transactions, then all
+      Other types. Within each group, the standard rules continue to apply: transactions must
+      stay within the same <strong>calendar month</strong>, and a single batch cannot exceed
+      <strong>1,000 lines</strong>.
+    </p>
+
+    <div class="notice notice-info">
+      <strong>Why does this matter?</strong> Keeping payment instruments in separate batches ensures
+      that D365FO receives clean, consistent journals. Cash payments and cheque payments are never
+      mixed in the same voucher, which simplifies reconciliation and avoids posting errors.
+    </div>
+
+    <p>
+      In summary, a new batch is started whenever any of the following occurs:
+    </p>
+    <ul class="blist">
+      <li>The payment instrument group changes (e.g. moving from Cash lines to Cheque lines).</li>
+      <li>The transaction month changes (e.g. moving from March entries to April entries).</li>
+      <li>The current batch reaches the 1,000-line limit.</li>
+    </ul>
+
+    <!-- ─── 5c. Remaining transformations ─── -->
+    <h3 class="sub-title">Journal Assignment</h3>
+    <p>
+      Each batch is automatically assigned to the correct D365FO journal based on the
+      transaction type (see the table in Section&nbsp;1). The posting profile is set to
+      <strong>Cust-PP</strong> for all customer lines.
+    </p>
+
+    <h3 class="sub-title">Payment Reference Generation</h3>
+    <ul class="blist">
+      <li>If the source row contains a valid <strong>Payment Reference</strong> value, it is used as-is.</li>
+      <li>If the payment reference is blank, zero, or a placeholder value (such as <em>N/A, 0, 000</em>), the system automatically builds a reference from the transaction <strong>description</strong> combined with the business line label (e.g. <em>"Settlement description – Freight"</em>).</li>
+    </ul>
+
+    <h3 class="sub-title">Invoice Number Normalisation</h3>
+    <ul class="blist">
+      <li>Invoice numbers are standardised to ensure they match D365FO format.</li>
+      <li>Arabic freight description text is mapped to the standard prefix <strong>OF-FW</strong>.</li>
+      <li>Import and warehouse invoice references are normalised to the prefix <strong>INVOICE</strong>.</li>
+      <li>Invoice numbers are padded with leading zeros to a consistent 9-digit length (e.g. <em>12345</em> becomes <em>000012345</em>).</li>
+    </ul>
+
+    <h3 class="sub-title">Customer Name Lookup</h3>
+    <p>
+      The system looks up the customer&rsquo;s full name from the master data using the customer
+      account number and populates the <strong>CustomerName</strong> field automatically.
+    </p>
+
+    <h3 class="sub-title">Exchange Rate Lookup</h3>
+    <p>
+      Exchange rates are retrieved automatically from the master data based on the currency
+      code and transaction date. The source exchange rate is used if provided; otherwise, the
+      system fetches the applicable rate.
+    </p>
+
+    <h3 class="sub-title">Financial Dimensions</h3>
+    <p>
+      Dimensions are extracted from the offset (ledger) line of each transaction pair and
+      applied to the customer payment line. The dimension string is stored separately for
+      both the account side and the offset side.
+    </p>
+
+    <h3 class="sub-title">Mapped Output Fields</h3>
+    <p>The following D365FO-compatible fields are produced for each destination journal line:</p>
+
+    <div class="two-col">
+      <table>
+        <thead><tr><th>Output Field</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Journal Batch Number</td><td>Auto-assigned</td></tr>
+          <tr><td>Journal Name</td><td>Auto-assigned by type</td></tr>
+          <tr><td>Transaction Date</td><td>TRANSDATE</td></tr>
+          <tr><td>Customer Account</td><td>ACCOUNTDISPLAYVALUE</td></tr>
+          <tr><td>Customer Name</td><td>Master data lookup</td></tr>
+          <tr><td>Invoice (Marked)</td><td>INVOICE (normalised)</td></tr>
+          <tr><td>Transaction Text</td><td>DESCRIPTION</td></tr>
+          <tr><td>Payment Method</td><td>PAYMENTMETHOD</td></tr>
+          <tr><td>Payment Reference</td><td>PAYMENTREFERENCE (or generated)</td></tr>
+          <tr><td>Payment ID</td><td>PAYMENTID</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <thead><tr><th>Output Field</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Credit Amount</td><td>CREDITAMOUNT</td></tr>
+          <tr><td>Debit Amount</td><td>DEBITAMOUNT</td></tr>
+          <tr><td>Currency Code</td><td>CURRENCYCODE</td></tr>
+          <tr><td>Exchange Rate</td><td>EXCHANGERATE / master data</td></tr>
+          <tr><td>Offset Account</td><td>Ledger line account</td></tr>
+          <tr><td>Dimensions (Account)</td><td>DEFAULTDIMENSIONDISPLAYVALUE</td></tr>
+          <tr><td>Dimensions (Offset)</td><td>Offset line dimensions</td></tr>
+          <tr><td>Financial Tags</td><td>FINTAGDISPLAYVALUE</td></tr>
+          <tr><td>Withholding Tax Flag</td><td>ISWITHHOLDINGCALCULATIONENABLED</td></tr>
+          <tr><td>Safe Type / Voucher Type</td><td>SafeType / VoucherType</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 6. OUTPUT -->
+  <section id="output">
+    <h2 class="section-title">6 &nbsp; Expected Output</h2>
+
+    <p>
+      After a successful upload, the system saves a <strong>data batch</strong> containing
+      two versions of the data:
+    </p>
+
+    <ol class="steps">
+      <li>
+        <strong>Source Data (Raw):</strong> An exact copy of what was read from the uploaded
+        Excel file, stored row by row. This serves as a permanent audit trail of what was
+        submitted.
+      </li>
+      <li>
+        <strong>Mapped Data (Enriched):</strong> The transformed and consolidated version,
+        ready for D365FO import. This includes all generated fields, lookups, normalised values,
+        and validation results. Lines with errors are clearly marked with an error description.
+      </li>
+    </ol>
+
+    <div class="notice notice-info">
+      <strong>Output row count is different from input row count.</strong>
+      The source file contains one row per accounting entry side (debit or credit).
+      The mapped file contains one row per complete journal line (both sides combined).
+      A file with 200 source rows typically produces around 100 mapped journal lines &mdash;
+      or fewer if some lines are filtered out as custody settlement or vendor payment entries.
+      This difference is normal and expected.
+    </div>
+
+    <p>
+      Each batch is given a unique <strong>Batch ID</strong> and a descriptive name that
+      includes the transaction type, business line, date, and an auto-incremented counter
+      (e.g. <em>Cash-In Freight &ndash; 2026-04-27 &ndash; #001</em>).
+    </p>
+
+    <div class="notice notice-ok">
+      <strong>Successful batch:</strong> When all rows pass validation, the batch status is set
+      to <em>Ready</em>. You can then download the mapped data for review or manual import.
+    </div>
+    <div class="notice notice-warn">
+      <strong>Batch with errors:</strong> When one or more rows have validation issues, the
+      batch is still saved. The status indicates the number of error lines. Download the
+      mapped data file to see the exact error message on each affected row.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 7. DOWNLOADS -->
+  <section id="downloads">
+    <h2 class="section-title">7 &nbsp; What You Can Download</h2>
+
+    <p>
+      For every processed batch, the system provides two downloadable Excel files through
+      the batch management screen:
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>File</th><th>Contents</th><th>Typical Use</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Source Data</strong><br/><span style="font-size:8pt;color:#6b7280;">(Raw Excel)</span></td>
+          <td>
+            Exact copy of the uploaded data as read from the Excel file.
+            Dates and amounts are normalised to standard formats.
+            One row per original source line.
+          </td>
+          <td>
+            Audit trail, data review, reconciliation with the ICT source system.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Mapped Data</strong><br/><span style="font-size:8pt;color:#6b7280;">(Enriched Excel)</span></td>
+          <td>
+            Fully transformed data with D365FO-compatible field names and values.
+            Includes customer names, exchange rates, assigned journal/batch/voucher numbers,
+            normalised invoices, dimensions, and any validation error messages.
+            One row per consolidated destination journal line.
+          </td>
+          <td>
+            Review before posting, manual D365FO import (if required), error correction,
+            handover to the finance team.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="notice notice-info">
+      <strong>Both files are available immediately</strong> after the upload completes,
+      regardless of whether there are validation errors in the batch.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ 8. LIMITATIONS -->
+  <section id="limitations">
+    <h2 class="section-title">8 &nbsp; Current Limitations</h2>
+
+    <div class="notice notice-alert">
+      <strong>&#9888;&nbsp; Automatic posting to D365FO is not currently available for the Cash Module.</strong><br/>
+      The system can process, validate, and map cash data, but it cannot automatically submit
+      the data to D365FO at this time. The &ldquo;Post to D365FO&rdquo; feature is under development
+      and will be made available in a future release.
+    </div>
+
+    <p>For the time being, the recommended workflow is:</p>
+
+    <ol class="steps">
+      <li>Upload the Excel file for the relevant cash type.</li>
+      <li>Review the batch result and check for any validation errors.</li>
+      <li>Download the <strong>Mapped Data</strong> Excel file.</li>
+      <li>Manually import the mapped data into D365FO using the standard D365FO data management tools, if required.</li>
+    </ol>
+
+    <h3 class="sub-title">Other Known Limitations</h3>
+    <ul class="blist">
+      <li>
+        <strong>Separate uploads per type:</strong> Each of the four cash transaction types
+        (Cash-In Freight, Cash-In Trucking, Cash-Out Freight, Cash-Out Trucking) must be
+        uploaded separately. A single file cannot contain mixed types.
+      </li>
+      <li>
+        <strong>Maximum 1,000 lines per batch:</strong> Files with more than 1,000 journal lines
+        must be split into multiple files before upload.
+      </li>
+      <li>
+        <strong>Month isolation:</strong> All lines in a single batch must belong to the same
+        calendar month. Cross-month batches are not supported.
+      </li>
+      <li>
+        <strong>Payment instrument separation:</strong> Cash, Cheque, and Other transactions
+        are placed into separate batches automatically. If your file contains a mix of payment
+        instruments, the system will produce multiple batches within the same upload.
+      </li>
+      <li>
+        <strong>Custody Settlement &amp; Vendor Payment (Cash-Out):</strong> Lines classified as
+        <em>Custody Settlement</em> or <em>Vendor Payment</em> are automatically removed from the
+        main cash output and routed to separate processing flows. They will not appear in the
+        Cash-Out mapped data file.
+      </li>
+      <li>
+        <strong>Cash-In invoice verification:</strong> Cash-In processing requires that matching
+        free-text invoices already exist and are posted in D365FO. If D365FO connectivity is
+        unavailable at the time of upload, invoice validation cannot be completed.
+      </li>
+      <li>
+        <strong>Output row count differs from input row count:</strong> This is by design.
+        See Section&nbsp;6 for a full explanation.
+      </li>
+    </ul>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ FOOTER -->
+  <footer class="report-footer">
+    <span>Cash Module &mdash; Business Report v1.1 &mdash; D365FO Middleware</span>
+    <span>Confidential &mdash; For Internal Use Only</span>
+  </footer>
+
+</div>
+</body>
+</html>
