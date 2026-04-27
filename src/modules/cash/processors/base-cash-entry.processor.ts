@@ -348,8 +348,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     lines: CashEntryRawDataModel[],
   ): CashEntryDynDataModel[] {
-    const accountLine = lines.find((l) => l.IsCustomer);
-    const offsetLine = lines.find((l) => !l.IsCustomer);
+    const accountLine = lines.find((l) => {
+      if (this.isInbound()) return l.IsCustomer;
+
+      return l.IsVendor;
+    });
+    const offsetLine = lines.find((l) => {
+      if (this.isInbound()) return !l.IsCustomer;
+
+      return !l.IsVendor;
+    });
 
     return [this.buildLine(sourceId, accountLine, offsetLine)];
   }
@@ -364,13 +372,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       settlementSink,
     );
 
-    const accountLines = withoutSettlement.filter((l) => l.IsCustomer);
-    const offsetLines = withoutSettlement.filter((l) => !l.IsCustomer);
+    const accountLines = withoutSettlement.filter((l) => {
+      if (this.isInbound()) return l.IsCustomer;
+
+      return l.IsVendor;
+    });
+    const offsetLines = withoutSettlement.filter((l) => {
+      if (this.isInbound()) return !l.IsCustomer;
+
+      return !l.IsVendor;
+    });
 
     return offsetLines
       .map((offLine) => {
         return accountLines.map((accLine) => {
-          accLine.CREDITAMOUNT = offLine.DEBITAMOUNT;
           return this.buildLine(sourceId, accLine, offLine);
         });
       })
@@ -453,14 +468,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       JournalName: this.getJournalName(),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: offsetLine.ACCOUNTDISPLAYVALUE,
+      OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
-      OffsetFinTagDisplayValue:
-        offsetLine.ACCOUNTTYPE === 'Ledger'
-          ? dimensionStr
-          : offsetLine.FINTAGDISPLAYVALUE,
+      OffsetFinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       CreditAmount: accountLine.CREDITAMOUNT,
-      DebitAmount: offsetLine.DEBITAMOUNT,
+      // DebitAmount: offsetLine.DEBITAMOUNT,
       CurrencyCode: offsetLine.CURRENCYCODE,
       ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
@@ -566,8 +578,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
-      CreditAmount: accountLine.CREDITAMOUNT,
-      DebitAmount: offsetLine.DEBITAMOUNT,
+      // CreditAmount: accountLine.CREDITAMOUNT,
+      DebitAmount: accountLine.DEBITAMOUNT,
       CurrencyCode: offsetLine.CURRENCYCODE,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
