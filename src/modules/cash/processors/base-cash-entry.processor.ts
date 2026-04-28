@@ -125,7 +125,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 5] Updating batch and voucher numbers for ${dfoLines.length} lines`,
     );
-    const updatedDfoLines = this.utilsService.updateCashBatchAndVoucher({
+    const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
       lines: dfoLines,
       startBatchNumber: 1,
       startVoucherNumber: 1,
@@ -502,7 +502,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CreditAmount:
         amountSource === 'ACCOUNT'
           ? accountLine.CREDITAMOUNT
-          : offsetLine.CREDITAMOUNT,
+          : offsetLine.DEBITAMOUNT,
       DebitAmount: 0,
       CurrencyCode: currencyCode,
       ExchangeRate: exchangeRate,
