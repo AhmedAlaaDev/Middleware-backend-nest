@@ -1,0 +1,5 @@
+cash batch
+
+cash
+cheque
+pos transfer deposit visa
