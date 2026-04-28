@@ -366,46 +366,68 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     lines: CashEntryRawDataModel[],
   ): CashEntryDynDataModel[] {
-    const settlementSink: CashEntryRawDataModel[] = [];
-    const withoutSettlement = this.filterOutSettlementLines(
-      lines,
-      settlementSink,
-    );
-
-    const accountLines = withoutSettlement.filter((l) => {
+    const accountLines = lines.filter((l) => {
       if (this.isInbound()) return l.IsCustomer;
 
       return l.IsVendor;
     });
-    const offsetLines = withoutSettlement.filter((l) => {
+
+    const offsetLines = lines.filter((l) => {
       if (this.isInbound()) return !l.IsCustomer;
 
       return !l.IsVendor;
     });
 
-    return offsetLines
-      .map((offLine) => {
-        return accountLines.map((accLine) => {
-          return this.buildLine(sourceId, accLine, offLine);
-        });
-      })
-      .flat();
+    const accountLinesLength = accountLines.length;
+    const offsetLinesLength = offsetLines.length;
+    const settlementSink: CashEntryRawDataModel[] = [];
+
+    if (accountLinesLength > 1 && offsetLinesLength === 1) {
+      return accountLines.map((accLine) =>
+        this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
+      );
+    }
+
+    if (accountLinesLength === 1 && offsetLinesLength > 1) {
+      const withoutSettlementOffsetLines = this.filterOutSettlementLines(
+        offsetLines,
+        settlementSink,
+      );
+
+      return withoutSettlementOffsetLines.map((offLine) =>
+        this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
+      );
+    }
+
+    return [this.buildLine(sourceId)];
   }
 
   protected buildLine(
     sourceId: string,
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
+    amountSource?: 'ACCOUNT' | 'OFFSET',
   ): CashEntryDynDataModel {
     return this.isInbound()
-      ? this.buildLineInbound(sourceId, accountLine, offsetLine)
-      : this.buildLineOutbound(sourceId, accountLine, offsetLine);
+      ? this.buildLineInbound(
+          sourceId,
+          accountLine,
+          offsetLine,
+          amountSource ?? 'OFFSET',
+        )
+      : this.buildLineOutbound(
+          sourceId,
+          accountLine,
+          offsetLine,
+          amountSource ?? 'OFFSET',
+        );
   }
 
   protected buildLineInbound(
     sourceId: string,
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
+    amountSource?: 'ACCOUNT' | 'OFFSET',
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -447,9 +469,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const dimensionStr = this.utilsService.toDimensionString(dimensions);
 
+    const currencyCode =
+      amountSource === 'ACCOUNT'
+        ? accountLine.CURRENCYCODE
+        : offsetLine.CURRENCYCODE;
+
     const { exchangeRate, reportingRate } = this.fetchExchangeRates(
-      offsetLine.TRANSDATE,
-      offsetLine.CURRENCYCODE,
+      offsetLine.TRANSDATE || accountLine.TRANSDATE,
+      currencyCode,
     );
 
     const markedInvoice = this.formatInvoiceInbound(
@@ -471,9 +498,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
-      CreditAmount: accountLine.CREDITAMOUNT,
-      // DebitAmount: offsetLine.DEBITAMOUNT,
-      CurrencyCode: offsetLine.CURRENCYCODE,
+      CreditAmount:
+        amountSource === 'ACCOUNT'
+          ? accountLine.CREDITAMOUNT
+          : offsetLine.CREDITAMOUNT,
+      DebitAmount: 0,
+      CurrencyCode: currencyCode,
       ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
@@ -486,7 +516,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PostingProfile: 'Cust-PP',
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
-      SecondaryExchangeRate: offsetLine.EXCHANGERATESECONDARY,
+      SecondaryExchangeRate:
+        amountSource === 'ACCOUNT'
+          ? accountLine.EXCHANGERATESECONDARY
+          : offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
@@ -508,6 +541,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
+    _amountSource?: 'ACCOUNT' | 'OFFSET',
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
