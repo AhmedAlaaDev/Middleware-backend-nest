@@ -445,6 +445,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       });
 
       line.AddError('InvalidInvoice', 'No Cust or offset line found');
+
       return line;
     }
 
