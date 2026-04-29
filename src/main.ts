@@ -12,6 +12,8 @@ import { GlobalResponseInterceptor } from '@/common/interceptors/global-response
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSwaggerEnabled = !isProduction;
 
   // API Versioning
   app.enableVersioning({
@@ -52,21 +54,23 @@ async function bootstrap() {
   // use global interceptor to transform response
   app.useGlobalInterceptors(new GlobalResponseInterceptor());
 
-  // Swagger setup
-  const config = new DocumentBuilder()
-    .setTitle('D365FO Middleware')
-    .setDescription('D365FO Middleware API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  if (isSwaggerEnabled) {
+    // Swagger setup
+    const config = new DocumentBuilder()
+      .setTitle('D365FO Middleware')
+      .setDescription('D365FO Middleware API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = () => SwaggerModule.createDocument(app, config);
+    const document = () => SwaggerModule.createDocument(app, config);
 
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true, // enable to persist authorization token
-    },
-  });
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true, // enable to persist authorization token
+      },
+    });
+  }
 
   app.use(helmet());
   app.use(
@@ -85,7 +89,7 @@ async function bootstrap() {
 
   // middleware to redirect from '/' to '/docs/
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.url === '/') {
+    if (isSwaggerEnabled && req.url === '/') {
       return res.redirect('/docs');
     }
     next();
