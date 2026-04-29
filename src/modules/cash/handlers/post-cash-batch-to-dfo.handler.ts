@@ -14,6 +14,8 @@ import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalLineRequest,
+  TSLedgerJournalTransCustomRequestBody,
+  TSLedgerJournalCustomAccountTypeStr,
 } from '@/modules/d365fo/types';
 import {
   DataBatchStatus,
@@ -47,6 +49,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     this.logger.log(`Starting post to DFO for cash batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
+    const cashDirection = this.getCashDirection(batch.entryProcessorType);
     this.ensureCashEntryProcessor(batch.entryProcessorType);
 
     const journalGroups = await this.groupRecordsByJournalBatchNumber(batchId);
@@ -54,6 +57,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     const groupedJournals = this.mapToD365FOCustomerPaymentRequests(
       journalGroups,
       batch.company,
+      cashDirection,
     );
 
     const journalsToQueue = this.applyTestingMode(groupedJournals);
@@ -63,7 +67,25 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
     return await this.enqueuePostingJob(batchId, batch.company, {
       groupedJournals: journalsToQueue,
+      cashDirection,
     });
+  }
+
+  private getCashDirection(
+    entryProcessorType: EntryProcessorTypes,
+  ): 'in' | 'out' {
+    switch (entryProcessorType) {
+      case EntryProcessorTypes.CashInFreight:
+      case EntryProcessorTypes.CashInTrucking:
+        return 'in';
+      case EntryProcessorTypes.CashOutFreight:
+      case EntryProcessorTypes.CashOutTrucking:
+        return 'out';
+      default:
+        throw new BadRequestException(
+          `Batch entryProcessorType ${entryProcessorType} is not supported for cash DFO posting`,
+        );
+    }
   }
 
   private async validateBatch(batchId: string) {
@@ -150,6 +172,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   private mapToD365FOCustomerPaymentRequests(
     journalGroups: Map<string, IDataEnhancedRecord<CashEntryDynDataModel>[]>,
     company: string,
+    cashDirection: 'in' | 'out',
   ): Array<{
     header: D365FOCustomerPaymentJournalHeaderRequest;
     lines: D365FOCustomerPaymentJournalLineRequest[];
@@ -163,7 +186,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (lines.length === 0) continue;
 
       const header = this.mapHeaderFromLines(lines, company);
-      const mappedLines = this.mapLines(lines, company);
+      const mappedLines = this.mapLines(lines, company, cashDirection);
 
       result.push({ header, lines: mappedLines });
     }
@@ -188,11 +211,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   private mapLines(
     lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
     company: string,
+    cashDirection: 'in' | 'out',
   ): D365FOCustomerPaymentJournalLineRequest[] {
     return lines.map((lineRecord) => {
       const line = lineRecord.data;
 
-      const accountType = line.AccountType ?? '';
       const accountDisplayValue = line.AccountDisplayValue ?? '';
       const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
@@ -203,52 +226,127 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? line.DefaultDimensionsForOffsetAccountDisplayValue
           : (line.OffsetDefaultDimensionDisplayValue ?? '');
 
-      const journalBatchNumber = line.JournalBatchNumber ?? '';
       const lineNumber = line.LineNumber ?? 0;
       const transactionDate =
         line.TransactionDate || line.TransDate || line.Date || '';
       const credit = Number(line.CreditAmount ?? 0);
       const debit = Number(line.DebitAmount ?? 0);
+      const exchangeRate = line.ExchangeRate || line.ExchRate;
+      const transDate = this.normalizeTransDateForCustomApi(
+        this.formatDate(transactionDate),
+      );
+
+      const accountTypeStr = this.mapEntryAccountTypeStrForCustom(
+        line.AccountType,
+      );
+      const offsetAccountTypeStr = this.mapEntryAccountTypeStrForCustom(
+        line.OffsetAccountType,
+      );
+
+      const defaultDimDisplayValue =
+        this.toOptionalTrimmedString(defaultDim) ?? '';
+      const offsetDefaultDimDisplayValue =
+        this.toOptionalTrimmedString(offsetDefaultDim) ?? '';
+
+      const transactionTextValue =
+        line.TransactionText || line.Description || line.Text || '';
+      const offsetTransactionTextValue =
+        line.OffsetTransactionText || line.PaymentReference || '';
+
+      const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
+        // This is filled later from the successful header-post response.
+        journalNum: '',
+        AccountNum: accountDisplayValue,
+        accountTypeStr,
+
+        BANKTRANSACTIONTYPE: this.mapVoucherTypeToBankTransactionType(
+          line.VoucherType,
+        ),
+        CENTRALBANKPURPOSECODE: '',
+        CENTRALBANKPURPOSETEXT: '',
+
+        company,
+        creditAmount: credit,
+        currency: line.CurrencyCode ?? '',
+        debitAmount: debit,
+
+        DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
+
+        EXCHANGERATE: Number(exchangeRate),
+        FinTagStr: line.FinTagDisplayValue ?? '',
+        ISPREPAYMENT: 'No',
+        ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
+        MARKEDINVOICE: line.MarkedInvoice ?? '',
+
+        offsetAccountDisplayValue:
+          offsetAccountDisplayValue || accountDisplayValue,
+        OffsetAccountTypeStr: offsetAccountTypeStr,
+        OffsetCompany: line.OffsetCompany || company,
+        OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
+        OFFSETTRANSACTIONTEXT: offsetTransactionTextValue,
+
+        PAYMENTID: line.PaymentId ?? '',
+        // TODO: confirm the exact source field for PAYMENTMETHODNAME.
+        PAYMENTMETHODNAME: offsetAccountTypeStr,
+        PAYMENTNOTES: transactionTextValue,
+        PAYMENTREFERENCE: line.PaymentReference ?? '',
+        // TODO: mapping is unknown; keeping empty until confirmed.
+        PAYMENTSPECIFICATION: '',
+
+        PostingProfile: line.PostingProfile ?? '',
+
+        TaxGroup: line.SalesTaxGroup ?? '',
+        TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
+
+        transDate,
+        TRANSACTIONTEXT: transactionTextValue,
+        Voucher: '',
+      };
 
       return {
         dataAreaId: company,
-        JournalBatchNumber: journalBatchNumber,
         LineNumber: lineNumber,
-        AccountDisplayValue: accountDisplayValue,
-        AccountType: accountType,
-        PaymentId: line.PaymentId,
-        FinTagDisplayValue: line.FinTagDisplayValue,
-        OffsetFinTagDisplayValue: line.OffsetFinTagDisplayValue,
-        TransactionDate: this.formatDate(transactionDate),
-        PostingProfile: line.PostingProfile ?? '',
-        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate,
-        ReportingCurrencyExchRateSecondary:
-          line.ReportingCurrencyExchRateSecondary,
-        TransactionText:
-          line.TransactionText || line.Description || line.Text || undefined,
-        CurrencyCode: line.CurrencyCode ?? '',
-        ExchangeRate:
-          line.ExchangeRate ||
-          line.ExchRate ||
-          line.ReportingCurrencyExchRate ||
-          1,
-        CreditAmount: credit,
-        DebitAmount: debit,
-        Voucher: line.Voucher || undefined,
-        DefaultDimensionsForAccountDisplayValue:
-          this.toOptionalTrimmedString(defaultDim),
-        DefaultDimensionsForOffsetAccountDisplayValue:
-          this.toOptionalTrimmedString(offsetDefaultDim),
-        OffsetAccountType: line.OffsetAccountType as string,
-        OffsetAccountDisplayValue:
-          offsetAccountDisplayValue || accountDisplayValue,
-        Company: line.Company || company,
-        OffsetCompany: line.OffsetCompany || company,
-        OffsetTransactionText:
-          line.OffsetTransactionText || line.PaymentReference || undefined,
-        MarkedInvoice: line.MarkedInvoice || undefined,
-      } as D365FOCustomerPaymentJournalLineRequest;
+        cashDirection,
+        customLineApiBody,
+      };
     });
+  }
+
+  private normalizeTransDateForCustomApi(dateIsoString: string): string {
+    const v = dateIsoString?.trim() ?? '';
+    if (!v) return '';
+    // Sample payload uses: 2026-04-21T00:00:00 (no milliseconds / no Z)
+    return v.replace(/\.\d{3}Z$/, '').replace(/Z$/, '');
+  }
+
+  private mapEntryAccountTypeStrForCustom(
+    type: unknown,
+  ): TSLedgerJournalCustomAccountTypeStr {
+    const raw =
+      typeof type === 'string' || typeof type === 'number'
+        ? String(type).trim()
+        : '';
+    if (!raw) return '' as TSLedgerJournalCustomAccountTypeStr;
+
+    if (raw === 'Vend') return 'Vendor';
+    if (raw === 'Cust') return 'Cust';
+    if (raw === 'Petty cash') return 'Petty Cash';
+    if (raw === 'Bank') return 'Bank';
+    if (raw === 'Ledger') return 'Ledger';
+
+    return '' as TSLedgerJournalCustomAccountTypeStr;
+  }
+
+  private mapVoucherTypeToBankTransactionType(voucherType?: string): string {
+    const t = String(voucherType ?? '').trim();
+    const lower = t.toLowerCase();
+    if (lower.includes('transfer')) return 'Transfer';
+    if (lower.includes('cash')) return 'Cash';
+    if (lower.includes('cheque')) return 'Cheque';
+    if (lower.includes('deposit')) return 'Deposit';
+    if (lower.includes('pos')) return 'POS';
+    return '';
   }
 
   private applyTestingMode(
@@ -368,50 +466,52 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!line.dataAreaId?.trim()) {
       missingFields.push('dataAreaId');
     }
-    if (!line.JournalBatchNumber?.trim()) {
-      missingFields.push('JournalBatchNumber');
-    }
     if (line.LineNumber === undefined || line.LineNumber === null) {
       missingFields.push('LineNumber');
     }
-    if (!line.AccountDisplayValue?.trim()) {
-      missingFields.push('AccountDisplayValue');
+    if (!line.cashDirection) {
+      missingFields.push('cashDirection');
     }
-    if (!line.AccountType?.trim()) {
-      missingFields.push('AccountType');
+    if (!line.customLineApiBody) {
+      missingFields.push('customLineApiBody');
+      return missingFields;
     }
-    if (!line.CurrencyCode?.trim()) {
-      missingFields.push('CurrencyCode');
+
+    const body = line.customLineApiBody;
+    if (!body.AccountNum?.trim()) {
+      missingFields.push('customLineApiBody.AccountNum');
     }
-    if (!line.TransactionDate?.trim()) {
-      missingFields.push('TransactionDate');
+    if (!body.accountTypeStr?.trim()) {
+      missingFields.push('customLineApiBody.accountTypeStr');
     }
-    if (line.ExchangeRate === undefined || line.ExchangeRate === null) {
-      missingFields.push('ExchangeRate');
+    if (!body.company?.trim()) {
+      missingFields.push('customLineApiBody.company');
     }
-    if (line.CreditAmount === undefined || line.CreditAmount === null) {
-      missingFields.push('CreditAmount');
+    if (!body.currency?.trim()) {
+      missingFields.push('customLineApiBody.currency');
     }
-    if (line.DebitAmount === undefined || line.DebitAmount === null) {
-      missingFields.push('DebitAmount');
+    if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
+      missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    if (!line.Company?.trim()) {
-      missingFields.push('Company');
+    if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
+      missingFields.push(
+        'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
+      );
     }
-    if (!line.OffsetCompany?.trim()) {
-      missingFields.push('OffsetCompany');
+    if (!body.offsetAccountDisplayValue?.trim()) {
+      missingFields.push('customLineApiBody.offsetAccountDisplayValue');
     }
-    if (!line.OffsetAccountType?.trim()) {
-      missingFields.push('OffsetAccountType');
+    if (!body.OffsetAccountTypeStr?.trim()) {
+      missingFields.push('customLineApiBody.OffsetAccountTypeStr');
     }
-    if (!line.OffsetAccountDisplayValue?.trim()) {
-      missingFields.push('OffsetAccountDisplayValue');
+    if (!body.OffsetCompany?.trim()) {
+      missingFields.push('customLineApiBody.OffsetCompany');
     }
-    if (!line.FinTagDisplayValue?.trim()) {
-      missingFields.push('FinTagDisplayValue');
+    if (!body.transDate?.trim()) {
+      missingFields.push('customLineApiBody.transDate');
     }
-    if (!line.OffsetFinTagDisplayValue?.trim()) {
-      missingFields.push('OffsetFinTagDisplayValue');
+    if (!body.PostingProfile?.trim()) {
+      missingFields.push('customLineApiBody.PostingProfile');
     }
 
     return missingFields;
@@ -435,12 +535,14 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         header: D365FOCustomerPaymentJournalHeaderRequest;
         lines: D365FOCustomerPaymentJournalLineRequest[];
       }>;
+      cashDirection: 'in' | 'out';
     },
   ): Promise<PostCashBatchToDFOResult> {
     const jobData = {
       batchId,
       company,
       groupedJournals: payload.groupedJournals,
+      cashDirection: payload.cashDirection,
       sourceModule: 'CASH' as const,
     };
 

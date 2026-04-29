@@ -514,6 +514,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DefaultDimensionsForOffsetAccountDisplayValue:
         offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
+      ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
+      ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile: 'Cust-PP',
       MarkedInvoice: markedInvoice,
@@ -579,9 +581,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const label = this.getCollectionDescriptionLabel();
     const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
 
-    const paymentReference = isNotesReceivable
-      ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
-      : '';
+    const paymentReference =
+      offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
 
     const dimensionStr = this.utilsService.toDimensionString(dimensions);
 
@@ -603,11 +604,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: this.getMethodOfPayment(dimensions.mainAccount),
       PaymentReference: paymentReference,
+      // Custom API requires OFFSETTRANSACTIONTEXT.
+      // For non-notes-receivable cash-out we still use the offset line description.
+      OffsetTransactionText: isNotesReceivable
+        ? paymentReference
+        : offsetLine.DESCRIPTION || '',
       JournalName: this.getJournalName(),
       TransDate: accountLine.TRANSDATE,
       TransactionDate: accountLine.TRANSDATE,
       VoucherType: accountLine.VoucherType,
-      AccountDisplayValue: dimensionStr,
+      // Cash-Out: AccountNum must be the vendor account, while OffsetAccountDisplayValue keeps the ledger/bank-side dimensions.
+      AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
@@ -623,6 +630,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetDefaultDimensionDisplayValue:
         offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
+      ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
+      ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile: 'Cust-PP',
       Invoice: accountLine.INVOICE || offsetLine.INVOICE,
@@ -630,6 +639,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
       DueDate: accountLine.DUEDATE,
+      PaymentId: sourceId,
+      SafeType: accountLine.SafeType,
     });
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {

@@ -54,16 +54,26 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     chunkSize: number,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
-    const headerKey = typedLines[0]?.JournalBatchNumber;
-    if (!headerKey || typedLines.length === 0) {
+    if (typedLines.length === 0) {
       return [];
     }
-    return this.customerPaymentJournalService.postLinesForHeader(
-      headerKey,
-      typedLines,
-      chunkSize,
-      typedLines[0].dataAreaId,
-    );
+
+    const cashDirection = typedLines[0].cashDirection;
+    const dataAreaId = typedLines[0].dataAreaId;
+
+    return cashDirection === 'out'
+      ? this.customerPaymentJournalService.postCashOutLinesForHeader(
+          '',
+          typedLines,
+          chunkSize,
+          dataAreaId,
+        )
+      : this.customerPaymentJournalService.postCashInLinesForHeader(
+          '',
+          typedLines,
+          chunkSize,
+          dataAreaId,
+        );
   }
 
   public async postLinesForHeader(
@@ -73,12 +83,21 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     chunkSize: number = 20,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
-    return this.customerPaymentJournalService.postLinesForHeader(
-      headerKey,
-      typedLines,
-      chunkSize,
-      dataAreaId,
-    );
+    const cashDirection = typedLines[0]?.cashDirection ?? 'in';
+
+    return cashDirection === 'out'
+      ? this.customerPaymentJournalService.postCashOutLinesForHeader(
+          headerKey,
+          typedLines,
+          chunkSize,
+          dataAreaId,
+        )
+      : this.customerPaymentJournalService.postCashInLinesForHeader(
+          headerKey,
+          typedLines,
+          chunkSize,
+          dataAreaId,
+        );
   }
 
   public async deleteHeader(

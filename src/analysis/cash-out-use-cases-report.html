@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cash-Out Mapping Use Cases Review</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; font-size: 9pt; color: #111; }
+    @media print {
+      @page { size: A4 portrait; margin: 10mm; }
+      .page-break { page-break-before: always; }
+    }
+    @media screen {
+      body { background: #f0f0f0; padding: 20px; }
+      section { background: #fff; margin: 0 auto 20px; max-width: 210mm; padding: 20px; box-shadow: 0 1px 8px rgba(0,0,0,.12); }
+    }
+
+    h1 { margin: 0 0 12px; font-size: 18pt; }
+    h3 { margin: 14px 0 8px; font-size: 11pt; }
+    h4 { margin: 10px 0 6px; font-size: 9pt; text-transform: uppercase; border-bottom: 1px solid #ddd; }
+    .num { text-align: right; white-space: nowrap; }
+    .mono { font-family: Consolas, monospace; }
+    .muted { color: #666; font-style: italic; text-align: center; }
+
+    .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    .meta-table td { border-bottom: 1px solid #ddd; padding: 3px 6px; }
+    .meta-table td:first-child { width: 180px; font-weight: 700; }
+
+    .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .summary-table { border-collapse: collapse; width: 100%; font-size: 8.5pt; }
+    .summary-table th, .summary-table td { border: 1px solid #ccc; padding: 3px 6px; }
+    .summary-table th { background: #f1f1f1; text-align: left; }
+    .grid .summary-table { flex: 1; min-width: 170px; }
+
+    .use-case-head { border-left: 4px solid #222; padding-left: 10px; margin-bottom: 8px; }
+    .use-case-head .id { font-weight: 700; color: #555; font-size: 7pt; letter-spacing: .1em; }
+    .use-case-head .title { font-size: 12pt; font-weight: 700; margin: 2px 0; }
+    .use-case-head .meta { font-size: 8pt; color: #555; margin-bottom: 4px; }
+
+    .pill-strip { display: flex; flex-wrap: wrap; gap: 4px 8px; border: 1px solid #e2e2e2; background: #f9f9f9; padding: 5px 7px; border-radius: 3px; margin-bottom: 6px; }
+    .muted-strip { opacity: .8; }
+    .pill { display: inline-flex; gap: 4px; font-size: 7pt; }
+    .pill-key { color: #666; font-weight: 700; }
+    .pill-val { color: #111; }
+
+    .variant { border: 1px solid #ddd; border-radius: 3px; padding: 6px; margin-bottom: 8px; }
+    .variant-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .variant-id { font-family: Consolas, monospace; font-weight: 700; font-size: 8pt; }
+    .variant-freq { background: #efefef; border-radius: 10px; padding: 1px 7px; font-size: 7pt; }
+    .example-uid { background: #111; color: #fff; padding: 4px 8px; border-radius: 3px 3px 0 0; font-size: 8pt; margin-top: 5px; }
+
+    .source-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; border: 1px solid #999; }
+    .source-table th { background: #333; color: #fff; border-right: 1px solid #666; padding: 2px 4px; text-align: left; }
+    .source-table td { border-right: 1px solid #eee; border-bottom: 1px solid #ddd; padding: 2px 4px; vertical-align: top; word-break: break-all; overflow-wrap: anywhere; }
+    .source-table tr:nth-child(even) td { background: #f7f7f7; }
+    .source-table .settlement-row td { background: #d8d8d8 !important; }
+    .totals-row td { border-top: 2px solid #555; background: #ececec; }
+
+    .review-area { border: 1px solid #bbb; border-radius: 3px; margin-top: 8px; padding: 6px 8px; }
+    .review-title { font-weight: 700; font-size: 8pt; margin-bottom: 4px; text-align: center; }
+    .ruled { border-bottom: 1px solid #bbb; height: 18px; }
+
+    .badge { display: inline-block; border: 1px solid #555; padding: 1px 4px; border-radius: 2px; font-size: 6.5pt; font-weight: 700; background: #fff; margin-right: 3px; white-space: nowrap; }
+    .badge-settlement { text-decoration: underline; font-style: italic; }
+    .badge-danger { font-style: italic; }
+    .no-risk { color: #999; font-style: italic; }
+  </style>
+</head>
+<body>
+  
+    <section class="cover">
+      <h1>Cash-Out Mapping Use Cases Review</h1>
+      <table class="meta-table">
+        <tr><td>Source File</td><td>src/excel-sources/Cash/Safe Out_01_26_Freight.xlsx</td></tr>
+        <tr><td>Generated</td><td>29 April 2026 at 14:11</td></tr>
+        <tr><td>Total Rows</td><td>3,537</td></tr>
+        <tr><td>Total Cash-Out Rows</td><td>3,537</td></tr>
+        <tr><td>Total Unique IDs</td><td>1,051</td></tr>
+        <tr><td>Total Main Use Cases</td><td>6</td></tr>
+        <tr><td>Total Variants</td><td>53</td></tr>
+      </table>
+
+      <div class="grid">
+        
+    <table class="summary-table">
+      <thead><tr><th>By Safe Type</th><th class="num">Count</th></tr></thead>
+      <tbody><tr><td>Custody Issue</td><td class="num">678</td></tr><tr><td>Direct</td><td class="num">194</td></tr><tr><td>Vendor Payment</td><td class="num">162</td></tr><tr><td>Custody Settlement</td><td class="num">9</td></tr><tr><td>Other</td><td class="num">8</td></tr></tbody>
+    </table>
+        
+    <table class="summary-table">
+      <thead><tr><th>By Voucher Type</th><th class="num">Count</th></tr></thead>
+      <tbody><tr><td>Cash</td><td class="num">835</td></tr><tr><td>Transfer</td><td class="num">182</td></tr><tr><td>Visa</td><td class="num">33</td></tr><tr><td>Cheque</td><td class="num">1</td></tr></tbody>
+    </table>
+        
+    <table class="summary-table">
+      <thead><tr><th>By Mapping Bucket</th><th class="num">Count</th></tr></thead>
+      <tbody><tr><td>ROUTED_CUSTODY_ISSUE</td><td class="num">678</td></tr><tr><td>CASH_OUT_MAPPING</td><td class="num">202</td></tr><tr><td>ROUTED_VENDOR_PAYMENT</td><td class="num">162</td></tr><tr><td>ROUTED_CUSTODY_SETTLEMENT</td><td class="num">9</td></tr></tbody>
+    </table>
+        
+    <table class="summary-table">
+      <thead><tr><th>By Offset Category</th><th class="num">Count</th></tr></thead>
+      <tbody><tr><td>PETTY_CASH</td><td class="num">601</td></tr><tr><td>MIXED_OFFSET_CATEGORIES</td><td class="num">247</td></tr><tr><td>LEDGER_OTHER</td><td class="num">128</td></tr><tr><td>BANK</td><td class="num">75</td></tr></tbody>
+    </table>
+        
+    <table class="summary-table">
+      <thead><tr><th>By Currency Pattern</th><th class="num">Count</th></tr></thead>
+      <tbody><tr><td>SINGLE_CURRENCY</td><td class="num">1,051</td></tr></tbody>
+    </table>
+      </div>
+
+      <h3>Routed Buckets Summary</h3>
+      <table class="summary-table">
+        <thead><tr><th>Bucket</th><th class="num">Rows</th><th class="num">Unique IDs</th></tr></thead>
+        <tbody>
+          <tr><td>Custody Settlement</td><td class="num">88</td><td class="num">9</td></tr>
+          <tr><td>Vendor Payment</td><td class="num">1,130</td><td class="num">162</td></tr>
+          <tr><td>Custody Issue</td><td class="num">1,428</td><td class="num">678</td></tr>
+        </tbody>
+      </table>
+    </section>
+  
+    <section class="use-case page-break" id="CASH_OUT_UC_001">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_001</div>
+        <div class="title">Direct / Cash / Cash Out Mapping / Mixed Offset Categories / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 181 | Variants: 40</div>
+        <div><span class="badge badge-ledger">Ledger Offset</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Direct</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Cash</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">LEDGER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">MIXED_OFFSET_CATEGORIES</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">3_LINES</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Petty cash:1+Ledger:2</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_MORE_THAN_TWO_LINES_NON_CARTESIAN</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseMoreThanTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">vendorLines * offsetLines</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_001_V09</span>
+        <span class="variant-freq">80x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Petty cash:1, Ledger:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">1</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Ledger, Petty cash</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">124101</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>467658</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">255</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">124101|1101|011|001|004|101000010|101000010|4080|4080|16410|KEYACCOUNT|4008|Payable|||IMPORT||||</td>
+        <td class="mono">124101</td>
+        <td class="num">5,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">256</td>
+        <td>Direct</td>
+        <td>Petty cash</td>
+        <td class="mono">Airport EG</td>
+        <td class="mono">Airport EG</td>
+        <td class="num"></td>
+        <td class="num">5,000</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>5,000</strong></td>
+          <td class="num"><strong>5,000</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_001_V04</span>
+        <span class="variant-freq">16x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Petty cash:1, Ledger:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">1</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Ledger, Petty cash</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">511505</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>467293</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">145</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">511505|1302|013|001|001|101008615|101008615|||16433|3042|3336|Prepaid|||IMPORT||||</td>
+        <td class="mono">511505</td>
+        <td class="num">2,500</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">146</td>
+        <td>Direct</td>
+        <td>Petty cash</td>
+        <td class="mono">ALEXHO EG</td>
+        <td class="mono">ALEXHO EG</td>
+        <td class="num"></td>
+        <td class="num">2,500</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>2,500</strong></td>
+          <td class="num"><strong>2,500</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+    <section class="use-case page-break" id="CASH_OUT_UC_004">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_004</div>
+        <div class="title">Direct / Transfer / Cash Out Mapping / Ledger Other / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 2 | Variants: 2</div>
+        <div><span class="badge badge-ledger">Ledger Offset</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Direct</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Transfer</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">LEDGER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">LEDGER_OTHER</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">MANY_LINES_6_TO_10</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Ledger:MANY</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_MORE_THAN_TWO_LINES_NON_CARTESIAN</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseMoreThanTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">vendorLines * offsetLines</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_004_V01</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">8</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Ledger:8</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">8</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">8</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">223404, 224209</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>470317</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">1095</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4009|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">7,801.8</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1096</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4009|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">5,381.77</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1097</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">12,162.71</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1098</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">224209|1101|011|001|004|101001568|101001568|SOGEDIM SPA|||3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">224209</td>
+        <td class="num"></td>
+        <td class="num">63,303.98</td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1099</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">3,828</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1100</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">2,628</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1101</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">20,064</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1102</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101001568|101001568|||16468|3095|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">11,437.7</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>63,303.98</strong></td>
+          <td class="num"><strong>63,303.98</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_004_V02</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">4</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Ledger:4</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">4</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">4</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">223404, 224209, 512101</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>473874</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">2205</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">512101|1201|012|001|002|101000393|101000393|Ag-000025|Ag-000025|16503|4006|4029|Payable|||IMPORT||||</td>
+        <td class="mono">512101</td>
+        <td class="num">2,299.12</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">2206</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1201|012|001|001|101005328|101005328|Ag-000146|Ag-000146|16503|3076|3205|Payable|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">2,030.62</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">2207</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1201|012|001|001|101008387|101008387|Ag-000146|Ag-000146|16503|3038|3205|Payable|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">2,030.63</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">2208</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">224209|1201|012|001|001|101008387|101008387|Su-000072|Ag-000146||3038|3205|Payable|||IMPORT||||</td>
+        <td class="mono">224209</td>
+        <td class="num"></td>
+        <td class="num">6,360.37</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>6,360.37</strong></td>
+          <td class="num"><strong>6,360.37</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+    <section class="use-case page-break" id="CASH_OUT_UC_002">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_002</div>
+        <div class="title">Direct / Transfer / Cash Out Mapping / Mixed Offset Categories / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 6 | Variants: 6</div>
+        <div><span class="badge badge-ledger">Ledger Offset</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Direct</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Transfer</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">LEDGER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">MIXED_OFFSET_CATEGORIES</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">4_LINES</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Bank:1+Ledger:3</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_MORE_THAN_TWO_LINES_NON_CARTESIAN</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseMoreThanTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">vendorLines * offsetLines</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_002_V01</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">4</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Bank:1, Ledger:3</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">4</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">3</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Bank, Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">223404</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>468172</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">488</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101004540|101004540|||16468|3068|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">3,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">489</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101004540|101004540|||16468|3068|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">3,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">490</td>
+        <td>Direct</td>
+        <td>Bank</td>
+        <td class="mono">BM-EG-CA</td>
+        <td class="mono">BM-EG-CA</td>
+        <td class="num"></td>
+        <td class="num">9,000</td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">491</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101004540|101004540|||16468|3068|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">3,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>9,000</strong></td>
+          <td class="num"><strong>9,000</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_002_V02</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">3</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Bank:1, Ledger:2</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">3</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Bank, Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">124101, 223404</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>469412</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">914</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">124101|1101|011|001|004|101005409|101005409|||16468|4051|4018|Collect|||IMPORT||||</td>
+        <td class="mono">124101</td>
+        <td class="num">3,666</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">915</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">223404|1101|011|001|004|101005409|101005409|||16468|4051|4018|Collect|||IMPORT||||</td>
+        <td class="mono">223404</td>
+        <td class="num">16,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">916</td>
+        <td>Direct</td>
+        <td>Bank</td>
+        <td class="mono">CIB-EG-CA</td>
+        <td class="mono">CIB-EG-CA</td>
+        <td class="num"></td>
+        <td class="num">19,666</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>19,666</strong></td>
+          <td class="num"><strong>19,666</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+    <section class="use-case page-break" id="CASH_OUT_UC_006">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_006</div>
+        <div class="title">Direct / Visa / Cash Out Mapping / Mixed Offset Categories / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 5 | Variants: 2</div>
+        <div><span class="badge badge-ledger">Ledger Offset</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Direct</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Visa</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">LEDGER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">MIXED_OFFSET_CATEGORIES</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">2_LINES</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Bank:1+Ledger:1</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_TWO_LINES</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">1 line</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_006_V02</span>
+        <span class="variant-freq">4x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Bank:1, Ledger:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">1</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Bank, Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">124101</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>474234</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">2385</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">124101|1101|011|001|004|101000393|101000393|4080|4080|16410|4006|4008|Payable|||IMPORT||||</td>
+        <td class="mono">124101</td>
+        <td class="num">500</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">2386</td>
+        <td>Direct</td>
+        <td>Bank</td>
+        <td class="mono">V-MHAMZA</td>
+        <td class="mono">V-MHAMZA</td>
+        <td class="num"></td>
+        <td class="num">500</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>500</strong></td>
+          <td class="num"><strong>500</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_006_V01</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Bank:1, Ledger:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">1</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Bank, Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">513201</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>474227</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">2356</td>
+        <td>Direct</td>
+        <td>Ledger</td>
+        <td class="mono">513201|1101|011|001|004|101000535|101000535|4049|4049|16621|KEYACCOUNT|4018|Collect|||IMPORT||||</td>
+        <td class="mono">513201</td>
+        <td class="num">5,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">2357</td>
+        <td>Direct</td>
+        <td>Bank</td>
+        <td class="mono">V-MHAMZA</td>
+        <td class="mono">V-MHAMZA</td>
+        <td class="num"></td>
+        <td class="num">5,000</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>5,000</strong></td>
+          <td class="num"><strong>5,000</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+    <section class="use-case page-break" id="CASH_OUT_UC_005">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_005</div>
+        <div class="title">Other / Cash / Cash Out Mapping / Mixed Offset Categories / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 7 | Variants: 2</div>
+        <div><span class="no-risk">None</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Other</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Cash</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">CUSTOMER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">MIXED_OFFSET_CATEGORIES</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">2_LINES</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Petty cash:1+Cust:1</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_TWO_LINES</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">1 line</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_005_V01</span>
+        <span class="variant-freq">6x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Petty cash:1, Cust:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Cust, Petty cash</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">—</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>473080</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">1798</td>
+        <td>Other</td>
+        <td>Cust</td>
+        <td class="mono">101009387</td>
+        <td class="mono">101009387</td>
+        <td class="num">10,100</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">1799</td>
+        <td>Other</td>
+        <td>Petty cash</td>
+        <td class="mono">ALEXHO EG</td>
+        <td class="mono">ALEXHO EG</td>
+        <td class="num"></td>
+        <td class="num">10,100</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>10,100</strong></td>
+          <td class="num"><strong>10,100</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_005_V02</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Petty cash:1, Cust:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Cust, Petty cash</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">—</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">USD</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>475751</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">3316</td>
+        <td>Other</td>
+        <td>Cust</td>
+        <td class="mono">101000640</td>
+        <td class="mono">101000640</td>
+        <td class="num">440</td>
+        <td class="num"></td>
+        <td>USD</td>
+      </tr><tr class="">
+        <td class="num">3317</td>
+        <td>Other</td>
+        <td>Petty cash</td>
+        <td class="mono">ALEXHO US</td>
+        <td class="mono">ALEXHO US</td>
+        <td class="num"></td>
+        <td class="num">440</td>
+        <td>USD</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>440</strong></td>
+          <td class="num"><strong>440</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+    <section class="use-case page-break" id="CASH_OUT_UC_003">
+      <div class="use-case-head">
+        <div class="id">CASH_OUT_UC_003</div>
+        <div class="title">Other / Cheque / Cash Out Mapping / Mixed Offset Categories / Multi Offset / Single Currency</div>
+        <div class="meta">Frequency: 1 | Variants: 1</div>
+        <div><span class="badge badge-ledger">Ledger Offset</span></div>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">safeTransaction</span><span class="pill-val">Out</span></span><span class="pill"><span class="pill-key">safeType</span><span class="pill-val">Other</span></span><span class="pill"><span class="pill-key">voucherType</span><span class="pill-val">Cheque</span></span><span class="pill"><span class="pill-key">mappingBucket</span><span class="pill-val">CASH_OUT_MAPPING</span></span><span class="pill"><span class="pill-key">accountSidePattern</span><span class="pill-val">CUSTOMER_ACCOUNT_SIDE</span></span><span class="pill"><span class="pill-key">offsetMultiplicityPattern</span><span class="pill-val">MULTI_OFFSET</span></span><span class="pill"><span class="pill-key">offsetCategoryPattern</span><span class="pill-val">MIXED_OFFSET_CATEGORIES</span></span><span class="pill"><span class="pill-key">currencyPattern</span><span class="pill-val">SINGLE_CURRENCY</span></span><span class="pill"><span class="pill-key">settlementPattern</span><span class="pill-val">NO_SETTLEMENT</span></span><span class="pill"><span class="pill-key">sourceBalancePattern</span><span class="pill-val">BALANCED_SOURCE</span></span><span class="pill"><span class="pill-key">amountBehaviorPattern</span><span class="pill-val">REVERSED_OR_UNUSUAL_AMOUNT_BEHAVIOR</span></span></div>
+      <div class="pill-strip muted-strip"><span class="pill"><span class="pill-key">lineCountBucket</span><span class="pill-val">2_LINES</span></span><span class="pill"><span class="pill-key">accountTypeCompositionBucket</span><span class="pill-val">Ledger:1+Cust:1</span></span><span class="pill"><span class="pill-key">invoicePattern</span><span class="pill-val">NO_INVOICE</span></span><span class="pill"><span class="pill-key">currentProcessorBehaviorPattern</span><span class="pill-val">CASE_TWO_LINES</span></span></div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Account line selector</span><span class="pill-val">Vendor for outbound</span></span><span class="pill"><span class="pill-key">Offset line selector</span><span class="pill-val">non-Vendor for outbound</span></span><span class="pill"><span class="pill-key">Case used</span><span class="pill-val">caseTwoLines</span></span><span class="pill"><span class="pill-key">Formula</span><span class="pill-val">1 line</span></span><span class="pill"><span class="pill-key">Cartesian risk</span><span class="pill-val">No</span></span></div>
+      <h4>Variants</h4>
+      
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-id">CASH_OUT_UC_003_V01</span>
+        <span class="variant-freq">1x</span>
+      </div>
+      <div class="pill-strip"><span class="pill"><span class="pill-key">Lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Composition</span><span class="pill-val">Ledger:1, Cust:1</span></span><span class="pill"><span class="pill-key">Vendor lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset lines</span><span class="pill-val">2</span></span><span class="pill"><span class="pill-key">Ledger lines</span><span class="pill-val">1</span></span><span class="pill"><span class="pill-key">Settlement lines</span><span class="pill-val">0</span></span><span class="pill"><span class="pill-key">Offset types</span><span class="pill-val">Cust, Ledger</span></span><span class="pill"><span class="pill-key">Ledger accts</span><span class="pill-val">223201</span></span><span class="pill"><span class="pill-key">Currencies</span><span class="pill-val">EGP</span></span><span class="pill"><span class="pill-key">Balanced</span><span class="pill-val">Yes</span></span></div>
+      
+      <div class="example-uid">UniqueId: <strong>469414</strong></div>
+      
+    <table class="source-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Safe Type</th>
+          <th>Acct Type</th>
+          <th>Account Display Value</th>
+          <th>Main Account</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Ccy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="">
+        <td class="num">859</td>
+        <td>Other</td>
+        <td>Cust</td>
+        <td class="mono">101000712</td>
+        <td class="mono">101000712</td>
+        <td class="num">4,000</td>
+        <td class="num"></td>
+        <td>EGP</td>
+      </tr><tr class="">
+        <td class="num">860</td>
+        <td>Other</td>
+        <td>Ledger</td>
+        <td class="mono">223201|1301|013|001|001|101000712|101000712|Ag-000010||||||||IMPORT||||</td>
+        <td class="mono">223201</td>
+        <td class="num"></td>
+        <td class="num">4,000</td>
+        <td>EGP</td>
+      </tr>
+        
+        <tr class="totals-row">
+          <td colspan="4" class="num"><strong>Totals</strong></td>
+          <td class="num"><strong>4,000</strong></td>
+          <td class="num"><strong>4,000</strong></td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    </div>
+      
+    <div class="review-area">
+      <div class="review-title">Accounting Review</div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+      <div class="ruled"></div>
+    </div>
+    </section>
+</body>
+</html>

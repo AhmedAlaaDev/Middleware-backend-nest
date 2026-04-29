@@ -12,4 +12,5 @@ export interface PostCustomerPaymentJournalDFOJobPayload {
   }>;
   correlationId?: string;
   sourceModule?: 'CASH';
+  cashDirection?: 'in' | 'out';
 }

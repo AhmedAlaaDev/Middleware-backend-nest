@@ -9,6 +9,10 @@ import {
   D365FOCustomerPaymentJournalHeaderResponse,
   D365FOCustomerPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
+import {
+  TSLedgerJournalTransCustomRequestBody,
+  TSLedgerJournalTransCustomResponseBody,
+} from '@/modules/d365fo/types/d365fo-cash-custom-ledger-journal.type';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /**
@@ -18,6 +22,15 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
 @Injectable()
 export class CustomerPaymentJournalService {
   private readonly logger = new Logger(CustomerPaymentJournalService.name);
+
+  /**
+   * Custom cash line posting endpoints.
+   * These are NOT OData entity POSTs; they are X++ service entry points.
+   */
+  private readonly cashInLineEndpoint =
+    '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransCustPaym';
+  private readonly cashOutLineEndpoint =
+    '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym';
 
   constructor(
     private readonly d365foClient: D365FOClientService,
@@ -131,6 +144,160 @@ export class CustomerPaymentJournalService {
   }
 
   /**
+   * Cash-In line posting via addLedgerJournalTransCustPaym (custom API).
+   * Keeps the same line idempotency approach used by the OData flow.
+   */
+  public async postCashInLinesForHeader(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    chunkSize: number = 20,
+    dataAreaId?: string,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    return this.postCashLinesForHeader(
+      headerKey,
+      lines,
+      chunkSize,
+      dataAreaId,
+      'in',
+    );
+  }
+
+  /**
+   * Cash-Out line posting via addLedgerJournalTransVendPaym (custom API).
+   * Keeps the same line idempotency approach used by the OData flow.
+   */
+  public async postCashOutLinesForHeader(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    chunkSize: number = 20,
+    dataAreaId?: string,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    return this.postCashLinesForHeader(
+      headerKey,
+      lines,
+      chunkSize,
+      dataAreaId,
+      'out',
+    );
+  }
+
+  private async postCashLinesForHeader(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    chunkSize: number,
+    dataAreaId: string | undefined,
+    cashDirection: 'in' | 'out',
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const endpoint =
+      cashDirection === 'in'
+        ? this.cashInLineEndpoint
+        : this.cashOutLineEndpoint;
+
+    this.logger.log(
+      `[CASH-CUSTOM] Posting ${lines.length} cash-${cashDirection} lines for header ${headerKey} in chunks of ${chunkSize}`,
+    );
+
+    let existingLines: Set<number> = new Set();
+    if (dataAreaId && lines.length > 0) {
+      try {
+        const existing = await this.listLinesForHeader(headerKey, dataAreaId);
+        existingLines = new Set(existing.map((l) => l.LineNumber));
+      } catch (error) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Could not query existing lines for header ${headerKey}: ${this.dfoErrorExtractor.extractMessage(
+            error,
+          )}`,
+        );
+      }
+    }
+
+    const successfullyPosted: Array<{
+      headerId: string;
+      lineNumber: number;
+    }> = [];
+
+    for (let i = 0; i < lines.length; i += chunkSize) {
+      const chunk = lines.slice(i, i + chunkSize);
+      const chunkNumber = Math.floor(i / chunkSize) + 1;
+      const totalChunks = Math.ceil(lines.length / chunkSize);
+
+      this.logger.log(
+        `[CASH-CUSTOM] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
+      );
+
+      for (const line of chunk) {
+        if (existingLines.has(line.LineNumber)) {
+          successfullyPosted.push({
+            headerId: headerKey,
+            lineNumber: line.LineNumber,
+          });
+          continue;
+        }
+
+        try {
+          const body = line.customLineApiBody;
+          if (!body) {
+            throw new Error(
+              `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
+            );
+          }
+          await this.postCustomCashLine(endpoint, {
+            ...body,
+            journalNum: headerKey,
+          });
+
+          successfullyPosted.push({
+            headerId: headerKey,
+            lineNumber: line.LineNumber,
+          });
+          if (line !== chunk[chunk.length - 1]) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+        } catch (error) {
+          const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+          this.logger.error(
+            `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          throw new Error(
+            `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+          );
+        }
+      }
+    }
+
+    return successfullyPosted;
+  }
+
+  private async postCustomCashLine(
+    endpoint: string,
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): Promise<TSLedgerJournalTransCustomResponseBody> {
+    try {
+      const result = await this.d365foClient.post<
+        TSLedgerJournalTransCustomRequestBody,
+        TSLedgerJournalTransCustomResponseBody
+      >(endpoint, body);
+
+      const statusCode = result?.StatusCode;
+      if (statusCode === 'Success') {
+        return result;
+      }
+
+      const message = result?.Message ?? JSON.stringify(result);
+      throw new Error(message);
+    } catch (error: unknown) {
+      const data = (error as any)?.response?.data;
+      const message =
+        data?.Message ??
+        data?.message ??
+        (error as any)?.message ??
+        String(error);
+      throw new Error(message);
+    }
+  }
+
+  /**
    * List all lines for a specific header from D365FO
    */
   public async listLinesForHeader(
@@ -166,20 +333,15 @@ export class CustomerPaymentJournalService {
     data: D365FOCustomerPaymentJournalLineRequest,
   ): Promise<unknown> {
     this.logger.debug(
-      `Posting customer payment journal line for company: ${data.dataAreaId}, batch: ${data.JournalBatchNumber}, line: ${data.LineNumber}`,
+      `Posting customer payment journal line for company: ${data.dataAreaId}, line: ${data.LineNumber}`,
     );
 
     return this.retryService.executeWithRetry(
       async () => {
-        const { Voucher: _omitVoucher, ...lineData } = data as any;
-
         return await this.d365foClient.post<
-          Omit<
-            D365FOCustomerPaymentJournalLineRequest,
-            'JournalBatchNumber' | 'Voucher'
-          >,
+          D365FOCustomerPaymentJournalLineRequest,
           unknown
-        >('/data/CustomerPaymentJournalLines', lineData);
+        >('/data/CustomerPaymentJournalLines', data);
       },
       {
         retries: 3,

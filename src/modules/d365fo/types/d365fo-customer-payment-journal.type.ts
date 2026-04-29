@@ -1,4 +1,4 @@
-import { EntryAccountType } from '@/common/types';
+import { TSLedgerJournalTransCustomRequestBody } from './d365fo-cash-custom-ledger-journal.type';
 
 /**
  * Request data for posting a customer payment journal header to D365FO.
@@ -24,44 +24,18 @@ export interface D365FOCustomerPaymentJournalHeaderResponse {
   Description: string;
 }
 
-/**
- * Request data for posting a customer payment journal line to D365FO.
- * The fields are aligned with the CustomerPaymentJournalLines entity.
- */
 export interface D365FOCustomerPaymentJournalLineRequest {
   dataAreaId: string;
-  JournalBatchNumber: string;
   LineNumber: number;
-  AccountDisplayValue: string;
-  AccountType: EntryAccountType;
-  PaymentId?: string;
-  FinTagDisplayValue?: string;
-  OffsetFinTagDisplayValue?: string;
-  TransactionDate: string;
-  PostingProfile: string;
-  ReportingCurrencyExchRate?: number;
-  ReportingCurrencyExchRateSecondary?: number;
-  TransactionText?: string;
-  CurrencyCode: string;
-  ExchangeRate: number;
-  CreditAmount: number;
-  DebitAmount: number;
-  Voucher?: string;
-  DefaultDimensionsForAccountDisplayValue?: string;
-  DefaultDimensionsForOffsetAccountDisplayValue?: string;
-  OffsetAccountType: EntryAccountType;
-  OffsetAccountDisplayValue: string;
-  Company: string;
-  OffsetCompany: string;
-  RemittanceAddressDescription?: string;
-  RemittanceAddressCountryISOCode?: string;
-  RemittanceLocationId?: string;
-  RemittanceAddressValidFrom?: string;
-  RemittanceAddressValidTo?: string;
-  RemittanceAddressCountry?: string;
-  FullPrimaryRemittanceAddress?: string;
-  SettleVoucher?: string;
-  CustomerName?: string;
-  OffsetTransactionText?: string;
-  MarkedInvoice?: string;
+  /**
+   * Used by cash posting pipeline to route cash-in/out line posting to the
+   * correct custom ledger journal transaction API.
+   */
+  cashDirection: 'in' | 'out';
+
+  /**
+   * Strict request body for cash custom line APIs.
+   * IMPORTANT: This must be built in the cash module handler (not in the service).
+   */
+  customLineApiBody: TSLedgerJournalTransCustomRequestBody;
 }
