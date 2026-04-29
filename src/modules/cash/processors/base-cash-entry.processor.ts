@@ -58,7 +58,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): Promise<EntryDynDataModel[]> {
     this.company = company;
 
-    await this.warmupProcessorData({ customerNames: true });
+    await this.warmupProcessorData({
+      customerNames: this.isInbound() ? true : false,
+    });
 
     const rawCount = data.length;
     this.logger.debug(
@@ -125,7 +127,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 5] Updating batch and voucher numbers for ${dfoLines.length} lines`,
     );
-    const updatedDfoLines = this.utilsService.updateBatchAndVoucher({
+    const updatedDfoLines = this.utilsService.updateCashBatchAndVoucher({
       lines: dfoLines,
       startBatchNumber: 1,
       startVoucherNumber: 1,
@@ -542,7 +544,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
-    _amountSource?: 'ACCOUNT' | 'OFFSET',
+    amountSource?: 'ACCOUNT' | 'OFFSET',
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -558,12 +560,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const line = new CashEntryDynDataModel(dimensions, {
         SourceIds: [sourceId],
       });
-      if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
-        line.AddError(
-          'Dimensions',
-          `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
-        );
-      }
+
       line.AddError('InvalidInvoice', 'No Cust or offset line found');
       return line;
     }
@@ -582,19 +579,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     const label = this.getCollectionDescriptionLabel();
     const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
+
     const paymentReference = isNotesReceivable
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
       : '';
 
     const dimensionStr = this.utilsService.toDimensionString(dimensions);
 
-    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
-      offsetLine.TRANSDATE,
-      offsetLine.CURRENCYCODE,
-    );
+    const currencyCode =
+      amountSource === 'ACCOUNT'
+        ? accountLine.CURRENCYCODE
+        : offsetLine.CURRENCYCODE;
 
-    const markedInvoice = this.formatInvoiceOutbound(
-      accountLine.INVOICE || offsetLine.INVOICE,
+    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
+      offsetLine.TRANSDATE || accountLine.TRANSDATE,
+      currencyCode,
     );
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
@@ -613,19 +612,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountDisplayValue: dimensionStr,
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
-      // CreditAmount: accountLine.CREDITAMOUNT,
-      DebitAmount: accountLine.DEBITAMOUNT,
-      CurrencyCode: offsetLine.CURRENCYCODE,
+      CreditAmount: 0,
+      DebitAmount:
+        amountSource === 'ACCOUNT'
+          ? accountLine.DEBITAMOUNT
+          : offsetLine.CREDITAMOUNT,
+      CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
-      CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
       DefaultDimensionDisplayValue: accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
       OffsetDefaultDimensionDisplayValue:
         offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
       OffsetCompany: this.company,
       PostingProfile: 'Cust-PP',
-      Invoice: markedInvoice,
+      Invoice: accountLine.INVOICE || offsetLine.INVOICE,
       dataAreaId: this.company,
       ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
