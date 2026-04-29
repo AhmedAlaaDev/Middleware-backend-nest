@@ -64,7 +64,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const rawCount = data.length;
     this.logger.debug(
-      `Starting formatAndEnrichAsync with ${rawCount} raw records`,
+      `Starting formatAndEnrichAsync with ${rawCount} raw records ${this.isInbound() ? '( Cash-In )' : '( Cash-Out )'}${this.isTrucking() ? ' ( Trucking )' : ' ( Freight )'}`,
     );
 
     this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
@@ -85,18 +85,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[FILTER] Processed ${sortedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${vendorPayment.length} vendor payment, ${otherLines.length} remaining lines`,
     );
-
-    this.logger.debug(
-      `[STEP 2.5] Processing ${custodySettlementLines.length} custody settlement lines`,
-    );
-    this.processCustodySettlementLines(custodySettlementLines);
-
-    if (!this.isInbound()) {
-      this.logger.debug(
-        `[STEP 2.5] Processing ${vendorPayment.length} vendor payment lines`,
-      );
-      this.processVendorPaymentLines(vendorPayment);
-    }
 
     this.logger.debug(
       `[STEP 3] Building invoice map from ${otherLines.length} lines`,
@@ -149,9 +137,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
-    return updatedDfoLines.map(
+    const formattedDfoLines = updatedDfoLines.map(
       (line) => new CashEntryDynDataModel(line.DimensionModel, line),
     );
+
+    this.logger.debug(
+      `[STEP 7] Processing ${custodySettlementLines.length} custody settlement lines`,
+    );
+    this.processCustodySettlementLines(custodySettlementLines);
+
+    if (!this.isInbound()) {
+      this.logger.debug(
+        `[STEP 7] Processing ${vendorPayment.length} vendor payment lines`,
+      );
+      this.processVendorPaymentLines(vendorPayment);
+    }
+
+    return formattedDfoLines;
   }
 
   public validateAsync(
@@ -253,10 +255,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     for (const line of sortedLines) {
       if (line.IsCustodySettlement) {
         custodySettlementLines.push(line);
-      } else if (
-        !this.isInbound() &&
-        (line.IsVendorPayment || line.IsCustodyIssue)
-      ) {
+      } else if (!this.isInbound() && line.IsVendorPayment) {
         vendorPayment.push(line);
       } else {
         otherLines.push(line);
