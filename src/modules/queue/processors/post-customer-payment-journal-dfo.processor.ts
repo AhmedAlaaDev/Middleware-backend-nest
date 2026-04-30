@@ -129,6 +129,13 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     createdHeaders: CreatedHeader[],
     _errorCollector: PostingErrorCollector,
   ): Promise<void> {
+    const isCashOut =
+      (journal.lines?.[0] as { cashDirection?: 'in' | 'out' } | undefined)
+        ?.cashDirection === 'out';
+    this.customerPaymentJournalStrategy.setHeaderCashDirectionContext(
+      isCashOut ? 'out' : 'in',
+    );
+
     const headerResult = await strategy.postHeadersInBatches(
       [journal.header],
       1,

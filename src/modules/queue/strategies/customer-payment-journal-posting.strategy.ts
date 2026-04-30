@@ -8,9 +8,11 @@ import {
 
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
+import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalLineRequest,
+  D365FOVendorPaymentJournalHeaderRequest,
 } from '@/modules/d365fo/types';
 
 /**
@@ -25,19 +27,30 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
 
   constructor(
     private readonly customerPaymentJournalService: CustomerPaymentJournalService,
+    private readonly vendorPaymentJournalService: VendorPaymentJournalService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
+
+  private headerCashDirectionContext: 'in' | 'out' = 'in';
+
+  public setHeaderCashDirectionContext(direction: 'in' | 'out'): void {
+    this.headerCashDirectionContext = direction;
+  }
 
   public async postHeadersInBatches(
     headers: unknown[],
     chunkSize: number,
   ): Promise<PostHeadersResult> {
-    const typedHeaders = headers as D365FOCustomerPaymentJournalHeaderRequest[];
     const journalBatchNumbers =
-      await this.customerPaymentJournalService.postHeadersBatch(
-        typedHeaders,
-        chunkSize,
-      );
+      this.headerCashDirectionContext === 'out'
+        ? await this.vendorPaymentJournalService.postHeadersBatch(
+            headers as D365FOVendorPaymentJournalHeaderRequest[],
+            chunkSize,
+          )
+        : await this.customerPaymentJournalService.postHeadersBatch(
+            headers as D365FOCustomerPaymentJournalHeaderRequest[],
+            chunkSize,
+          );
 
     const responses = journalBatchNumbers.map((batchNumber) => ({
       JournalBatchNumber: batchNumber,

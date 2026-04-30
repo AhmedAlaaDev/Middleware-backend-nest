@@ -37,6 +37,65 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
   protected readonly SETTLEMENT_MAIN_ACCOUNTS = ['421103'];
 
+  protected readonly MAIN_ACCOUNTS_NP_MAP: Record<number, number> = {
+    211201: 223201,
+    211202: 223202,
+    211203: 223203,
+    211204: 223204,
+
+    224200: 223201,
+    224201: 223201,
+    224202: 223201,
+    224203: 223201,
+    224204: 223201,
+    224205: 223201,
+    224206: 223201,
+    224207: 223201,
+    224208: 223201,
+    224209: 223201,
+    224210: 223201,
+    224211: 223201,
+
+    224300: 223202,
+    224301: 223202,
+    224302: 223202,
+    224303: 223202,
+    224304: 223202,
+    224305: 223202,
+    224306: 223202,
+    224307: 223202,
+    224308: 223202,
+    224309: 223202,
+    224310: 223202,
+    224311: 223202,
+
+    224400: 223203,
+    224401: 223203,
+    224402: 223203,
+    224403: 223203,
+    224404: 223203,
+    224405: 223203,
+    224406: 223203,
+    224407: 223203,
+    224408: 223203,
+    224409: 223203,
+    224410: 223203,
+    224411: 223203,
+
+    224500: 223204,
+    224501: 223204,
+    224502: 223204,
+    224503: 223204,
+    224504: 223204,
+    224505: 223204,
+    224506: 223204,
+    224507: 223204,
+    224508: 223204,
+    224509: 223204,
+    224510: 223204,
+    224511: 223204,
+  };
+
   abstract readonly entryProcessorType: EntryProcessorTypes;
   abstract readonly requiredDimensions: RequiredDimensionsConfig;
 
@@ -231,9 +290,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
   protected getJournalName(): string {
     if (this.isInbound()) {
-      return this.isTrucking() ? 'Cust-Fleet' : 'Cust-Pay';
+      return this.isTrucking() ? 'Cust-Pay' : 'Cust-Pay';
     }
-    return this.isTrucking() ? 'CashOut-Fleet' : 'CashOut';
+    return this.isTrucking() ? 'P-Fleet' : 'P-Freight';
   }
 
   protected getCollectionDescriptionLabel(): string {
@@ -574,7 +633,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
         ? offsetLine?.ACCOUNTDISPLAYVALUE
-        : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
+        : accountLine?.ACCOUNTTYPE === 'Ledger'
+          ? accountLine?.ACCOUNTDISPLAYVALUE
+          : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
 
     const segmentLength =
       this.utilsService.getDimensionSegmentLength(dimensionString);
@@ -600,6 +661,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dimensions.mainAccount = '122204';
     }
 
+    if (
+      dimensions.mainAccount &&
+      this.MAIN_ACCOUNTS_NP_MAP[Number(dimensions.mainAccount)]
+    ) {
+      dimensions.mainAccount =
+        this.MAIN_ACCOUNTS_NP_MAP[Number(dimensions.mainAccount)].toString();
+    }
+
     const isNotesReceivable = this.isNotesReceivableLine(
       offsetLine,
       dimensions,
@@ -609,7 +678,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       accountLine.TRANSDATE,
     );
     const label = this.getCollectionDescriptionLabel();
-    const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
+    const description = `Vendor Payment - ${label} ${formattedDate} (${accountLine.VoucherType})`;
 
     const paymentReference =
       offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
