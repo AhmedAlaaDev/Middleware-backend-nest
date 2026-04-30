@@ -34,6 +34,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     '122204',
     '123510',
   ];
+
   protected readonly SETTLEMENT_MAIN_ACCOUNTS = ['421103'];
 
   abstract readonly entryProcessorType: EntryProcessorTypes;
@@ -137,10 +138,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
-    const formattedDfoLines = updatedDfoLines.map(
-      (line) => new CashEntryDynDataModel(line.DimensionModel, line),
-    );
-
     this.logger.debug(
       `[STEP 7] Processing ${custodySettlementLines.length} custody settlement lines`,
     );
@@ -153,7 +150,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.processVendorPaymentLines(vendorPayment);
     }
 
-    return formattedDfoLines;
+    return updatedDfoLines;
   }
 
   public validateAsync(
@@ -349,16 +346,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     lines: CashEntryRawDataModel[],
   ): CashEntryDynDataModel[] {
-    const accountLine = lines.find((l) => {
-      if (this.isInbound()) return l.IsCustomer;
+    let accountLine: CashEntryRawDataModel | undefined;
+    let offsetLine: CashEntryRawDataModel | undefined;
 
-      return l.IsVendor;
-    });
-    const offsetLine = lines.find((l) => {
-      if (this.isInbound()) return !l.IsCustomer;
-
-      return !l.IsVendor;
-    });
+    if (this.isInbound()) {
+      accountLine = lines.find((l) => l.IsCustomer);
+      offsetLine = lines.find((l) => !l.IsCustomer);
+    } else {
+      accountLine = lines.find((l) => l.DEBITAMOUNT > 0);
+      offsetLine = lines.find((l) => l.CREDITAMOUNT > 0);
+    }
 
     return [this.buildLine(sourceId, accountLine, offsetLine)];
   }
@@ -367,40 +364,62 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     lines: CashEntryRawDataModel[],
   ): CashEntryDynDataModel[] {
-    const accountLines = lines.filter((l) => {
-      if (this.isInbound()) return l.IsCustomer;
+    let accountLines: CashEntryRawDataModel[] = [];
+    let offsetLines: CashEntryRawDataModel[] = [];
 
-      return l.IsVendor;
-    });
+    if (this.isInbound()) {
+      accountLines = lines.filter((l) => l.IsCustomer);
+      offsetLines = lines.filter((l) => !l.IsCustomer);
 
-    const offsetLines = lines.filter((l) => {
-      if (this.isInbound()) return !l.IsCustomer;
+      const accountLinesLength = accountLines.length;
+      const offsetLinesLength = offsetLines.length;
+      const settlementSink: CashEntryRawDataModel[] = [];
 
-      return !l.IsVendor;
-    });
+      if (accountLinesLength > 1 && offsetLinesLength === 1) {
+        return accountLines.map((accLine) =>
+          this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
+        );
+      }
 
-    const accountLinesLength = accountLines.length;
-    const offsetLinesLength = offsetLines.length;
-    const settlementSink: CashEntryRawDataModel[] = [];
+      if (accountLinesLength === 1 && offsetLinesLength > 1) {
+        const withoutSettlementOffsetLines = this.filterOutSettlementLines(
+          offsetLines,
+          settlementSink,
+        );
 
-    if (accountLinesLength > 1 && offsetLinesLength === 1) {
-      return accountLines.map((accLine) =>
-        this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
-      );
+        return withoutSettlementOffsetLines.map((offLine) =>
+          this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
+        );
+      }
+
+      return [this.buildLine(sourceId)];
+    } else {
+      accountLines = lines.filter((l) => l.DEBITAMOUNT > 0);
+      offsetLines = lines.filter((l) => l.CREDITAMOUNT > 0);
+
+      const accountLinesLength = accountLines.length;
+      const offsetLinesLength = offsetLines.length;
+      const settlementSink: CashEntryRawDataModel[] = [];
+
+      if (accountLinesLength > 1 && offsetLinesLength === 1) {
+        return accountLines.map((accLine) =>
+          this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
+        );
+      }
+
+      if (accountLinesLength === 1 && offsetLinesLength > 1) {
+        const withoutSettlementOffsetLines = this.filterOutSettlementLines(
+          offsetLines,
+          settlementSink,
+        );
+
+        return withoutSettlementOffsetLines.map((offLine) =>
+          this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
+        );
+      }
+
+      return [this.buildLine(sourceId)];
     }
-
-    if (accountLinesLength === 1 && offsetLinesLength > 1) {
-      const withoutSettlementOffsetLines = this.filterOutSettlementLines(
-        offsetLines,
-        settlementSink,
-      );
-
-      return withoutSettlementOffsetLines.map((offLine) =>
-        this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
-      );
-    }
-
-    return [this.buildLine(sourceId)];
   }
 
   protected buildLine(
@@ -445,7 +464,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         SourceIds: [sourceId],
       });
 
-      line.AddError('InvalidInvoice', 'No Cust or offset line found');
+      if (!accountLine) {
+        line.AddError('InvalidMapping', 'No account line found');
+      }
+      if (!offsetLine) {
+        line.AddError('InvalidMapping', 'No offset line found');
+      }
 
       return line;
     }
@@ -562,7 +586,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         SourceIds: [sourceId],
       });
 
-      line.AddError('InvalidInvoice', 'No Cust or offset line found');
+      if (!accountLine) {
+        line.AddError('InvalidMapping', 'No account line found');
+      }
+      if (!offsetLine) {
+        line.AddError('InvalidMapping', 'No offset line found');
+      }
+
       return line;
     }
 

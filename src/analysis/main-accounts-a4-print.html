@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Main Accounts - أوراق</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+
+    :root {
+      --border: #000;
+      --text: #000;
+      --bg: #fff;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.4;
+    }
+
+    .page {
+      width: 100%;
+      max-width: 190mm;
+      margin: 0 auto;
+      padding: 0;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+
+    thead th {
+      border-bottom: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: center;
+      font-weight: 700;
+      background: #fff;
+    }
+
+    thead th:last-child,
+    tbody td:last-child {
+      border-left: none;
+    }
+
+    tbody td {
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      padding: 5px 8px;
+      vertical-align: top;
+      background: #fff;
+      word-break: break-word;
+    }
+
+    .col-index {
+      width: 7%;
+      text-align: center;
+    }
+
+    .col-account {
+      width: 12%;
+      text-align: center;
+      direction: ltr;
+    }
+
+    .col-name {
+      width: 46%;
+      text-align: right;
+    }
+
+    .col-chart {
+      width: 17%;
+      text-align: center;
+      direction: ltr;
+    }
+
+    .col-map {
+      width: 18%;
+      text-align: center;
+      direction: ltr;
+    }
+
+    .actions {
+      margin: 10px 0 0;
+      text-align: center;
+    }
+
+    .print-btn {
+      border: 1px solid #000;
+      background: #fff;
+      color: #000;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    @media print {
+      .actions {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>دليل الحسابات - حسابات أوراق</h1>
+    <div class="meta">
+      <span>Filter: accountName contains "اوراق" or "أوراق"</span>
+      <span id="countLabel">Total: 0</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-index">#</th>
+            <th class="col-account">Acct No. (6)</th>
+            <th class="col-map">Map To ID</th>
+            <th class="col-name">Account Name</th>
+            <th class="col-chart">Chart Number</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="actions">
+      <button type="button" class="print-btn" onclick="window.print()">Print / Save as PDF (A4)</button>
+    </div>
+  </div>
+
+  <script>
+    const filteredItems = [
+      { accountNumber: "211200", accountName: " أوراق دفع طويلة الاجل", chartNumber: "Chart of Accounts" },
+      { accountNumber: "211201", accountName: " اوراق دفع طويلة الاجل بالمصري", chartNumber: "Chart of Accounts" },
+      { accountNumber: "211202", accountName: " اوراق دفع طويلة الاجل بالدولار", chartNumber: "Chart of Accounts" },
+      { accountNumber: "211203", accountName: " اوراق دفع طويلة الاجل باليورو", chartNumber: "Chart of Accounts" },
+      { accountNumber: "211204", accountName: " اوراق دفع طويلة الاجل بالاسترليني", chartNumber: "Chart of Accounts" },
+      { accountNumber: "223200", accountName: " أوراق دفع", chartNumber: "Chart of Accounts" },
+      { accountNumber: "223201", accountName: " أوراق دفع بالمصرى", chartNumber: "Chart of Accounts" },
+      { accountNumber: "223202", accountName: " أوراق دفع بالدولار", chartNumber: "Chart of Accounts" },
+      { accountNumber: "223203", accountName: " أوراق دفع باليورو", chartNumber: "Chart of Accounts" },
+      { accountNumber: "223204", accountName: " أوراق دفع بالإسترلينى", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224200", accountName: " اوراق دفع بالمصرى - اطراف ذوى علاقة", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224201", accountName: " اوراق دفع بالمصرى - Saco Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224202", accountName: " اوراق دفع بالمصرى - Globelink Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224203", accountName: " اوراق دفع بالمصرى - Euro Shipping Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224204", accountName: " اوراق دفع بالمصرى - Altun Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224205", accountName: " اوراق دفع بالمصرى - Wec Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224206", accountName: " اوراق دفع بالمصرى - MTS Logistics", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224207", accountName: " اوراق دفع بالمصرى - MSC Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224208", accountName: " اوراق دفع بالمصرى - Mils", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224209", accountName: " اوراق دفع بالمصرى - Mesco Express", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224210", accountName: " اوراق دفع بالمصرى - Mesco Parcel", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224211", accountName: " اوراق دفع بالمصرى - Mesco", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224300", accountName: " اوراق دفع بالدولار - اطراف ذوى علاقة", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224301", accountName: " اوراق دفع بالدولار - Saco Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224302", accountName: " اوراق دفع بالدولار - Globelink Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224303", accountName: " اوراق دفع بالدولار - Euro Shipping Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224304", accountName: " اوراق دفع بالدولار - Altun Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224305", accountName: " اوراق دفع بالدولار - Wec Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224306", accountName: " اوراق دفع بالدولار - MTS Logistics", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224307", accountName: " اوراق دفع بالدولار - MSC Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224308", accountName: " اوراق دفع بالدولار - Mils", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224309", accountName: " اوراق دفع بالدولار - Mesco Express", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224310", accountName: " اوراق دفع بالدولار - Mesco Parcel", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224311", accountName: " اوراق دفع بالدولار - Mesco", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224400", accountName: " اوراق دفع باليورو - اطراف ذوى علاقة", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224401", accountName: " اوراق دفع باليورو - Saco Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224402", accountName: " اوراق دفع باليورو - Globelink Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224403", accountName: " اوراق دفع باليورو - Euro Shipping Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224404", accountName: " اوراق دفع باليورو - Altun Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224405", accountName: " اوراق دفع باليورو - Wec Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224406", accountName: " اوراق دفع باليورو - MTS Logistics", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224407", accountName: " اوراق دفع باليورو - MSC Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224408", accountName: " اوراق دفع باليورو - Mils", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224409", accountName: " اوراق دفع باليورو - Mesco Express", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224410", accountName: " اوراق دفع باليورو - Mesco Parcel", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224411", accountName: " اوراق دفع باليورو - Mesco", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224500", accountName: " اوراق دفع بالاسترلينى- اطراف ذوى علاقة", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224501", accountName: " اوراق دفع بالاسترليني - Saco Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224502", accountName: " اوراق دفع بالاسترليني - Globelink Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224503", accountName: " اوراق دفع بالاسترليني - Euro Shipping Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224504", accountName: " اوراق دفع بالاسترليني - Altun Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224505", accountName: " اوراق دفع بالاسترليني - Wec Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224506", accountName: " اوراق دفع بالاسترليني - MTS Logistics", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224507", accountName: " اوراق دفع بالاسترليني - MSC Egypt", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224508", accountName: " اوراق دفع بالاسترليني - Mils", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224509", accountName: " اوراق دفع بالاسترليني - Mexco Express", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224510", accountName: " اوراق دفع بالاسترليني - Mesco Parcel", chartNumber: "Chart of Accounts" },
+      { accountNumber: "224511", accountName: " اوراق دفع بالاسترليني - Mesco", chartNumber: "Chart of Accounts" }
+    ];
+
+    const tbody = document.getElementById("tbody");
+    const countLabel = document.getElementById("countLabel");
+
+    filteredItems.forEach((item, idx) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td class="col-index">${idx + 1}</td>
+        <td class="col-account">${item.accountNumber}</td>
+        <td class="col-map"></td>
+        <td class="col-name">${item.accountName}</td>
+        <td class="col-chart">${item.chartNumber}</td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    countLabel.textContent = `Total: ${filteredItems.length}`;
+  </script>
+</body>
+</html>

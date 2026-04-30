@@ -10,4 +10,12 @@ export class GetMainAccountsDto extends PaginatedDto {
   @IsOptional()
   @IsString()
   chartOfAccounts?: string;
+
+  /**
+   * Main account name (case-insensitive partial match)
+   * @example Cash
+   */
+  @IsOptional()
+  @IsString()
+  accountName?: string;
 }

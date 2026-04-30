@@ -531,14 +531,10 @@ export class EntryProcessorUtilsService {
       const updatedLines: T[] = [];
 
       for (const line of lines) {
-        const updatedLine: T = {
-          ...line,
-          JournalBatchNumber: formattedBatch,
-          Voucher: formattedVoucher,
-          LineNumber: lineNumberInBatch,
-        };
-
-        updatedLines.push(updatedLine);
+        line.JournalBatchNumber = formattedBatch;
+        line.Voucher = formattedVoucher;
+        line.LineNumber = lineNumberInBatch;
+        updatedLines.push(line);
         currentBatchLineCount++;
         lineNumberInBatch++;
       }
@@ -644,14 +640,10 @@ export class EntryProcessorUtilsService {
       const updatedLines: T[] = [];
 
       for (const line of groupedLines) {
-        const updatedLine: T = {
-          ...line,
-          JournalBatchNumber: formattedBatch,
-          Voucher: formattedVoucher,
-          LineNumber: lineNumberInBatch,
-        };
-
-        updatedLines.push(updatedLine);
+        line.JournalBatchNumber = formattedBatch;
+        line.Voucher = formattedVoucher;
+        line.LineNumber = lineNumberInBatch;
+        updatedLines.push(line);
         currentBatchLineCount++;
         lineNumberInBatch++;
       }

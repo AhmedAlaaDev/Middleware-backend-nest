@@ -48,6 +48,7 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
     for (const account of allAccounts) {
       const chartNumber = account.ChartOfAccounts || '';
       const accountNumber = account.MainAccountId || '';
+      const accountName = account.Name || '';
 
       if (!chartNumber || !accountNumber) {
         this.logger.warn(
@@ -67,6 +68,7 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
       accountPayload.push({
         chartNumber: chartNumber,
         accountNumber: accountNumber,
+        accountName: accountName,
       });
     }
 

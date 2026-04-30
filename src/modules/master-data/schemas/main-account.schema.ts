@@ -13,6 +13,9 @@ export class MainAccount {
 
   @Prop()
   accountNumber: string;
+
+  @Prop()
+  accountName: string;
 }
 export const MainAccountSchema = SchemaFactory.createForClass(MainAccount);
 MainAccountSchema.index({ chartNumber: 1 });

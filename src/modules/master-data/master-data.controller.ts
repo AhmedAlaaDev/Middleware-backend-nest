@@ -262,7 +262,10 @@ export class MasterDataController {
   ): Promise<IPaginatedRes<IMainAccount>> {
     return this.queryBus.execute(
       new GetMainAccountsQuery(
-        { chartNumber: query.chartOfAccounts },
+        {
+          chartNumber: query.chartOfAccounts,
+          accountName: query.accountName,
+        },
         query.skipCount,
         query.maxCount,
       ),

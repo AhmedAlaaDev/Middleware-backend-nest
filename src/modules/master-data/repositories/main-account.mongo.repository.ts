@@ -10,6 +10,10 @@ import {
 import { MainAccountRepository } from '@/modules/master-data/repositories/interfaces/main-account.repository';
 import { MainAccount } from '@/modules/master-data/schemas/main-account.schema';
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 @Injectable()
 export class MainAccountMongoRepository implements MainAccountRepository {
   constructor(
@@ -39,6 +43,11 @@ export class MainAccountMongoRepository implements MainAccountRepository {
   ): Promise<IMainAccount[]> {
     const q: Record<string, unknown> = {};
     if (filter.chartNumber) q['chartNumber'] = filter.chartNumber;
+    if (filter.accountName) {
+      q['accountName'] = {
+        $regex: new RegExp(escapeRegex(filter.accountName), 'i'),
+      };
+    }
     let query = this.model.find(q).lean();
 
     if (options?.skipCount !== undefined) {
@@ -54,12 +63,18 @@ export class MainAccountMongoRepository implements MainAccountRepository {
       id: doc._id.toString(),
       chartNumber: doc.chartNumber,
       accountNumber: doc.accountNumber,
+      accountName: doc.accountName,
     }));
   }
 
   async getCount(filter: IMainAccountListFilter): Promise<number> {
     const q: Record<string, unknown> = {};
     if (filter.chartNumber) q['chartNumber'] = filter.chartNumber;
+    if (filter.accountName) {
+      q['accountName'] = {
+        $regex: new RegExp(escapeRegex(filter.accountName), 'i'),
+      };
+    }
     return this.model.countDocuments(q).exec();
   }
 }

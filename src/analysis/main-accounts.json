@@ -1,0 +1,410 @@
+{
+  "status": {
+    "code": 200,
+    "message": "Success"
+  },
+  "meta": {
+    "requestId": "6a84c14d-4925-4248-990f-d1d9508e7f51",
+    "timestamp": "2026-04-30T12:55:09.326Z",
+    "path": "/api/v1/Finance/MasterData/main-accounts?skipCount=0&maxCount=100&chartOfAccounts=Chart%20of%20Accounts&accountName=%D8%AF%D9%81%D8%B9",
+    "method": "GET"
+  },
+  "data": {
+    "items": [
+      {
+        "id": "69f1d65d0442f63bdcbfaff2",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "124102",
+        "accountName": " دفعات مقدمة موردين"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfaff9",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "124108",
+        "accountName": " دفعات مقدمة ضرائب ارباح تجاريه و صناعية"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb09f",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "211200",
+        "accountName": " أوراق دفع طويلة الاجل"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0a0",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "211201",
+        "accountName": " اوراق دفع طويلة الاجل بالمصري"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0a1",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "211202",
+        "accountName": " اوراق دفع طويلة الاجل بالدولار"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0a2",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "211203",
+        "accountName": " اوراق دفع طويلة الاجل باليورو"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0a3",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "211204",
+        "accountName": " اوراق دفع طويلة الاجل بالاسترليني"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0e6",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223000",
+        "accountName": " الموردين واواراق الدفع والحسابات الدائنة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0eb",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223200",
+        "accountName": " أوراق دفع"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0ec",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223201",
+        "accountName": " أوراق دفع بالمصرى"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0ed",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223202",
+        "accountName": " أوراق دفع بالدولار"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0ee",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223203",
+        "accountName": " أوراق دفع باليورو"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb0ef",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223204",
+        "accountName": " أوراق دفع بالإسترلينى"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb106",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223600",
+        "accountName": " دفعات مقدمة عملاء"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb107",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "223601",
+        "accountName": " دفعات مقدمة عملاء"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb124",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224200",
+        "accountName": " اوراق دفع بالمصرى - اطراف ذوى علاقة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb125",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224201",
+        "accountName": " اوراق دفع بالمصرى - Saco Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb126",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224202",
+        "accountName": " اوراق دفع بالمصرى - Globelink Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb127",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224203",
+        "accountName": " اوراق دفع بالمصرى - Euro Shipping Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb128",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224204",
+        "accountName": " اوراق دفع بالمصرى - Altun Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb129",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224205",
+        "accountName": " اوراق دفع بالمصرى - Wec Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb12a",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224206",
+        "accountName": " اوراق دفع بالمصرى - MTS Logistics"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb12c",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224207",
+        "accountName": " اوراق دفع بالمصرى - MSC Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb12d",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224208",
+        "accountName": " اوراق دفع بالمصرى - Mils"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb12e",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224209",
+        "accountName": " اوراق دفع بالمصرى - Mesco Express"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb12f",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224210",
+        "accountName": " اوراق دفع بالمصرى - Mesco Parcel"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb130",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224211",
+        "accountName": " اوراق دفع بالمصرى - Mesco"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb131",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224300",
+        "accountName": " اوراق دفع بالدولار - اطراف ذوى علاقة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb132",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224301",
+        "accountName": " اوراق دفع بالدولار - Saco Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb133",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224302",
+        "accountName": " اوراق دفع بالدولار - Globelink Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb134",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224303",
+        "accountName": " اوراق دفع بالدولار - Euro Shipping Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb135",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224304",
+        "accountName": " اوراق دفع بالدولار - Altun Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb137",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224305",
+        "accountName": " اوراق دفع بالدولار - Wec Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb138",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224306",
+        "accountName": " اوراق دفع بالدولار - MTS Logistics"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb139",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224307",
+        "accountName": " اوراق دفع بالدولار - MSC Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13a",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224308",
+        "accountName": " اوراق دفع بالدولار - Mils"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13b",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224309",
+        "accountName": " اوراق دفع بالدولار - Mesco Express"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13c",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224310",
+        "accountName": " اوراق دفع بالدولار - Mesco Parcel"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13d",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224311",
+        "accountName": " اوراق دفع بالدولار - Mesco"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13e",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224400",
+        "accountName": " اوراق دفع باليورو - اطراف ذوى علاقة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb13f",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224401",
+        "accountName": " اوراق دفع باليورو - Saco Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb140",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224402",
+        "accountName": " اوراق دفع باليورو - Globelink Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb142",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224403",
+        "accountName": " اوراق دفع باليورو - Euro Shipping Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb143",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224404",
+        "accountName": " اوراق دفع باليورو - Altun Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb144",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224405",
+        "accountName": " اوراق دفع باليورو - Wec Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb145",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224406",
+        "accountName": " اوراق دفع باليورو - MTS Logistics"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb146",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224407",
+        "accountName": " اوراق دفع باليورو - MSC Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb147",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224408",
+        "accountName": " اوراق دفع باليورو - Mils"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb148",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224409",
+        "accountName": " اوراق دفع باليورو - Mesco Express"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb149",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224410",
+        "accountName": " اوراق دفع باليورو - Mesco Parcel"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb14a",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224411",
+        "accountName": " اوراق دفع باليورو - Mesco"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb14b",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224500",
+        "accountName": " اوراق دفع بالاسترلينى- اطراف ذوى علاقة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb14d",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224501",
+        "accountName": " اوراق دفع بالاسترليني - Saco Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb14e",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224502",
+        "accountName": " اوراق دفع بالاسترليني - Globelink Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb14f",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224503",
+        "accountName": " اوراق دفع بالاسترليني - Euro Shipping Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb150",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224504",
+        "accountName": " اوراق دفع بالاسترليني - Altun Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb151",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224505",
+        "accountName": " اوراق دفع بالاسترليني - Wec Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb152",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224506",
+        "accountName": " اوراق دفع بالاسترليني - MTS Logistics"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb153",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224507",
+        "accountName": " اوراق دفع بالاسترليني - MSC Egypt"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb154",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224508",
+        "accountName": " اوراق دفع بالاسترليني - Mils"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb155",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224509",
+        "accountName": " اوراق دفع بالاسترليني - Mexco Express"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb156",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224510",
+        "accountName": " اوراق دفع بالاسترليني - Mesco Parcel"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb158",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "224511",
+        "accountName": " اوراق دفع بالاسترليني - Mesco"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb1dd",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "112201",
+        "accountName": " مشروعات تحت التنفيذ - دفعات مقدمة"
+      },
+      {
+        "id": "69f1d65d0442f63bdcbfb36c",
+        "chartNumber": "Chart of Accounts",
+        "accountNumber": "122205",
+        "accountName": " عملاء دفعات شيكات (أ.ق)"
+      }
+    ],
+    "totalCount": 65,
+    "pageSize": 100,
+    "pageNumber": 1,
+    "totalPages": 1
+  }
+}
