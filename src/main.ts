@@ -9,11 +9,15 @@ import { AppModule } from './app.module';
 
 import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
 import { GlobalResponseInterceptor } from '@/common/interceptors/global-response.interceptor';
+import { botBlockMiddleware } from '@/common/middlewares/bot-block.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const isProduction = process.env.NODE_ENV === 'production';
   const isSwaggerEnabled = !isProduction;
+
+  // Early middleware to short-circuit obviously invalid/bot requests
+  app.use(botBlockMiddleware);
 
   // API Versioning
   app.enableVersioning({
