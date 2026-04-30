@@ -44,7 +44,6 @@ export function botBlockMiddleware(
     '/apps/zxtm',
     '/versa',
     '/dniapi',
-    '/api/v1',
     '/api/server',
     '/api/vip',
     '/magento',
