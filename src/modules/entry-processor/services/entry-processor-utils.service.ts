@@ -257,6 +257,23 @@ export class EntryProcessorUtilsService {
   }
 
   /**
+   * Builds the 9-digit prefix for free-text numbers from the token before "/".
+   * Uses the substring after the last "-" (or the whole token if there is no "-"),
+   * then {@link parseInt} and left-pad to 9 digits (e.g. C26-1405 → 000001405, ORS_C_26-103 → 000000103).
+   */
+  private nineDigitSequenceFromInvoiceToken(token: string): string {
+    const t = (token || '').trim();
+    if (!t) return '000000000';
+    const lastDash = t.lastIndexOf('-');
+    const segment = lastDash >= 0 ? t.slice(lastDash + 1).trim() : t.trim();
+    if (!segment) return '000000000';
+    const n = parseInt(segment, 10);
+    if (Number.isNaN(n) || n < 0) return '000000000';
+    const clamped = Math.min(n, 999_999_999);
+    return clamped.toString().padStart(9, '0');
+  }
+
+  /**
    * Formats FreeTextNumber as "9 digits/suffix" based on billing classification and invoice type.
    */
   formatFreeTextNumberWithSuffix(
@@ -266,11 +283,7 @@ export class EntryProcessorUtilsService {
   ): string {
     let numberPart = invoiceNumber || '';
     numberPart = numberPart.split('/')?.shift()?.trim() || '';
-
-    const number = parseInt(numberPart, 10);
-    const paddedNumber = !isNaN(number)
-      ? number.toString().padStart(9, '0')
-      : '000000000';
+    const paddedNumber = this.nineDigitSequenceFromInvoiceToken(numberPart);
 
     const normalizedBillingClass = (billingClassId || '').toLowerCase().trim();
     let suffix: string;
