@@ -148,6 +148,14 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     return true;
   }
 
+  /** Label stored on the queue payload so DFO errors name the FreeTextNumber posting group. */
+  private buildPostingGroupLabel(
+    firstLine: DynAccountReceivableLineModel,
+  ): string | undefined {
+    const ft = firstLine.FreeTextNumber?.trim();
+    return ft || undefined;
+  }
+
   /**
    * Maps grouped records to D365FO request types
    */
@@ -162,12 +170,14 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     lines: D365FOFreeTextInvoiceLineRequest[];
     HeaderDefaultDimensionDisplayValue: string;
     LineFinTagDisplayValues: string[];
+    postingGroupLabel?: string;
   }> {
     const groupedInvoices: Array<{
       header: D365FOFreeTextInvoiceHeaderRequest;
       lines: D365FOFreeTextInvoiceLineRequest[];
       HeaderDefaultDimensionDisplayValue: string;
       LineFinTagDisplayValues: string[];
+      postingGroupLabel?: string;
     }> = [];
 
     for (const [_freeTextNumber, lines] of invoiceGroups.entries()) {
@@ -186,6 +196,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         lines: mappedLines,
         HeaderDefaultDimensionDisplayValue: headerDefaultDimensionDisplayValue,
         LineFinTagDisplayValues: lineFinTagDisplayValues,
+        postingGroupLabel: this.buildPostingGroupLabel(lines[0].data),
       });
     }
 
@@ -198,12 +209,14 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       lines: D365FOFreeTextInvoiceLineRequest[];
       HeaderDefaultDimensionDisplayValue: string;
       LineFinTagDisplayValues: string[];
+      postingGroupLabel?: string;
     }>,
   ): Array<{
     header: D365FOFreeTextInvoiceHeaderRequest;
     lines: D365FOFreeTextInvoiceLineRequest[];
     HeaderDefaultDimensionDisplayValue: string;
     LineFinTagDisplayValues: string[];
+    postingGroupLabel?: string;
   }> {
     if (!this.testingModeEnabled) {
       return groupedInvoices;
@@ -223,6 +236,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         0,
         this.testingModeMaxLines,
       ),
+      postingGroupLabel: first.postingGroupLabel,
     };
 
     this.logger.warn(
@@ -306,6 +320,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       lines: D365FOFreeTextInvoiceLineRequest[];
       HeaderDefaultDimensionDisplayValue: string;
       LineFinTagDisplayValues: string[];
+      postingGroupLabel?: string;
     }>,
   ): void {
     const validationErrors: Array<{
@@ -487,6 +502,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       lines: D365FOFreeTextInvoiceLineRequest[];
       HeaderDefaultDimensionDisplayValue: string;
       LineFinTagDisplayValues: string[];
+      postingGroupLabel?: string;
     }>,
   ): Promise<PostARBatchToDFOResult> {
     const job = await this.queueService.addJob(

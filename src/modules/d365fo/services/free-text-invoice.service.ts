@@ -4,6 +4,7 @@ import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
+import { FreeTextInvoiceLinePostError } from '@/modules/d365fo/errors/free-text-invoice-line-post.error';
 import {
   D365FOFreeTextInvoiceHeaderRequest,
   D365FOFreeTextInvoiceLineRequest,
@@ -173,22 +174,72 @@ export class FreeTextInvoiceService {
       );
 
       try {
-        // Post lines in parallel within chunk, tracking successes
-        const chunkPromises = chunk.map(async (line) => {
-          await this.postLine(line);
-          return {
-            headerId: String(line.ParentRecId),
-            lineNumber: line.LineNumber,
-          };
-        });
-
-        const chunkResults = await Promise.all(chunkPromises);
-        successfullyPosted.push(...chunkResults);
+        // Post lines sequentially within the chunk so the first failing line is known
+        // (parallel posts made it impossible to attribute D365FO BillingCode errors to a line).
+        for (let j = 0; j < chunk.length; j++) {
+          const line = chunk[j];
+          const lineIndexInInvoice = i + j;
+          try {
+            await this.postLine(line);
+            successfullyPosted.push({
+              headerId: String(line.ParentRecId),
+              lineNumber: line.LineNumber,
+            });
+          } catch (error) {
+            const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+            if (error?.response?.data) {
+              this.logger.error(
+                `D365FO error response: ${JSON.stringify(error.response.data)}`,
+              );
+            }
+            this.logger.error(
+              `Failed posting line at invoice index ${lineIndexInInvoice} (chunk ${chunkNumber}, in-chunk ${j}), LineNumber=${line.LineNumber}, BillingCode=${line.BillingCode}: ${errorDetails}`,
+              error instanceof Error ? error.stack : undefined,
+            );
+            throw new FreeTextInvoiceLinePostError(
+              errorDetails,
+              {
+                lineIndexInInvoice,
+                chunkNumber,
+                indexInChunk: j,
+                parentRecId: line.ParentRecId,
+                lineNumber: line.LineNumber,
+                dataAreaId: line.dataAreaId,
+                billingCode: line.BillingCode,
+                mainAccountDisplayValue: line.MainAccountDisplayValue,
+                invoiceText: line.InvoiceText,
+                defaultDimensionDisplayValue: line.DefaultDimensionDisplayValue,
+              },
+              error,
+            );
+          }
+        }
 
         this.logger.debug(
           `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
         );
       } catch (error) {
+        if (error instanceof FreeTextInvoiceLinePostError) {
+          const prior = successfullyPosted.length;
+          let suffix = `. No lines were posted successfully in this chunk.`;
+          if (prior > 0) {
+            suffix = `. ${prior} line(s) were posted successfully before failure; header rollback will remove them.`;
+            this.logger.warn(
+              `Line post failed after ${prior} successful line(s) in batch; rollback required.`,
+            );
+          } else {
+            this.logger.warn(
+              `No lines were posted successfully in chunk ${chunkNumber}. Only headers need rollback.`,
+            );
+          }
+          const fullMessage = `Failed to post lines in chunk ${chunkNumber}: ${error.message}${suffix}`;
+          throw new FreeTextInvoiceLinePostError(
+            fullMessage,
+            error.context,
+            error.cause,
+          );
+        }
+
         const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
         if (error?.response?.data) {
@@ -216,7 +267,6 @@ export class FreeTextInvoiceService {
           );
         }
 
-        // Re-throw to trigger rollback in processor
         throw new Error(errorMessage);
       }
     }

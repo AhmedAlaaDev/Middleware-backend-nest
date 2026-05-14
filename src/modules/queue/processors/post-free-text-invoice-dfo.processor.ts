@@ -2,12 +2,19 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
+import {
+  FreeTextInvoiceLinePostError,
+  type FreeTextInvoiceLinePostContext,
+} from '@/modules/d365fo/errors/free-text-invoice-line-post.error';
 import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { FreeTextInvoiceFinTagService } from '@/modules/d365fo/services/free-text-invoice-fin-tag.service';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
-import { PostFreeTextInvoiceDFOJobPayload } from '@/modules/queue/contracts/post-free-text-invoice-dfo-job.contract';
+import {
+  PostFreeTextInvoiceDFOJobPayload,
+  type FreeTextInvoiceLinePostingMeta,
+} from '@/modules/queue/contracts/post-free-text-invoice-dfo-job.contract';
 import {
   CreatedHeader,
   DfoRollbackService,
@@ -46,7 +53,9 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
       this.logger.log(`Job ${job.id} completed successfully`);
     } catch (error) {
       const msg = this.dfoErrorExtractor.extractMessage(error);
-      errorCollector.addHeaderError(msg, 'Job processing');
+      if (!errorCollector.hasErrors()) {
+        errorCollector.addHeaderError(msg, 'Job processing');
+      }
       this.logger.error(
         `Job ${job.id} failed: ${msg}`,
         error instanceof Error ? error.stack : undefined,
@@ -136,12 +145,33 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     const headerKey = headerResult.headerIds[0];
     createdHeaders.push({ headerKey, dataAreaId: company });
     this.logger.log(`[POST] Header ${index}/${total} created: ${headerKey}`);
-    const postedLines = await this.strategy.postLinesForHeader(
-      headerKey,
-      invoice.lines,
-      company,
-      LINE_CHUNK_SIZE,
-    );
+    let postedLines: Array<{ headerId: string; lineNumber: number }>;
+    try {
+      postedLines = await this.strategy.postLinesForHeader(
+        headerKey,
+        invoice.lines,
+        company,
+        LINE_CHUNK_SIZE,
+      );
+    } catch (error) {
+      if (error instanceof FreeTextInvoiceLinePostError) {
+        const groupLabel = this.resolvePostingGroupLabel(invoice, index, total);
+        const meta =
+          invoice.linePostingMeta?.[error.context.lineIndexInInvoice];
+        const detail = this.formatFreeTextLineFailureDetail(
+          error.context,
+          meta,
+        );
+        this.logger.error(
+          `[POST] FreeTextNumber group "${groupLabel}" — ${error.message} | ${detail}`,
+        );
+        errorCollector.addLineError(
+          error.message,
+          `FreeTextNumber group: ${groupLabel}`,
+        );
+      }
+      throw error;
+    }
     this.logger.log(
       `[POST] Posted ${postedLines.length} lines for header ${index}`,
     );
@@ -211,5 +241,64 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     const existing = batch?.dfoIds ?? [];
     const all = [...new Set([...existing, ...headerIds])];
     await this.dataBatchService.updateDfoIdsAsync(batchId, all);
+  }
+
+  private resolvePostingGroupLabel(
+    invoice: PostFreeTextInvoiceDFOJobPayload['groupedInvoices'][0],
+    index: number,
+    total: number,
+  ): string {
+    const explicit = invoice.postingGroupLabel?.trim();
+    if (explicit) {
+      return explicit;
+    }
+    const ref = invoice.header?.CustomerReference?.trim();
+    if (ref) {
+      return ref;
+    }
+    return `invoice ${index}/${total}`;
+  }
+
+  private formatFreeTextLineFailureDetail(
+    ctx: FreeTextInvoiceLinePostContext,
+    meta: FreeTextInvoiceLinePostingMeta | undefined,
+  ): string {
+    const dim = ctx.defaultDimensionDisplayValue;
+    const dimShort =
+      dim && dim.length > 160 ? `${dim.slice(0, 160)}…` : (dim ?? '');
+    const parts: string[] = [
+      `lineIndexInInvoice=${ctx.lineIndexInInvoice}`,
+      `chunk=${ctx.chunkNumber}`,
+      `inChunkIndex=${ctx.indexInChunk}`,
+      `LineNumber=${ctx.lineNumber}`,
+      `BillingCode=${ctx.billingCode ?? ''}`,
+      `MainAccount=${ctx.mainAccountDisplayValue ?? ''}`,
+      `InvoiceText=${ctx.invoiceText ?? ''}`,
+    ];
+    if (dimShort) {
+      parts.push(`DefaultDimension=${dimShort}`);
+    }
+    if (meta) {
+      parts.push(`batchRecordId=${meta.batchRecordId}`);
+      if (meta.dataModelType) {
+        parts.push(`dataModelType=${meta.dataModelType}`);
+      }
+      if (meta.voucherInvoiceKey) {
+        parts.push(`voucherInvoiceKey=${meta.voucherInvoiceKey}`);
+      }
+      if (meta.freeTextNumber) {
+        parts.push(`freeTextNumber=${meta.freeTextNumber}`);
+      }
+      if (meta.billingClassification) {
+        parts.push(`lineBillingClassification=${meta.billingClassification}`);
+      }
+      if (meta.billingCode) {
+        parts.push(`dynBillingCode=${meta.billingCode}`);
+      }
+      if (meta.sourceIds?.length) {
+        parts.push(`sourceIds=${meta.sourceIds.join(',')}`);
+      }
+    }
+    return parts.join('; ');
   }
 }
