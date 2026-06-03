@@ -67,6 +67,7 @@ export class DataBatchService {
     );
     const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
     const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
+    const expectedGroupCount = this.calculateExpectedGroupCount(dynData);
     this.logger.debug(
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
@@ -83,6 +84,7 @@ export class DataBatchService {
       totalUploadedCount: rawData.length,
       status: DataBatchStatus.Pending,
       billingCodeId: billingClassification,
+      expectedGroupCount,
     });
     this.logger.log(`Batch created: id=${dataBatch.id}`);
 
@@ -335,6 +337,37 @@ export class DataBatchService {
       return 'DynVendorInvoiceJournalDto';
     }
     return 'DynLedgerVendorJournalEntryDto';
+  }
+
+  private calculateExpectedGroupCount(dynData: DynDataModel[]): number {
+    const groupKeys = new Set<string>();
+    for (const record of dynData) {
+      const groupKey = this.getExpectedGroupKey(record);
+      if (groupKey) {
+        groupKeys.add(groupKey);
+      }
+    }
+
+    return groupKeys.size;
+  }
+
+  private getExpectedGroupKey(record: DynDataModel): string | undefined {
+    const data = record as Record<string, unknown>;
+    const candidates = [
+      data.FreeTextNumber,
+      data.freeTextNumber,
+      data.JournalBatchNumber,
+      data.journalBatchNumber,
+      data.JOURNALBATCHNUMBER,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    return undefined;
   }
 
   /**

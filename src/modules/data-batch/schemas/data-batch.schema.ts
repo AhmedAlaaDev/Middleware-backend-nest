@@ -43,6 +43,9 @@ export class DataBatch {
   @Prop()
   billingCodeId?: string;
 
+  @Prop()
+  expectedGroupCount?: number;
+
   @Prop({ type: [String], default: [] })
   dfoIds?: string[];
 

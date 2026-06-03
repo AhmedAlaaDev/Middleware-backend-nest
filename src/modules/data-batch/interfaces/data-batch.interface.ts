@@ -14,6 +14,7 @@ export interface ICreateDataBatch {
   totalUploadedCount: number;
   status: DataBatchStatus;
   billingCodeId: string | undefined;
+  expectedGroupCount?: number;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
 }
@@ -32,6 +33,7 @@ export class IDataBatch {
   totalUploadedCount: number;
   status: DataBatchStatus;
   billingCodeId?: string;
+  expectedGroupCount?: number;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
   creationDate: Date | null;
