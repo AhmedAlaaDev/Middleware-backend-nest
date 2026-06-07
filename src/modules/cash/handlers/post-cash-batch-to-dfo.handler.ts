@@ -220,11 +220,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
         ? line.DefaultDimensionsForAccountDisplayValue
-        : (line.DefaultDimensionDisplayValue ?? '');
+        : (line.DefaultDimensionDisplayValue ??
+          this.toDefaultDimensionDisplayValue(accountDisplayValue) ??
+          '');
       const offsetDefaultDim =
         line.DefaultDimensionsForOffsetAccountDisplayValue
           ? line.DefaultDimensionsForOffsetAccountDisplayValue
-          : (line.OffsetDefaultDimensionDisplayValue ?? '');
+          : (line.OffsetDefaultDimensionDisplayValue ??
+            this.toDefaultDimensionDisplayValue(offsetAccountDisplayValue) ??
+            '');
 
       const lineNumber = line.LineNumber ?? 0;
       const transactionDate =
@@ -318,6 +322,18 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!v) return '';
     // Sample payload uses: 2026-04-21T00:00:00 (no milliseconds / no Z)
     return v.replace(/\.\d{3}Z$/, '').replace(/Z$/, '');
+  }
+
+  private toDefaultDimensionDisplayValue(
+    value: string | undefined | null,
+  ): string | undefined {
+    const trimmed = this.toOptionalTrimmedString(value);
+    if (!trimmed?.includes('|') || trimmed.startsWith('|')) return trimmed;
+
+    const segments = trimmed.split('|');
+    if (segments.length !== 20) return undefined;
+
+    return `|${segments.slice(1).join('|')}`;
   }
 
   private mapEntryAccountTypeStrForCustom(

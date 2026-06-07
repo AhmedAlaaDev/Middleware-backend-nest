@@ -592,10 +592,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
-      DefaultDimensionsForAccountDisplayValue:
-        accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
-      DefaultDimensionsForOffsetAccountDisplayValue:
-        offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      DefaultDimensionsForAccountDisplayValue: dimensionStr,
+      DefaultDimensionsForOffsetAccountDisplayValue: dimensionStr,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
       ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
@@ -725,9 +723,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
-      DefaultDimensionDisplayValue: accountLine.DEFAULTDIMENSIONDISPLAYVALUE,
-      OffsetDefaultDimensionDisplayValue:
-        offsetLine.DEFAULTDIMENSIONDISPLAYVALUE,
+      DefaultDimensionDisplayValue: dimensionStr,
+      OffsetDefaultDimensionDisplayValue: dimensionStr,
       SalesTaxGroup: offsetLine.SALESTAXGROUP,
       ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,

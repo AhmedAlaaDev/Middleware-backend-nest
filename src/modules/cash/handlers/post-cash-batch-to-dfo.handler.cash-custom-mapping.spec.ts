@@ -110,5 +110,49 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('accountTypeStr', 'Vendor');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
   });
+
+  it('derives missing default dimension from full ledger account display value', () => {
+    const handler = buildHandler();
+    const ledgerDisplayValue =
+      '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'USMF',
+            JournalBatchNumber: 'JN000123',
+            LineNumber: 5,
+            AccountType: 'Ledger',
+            AccountDisplayValue: ledgerDisplayValue,
+            OffsetAccountDisplayValue: ledgerDisplayValue,
+            OffsetAccountType: 'Ledger',
+            OffsetCompany: 'USMF',
+            DefaultDimensionDisplayValue: '',
+            OffsetDefaultDimensionDisplayValue:
+              '|2101|021|002|007|301000004|301000004|Tr-000052|Tr-000052|745|12015|12016|Payable|13||DOMESTIC||||',
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            ExchangeRate: 1,
+            CreditAmount: 0,
+            DebitAmount: 1000,
+            CurrencyCode: 'USD',
+            VoucherType: 'transfer',
+            PostingProfile: 'Cust-PP',
+            PaymentId: 'PAY456',
+            PaymentReference: 'REF456',
+            TransactionText: 'Vendor payment',
+            Voucher: '',
+          },
+        },
+      ],
+      'USMF',
+      'out',
+    );
+
+    expect(result[0].customLineApiBody).toHaveProperty(
+      'DEFAULTDIMENSIONDISPLAYVALUE',
+      '|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+    );
+  });
 });
 
