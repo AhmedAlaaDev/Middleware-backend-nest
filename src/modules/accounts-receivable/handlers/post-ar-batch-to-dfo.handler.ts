@@ -21,6 +21,15 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { QueueService } from '@/modules/queue/services/queue.service';
 
+type GroupedFreeTextInvoiceForQueue = {
+  header: D365FOFreeTextInvoiceHeaderRequest;
+  lines: D365FOFreeTextInvoiceLineRequest[];
+  HeaderDefaultDimensionDisplayValue: string;
+  HeaderFinTagDisplayValue: string;
+  LineFinTagDisplayValues: string[];
+  postingGroupLabel?: string;
+};
+
 @CommandHandler(PostARBatchToDFOCommand)
 @Injectable()
 export class PostARBatchToDFOHandler implements ICommandHandler<
@@ -56,6 +65,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       invoiceGroups,
       batch.company,
     );
+    this.validateInvoices(groupedInvoices);
 
     const invoicesToQueue = this.applyTestingMode(groupedInvoices);
     this.validateInvoices(invoicesToQueue);
@@ -165,20 +175,8 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       IDataEnhancedRecord<DynAccountReceivableLineModel>[]
     >,
     company: string,
-  ): Array<{
-    header: D365FOFreeTextInvoiceHeaderRequest;
-    lines: D365FOFreeTextInvoiceLineRequest[];
-    HeaderDefaultDimensionDisplayValue: string;
-    LineFinTagDisplayValues: string[];
-    postingGroupLabel?: string;
-  }> {
-    const groupedInvoices: Array<{
-      header: D365FOFreeTextInvoiceHeaderRequest;
-      lines: D365FOFreeTextInvoiceLineRequest[];
-      HeaderDefaultDimensionDisplayValue: string;
-      LineFinTagDisplayValues: string[];
-      postingGroupLabel?: string;
-    }> = [];
+  ): GroupedFreeTextInvoiceForQueue[] {
+    const groupedInvoices: GroupedFreeTextInvoiceForQueue[] = [];
 
     for (const [_freeTextNumber, lines] of invoiceGroups.entries()) {
       if (lines.length === 0) continue;
@@ -187,6 +185,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       const mappedLines = this.mapLines(lines, company);
       const headerDefaultDimensionDisplayValue =
         lines[0].data.HeaderDefaultDimensionDisplayValue;
+      const headerFinTagDisplayValue = lines[0].data.HeaderFinTagDisplayValue;
       const lineFinTagDisplayValues = lines.map(
         (line) => line.data.LineFinTagDisplayValue || '',
       );
@@ -195,6 +194,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         header,
         lines: mappedLines,
         HeaderDefaultDimensionDisplayValue: headerDefaultDimensionDisplayValue,
+        HeaderFinTagDisplayValue: headerFinTagDisplayValue,
         LineFinTagDisplayValues: lineFinTagDisplayValues,
         postingGroupLabel: this.buildPostingGroupLabel(lines[0].data),
       });
@@ -204,20 +204,8 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   }
 
   private applyTestingMode(
-    groupedInvoices: Array<{
-      header: D365FOFreeTextInvoiceHeaderRequest;
-      lines: D365FOFreeTextInvoiceLineRequest[];
-      HeaderDefaultDimensionDisplayValue: string;
-      LineFinTagDisplayValues: string[];
-      postingGroupLabel?: string;
-    }>,
-  ): Array<{
-    header: D365FOFreeTextInvoiceHeaderRequest;
-    lines: D365FOFreeTextInvoiceLineRequest[];
-    HeaderDefaultDimensionDisplayValue: string;
-    LineFinTagDisplayValues: string[];
-    postingGroupLabel?: string;
-  }> {
+    groupedInvoices: GroupedFreeTextInvoiceForQueue[],
+  ): GroupedFreeTextInvoiceForQueue[] {
     if (!this.testingModeEnabled) {
       return groupedInvoices;
     }
@@ -232,6 +220,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
       lines: first.lines.slice(0, this.testingModeMaxLines),
       HeaderDefaultDimensionDisplayValue:
         first.HeaderDefaultDimensionDisplayValue,
+      HeaderFinTagDisplayValue: first.HeaderFinTagDisplayValue,
       LineFinTagDisplayValues: first.LineFinTagDisplayValues.slice(
         0,
         this.testingModeMaxLines,
@@ -315,39 +304,43 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
    * Validates that all invoices have required header and line fields
    */
   private validateInvoices(
-    groupedInvoices: Array<{
-      header: D365FOFreeTextInvoiceHeaderRequest;
-      lines: D365FOFreeTextInvoiceLineRequest[];
-      HeaderDefaultDimensionDisplayValue: string;
-      LineFinTagDisplayValues: string[];
-      postingGroupLabel?: string;
-    }>,
+    groupedInvoices: GroupedFreeTextInvoiceForQueue[],
   ): void {
     const validationErrors: Array<{
       invoiceIndex?: number;
+      freeTextNumber?: string;
       lineNumber?: number;
       missingFields: string[];
     }> = [];
 
     groupedInvoices.forEach((invoice, invoiceIndex) => {
+      const freeTextNumber = this.resolveInvoiceLabel(invoice, invoiceIndex);
       // Validate header
       const headerErrors = this.validateHeader(invoice.header);
+      if (!invoice.HeaderFinTagDisplayValue?.trim()) {
+        headerErrors.push('HeaderFinTagDisplayValue');
+      }
       if (headerErrors.length > 0) {
         validationErrors.push({
           invoiceIndex,
+          freeTextNumber,
           missingFields: headerErrors,
         });
       }
 
       // Validate lines
-      invoice.lines.forEach((line) => {
+      invoice.lines.forEach((line, lineIndex) => {
         const lineErrors = this.validateLine(
           line,
           invoice.header.BillingClassification,
         );
+        if (!invoice.LineFinTagDisplayValues[lineIndex]?.trim()) {
+          lineErrors.push('LineFinTagDisplayValue');
+        }
         if (lineErrors.length > 0) {
           validationErrors.push({
             invoiceIndex,
+            freeTextNumber,
             lineNumber: line.LineNumber,
             missingFields: lineErrors,
           });
@@ -358,9 +351,9 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     if (validationErrors.length > 0) {
       const errorMessages = validationErrors.map((error) => {
         if (error.lineNumber !== undefined) {
-          return `Line ${error.lineNumber}: missing fields [${error.missingFields.join(', ')}]`;
+          return `Invoice ${error.freeTextNumber} line ${error.lineNumber}: missing fields [${error.missingFields.join(', ')}]`;
         }
-        return `Invoice header (index ${error.invoiceIndex}): missing fields [${error.missingFields.join(', ')}]`;
+        return `Invoice ${error.freeTextNumber} header: missing fields [${error.missingFields.join(', ')}]`;
       });
 
       throw new BadRequestException({
@@ -369,6 +362,17 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
         details: errorMessages.join('; '),
       });
     }
+  }
+
+  private resolveInvoiceLabel(
+    invoice: GroupedFreeTextInvoiceForQueue,
+    invoiceIndex: number,
+  ): string {
+    return (
+      invoice.postingGroupLabel?.trim() ||
+      invoice.header.CustomerReference?.trim() ||
+      `index ${invoiceIndex}`
+    );
   }
 
   /**
@@ -497,13 +501,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   private async enqueuePostingJob(
     batchId: string,
     company: string,
-    groupedInvoices: Array<{
-      header: D365FOFreeTextInvoiceHeaderRequest;
-      lines: D365FOFreeTextInvoiceLineRequest[];
-      HeaderDefaultDimensionDisplayValue: string;
-      LineFinTagDisplayValues: string[];
-      postingGroupLabel?: string;
-    }>,
+    groupedInvoices: GroupedFreeTextInvoiceForQueue[],
   ): Promise<PostARBatchToDFOResult> {
     const job = await this.queueService.addJob(
       QUEUES.DFO_FREE_TEXT_INVOICE,

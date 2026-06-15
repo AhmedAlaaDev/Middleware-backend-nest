@@ -24,6 +24,7 @@ export interface PostFreeTextInvoiceDFOJobPayload {
     header: D365FOFreeTextInvoiceHeaderRequest;
     lines: D365FOFreeTextInvoiceLineRequest[];
     HeaderDefaultDimensionDisplayValue: string;
+    HeaderFinTagDisplayValue: string;
     LineFinTagDisplayValues: string[];
     linePostingMeta?: FreeTextInvoiceLinePostingMeta[];
     /** First-line FreeTextNumber (and voucher key when set); identifies the posting group in errors. */

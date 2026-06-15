@@ -28,7 +28,7 @@ export class FreeTextInvoiceFinTagService {
    * Update financial tags for a free text invoice header and its lines
    * @param company Company data area ID
    * @param headerRecordId The InvoiceIdentifier of the header
-   * @param headerDisplayValue The header default dimension display value
+   * @param headerDisplayValue The header financial tag display value
    * @param lineDataString Formatted string: "lineNumber1,tagValue1;lineNumber2,tagValue2"
    */
   public async updateFinTag(

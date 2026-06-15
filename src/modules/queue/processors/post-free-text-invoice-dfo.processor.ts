@@ -175,34 +175,83 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     this.logger.log(
       `[POST] Posted ${postedLines.length} lines for header ${index}`,
     );
-    if (
-      invoice.HeaderDefaultDimensionDisplayValue &&
-      invoice.LineFinTagDisplayValues?.length
-    ) {
-      const lineDataString = postedLines
-        .map(
-          (p, j) =>
-            `${p.lineNumber},${invoice.LineFinTagDisplayValues[j] ?? ''}`,
-        )
-        .join(';');
-      try {
-        await this.freeTextInvoiceFinTagService.updateFinTag(
-          company,
-          parseInt(headerKey, 10),
-          invoice.HeaderDefaultDimensionDisplayValue,
+    const lineDataString = this.buildFinTagLineDataString(
+      invoice,
+      postedLines,
+      index,
+      total,
+    );
+    this.logger.log(
+      `[FIN TAG] Updating financial tags for header ${headerKey}: ${JSON.stringify(
+        {
+          headerFinTagDisplayValue: invoice.HeaderFinTagDisplayValue,
+          lineFinTagDisplayValues: invoice.LineFinTagDisplayValues,
+          headerDefaultDimensionDisplayValue:
+            invoice.HeaderDefaultDimensionDisplayValue,
           lineDataString,
-        );
-      } catch (err) {
-        const msg = this.dfoErrorExtractor.extractMessage(err);
-        this.logger.warn(
-          `[FIN TAG] Fin tag update failed for ${headerKey}: ${msg}`,
-        );
-        errorCollector.addHeaderError(
-          `Fin tag: ${msg}`,
-          `Header ${index} fin tag`,
+        },
+      )}`,
+    );
+    try {
+      await this.freeTextInvoiceFinTagService.updateFinTag(
+        company,
+        parseInt(headerKey, 10),
+        invoice.HeaderFinTagDisplayValue,
+        lineDataString,
+      );
+    } catch (err) {
+      const msg = this.dfoErrorExtractor.extractMessage(err);
+      this.logger.error(
+        `[FIN TAG] Fin tag update failed for ${headerKey}: ${msg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      errorCollector.addHeaderError(
+        `Fin tag: ${msg}`,
+        `Header ${index} fin tag`,
+      );
+      throw err;
+    }
+  }
+
+  private buildFinTagLineDataString(
+    invoice: PostFreeTextInvoiceDFOJobPayload['groupedInvoices'][0],
+    postedLines: Array<{ headerId: string; lineNumber: number }>,
+    index: number,
+    total: number,
+  ): string {
+    const groupLabel = this.resolvePostingGroupLabel(invoice, index, total);
+    const lineFinTagDisplayValues = invoice.LineFinTagDisplayValues ?? [];
+    const missingFields: string[] = [];
+
+    if (!invoice.HeaderFinTagDisplayValue?.trim()) {
+      missingFields.push('HeaderFinTagDisplayValue');
+    }
+    if (lineFinTagDisplayValues.length !== postedLines.length) {
+      missingFields.push(
+        `LineFinTagDisplayValues count ${lineFinTagDisplayValues.length} does not match posted line count ${postedLines.length}`,
+      );
+    }
+
+    postedLines.forEach((postedLine, lineIndex) => {
+      if (!lineFinTagDisplayValues[lineIndex]?.trim()) {
+        missingFields.push(
+          `LineFinTagDisplayValue for line ${postedLine.lineNumber}`,
         );
       }
+    });
+
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Missing financial tag values for FreeTextNumber group "${groupLabel}": ${missingFields.join(', ')}`,
+      );
     }
+
+    return postedLines
+      .map(
+        (postedLine, lineIndex) =>
+          `${postedLine.lineNumber},${lineFinTagDisplayValues[lineIndex]}`,
+      )
+      .join(';');
   }
 
   private async handlePostingFailure(
