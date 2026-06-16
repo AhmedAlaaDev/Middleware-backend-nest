@@ -68,6 +68,7 @@ export class SyncCustomersHandler implements ICommandHandler<SyncCustomersComman
         invoiceAccount: customer.InvoiceAccount,
         partyNumber: customer.PartyNumber,
         organizationNumber: customer.OrganizationNumber,
+        taxExemptNumber: customer.TaxExemptNumber,
         defaultDimensionDisplayValue: customer.DefaultDimensionDisplayValue,
       };
 

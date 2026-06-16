@@ -5,6 +5,7 @@ import {
   AccountReceivableFreightCreditNoteEntryProcessor,
   AccountReceivableTruckingCreditNoteEntryProcessor,
   AccountReceivableTruckingEntryProcessor,
+  AccountReceivableYardEntryProcessor,
 } from '@/modules/accounts-receivable/processors';
 import {
   CashInFreightEntryProcessor,
@@ -37,6 +38,7 @@ export class EntryProcessorFactory {
     private readonly accountReceivableFreightCreditNoteProcessor: AccountReceivableFreightCreditNoteEntryProcessor,
     private readonly accountReceivableTruckingProcessor: AccountReceivableTruckingEntryProcessor,
     private readonly accountReceivableTruckingCreditNoteProcessor: AccountReceivableTruckingCreditNoteEntryProcessor,
+    private readonly accountReceivableYardProcessor: AccountReceivableYardEntryProcessor,
 
     private readonly vendorFreightProcessor: VendorFreightEntryProcessor,
     private readonly vendorTruckingProcessor: VendorTruckingEntryProcessor,
@@ -73,6 +75,10 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.AccountReceivableTruckingCreditNote,
       this.accountReceivableTruckingCreditNoteProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.AccountReceivableYard,
+      this.accountReceivableYardProcessor,
     );
     this.processors.set(
       EntryProcessorTypes.VendorFreight,

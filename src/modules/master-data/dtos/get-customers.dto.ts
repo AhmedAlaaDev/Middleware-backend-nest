@@ -12,7 +12,7 @@ export class GetCustomersDto extends PaginatedDto {
   company?: string;
 
   /**
-   * Search term (account/name/alias)
+   * Search term (account/name/alias/tax exempt number)
    * @example CUST
    */
   @IsOptional()

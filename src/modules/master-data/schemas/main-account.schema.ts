@@ -16,6 +16,15 @@ export class MainAccount {
 
   @Prop()
   accountName: string;
+
+  @Prop()
+  mainAccountType?: string;
+
+  @Prop()
+  isSuspended?: 'Yes' | 'No';
+
+  @Prop()
+  doNotAllowManualEntry?: 'Yes' | 'No';
 }
 export const MainAccountSchema = SchemaFactory.createForClass(MainAccount);
 MainAccountSchema.index({ chartNumber: 1 });

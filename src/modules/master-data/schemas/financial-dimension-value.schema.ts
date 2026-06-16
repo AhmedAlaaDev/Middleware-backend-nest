@@ -17,6 +17,21 @@ export class FinancialDimensionValue {
 
   @Prop()
   description?: string;
+
+  @Prop()
+  isSuspended?: 'Yes' | 'No';
+
+  @Prop()
+  isBlockedForManualEntry?: 'Yes' | 'No';
+
+  @Prop()
+  isTotal?: 'Yes' | 'No';
+
+  @Prop()
+  activeFrom?: Date;
+
+  @Prop()
+  activeTo?: Date;
 }
 export const FinancialDimensionValueSchema = SchemaFactory.createForClass(
   FinancialDimensionValue,

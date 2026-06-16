@@ -10,6 +10,7 @@ export class ICustomer {
   invoiceAccount?: string;
   partyNumber?: string;
   organizationNumber?: string;
+  taxExemptNumber?: string;
   defaultDimensionDisplayValue?: string;
 }
 
@@ -24,6 +25,7 @@ export interface ICreateCustomer {
   invoiceAccount?: string;
   partyNumber?: string;
   organizationNumber?: string;
+  taxExemptNumber?: string;
   defaultDimensionDisplayValue?: string;
 }
 

@@ -2,6 +2,7 @@ export * from './vendor.schema';
 export * from './customer.schema';
 export * from './main-account.schema';
 export * from './billing-code.schema';
+export * from './billing-code-version.schema';
 export * from './billing-classification.schema';
 export * from './exchange-rate.schema';
 export * from './financial-dimension.schema';

@@ -155,4 +155,3 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
   });
 });
-

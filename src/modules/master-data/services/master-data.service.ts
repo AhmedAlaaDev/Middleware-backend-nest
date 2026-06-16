@@ -11,6 +11,11 @@ import {
   IBillingClassificationListFilter,
 } from '@/modules/master-data/interfaces/billing-classification.interface';
 import {
+  IBillingCodeVersion,
+  IBillingCodeVersionListFilter,
+  ICreateBillingCodeVersion,
+} from '@/modules/master-data/interfaces/billing-code-version.interface';
+import {
   IBillingCode,
   ICreateBillingCode,
   IBillingCodeListFilter,
@@ -61,6 +66,7 @@ import {
   AccountCustomerInvoiceMappingRepository,
   BillingClassificationRepository,
   BillingCodeRepository,
+  BillingCodeVersionRepository,
   CustomerRepository,
   ExchangeRateRepository,
   FinancialDimensionRepository,
@@ -79,6 +85,7 @@ export class MasterDataService {
     private readonly customerRepo: CustomerRepository,
     private readonly mainAccountRepo: MainAccountRepository,
     private readonly billingCodeRepo: BillingCodeRepository,
+    private readonly billingCodeVersionRepo: BillingCodeVersionRepository,
     private readonly billingClassificationRepo: BillingClassificationRepository,
     private readonly exchangeRateRepo: ExchangeRateRepository,
     private readonly finDimRepo: FinancialDimensionRepository,
@@ -140,6 +147,19 @@ export class MasterDataService {
       maxCount,
     });
     const total = await this.billingCodeRepo.getCount(filter);
+    return { items, total };
+  }
+
+  async getBillingCodeVersionsAsync(
+    filter: IBillingCodeVersionListFilter,
+    skipCount?: number,
+    maxCount?: number,
+  ): Promise<{ items: IBillingCodeVersion[]; total: number }> {
+    const items = await this.billingCodeVersionRepo.getList(filter, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.billingCodeVersionRepo.getCount(filter);
     return { items, total };
   }
 
@@ -244,6 +264,13 @@ export class MasterDataService {
     codes: ICreateBillingCode[],
   ): Promise<void> {
     await this.billingCodeRepo.upsertMany(company, codes);
+  }
+
+  async upsertBillingCodeVersionsAsync(
+    company: string,
+    versions: ICreateBillingCodeVersion[],
+  ): Promise<void> {
+    await this.billingCodeVersionRepo.upsertMany(company, versions);
   }
 
   async upsertBillingClassificationsAsync(

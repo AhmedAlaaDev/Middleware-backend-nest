@@ -69,6 +69,9 @@ export class SyncMainAccountsHandler implements ICommandHandler<SyncMainAccounts
         chartNumber: chartNumber,
         accountNumber: accountNumber,
         accountName: accountName,
+        mainAccountType: account.MainAccountType,
+        isSuspended: account.IsSuspended,
+        doNotAllowManualEntry: account.DoNotAllowManualEntry,
       });
     }
 

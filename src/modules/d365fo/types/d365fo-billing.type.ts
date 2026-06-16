@@ -27,3 +27,18 @@ export interface D365FOBillingCode {
   BillingClassification: string;
   RecId?: number; // Internal record ID
 }
+
+/**
+ * Represents a Billing Code Version from D365FO's BillingCodeVersions entity.
+ */
+export interface D365FOBillingCodeVersion {
+  '@odata.etag'?: string;
+  dataAreaId: string;
+  BillingCode: string;
+  BillingCodeDescription: string;
+  ValidFrom: string;
+  ValidTo: string;
+  ItemSalesTaxGroup?: string;
+  RateType?: string;
+  RecId?: number;
+}

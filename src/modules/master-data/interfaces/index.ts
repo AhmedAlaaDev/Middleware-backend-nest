@@ -1,6 +1,7 @@
 export * from './account-customer-invoice-mapping.interface';
 export * from './billing-classification.interface';
 export * from './billing-code.interface';
+export * from './billing-code-version.interface';
 export * from './customer.interface';
 export * from './exchange-rate.interface';
 export * from './financial-dimension.interface';

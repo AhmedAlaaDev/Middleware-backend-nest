@@ -5,6 +5,7 @@ export const ENTRY_PROCESSOR_NAMES = {
   ACCOUNT_RECEIVABLE_TRUCKING: 'AccountReceivableTruckingEntryProcessor',
   ACCOUNT_RECEIVABLE_TRUCKING_CREDIT_NOTE:
     'AccountReceivableTruckingCreditNoteEntryProcessor',
+  ACCOUNT_RECEIVABLE_YARD: 'AccountReceivableYardEntryProcessor',
   VENDOR_FREIGHT: 'VendorFreightEntryProcessor',
   VENDOR_TRUCKING: 'VendorTruckingEntryProcessor',
   VENDOR_PAYMENT_FREIGHT: 'VendorPaymentFreightEntryProcessor',

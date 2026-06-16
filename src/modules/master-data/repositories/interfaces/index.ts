@@ -1,6 +1,7 @@
 export * from './account-customer-invoice-mapping.repository';
 export * from './billing-classification.repository';
 export * from './billing-code.repository';
+export * from './billing-code-version.repository';
 export * from './customer.repository';
 export * from './exchange-rate.repository';
 export * from './financial-dimension.repository';

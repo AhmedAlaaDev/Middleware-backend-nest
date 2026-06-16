@@ -27,6 +27,7 @@ import {
 import {
   GetAccountMappingsDto,
   GetBillingClassificationsDto,
+  GetBillingCodeVersionsDto,
   GetBillingCodesDto,
   GetCustomersDto,
   GetExchangeRatesDto,
@@ -54,6 +55,7 @@ import {
   ICreateAccountCustomerInvoiceMapping,
   IBillingClassification,
   IBillingCode,
+  IBillingCodeVersion,
   ICustomer,
   IFinancialDimension,
   IFinancialDimensionValue,
@@ -67,6 +69,7 @@ import {
 import {
   GetAccountMappingsQuery,
   GetBillingClassificationsQuery,
+  GetBillingCodeVersionsQuery,
   GetBillingCodesQuery,
   GetCustomersQuery,
   GetExchangeRatesQuery,
@@ -222,6 +225,31 @@ export class MasterDataController {
         {
           company: query.company,
           billingClassification: query.billingClassification,
+        },
+        query.skipCount,
+        query.maxCount,
+      ),
+    );
+  }
+
+  /**
+   * Get billing code versions from database (Query)
+   */
+  @Get('billing-code-versions')
+  @ApiResponse({
+    status: 200,
+    description: 'Billing code versions retrieved successfully',
+  })
+  @ApiPaginatedResponse(IBillingCodeVersion)
+  public getBillingCodeVersionsAsync(
+    @Query() query: GetBillingCodeVersionsDto,
+  ): Promise<IPaginatedRes<IBillingCodeVersion>> {
+    return this.queryBus.execute(
+      new GetBillingCodeVersionsQuery(
+        {
+          company: query.company,
+          billingCode: query.billingCode,
+          billingCodeDescription: query.billingCodeDescription,
         },
         query.skipCount,
         query.maxCount,

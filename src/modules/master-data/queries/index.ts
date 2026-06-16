@@ -1,6 +1,7 @@
 export * from './get-account-mappings.query';
 export * from './get-billing-classifications.query';
 export * from './get-billing-codes.query';
+export * from './get-billing-code-versions.query';
 export * from './get-customers.query';
 export * from './get-exchange-rates.query';
 export * from './get-financial-dimension-values.query';

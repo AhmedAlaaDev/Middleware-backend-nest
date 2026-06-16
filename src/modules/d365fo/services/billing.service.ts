@@ -6,6 +6,7 @@ import { ODataQueryBuilderService } from './odata-query-builder.service';
 import {
   D365FOBillingClassification,
   D365FOBillingCode,
+  D365FOBillingCodeVersion,
 } from '@/modules/d365fo/types';
 
 /**
@@ -112,6 +113,48 @@ export class BillingService {
       {
         useCache,
         cacheTtl: 30 * 60 * 1000, // 30 minutes
+      },
+    );
+
+    return response.value;
+  }
+
+  public async getBillingCodeVersionList(
+    company: string,
+    options?: {
+      skipCount?: number;
+      maxCount?: number;
+      useCache?: boolean;
+      select?: string[];
+      orderBy?: string | string[];
+    },
+  ): Promise<D365FOBillingCodeVersion[]> {
+    const {
+      skipCount = 0,
+      maxCount = 5000,
+      useCache = true,
+      select,
+      orderBy,
+    } = options || {};
+
+    const filter = this.queryBuilder.eq('dataAreaId', company);
+
+    const query = this.queryBuilder.buildQuery('/data/BillingCodeVersions', {
+      filter,
+      top: maxCount,
+      skip: skipCount,
+      select,
+      orderBy,
+      crossCompany: true,
+    });
+
+    this.logger.debug(`Fetching billing code versions for company: ${company}`);
+
+    const response = await this.d365foClient.get<D365FOBillingCodeVersion>(
+      query,
+      {
+        useCache,
+        cacheTtl: 30 * 60 * 1000,
       },
     );
 

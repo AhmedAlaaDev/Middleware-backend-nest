@@ -39,6 +39,9 @@ export class Customer {
   organizationNumber?: string;
 
   @Prop()
+  taxExemptNumber?: string;
+
+  @Prop()
   defaultDimensionDisplayValue?: string;
 }
 

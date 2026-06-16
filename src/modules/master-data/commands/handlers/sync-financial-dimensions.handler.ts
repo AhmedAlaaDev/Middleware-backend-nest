@@ -165,6 +165,11 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
           financialDimensionKey: dimensionName,
           value: value,
           description: description,
+          isSuspended: this.parseYesNo(dv.IsSuspended),
+          isBlockedForManualEntry: this.parseYesNo(dv.IsBlockedForManualEntry),
+          isTotal: this.parseYesNo(dv.IsTotal),
+          activeFrom: this.parseOptionalDate(dv.ActiveFrom),
+          activeTo: this.parseOptionalDate(dv.ActiveTo),
         });
       }
     }
@@ -191,5 +196,16 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
       dimensionValuesCreated,
       dimensionValuesUpdated,
     };
+  }
+
+  private parseOptionalDate(dateText?: string): Date | undefined {
+    if (!dateText) return undefined;
+    const parsed = new Date(dateText);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
+  private parseYesNo(value?: string): 'Yes' | 'No' | undefined {
+    if (value === 'Yes' || value === 'No') return value;
+    return undefined;
   }
 }

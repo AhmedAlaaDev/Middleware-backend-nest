@@ -44,6 +44,7 @@ export class CustomerMongoRepository implements CustomerRepository {
         { customerAccount: { $regex: filter.searchTerm, $options: 'i' } },
         { name: { $regex: filter.searchTerm, $options: 'i' } },
         { nameAlias: { $regex: filter.searchTerm, $options: 'i' } },
+        { taxExemptNumber: { $regex: filter.searchTerm, $options: 'i' } },
       ] as unknown;
     }
     let query = this.model.find(q).lean();
@@ -70,6 +71,7 @@ export class CustomerMongoRepository implements CustomerRepository {
       invoiceAccount: doc.invoiceAccount,
       partyNumber: doc.partyNumber,
       organizationNumber: doc.organizationNumber,
+      taxExemptNumber: doc.taxExemptNumber,
       defaultDimensionDisplayValue: doc.defaultDimensionDisplayValue,
     }));
   }
@@ -82,6 +84,7 @@ export class CustomerMongoRepository implements CustomerRepository {
         { customerAccount: { $regex: filter.searchTerm, $options: 'i' } },
         { name: { $regex: filter.searchTerm, $options: 'i' } },
         { nameAlias: { $regex: filter.searchTerm, $options: 'i' } },
+        { taxExemptNumber: { $regex: filter.searchTerm, $options: 'i' } },
       ] as unknown;
     }
     return this.model.countDocuments(q).exec();
@@ -108,6 +111,7 @@ export class CustomerMongoRepository implements CustomerRepository {
       invoiceAccount: doc.invoiceAccount,
       partyNumber: doc.partyNumber,
       organizationNumber: doc.organizationNumber,
+      taxExemptNumber: doc.taxExemptNumber,
       defaultDimensionDisplayValue: doc.defaultDimensionDisplayValue,
     };
   }

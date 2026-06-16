@@ -41,7 +41,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       .spyOn(service, 'listLinesForHeader')
       .mockResolvedValueOnce([] as Array<{ LineNumber: number }>);
 
-    (d365foClient.post as jest.Mock).mockResolvedValueOnce({
+    d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
       Message: 'Success! JN000123',
     });
@@ -63,8 +63,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           currency: 'USD',
           debitAmount: 0,
           DEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-003',
-          offsetDEFAULTDIMENSIONDISPLAYVALUE:
-            'BU-001|CC-002|Dept-004',
+          offsetDEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-004',
           EXCHANGERATE: 1,
           FinTagStr: 'TAG1',
           ISPREPAYMENT: 'No',
@@ -93,11 +92,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     await service.postCashInLinesForHeader('JN000123', lines, 20, 'USMF');
 
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    const [endpoint, body] = (d365foClient.post as jest.Mock).mock.calls[0];
+    const [endpoint, body] = d365foClient.post.mock.calls[0];
 
-    expect(endpoint).toContain(
-      '/addLedgerJournalTransCustPaym',
-    );
+    expect(endpoint).toContain('/addLedgerJournalTransCustPaym');
     expect(body).toHaveProperty('journalNum', 'JN000123');
     expect(body).toHaveProperty('AccountNum', 'CUST001');
     expect(body).toHaveProperty('accountTypeStr', 'Cust');
@@ -111,7 +108,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       .spyOn(service, 'listLinesForHeader')
       .mockResolvedValueOnce([] as Array<{ LineNumber: number }>);
 
-    (d365foClient.post as jest.Mock).mockResolvedValueOnce({
+    d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
       Message: 'Success! JN000123',
     });
@@ -133,8 +130,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           currency: 'USD',
           debitAmount: 1000,
           DEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-003',
-          offsetDEFAULTDIMENSIONDISPLAYVALUE:
-            'BU-001|CC-002|Dept-004',
+          offsetDEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-004',
           EXCHANGERATE: 1,
           FinTagStr: 'TAG1',
           ISPREPAYMENT: 'No',
@@ -163,15 +159,12 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     await service.postCashOutLinesForHeader('JN000123', lines, 20, 'USMF');
 
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    const [endpoint, body] = (d365foClient.post as jest.Mock).mock.calls[0];
+    const [endpoint, body] = d365foClient.post.mock.calls[0];
 
-    expect(endpoint).toContain(
-      '/addLedgerJournalTransVendPaym',
-    );
+    expect(endpoint).toContain('/addLedgerJournalTransVendPaym');
     expect(body).toHaveProperty('journalNum', 'JN000123');
     expect(body).toHaveProperty('AccountNum', 'VEND001');
     expect(body).toHaveProperty('accountTypeStr', 'Vendor');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
   });
 });
-

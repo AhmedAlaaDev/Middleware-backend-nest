@@ -16,6 +16,7 @@ import {
   ProcessARFreightCreditNoteCommand,
   ProcessARTruckingCommand,
   ProcessARTruckingCreditNoteCommand,
+  ProcessARYardCommand,
 } from '@/modules/accounts-receivable/commands';
 import {
   ARFreightDto,
@@ -122,6 +123,27 @@ export class AccountsReceivableController {
         body.companyId,
         body.billingCodeId,
       ),
+    );
+
+    return result;
+  }
+
+  /**
+   * Yard Document
+   */
+  @Post('Yard-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: ARFreightDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async yardDocument(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: ARFreightDto,
+  ) {
+    const result = await this.commandBus.execute(
+      new ProcessARYardCommand(file.buffer, body.companyId),
     );
 
     return result;

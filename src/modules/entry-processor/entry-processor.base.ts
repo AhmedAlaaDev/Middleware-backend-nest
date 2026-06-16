@@ -23,10 +23,19 @@ import {
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
-import { IVendor } from '@/modules/master-data/interfaces';
+import {
+  IBillingClassification,
+  IBillingCodeVersion,
+  ICustomer,
+  IMainAccount,
+  IVendor,
+} from '@/modules/master-data/interfaces';
 import { IBillingCode } from '@/modules/master-data/interfaces/billing-code.interface';
 import { IFinancialDimensionValue } from '@/modules/master-data/interfaces/financial-dimension.interface';
 import {
+  GetBillingClassificationsQuery,
+  GetBillingCodeVersionsQuery,
+  GetBillingCodesQuery,
   GetCustomersQuery,
   GetVendorsQuery,
 } from '@/modules/master-data/queries';
@@ -75,6 +84,10 @@ export interface WarmupProcessorDataOptions {
    * @default false
    */
   taxItemGroupCodes?: boolean;
+  billingCodeVersions?: boolean;
+  billingCodes?: boolean;
+  billingClassifications?: boolean;
+  customers?: boolean;
 }
 
 const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
@@ -84,6 +97,10 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   customerNames: false,
   vendorTaxNumberAndTermsOfPayment: false,
   taxItemGroupCodes: false,
+  billingCodeVersions: false,
+  billingCodes: false,
+  billingClassifications: false,
+  customers: false,
 };
 
 interface EntryProcessorBaseOptions {
@@ -107,6 +124,15 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected dimensionsMap: Map<DimensionKey, Set<string>> | null = null;
   protected accountNumberSet: Set<string> | null = null;
+  protected financialDimensionValuesMap: Map<
+    string,
+    IFinancialDimensionValue[]
+  > | null = null;
+  protected mainAccountMap: Map<string, IMainAccount> | null = null;
+  protected billingCodeVersionsList: IBillingCodeVersion[] | null = null;
+  protected billingCodesList: IBillingCode[] | null = null;
+  protected billingClassificationsList: IBillingClassification[] | null = null;
+  protected customersList: ICustomer[] | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
   protected customerNameMap: Map<string, string> | null = null;
   protected vendorTaxNumberAndTermsOfPaymentMap: Map<
@@ -277,6 +303,42 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       );
     }
 
+    if (options.billingCodeVersions) {
+      const billingCodeVersionStart = Date.now();
+      this.billingCodeVersionsList = await this.fetchBillingCodeVersions(
+        this.company,
+      );
+      this.baseLogger.debug(
+        `[${processorName}] Billing code versions loaded in ${Date.now() - billingCodeVersionStart}ms, count: ${this.billingCodeVersionsList.length}`,
+      );
+    }
+
+    if (options.billingCodes) {
+      const billingCodeStart = Date.now();
+      this.billingCodesList = await this.fetchBillingCodes(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Billing codes loaded in ${Date.now() - billingCodeStart}ms, count: ${this.billingCodesList.length}`,
+      );
+    }
+
+    if (options.billingClassifications) {
+      const billingClassificationStart = Date.now();
+      this.billingClassificationsList = await this.fetchBillingClassifications(
+        this.company,
+      );
+      this.baseLogger.debug(
+        `[${processorName}] Billing classifications loaded in ${Date.now() - billingClassificationStart}ms, count: ${this.billingClassificationsList.length}`,
+      );
+    }
+
+    if (options.customers) {
+      const customerStart = Date.now();
+      this.customersList = await this.fetchCustomers(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Customers loaded in ${Date.now() - customerStart}ms, count: ${this.customersList.length}`,
+      );
+    }
+
     this.baseLogger.debug(
       `[${processorName}] warmupProcessorData completed in ${Date.now() - startMs}ms`,
     );
@@ -309,6 +371,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       );
       fetchKeyToValues.set(fetchKey, values ?? []);
     }
+    this.financialDimensionValuesMap = fetchKeyToValues;
 
     return this.dimensionService.buildDimensionsMap(
       fetchKeyToValues,
@@ -323,7 +386,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     const pageSize = 1500;
     let skipCount = 0;
-    const allItems: { accountNumber?: string }[] = [];
+    const allItems: IMainAccount[] = [];
     let hasMore = true;
 
     while (hasMore) {
@@ -339,10 +402,16 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       }
     }
 
+    this.mainAccountMap = new Map(
+      allItems
+        .filter((a) => a.accountNumber)
+        .map((a) => [a.accountNumber.trim(), a]),
+    );
+
     return new Set(
       allItems
         .map((a) => a.accountNumber?.toLowerCase().trim())
-        .filter(Boolean) as string[],
+        .filter(Boolean),
     );
   }
 
@@ -475,6 +544,125 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       new GetFinancialDimensionValueQuery(financialKey),
     );
     return values ?? [];
+  }
+
+  protected getFinancialDimensionValues(
+    financialKey: string,
+  ): IFinancialDimensionValue[] {
+    if (!this.financialDimensionValuesMap) {
+      throw new Error(
+        'warmupProcessorData must be called before getFinancialDimensionValues',
+      );
+    }
+
+    return this.financialDimensionValuesMap.get(financialKey) ?? [];
+  }
+
+  protected getMainAccountMap(): Map<string, IMainAccount> {
+    if (!this.mainAccountMap) {
+      throw new Error(
+        'warmupProcessorData must be called before getMainAccountMap',
+      );
+    }
+
+    return this.mainAccountMap;
+  }
+
+  protected getBillingCodeVersions(): IBillingCodeVersion[] {
+    if (!this.billingCodeVersionsList) {
+      throw new Error(
+        'warmupProcessorData({ billingCodeVersions: true }) must be called before getBillingCodeVersions',
+      );
+    }
+
+    return this.billingCodeVersionsList;
+  }
+
+  protected getBillingCodes(): IBillingCode[] {
+    if (!this.billingCodesList) {
+      throw new Error(
+        'warmupProcessorData({ billingCodes: true }) must be called before getBillingCodes',
+      );
+    }
+
+    return this.billingCodesList;
+  }
+
+  protected getBillingClassifications(): IBillingClassification[] {
+    if (!this.billingClassificationsList) {
+      throw new Error(
+        'warmupProcessorData({ billingClassifications: true }) must be called before getBillingClassifications',
+      );
+    }
+
+    return this.billingClassificationsList;
+  }
+
+  protected getCustomers(): ICustomer[] {
+    if (!this.customersList) {
+      throw new Error(
+        'warmupProcessorData({ customers: true }) must be called before getCustomers',
+      );
+    }
+
+    return this.customersList;
+  }
+
+  protected async fetchAllPaginated<T>(
+    fetchPage: (
+      skipCount: number,
+      maxCount: number,
+    ) => Promise<{ items?: T[] }>,
+  ): Promise<T[]> {
+    const pageSize = 1500;
+    let skipCount = 0;
+    const allItems: T[] = [];
+
+    while (true) {
+      const res = await fetchPage(skipCount, pageSize);
+      const pageItems = res?.items ?? [];
+      allItems.push(...pageItems);
+      if (pageItems.length < pageSize) break;
+      skipCount += pageSize;
+    }
+
+    return allItems;
+  }
+
+  private fetchBillingCodeVersions(
+    company: string,
+  ): Promise<IBillingCodeVersion[]> {
+    return this.fetchAllPaginated((skipCount, maxCount) =>
+      this.queryBus.execute(
+        new GetBillingCodeVersionsQuery({ company }, skipCount, maxCount),
+      ),
+    );
+  }
+
+  private fetchBillingCodes(company: string): Promise<IBillingCode[]> {
+    return this.fetchAllPaginated((skipCount, maxCount) =>
+      this.queryBus.execute(
+        new GetBillingCodesQuery({ company }, skipCount, maxCount),
+      ),
+    );
+  }
+
+  private fetchBillingClassifications(
+    company: string,
+  ): Promise<IBillingClassification[]> {
+    return this.fetchAllPaginated((skipCount, maxCount) =>
+      this.queryBus.execute(
+        new GetBillingClassificationsQuery({ company }, skipCount, maxCount),
+      ),
+    );
+  }
+
+  private fetchCustomers(company: string): Promise<ICustomer[]> {
+    return this.fetchAllPaginated((skipCount, maxCount) =>
+      this.queryBus.execute(
+        new GetCustomersQuery({ company }, skipCount, maxCount),
+      ),
+    );
   }
 
   protected async fetchExchangeRatesData(rateType: string): Promise<void> {

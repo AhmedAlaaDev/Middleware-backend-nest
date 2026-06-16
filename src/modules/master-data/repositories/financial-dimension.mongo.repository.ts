@@ -125,6 +125,11 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
       financialDimensionKey: doc.financialDimensionKey,
       value: doc.value,
       description: doc.description,
+      isSuspended: doc.isSuspended,
+      isBlockedForManualEntry: doc.isBlockedForManualEntry,
+      isTotal: doc.isTotal,
+      activeFrom: doc.activeFrom,
+      activeTo: doc.activeTo,
     }));
   }
 }

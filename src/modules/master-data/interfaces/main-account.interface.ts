@@ -3,12 +3,18 @@ export class IMainAccount {
   chartNumber: string;
   accountNumber: string;
   accountName: string;
+  mainAccountType?: string;
+  isSuspended?: 'Yes' | 'No';
+  doNotAllowManualEntry?: 'Yes' | 'No';
 }
 
 export interface ICreateMainAccount {
   accountName: string;
   chartNumber: string;
   accountNumber: string;
+  mainAccountType?: string;
+  isSuspended?: 'Yes' | 'No';
+  doNotAllowManualEntry?: 'Yes' | 'No';
 }
 
 export type IUpdateMainAccount = Partial<ICreateMainAccount>;

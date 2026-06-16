@@ -1,6 +1,7 @@
 export * from './account-customer-invoice-mapping.mongo.repository';
 export * from './billing-classification.mongo.repository';
 export * from './billing-code.mongo.repository';
+export * from './billing-code-version.mongo.repository';
 export * from './customer.mongo.repository';
 export * from './exchange-rate.mongo.repository';
 export * from './financial-dimension.mongo.repository';

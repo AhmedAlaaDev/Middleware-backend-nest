@@ -1,0 +1,33 @@
+export class AccountReceivableYardFileModel {
+  source?: string;
+  'Document type'?: string;
+  'invoice type'?: string;
+  MovementType?: string;
+  'Invoice No.'?: string;
+  'Crdt No.'?: string;
+  IssueDate?: Date | string | number;
+  'Due Date'?: Date | string | number;
+  'Printed at '?: Date | string | number;
+  'Payment Date'?: Date | string | number;
+  'Customer No'?: string;
+  'Bill to Party'?: string;
+  'Tax No'?: string | number;
+  'Container No'?: string;
+  'Booking No.'?: string;
+  'Size/Type'?: string;
+  'Truck No.'?: string;
+  'Bill Number'?: string;
+  'Description of charges'?: string;
+  Amount?: number | string;
+  VAT?: number | string;
+  TOTAL?: number | string;
+  Curr?: string;
+  Rate?: number | string;
+  'Amount 2'?: number | string;
+  'VAT 2'?: number | string;
+  'TOTAL 2'?: number | string;
+  'created By'?: string;
+  'Payment By'?: string;
+  'Shipping Line'?: string;
+  UniqueId?: number;
+}

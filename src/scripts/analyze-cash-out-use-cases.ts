@@ -254,7 +254,9 @@ function parseMainAccount(
   );
 }
 
-function detectRoutedBucket(line: CashEntryRawDataModel): RoutedBucketKey | null {
+function detectRoutedBucket(
+  line: CashEntryRawDataModel,
+): RoutedBucketKey | null {
   if (line.IsCustodySettlement) return 'custodySettlement';
   if (line.IsVendorPayment) return 'vendorPayment';
   if (line.IsCustodyIssue) return 'custodyIssue';
@@ -370,7 +372,9 @@ function buildBusinessUseCaseClassification(derived: {
   };
 }
 
-function classifyGroup(rows: ClassifiedRow[]): Omit<
+function classifyGroup(
+  rows: ClassifiedRow[],
+): Omit<
   GroupAnalysis,
   | 'uniqueId'
   | 'safeType'
@@ -440,7 +444,11 @@ function classifyGroup(rows: ClassifiedRow[]): Omit<
         : 'MULTI_VENDOR';
 
   const offsetMultiplicityPattern =
-    offsetLines === 0 ? 'NO_OFFSET' : offsetLines === 1 ? 'SINGLE_OFFSET' : 'MULTI_OFFSET';
+    offsetLines === 0
+      ? 'NO_OFFSET'
+      : offsetLines === 1
+        ? 'SINGLE_OFFSET'
+        : 'MULTI_OFFSET';
 
   const offsetCategoryCandidates = uniqueSorted(
     rows
@@ -462,7 +470,9 @@ function classifyGroup(rows: ClassifiedRow[]): Omit<
         ? offsetCategoryCandidates[0]
         : 'MIXED_OFFSET_CATEGORIES';
 
-  const currencyPattern = hasMixedCurrencies ? 'MIXED_CURRENCY' : 'SINGLE_CURRENCY';
+  const currencyPattern = hasMixedCurrencies
+    ? 'MIXED_CURRENCY'
+    : 'SINGLE_CURRENCY';
   const settlementPattern =
     settlementLines > 0 ? 'HAS_SETTLEMENT_421103' : 'NO_SETTLEMENT';
   const sourceBalancePattern = isBalancedInSource
@@ -486,14 +496,15 @@ function classifyGroup(rows: ClassifiedRow[]): Omit<
         : 'NORMAL_CASH_OUT';
   }
 
-  const mappingBucket: MappingBucket =
-    rows.every((r) => r.routedBucket === 'custodySettlement')
-      ? 'ROUTED_CUSTODY_SETTLEMENT'
-      : rows.every((r) => r.routedBucket === 'vendorPayment')
-        ? 'ROUTED_VENDOR_PAYMENT'
-        : rows.every((r) => r.routedBucket === 'custodyIssue')
-          ? 'ROUTED_CUSTODY_ISSUE'
-          : 'CASH_OUT_MAPPING';
+  const mappingBucket: MappingBucket = rows.every(
+    (r) => r.routedBucket === 'custodySettlement',
+  )
+    ? 'ROUTED_CUSTODY_SETTLEMENT'
+    : rows.every((r) => r.routedBucket === 'vendorPayment')
+      ? 'ROUTED_VENDOR_PAYMENT'
+      : rows.every((r) => r.routedBucket === 'custodyIssue')
+        ? 'ROUTED_CUSTODY_ISSUE'
+        : 'CASH_OUT_MAPPING';
 
   const withoutSettlement = rows.filter((row) => !row.isSettlementLine);
   const vendorLinesAfterSettlement = withoutSettlement.filter(
@@ -507,7 +518,8 @@ function classifyGroup(rows: ClassifiedRow[]): Omit<
 
   const detailedClassification: DetailedClassification = {
     lineCountBucket: buildLineCountBucket(lineCount),
-    accountTypeCompositionBucket: buildAccountTypeCompositionBucket(composition),
+    accountTypeCompositionBucket:
+      buildAccountTypeCompositionBucket(composition),
     invoicePattern:
       invoices.length === 0
         ? 'NO_INVOICE'
@@ -721,7 +733,10 @@ async function main(): Promise<void> {
     const analysis = analyzeGroup(uniqueId, group, utilsService);
     addCount(countsBySafeType, analysis.safeType || 'UNKNOWN');
     addCount(countsByVoucherType, analysis.voucherType || 'UNKNOWN');
-    addCount(countsByMappingBucket, analysis.businessClassification.mappingBucket);
+    addCount(
+      countsByMappingBucket,
+      analysis.businessClassification.mappingBucket,
+    );
     addCount(
       countsByBusinessOffsetMultiplicity,
       analysis.businessClassification.offsetMultiplicityPattern,
@@ -824,7 +839,10 @@ async function main(): Promise<void> {
         details: analysis.variantDetails,
         examples: [],
       };
-      mainUseCaseEntry.variantsBySignature.set(analysis.variantSignature, variant);
+      mainUseCaseEntry.variantsBySignature.set(
+        analysis.variantSignature,
+        variant,
+      );
       mainUseCaseEntry.useCase.variants.push(variant);
       mainUseCaseEntry.useCase.variantCount += 1;
       totalVariants += 1;
@@ -947,7 +965,9 @@ async function main(): Promise<void> {
     (uc) => uc.riskFlags.cartesianProductRiskInCurrentProcessor,
   ).length;
 
-  console.info(`cash-out rows:                            ${cashOutRows.length}`);
+  console.info(
+    `cash-out rows:                            ${cashOutRows.length}`,
+  );
   console.info(`unique ids:                              ${uniqueIdMap.size}`);
   console.info(
     `routed custody settlement rows/groups:   ${routedBuckets.custodySettlement.rows}/${routedBuckets.custodySettlement.uniqueIds.size}`,
@@ -958,12 +978,20 @@ async function main(): Promise<void> {
   console.info(
     `routed custody issue rows/groups:        ${routedBuckets.custodyIssue.rows}/${routedBuckets.custodyIssue.uniqueIds.size}`,
   );
-  console.info(`mapping rows/groups:                     ${mappingRows}/${mappingUniqueIds}`);
-  console.info(`main use cases:                          ${mainUseCases.length}`);
+  console.info(
+    `mapping rows/groups:                     ${mappingRows}/${mappingUniqueIds}`,
+  );
+  console.info(
+    `main use cases:                          ${mainUseCases.length}`,
+  );
   console.info(`variants:                                ${totalVariants}`);
-  console.info(`main use cases with mixed currencies:    ${ucWithMixedCurrencies}`);
+  console.info(
+    `main use cases with mixed currencies:    ${ucWithMixedCurrencies}`,
+  );
   console.info(`main use cases with multi offset:        ${ucWithMultiOffset}`);
-  console.info(`main use cases with cartesian risk:      ${ucWithCartesianRisk}`);
+  console.info(
+    `main use cases with cartesian risk:      ${ucWithCartesianRisk}`,
+  );
 
   if (mainUseCases.length > 80) {
     console.info(
@@ -987,4 +1015,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

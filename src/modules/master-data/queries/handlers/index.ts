@@ -1,6 +1,7 @@
 export * from './get-account-mappings.handler';
 export * from './get-billing-classifications.handler';
 export * from './get-billing-codes.handler';
+export * from './get-billing-code-versions.handler';
 export * from './get-customers.handler';
 export * from './get-exchange-rates.handler';
 export * from './get-financial-dimension-values.handler';

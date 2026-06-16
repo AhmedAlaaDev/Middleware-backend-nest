@@ -64,6 +64,9 @@ export class MainAccountMongoRepository implements MainAccountRepository {
       chartNumber: doc.chartNumber,
       accountNumber: doc.accountNumber,
       accountName: doc.accountName,
+      mainAccountType: doc.mainAccountType,
+      isSuspended: doc.isSuspended,
+      doNotAllowManualEntry: doc.doNotAllowManualEntry,
     }));
   }
 

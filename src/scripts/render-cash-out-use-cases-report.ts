@@ -30,8 +30,10 @@ function badge(text: string, cls: string): string {
 
 function riskBadges(riskFlags: Record<string, boolean>): string {
   const parts: string[] = [];
-  if (riskFlags.hasMixedCurrencies) parts.push(badge('Mixed Currency', 'currency'));
-  if (riskFlags.hasSettlementLines) parts.push(badge('Settlement', 'settlement'));
+  if (riskFlags.hasMixedCurrencies)
+    parts.push(badge('Mixed Currency', 'currency'));
+  if (riskFlags.hasSettlementLines)
+    parts.push(badge('Settlement', 'settlement'));
   if (riskFlags.hasMultipleVendors) parts.push(badge('Multi Vendor', 'multi'));
   if (riskFlags.hasLedgerOffset) parts.push(badge('Ledger Offset', 'ledger'));
   if (riskFlags.cartesianProductRiskInCurrentProcessor) {
@@ -291,7 +293,10 @@ function renderUseCase(uc: MainUseCase): string {
       ? 4
       : 2;
 
-  const variants = uc.variants.slice(0, maxVariants).map(renderVariant).join('');
+  const variants = uc.variants
+    .slice(0, maxVariants)
+    .map(renderVariant)
+    .join('');
 
   return `
     <section class="use-case page-break" id="${esc(uc.useCaseId)}">
@@ -456,4 +461,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-
