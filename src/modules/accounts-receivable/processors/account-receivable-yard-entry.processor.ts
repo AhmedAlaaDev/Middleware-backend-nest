@@ -254,12 +254,12 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
       : '';
     line.DimensionModel = mapping.dimensions;
 
-    if (!line.TermsOfPayment) {
-      line.AddError(
-        'TermsOfPayment',
-        `No terms of payment found for billing classification ${mapping.billingClassification}`,
-      );
-    }
+    // if (!line.TermsOfPayment) {
+    //   line.AddError(
+    //     'TermsOfPayment',
+    //     `No terms of payment found for billing classification ${mapping.billingClassification}`,
+    //   );
+    // }
 
     return line;
   }
@@ -435,7 +435,12 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
       return '';
     }
 
-    const key = this.billingCodeKey(billingClassification, version.billingCode);
+    const key = this.billingCodeKey(
+      billingClassification === 'Yard-Turkon Egypt'
+        ? 'Yard-Turkon Egy'
+        : billingClassification,
+      version.billingCode,
+    );
     if (!context.billingCodeKeys.has(key)) {
       line.AddError(
         'BillingCode',
@@ -457,7 +462,7 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
     if (!taxNumber || !customer?.customerAccount) {
       line.AddError(
         'CustomerAccount',
-        `No customer found with TaxExemptNumber ${this.cleanSourceText(row['Tax No'])}`,
+        `No customer found using normalized TaxExemptNumber "${taxNumber}" from source Tax No "${this.cleanSourceText(row['Tax No'])}".`,
       );
     }
 
