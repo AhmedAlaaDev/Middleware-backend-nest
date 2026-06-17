@@ -1,4 +1,10 @@
+import { type LookupCell } from '@/common/types';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
+
+export type AccountReceivableFileLookupRow = Record<
+  string,
+  LookupCell<unknown>
+>;
 
 export class AccountReceivableFileModel {
   LINENUMBER?: number;
@@ -8,8 +14,8 @@ export class AccountReceivableFileModel {
   VOUCHER?: string;
   TRANSDATE: Date;
   ACCOUNTTYPE?: string;
-  ACCOUNTDISPLAYVALUE?: string;
-  DEFAULTDIMENSIONDISPLAYVALUE?: string;
+  ACCOUNTDISPLAYVALUE?: LookupCell<string | number>;
+  DEFAULTDIMENSIONDISPLAYVALUE?: LookupCell<string | number>;
   FINTAGDISPLAYVALUE?: string;
   TEXT?: string;
   DEBITAMOUNT: number;
@@ -52,6 +58,60 @@ export class AccountReceivableFileModel {
 
   AccountDimensions?: EntryDimensionsModel;
 
+  static fromLookupRow(
+    sourceRow: AccountReceivableFileLookupRow,
+  ): AccountReceivableFileModel {
+    const accountReceivableFile = new AccountReceivableFileModel();
+    accountReceivableFile.assignLookupResults(sourceRow);
+    return accountReceivableFile;
+  }
+
+  assignLookupResults(sourceRow: AccountReceivableFileLookupRow): void {
+    for (const [propertyName, sourceCell] of Object.entries(sourceRow)) {
+      (this as Record<string, unknown>)[propertyName] =
+        this.lookupResultOrEmpty(sourceCell);
+    }
+  }
+
+  private lookupResultOrEmpty(sourceCell?: LookupCell<unknown>): unknown {
+    if (sourceCell === null || sourceCell === undefined) {
+      return '';
+    }
+
+    if (typeof sourceCell === 'object' && 'result' in sourceCell) {
+      const lookupResult = sourceCell.result;
+      return lookupResult === null || lookupResult === undefined
+        ? ''
+        : lookupResult;
+    }
+
+    if (typeof sourceCell === 'object' && 'formula' in sourceCell) {
+      return '';
+    }
+
+    return sourceCell;
+  }
+
+  private lookupResultAsString(
+    sourceCell?: LookupCell<string | number>,
+  ): string {
+    const lookupResult = this.lookupResultOrEmpty(sourceCell);
+    if (lookupResult === null || lookupResult === undefined) {
+      return '';
+    }
+    if (typeof lookupResult === 'object') {
+      return '';
+    }
+    if (typeof lookupResult === 'string') {
+      return lookupResult;
+    }
+    if (typeof lookupResult === 'number') {
+      return String(lookupResult);
+    }
+
+    return '';
+  }
+
   getFormattedInvoiceNumber(): string {
     if (!this.INVOICE) {
       return '000000000';
@@ -75,13 +135,15 @@ export class AccountReceivableFileModel {
   }
 
   modifiedLocationHeaderDefaultDimensionDisplayValue(): string {
-    if (!this.DEFAULTDIMENSIONDISPLAYVALUE) {
+    const defaultDimensionDisplayValue = this.lookupResultAsString(
+      this.DEFAULTDIMENSIONDISPLAYVALUE,
+    );
+
+    if (!defaultDimensionDisplayValue) {
       return '';
     }
-    return this.DEFAULTDIMENSIONDISPLAYVALUE.toLowerCase().replace(
-      'cai',
-      '002',
-    );
+
+    return defaultDimensionDisplayValue.toLowerCase().replace('cai', '002');
   }
 
   getTaxGroup(): string {

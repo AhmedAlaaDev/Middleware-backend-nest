@@ -16,7 +16,10 @@ function fmt(n: number | undefined | null): string {
 }
 
 function esc(v: unknown): string {
-  const s = String(v ?? '');
+  const s =
+    typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+      ? String(v)
+      : '';
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -314,19 +317,6 @@ function renderVariant(variant: Variant, showSettlementBadge: boolean): string {
     </div>`;
 }
 
-const REVIEW_FIELDS: Array<[string, number]> = [
-  ['Accounting Decision', 3],
-  ['Required DFO Account', 2],
-  ['Required DFO Offset', 2],
-  ['Credit Amount Rule', 2],
-  ['Currency / Exchange-Rate Rule', 2],
-  ['Settlement / FX Handling', 2],
-  ['Marked Invoice Rule', 2],
-  ['Notes', 3],
-  ['Approved By', 1],
-  ['Approved Date', 1],
-];
-
 function renderReviewArea(): string {
   const lines = Array.from(
     { length: 7 },
@@ -367,8 +357,6 @@ function renderUseCase(uc: MainUseCase, index: number): string {
       : '';
 
   const cpb = uc.currentProcessorBehavior;
-  const cpbNotes = cpb.notes.map((n) => `<li>${esc(n)}</li>`).join('');
-
   const pageBreak = index > 0 ? ' page-break' : '';
 
   return `

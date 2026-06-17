@@ -15,7 +15,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     };
 
     const retryService = {
-      executeWithRetry: jest.fn(async (fn: any) => fn()),
+      executeWithRetry: jest.fn((fn: any) => fn()),
       configureAxiosRetry: jest.fn(),
     };
 

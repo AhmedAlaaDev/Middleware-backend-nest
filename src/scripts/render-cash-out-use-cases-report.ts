@@ -16,7 +16,10 @@ function fmt(n: number | undefined | null): string {
 }
 
 function esc(v: unknown): string {
-  const s = String(v ?? '');
+  const s =
+    typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+      ? String(v)
+      : '';
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
