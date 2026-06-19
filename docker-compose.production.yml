@@ -10,6 +10,7 @@ services:
       - '${PORT:-3001}:${PORT:-3001}'
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: '--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-3072}'
     networks:
       - mongodb_network
       - redis_network
@@ -30,8 +31,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    mem_limit: 2g
-    cpus: 1.0
+    mem_limit: '${APP_MEMORY_LIMIT:-4g}'
+    cpus: '${APP_CPU_LIMIT:-2.0}'
 
   mongodb:
     image: mongodb/mongodb-community-server:8.0.4-ubi8
