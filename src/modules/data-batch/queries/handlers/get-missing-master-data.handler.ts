@@ -5,9 +5,7 @@ import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-miss
 import { DataBatchMissingMasterDataRepository } from '@/modules/data-batch/repositories/interfaces/data-batch-missing-master-data.repository';
 
 @QueryHandler(GetMissingMasterDataQuery)
-export class GetMissingMasterDataHandler
-  implements IQueryHandler<GetMissingMasterDataQuery>
-{
+export class GetMissingMasterDataHandler implements IQueryHandler<GetMissingMasterDataQuery> {
   constructor(
     private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
   ) {}
@@ -25,4 +23,3 @@ export class GetMissingMasterDataHandler
     });
   }
 }
-

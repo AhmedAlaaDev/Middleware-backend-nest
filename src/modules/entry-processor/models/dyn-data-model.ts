@@ -1,6 +1,6 @@
+import { IMissingMasterDataItem } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 import { DynDataModel as IDynDataModel } from '@/modules/entry-processor/interfaces';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
-import { IMissingMasterDataItem } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 
 export abstract class DynDataModel implements IDynDataModel {
   LineNumber?: number;

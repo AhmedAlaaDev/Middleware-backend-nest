@@ -56,4 +56,3 @@ export abstract class DataBatchMissingMasterDataRepository {
     },
   ): Promise<void>;
 }
-

@@ -248,6 +248,69 @@ export class QueueJobStoreService {
     return this.jobs.find().sort({ createdAt: -1 }).limit(limit).lean().exec();
   }
 
+  async listQueueJobs(
+    queueName: string,
+    filters: {
+      page?: number;
+      limit?: number;
+      status?: string;
+      jobId?: string;
+      batchId?: string;
+      from?: string;
+      to?: string;
+      sortBy?: string;
+      sortDirection?: 'asc' | 'desc';
+    },
+  ) {
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 500);
+    const skip = (page - 1) * limit;
+
+    const query: Record<string, any> = { queueName };
+
+    if (filters.status) {
+      query.status = filters.status;
+    }
+    if (filters.jobId) {
+      query.jobId = filters.jobId;
+    }
+    if (filters.batchId) {
+      query.batchId = filters.batchId;
+    }
+    if (filters.from || filters.to) {
+      query.createdAt = {};
+      if (filters.from) query.createdAt.$gte = new Date(filters.from);
+      if (filters.to) query.createdAt.$lte = new Date(filters.to);
+    }
+
+    const sortByField = filters.sortBy || 'createdAt';
+    const sortDir = filters.sortDirection === 'asc' ? 1 : -1;
+    const sortObj = { [sortByField]: sortDir, _id: -1 } as any;
+
+    const total = await this.jobs.countDocuments(query).exec();
+    const totalPages = Math.ceil(total / limit);
+
+    const items = await this.jobs
+      .find(query)
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    return {
+      data: items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
   async listRecoverable() {
     return this.jobs
       .find({

@@ -41,7 +41,7 @@ export class QueueService {
   ) {}
 
   /** 🧠 Helper to return the Queue instance dynamically */
-  private getQueue(queueName: QueueName): Queue {
+  public getQueue(queueName: QueueName): Queue {
     switch (queueName) {
       case QUEUES.DFO_FREE_TEXT_INVOICE:
         return this.dfoFreeTextInvoiceQueue;

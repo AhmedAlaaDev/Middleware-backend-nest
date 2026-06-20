@@ -1,10 +1,10 @@
 import { Query } from '@nestjs/cqrs';
 
 import {
+  type IMissingMasterDataPaginatedResponse,
   CustomerCreationStatus,
   MissingMasterDataType,
 } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
-import type { IMissingMasterDataPaginatedResponse } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 
 export class GetMissingMasterDataQuery extends Query<IMissingMasterDataPaginatedResponse> {
   constructor(

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { Queue } from 'bullmq';
 
 import { QUEUES } from '@/modules/queue/constants/queues';

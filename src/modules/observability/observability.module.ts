@@ -8,6 +8,7 @@ import { IConfig, ObservabilityConfig } from '@/config';
 import { AdminLogsController } from '@/modules/observability/admin-logs.controller';
 import { RequestLoggingInterceptor } from '@/modules/observability/interceptors/request-logging.interceptor';
 import { TraceContextMiddleware } from '@/modules/observability/middleware/trace-context.middleware';
+import { ObservabilityLogsController } from '@/modules/observability/observability-logs.controller';
 import {
   ApplicationLog,
   ApplicationLogSchema,
@@ -53,7 +54,7 @@ import { TraceContextService } from '@/modules/observability/services/trace-cont
       'logs',
     ),
   ],
-  controllers: [AdminLogsController],
+  controllers: [AdminLogsController, ObservabilityLogsController],
   providers: [
     TraceContextService,
     TraceContextMiddleware,
