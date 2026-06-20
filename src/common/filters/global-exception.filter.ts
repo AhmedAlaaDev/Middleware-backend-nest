@@ -22,6 +22,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
+
 // NOTE: `Req` and `Res` are assumed to be declared globally (ambient types).
 // Example (ambient):
 //   declare type Req = import('express').Request
@@ -54,6 +56,7 @@ interface ApiResponse<T> {
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
+  constructor(private readonly logs: OperationalLoggerService) {}
   /**
    * Entry point invoked by Nest when an exception bubbles up the HTTP pipeline.
    * Delegates to normalization helpers and outputs a unified ApiResponse.
@@ -73,13 +76,31 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       meta,
     });
 
-    // Minimal inline log (replace with proper logger later if you wish)
-    // eslint-disable-next-line no-console
-    console.log(
-      `[${req.method}] ${req.originalUrl || req.url} -> ${
-        normalized.status
-      } :: ${normalized.developerMessage ?? normalized.userMessage}`,
-    );
+    void this.logs.emit({
+      level: normalized.status >= 500 ? 'error' : 'warn',
+      message:
+        normalized.developerMessage ??
+        normalized.userMessage ??
+        'HTTP request failed',
+      context: GlobalExceptionFilter.name,
+      eventType: 'http.request.failed',
+      requestId: req.headers['x-request-id'] as string,
+      correlationId: req.headers['x-correlation-id'] as string,
+      userId: req.user?.id,
+      status: String(normalized.status),
+      error:
+        exception instanceof Error
+          ? {
+              name: exception.name,
+              message: exception.message,
+              stack: exception.stack,
+            }
+          : undefined,
+      metadata: {
+        method: req.method,
+        path: req.originalUrl || req.url,
+      },
+    });
 
     res.status(normalized.status).json(payload);
   }

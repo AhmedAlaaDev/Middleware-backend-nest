@@ -46,7 +46,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   ): Promise<PostCashBatchToDFOResult> {
     const { batchId } = command;
 
-    this.logger.log(`Starting post to DFO for cash batch ${batchId}`);
+    this.logger.log(`Received post-to-DFO request for cash batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
     const cashDirection = this.getCashDirection(batch.entryProcessorType);
@@ -554,27 +554,35 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       cashDirection: 'in' | 'out';
     },
   ): Promise<PostCashBatchToDFOResult> {
-    const jobData = {
-      batchId,
-      company,
-      groupedJournals: payload.groupedJournals,
-      cashDirection: payload.cashDirection,
-      sourceModule: 'CASH' as const,
-    };
-
-    const job = await this.queueService.addJob(
+    const submission = await this.queueService.addDurableJob(
       QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL,
       'post-customer-payment-journal-dfo',
-      jobData,
+      {
+        batchId,
+        company,
+        cashDirection: payload.cashDirection,
+        sourceModule: 'CASH',
+        payloadVersion: 1,
+      },
+      payload.groupedJournals,
     );
+    if (submission.status === 'already-completed') {
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Completed,
+      );
+    }
 
     this.logger.log(
-      `Enqueued customer payment job ${job.id} for batch ${batchId} with ${payload.groupedJournals.length} journal batches`,
+      submission.status === 'queued' || submission.status === 'requeued'
+        ? `${submission.message} Journal groups: ${payload.groupedJournals.length}`
+        : submission.message,
     );
 
     return {
-      jobId: job.id!,
-      message: `Batch ${batchId} queued for posting to D365FO (customer payment). Job ID: ${job.id}`,
+      jobId: submission.jobId,
+      message: submission.message,
+      submissionStatus: submission.status,
     };
   }
 

@@ -27,13 +27,12 @@
     "docker:build": "docker compose build",
     "docker:prod:up": "docker compose -f docker-compose.production.yml up -d",
     "docker:prod:down": "docker compose -f docker-compose.production.yml down",
-    "docker:prod:down:v": "docker compose -f docker-compose.production.yml down -v",
     "docker:prod:restart": "pnpm docker:prod:down && pnpm docker:prod:up",
     "docker:prod:logs": "docker compose -f docker-compose.production.yml logs app -f",
     "docker:prod:build": "docker build --target production -t moatazali/middleware-app:1.0.2 .",
     "docker:prod:push": "docker push moatazali/middleware-app:1.0.2",
-    "docker:deploy": "pnpm docker:prod:build && pnpm docker:prod:push && ssh mdr \"bash -lc 'set -e; cd ~/apps/D365FOMiddleware_Nestbackend; docker compose pull; docker compose up -d --remove-orphans'\"",
-    "docker:server:logs": "ssh mdr \"cd ~/apps/D365FOMiddleware_Nestbackend && docker compose logs -f --tail=200 app\""
+    "docker:deploy": "pnpm docker:prod:build && pnpm docker:prod:push && scp docker-compose.production.yml mdr:~/apps/D365FOMiddleware_Nestbackend/docker-compose.production.yml && ssh mdr \"bash -lc 'set -e; cd ~/apps/D365FOMiddleware_Nestbackend; docker compose -f docker-compose.production.yml pull; docker compose -f docker-compose.production.yml up -d --remove-orphans'\"",
+    "docker:server:logs": "ssh mdr \"cd ~/apps/D365FOMiddleware_Nestbackend && docker compose -f docker-compose.production.yml logs -f --tail=200 app\""
   },
   "dependencies": {
     "@keyv/redis": "^5.1.4",
@@ -65,7 +64,10 @@
     "joi": "^18.0.2",
     "keyv": "^5.5.5",
     "mongoose": "^9.0.0",
+    "nestjs-pino": "^4.4.1",
     "opossum": "^9.0.0",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.1.1",
     "pnpm": "^10.28.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
@@ -115,6 +117,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/$1"
+    }
   }
 }

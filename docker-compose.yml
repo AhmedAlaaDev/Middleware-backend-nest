@@ -28,6 +28,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      cache-redis:
+        condition: service_healthy
     command: sh -c "cd /app && pnpm start:dev:docker"
 
   mongodb:
@@ -81,10 +83,34 @@ services:
       retries: 5
       start_period: 10s
 
+  cache-redis:
+    image: redis:7-alpine
+    container_name: cache-redis-dev
+    hostname: cache-redis
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '${CACHE_REDIS_MAX_MEMORY:-256mb}',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    networks:
+      - redis_network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
 volumes:
   mongodb-data-dev:
-    driver: local
-  mongodb-log-dev:
     driver: local
   redis-data-dev:
     driver: local

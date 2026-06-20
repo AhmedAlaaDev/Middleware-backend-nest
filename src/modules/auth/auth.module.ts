@@ -7,6 +7,7 @@ import { AuthController } from '@/modules/auth/auth.controller';
 import { AuthService } from '@/modules/auth/auth.service';
 import { ApiKeyGuard } from '@/modules/auth/guards/api-key.guard';
 import { AuthGuard } from '@/modules/auth/guards/auth.guard';
+import { RolesGuard } from '@/modules/auth/guards/roles.guard';
 import {
   RefreshToken,
   RefreshTokenSchema,
@@ -38,6 +39,10 @@ import { UserModule } from '@/modules/user/user.module';
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
   controllers: [AuthController],

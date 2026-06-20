@@ -33,9 +33,16 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
 
         if (!redis) throw new Error('Redis Config is missing!');
 
-        const redisUri = redis.password
-          ? `redis://${encodeURIComponent(redis.password)}@${redis.host}:${redis.port}`
-          : `redis://${redis.host}:${redis.port}`;
+        const cacheHost = process.env.CACHE_REDIS_HOST ?? redis.host;
+        const cachePort = Number.parseInt(
+          process.env.CACHE_REDIS_PORT ?? String(redis.port),
+          10,
+        );
+        const cachePassword =
+          process.env.CACHE_REDIS_PASSWORD ?? redis.password;
+        const redisUri = cachePassword
+          ? `redis://${encodeURIComponent(cachePassword)}@${cacheHost}:${cachePort}`
+          : `redis://${cacheHost}:${cachePort}`;
 
         return {
           stores: [

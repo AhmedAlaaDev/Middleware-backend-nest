@@ -55,7 +55,7 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
   ): Promise<PostARBatchToDFOResult> {
     const { batchId } = command;
 
-    this.logger.log(`Starting post to DFO for batch ${batchId}`);
+    this.logger.log(`Received post-to-DFO request for batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
 
@@ -503,24 +503,34 @@ export class PostARBatchToDFOHandler implements ICommandHandler<
     company: string,
     groupedInvoices: GroupedFreeTextInvoiceForQueue[],
   ): Promise<PostARBatchToDFOResult> {
-    const job = await this.queueService.addJob(
+    const submission = await this.queueService.addDurableJob(
       QUEUES.DFO_FREE_TEXT_INVOICE,
       'post-free-text-invoice-batch-to-dfo',
       {
         batchId,
         company,
-        groupedInvoices,
         sourceModule: 'AR',
+        payloadVersion: 1,
       },
+      groupedInvoices,
     );
+    if (submission.status === 'already-completed') {
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Completed,
+      );
+    }
 
     this.logger.log(
-      `Enqueued job ${job.id} for batch ${batchId} with ${groupedInvoices.length} invoices`,
+      submission.status === 'queued' || submission.status === 'requeued'
+        ? `${submission.message} Invoice groups: ${groupedInvoices.length}`
+        : submission.message,
     );
 
     return {
-      jobId: job.id!,
-      message: `Batch ${batchId} queued for posting to D365FO. Job ID: ${job.id}`,
+      jobId: submission.jobId,
+      message: submission.message,
+      submissionStatus: submission.status,
     };
   }
 

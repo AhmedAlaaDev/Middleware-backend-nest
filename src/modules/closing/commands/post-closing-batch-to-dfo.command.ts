@@ -1,9 +1,8 @@
 import { Command } from '@nestjs/cqrs';
 
-export interface PostClosingBatchToDFOResult {
-  jobId: string;
-  message: string;
-}
+import { DurablePostingSubmissionResult } from '@/modules/queue/contracts/durable-posting-job.contract';
+
+export type PostClosingBatchToDFOResult = DurablePostingSubmissionResult;
 
 export class PostClosingBatchToDFOCommand extends Command<PostClosingBatchToDFOResult> {
   constructor(public readonly batchId: string) {

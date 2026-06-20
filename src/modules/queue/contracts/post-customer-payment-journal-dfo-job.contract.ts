@@ -2,15 +2,11 @@ import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
+import { DurablePostingJobPayload } from '@/modules/queue/contracts/durable-posting-job.contract';
 
-export interface PostCustomerPaymentJournalDFOJobPayload {
-  batchId: string;
-  company: string;
-  groupedJournals: Array<{
-    header: D365FOCustomerPaymentJournalHeaderRequest;
-    lines: D365FOCustomerPaymentJournalLineRequest[];
-  }>;
-  correlationId?: string;
-  sourceModule?: 'CASH';
-  cashDirection?: 'in' | 'out';
+export interface CustomerPaymentJournalPostingGroup {
+  header: D365FOCustomerPaymentJournalHeaderRequest;
+  lines: D365FOCustomerPaymentJournalLineRequest[];
 }
+
+export type PostCustomerPaymentJournalDFOJobPayload = DurablePostingJobPayload;

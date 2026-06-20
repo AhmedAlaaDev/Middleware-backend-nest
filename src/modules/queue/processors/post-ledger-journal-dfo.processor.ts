@@ -6,13 +6,20 @@ import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-ex
 import { LedgerJournalLineRequest } from '@/modules/d365fo/types/d365fo-ledger.type';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
-import { PostLedgerJournalDFOJobPayload } from '@/modules/queue/contracts/post-ledger-journal-dfo-job.contract';
+import {
+  LedgerJournalPostingGroup,
+  PostLedgerJournalDFOJobPayload,
+} from '@/modules/queue/contracts/post-ledger-journal-dfo-job.contract';
+import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
 import {
   CreatedHeader,
   DfoRollbackService,
 } from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
+import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
 import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
 
 const LINE_CHUNK_SIZE = 20;
@@ -27,118 +34,165 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     private readonly dataBatchService: DataBatchService,
     private readonly dfoRollbackService: DfoRollbackService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
+    private readonly jobStore: QueueJobStoreService,
+    private readonly operationalLogs: OperationalLoggerService,
+    private readonly traceContext: TraceContextService,
   ) {
     super();
   }
 
-  async process(job: Job<PostLedgerJournalDFOJobPayload>): Promise<void> {
-    this.logger.log(
-      `[JOB] Processing ledger journal job ${job.id} for batch ${job.data.batchId}`,
+  process(job: Job<PostLedgerJournalDFOJobPayload>): Promise<void> {
+    return this.traceContext.run(
+      {
+        correlationId: job.data.correlationId,
+        batchId: job.data.batchId,
+        jobId: String(job.id),
+        queueName: QUEUES.DFO_LEDGER_JOURNAL,
+      },
+      () => this.processJob(job),
     );
-    const payload = job.data;
-    if (!payload.groupedJournals?.length) {
-      throw new Error('No groupedJournals or empty');
-    }
+  }
+
+  private async processJob(
+    job: Job<PostLedgerJournalDFOJobPayload>,
+  ): Promise<void> {
+    const jobId = String(job.id);
     const errorCollector = new PostingErrorCollector();
+    const legacyGroups = (
+      job.data as PostLedgerJournalDFOJobPayload & {
+        groupedJournals?: LedgerJournalPostingGroup[];
+      }
+    ).groupedJournals;
+    if (legacyGroups?.length) {
+      await this.jobStore.prepare({
+        ...job.data,
+        correlationId: job.data.correlationId ?? job.data.batchId,
+        payloadVersion: 1,
+        jobId,
+        queueName: QUEUES.DFO_LEDGER_JOURNAL,
+        jobName: job.name,
+        groups: legacyGroups,
+      });
+    }
+    await this.jobStore.markActive(jobId, job.attemptsMade);
+    await this.emitLifecycle('queue.job.active', 'active', jobId);
+
     try {
-      await this.executePosting(payload, errorCollector);
-      this.logger.log(`Job ${job.id} completed successfully`);
+      await this.executePosting(job, errorCollector);
+      await this.jobStore.markCompleted(jobId);
+      await this.emitLifecycle('queue.job.completed', 'completed', jobId);
     } catch (error) {
-      const msg = this.dfoErrorExtractor.extractMessage(error);
-      errorCollector.addHeaderError(msg, 'Job processing');
-      this.logger.error(
-        `Job ${job.id} failed: ${msg}`,
-        error instanceof Error ? error.stack : undefined,
+      const message = this.dfoErrorExtractor.extractMessage(error);
+      errorCollector.addHeaderError(message, 'Job processing');
+      const finalAttempt = this.isFinalAttempt(job);
+
+      if (finalAttempt) {
+        await this.jobStore.markFailed(jobId, message);
+        await this.handlePostingFailure(job.data.batchId, errorCollector);
+      } else {
+        await this.jobStore.markRetrying(jobId, message);
+      }
+      await this.emitLifecycle(
+        finalAttempt ? 'queue.job.failed' : 'queue.job.retrying',
+        finalAttempt ? 'failed' : 'retrying',
+        jobId,
+        error,
       );
-      await this.handlePostingFailure(payload.batchId, errorCollector);
       throw error;
     }
   }
 
   private async executePosting(
-    data: PostLedgerJournalDFOJobPayload,
+    job: Job<PostLedgerJournalDFOJobPayload>,
     errorCollector: PostingErrorCollector,
   ): Promise<void> {
-    const { batchId, company, groupedJournals } = data;
-    const createdHeaders: CreatedHeader[] = [];
-    this.logger.log(
-      `[POST] Starting sequential posting: ${groupedJournals.length} journal groups for batch ${batchId}`,
-    );
-    try {
-      for (let i = 0; i < groupedJournals.length; i++) {
-        const group = groupedJournals[i];
-        const headerResult = await this.strategy.postHeadersInBatches(
-          [group.header],
-          1,
-        );
-        if (headerResult.headerIds.length !== 1) {
-          throw new Error(
-            `Expected 1 header ID, got ${headerResult.headerIds.length}`,
-          );
-        }
-        const headerKey = headerResult.headerIds[0];
-        createdHeaders.push({ headerKey, dataAreaId: company });
-        this.logger.log(
-          `[POST] Header ${i + 1}/${groupedJournals.length} created: ${headerKey}`,
-        );
+    const { batchId, company } = job.data;
+    const jobId = String(job.id);
+    const groups =
+      await this.jobStore.listGroups<LedgerJournalPostingGroup>(jobId);
+    if (!groups.length) throw new Error('No durable journal groups found');
 
-        const linesWithBatchNumber = group.lines.map(
+    const createdHeaders: CreatedHeader[] = [];
+    try {
+      for (const record of groups) {
+        if (record.status === QueueJobGroupStatus.COMPLETED) continue;
+        await this.jobStore.markGroupActive(jobId, record.index);
+
+        let headerKey = record.createdHeaderId;
+        if (!headerKey) {
+          const result = await this.strategy.postHeadersInBatches(
+            [record.payload.header],
+            1,
+          );
+          if (result.headerIds.length !== 1) {
+            throw new Error(
+              `Expected 1 header ID, got ${result.headerIds.length}`,
+            );
+          }
+          headerKey = result.headerIds[0];
+          await this.jobStore.setCreatedHeader(jobId, record.index, headerKey);
+        }
+        createdHeaders.push({ headerKey, dataAreaId: company });
+
+        const lines = record.payload.lines.map(
           (line: LedgerJournalLineRequest) => ({
             ...line,
             JournalBatchNumber: headerKey,
             dataAreaId: company,
           }),
         );
-
-        const postedLines = await this.strategy.postLinesForHeader(
+        await this.strategy.postLinesForHeader(
           headerKey,
-          linesWithBatchNumber,
+          lines,
           company,
           LINE_CHUNK_SIZE,
         );
-        this.logger.log(
-          `[POST] Posted ${postedLines.length} lines for journal ${headerKey}`,
-        );
+        await this.jobStore.completeGroup(jobId, record.index);
+        await job.updateProgress({
+          completedGroups: record.index + 1,
+          totalGroups: groups.length,
+        });
       }
-      const headerKeys = createdHeaders.map((h) => h.headerKey);
-      await this.handlePostingSuccess(batchId, headerKeys);
-    } catch (error) {
-      const msg = this.dfoErrorExtractor.extractMessage(error);
-      this.logger.error(
-        `[POST] Error for batch ${batchId}: ${msg}`,
-        error instanceof Error ? error.stack : undefined,
+
+      await this.handlePostingSuccess(
+        batchId,
+        groups
+          .map((group) => group.createdHeaderId)
+          .filter((id): id is string => Boolean(id))
+          .concat(createdHeaders.map((header) => header.headerKey)),
       );
-      if (createdHeaders.length > 0) {
-        this.logger.log(
-          `[ROLLBACK] Rolling back ${createdHeaders.length} journal headers (lines first, then headers)`,
-        );
-        const rollbackResult = await this.dfoRollbackService.rollbackAll(
+    } catch (error) {
+      if (createdHeaders.length) {
+        const rollback = await this.dfoRollbackService.rollbackAll(
           this.strategy,
           createdHeaders,
           ROLLBACK_CHUNK_SIZE,
           errorCollector,
         );
-        this.logger.log(
-          `[ROLLBACK] Done: ${rollbackResult.successfullyDeletedHeaders.length} headers deleted, ${rollbackResult.failedToDeleteHeaders.length} failed`,
-        );
-        if (rollbackResult.failedToDeleteHeaders.length > 0) {
+        if (rollback.failedToDeleteHeaders.length) {
           await this.storeCreatedHeaderIds(
             batchId,
-            rollbackResult.failedToDeleteHeaders,
+            rollback.failedToDeleteHeaders,
           );
         }
+        await this.jobStore.resetAfterRollback(
+          jobId,
+          createdHeaders.map((header) => header.headerKey),
+          rollback.failedToDeleteHeaders,
+        );
       }
-      await this.handlePostingFailure(batchId, errorCollector);
       throw error;
     }
   }
 
   private async handlePostingFailure(
     batchId: string,
-    errorCollector: PostingErrorCollector,
+    errors: PostingErrorCollector,
   ): Promise<void> {
-    const formatted = errorCollector.getFormattedErrorMessages();
-    await this.dataBatchService.updateDfoPostingErrorsAsync(batchId, formatted);
+    await this.dataBatchService.updateDfoPostingErrorsAsync(
+      batchId,
+      errors.getFormattedErrorMessages(),
+    );
     await this.dataBatchService.updateStatusAsync(
       batchId,
       DataBatchStatus.Canceled,
@@ -147,16 +201,13 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
 
   private async handlePostingSuccess(
     batchId: string,
-    headerKeys: string[],
+    headerIds: string[],
   ): Promise<void> {
-    await this.storeCreatedHeaderIds(batchId, headerKeys);
+    await this.storeCreatedHeaderIds(batchId, headerIds);
     await this.dataBatchService.clearDfoPostingErrorsAsync(batchId);
     await this.dataBatchService.updateStatusAsync(
       batchId,
       DataBatchStatus.Completed,
-    );
-    this.logger.log(
-      `[SUCCESS] Batch ${batchId} posted ${headerKeys.length} journal groups`,
     );
   }
 
@@ -164,10 +215,33 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     batchId: string,
     headerIds: string[],
   ): Promise<void> {
-    if (headerIds.length === 0) return;
+    if (!headerIds.length) return;
     const batch = await this.dataBatchService.getByIdAsync(batchId);
-    const existing = batch?.dfoIds ?? [];
-    const all = [...new Set([...existing, ...headerIds])];
-    await this.dataBatchService.updateDfoIdsAsync(batchId, all);
+    await this.dataBatchService.updateDfoIdsAsync(batchId, [
+      ...new Set([...(batch?.dfoIds ?? []), ...headerIds]),
+    ]);
+  }
+
+  private isFinalAttempt(job: Job): boolean {
+    return job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+  }
+
+  private emitLifecycle(
+    eventType: string,
+    status: string,
+    jobId: string,
+    error?: unknown,
+  ): Promise<void> {
+    return this.operationalLogs.emit({
+      level: error ? 'error' : 'info',
+      message: `Ledger journal job ${jobId} ${status}`,
+      context: PostLedgerJournalDFOProcessor.name,
+      eventType,
+      status,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : undefined,
+    });
   }
 }

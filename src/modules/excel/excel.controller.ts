@@ -6,15 +6,19 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes, ApiOkResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 
 import { PaginatedDto } from '@/common/dtos/paginated.dto';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { ExcelFilePipe } from '@/common/pipes/excel-file.pipe';
-import { Public } from '@/modules/auth/decorators/public.decorator';
 import { ExcelService } from '@/modules/excel/excel.service';
 
-@Public()
+@ApiBearerAuth()
 @Controller('excel')
 export class ExcelController {
   constructor(private readonly excelService: ExcelService) {}

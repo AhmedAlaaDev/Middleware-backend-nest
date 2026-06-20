@@ -7,10 +7,11 @@ services:
     env_file:
       - .env.production
     ports:
-      - '${PORT:-3001}:${PORT:-3001}'
+      - '127.0.0.1:${PORT:-3001}:${PORT:-3001}'
     environment:
       NODE_ENV: production
       NODE_OPTIONS: '--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-3072}'
+      CACHE_REDIS_HOST: cache-redis
     networks:
       - mongodb_network
       - redis_network
@@ -19,13 +20,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      cache-redis:
+        condition: service_healthy
     healthcheck:
       test:
         [
           'CMD',
           'node',
           '-e',
-          "require('http').get('http://localhost:${PORT:-3001}/docs', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+          "require('http').get('http://localhost:${PORT:-3001}/api/v1/health/ready', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
         ]
       interval: 30s
       timeout: 10s
@@ -33,14 +36,17 @@ services:
       start_period: 40s
     mem_limit: '${APP_MEMORY_LIMIT:-4g}'
     cpus: '${APP_CPU_LIMIT:-2.0}'
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '5'
 
   mongodb:
     image: mongodb/mongodb-community-server:8.0.4-ubi8
     container_name: mongodb
     restart: unless-stopped
     hostname: mongodb
-    ports:
-      - '27017:27017'
     environment:
       MONGODB_INITDB_ROOT_USERNAME: root
       MONGODB_INITDB_ROOT_PASSWORD: sp3awi
@@ -69,13 +75,11 @@ services:
     command: >
       sh -c "
       if [ -n \"$$REDIS_PASSWORD\" ]; then
-        redis-server --requirepass $$REDIS_PASSWORD --appendonly yes
+        redis-server --requirepass $$REDIS_PASSWORD --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
       else
-        redis-server --appendonly yes
+        redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
       fi
       "
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
     networks:
@@ -89,16 +93,46 @@ services:
     mem_limit: 1g
     cpus: 0.5
 
+  cache-redis:
+    image: redis:7-alpine
+    container_name: cache-redis
+    hostname: cache-redis
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '${CACHE_REDIS_MAX_MEMORY:-512mb}',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    volumes:
+      - cache-redis-data:/data
+    networks:
+      - redis_network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    mem_limit: '${CACHE_REDIS_MEMORY_LIMIT:-768m}'
+    cpus: 0.5
+
 volumes:
   mongodb-data:
     driver: local
     name: mongo-data
-  mongodb-log:
-    driver: local
-    name: mongo-log
   redis-data:
     driver: local
     name: redis-data
+  cache-redis-data:
+    driver: local
+    name: cache-redis-data
 
 networks:
   mongodb_network:

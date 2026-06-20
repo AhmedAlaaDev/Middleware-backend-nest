@@ -4,19 +4,16 @@ import {
   D365FOVendorPaymentJournalHeaderRequest,
   D365FOVendorPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
+import { DurablePostingJobPayload } from '@/modules/queue/contracts/durable-posting-job.contract';
 
-export interface PostVendorJournalDFOJobPayload {
-  batchId: string;
-  company: string;
-  journalKind?: 'invoice' | 'payment';
-  groupedJournals?: Array<{
-    header: D365FOVendorInvoiceJournalHeaderRequest;
-    lines: D365FOVendorInvoiceJournalLineRequest[];
-  }>;
-  paymentGroupedJournals?: Array<{
-    header: D365FOVendorPaymentJournalHeaderRequest;
-    lines: D365FOVendorPaymentJournalLineRequest[];
-  }>;
-  correlationId?: string;
-  sourceModule?: 'VENDOR';
-}
+export type VendorJournalPostingGroup =
+  | {
+      header: D365FOVendorInvoiceJournalHeaderRequest;
+      lines: D365FOVendorInvoiceJournalLineRequest[];
+    }
+  | {
+      header: D365FOVendorPaymentJournalHeaderRequest;
+      lines: D365FOVendorPaymentJournalLineRequest[];
+    };
+
+export type PostVendorJournalDFOJobPayload = DurablePostingJobPayload;

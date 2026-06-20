@@ -2,6 +2,7 @@ import {
   D365FOFreeTextInvoiceHeaderRequest,
   D365FOFreeTextInvoiceLineRequest,
 } from '@/modules/d365fo/types';
+import { DurablePostingJobPayload } from '@/modules/queue/contracts/durable-posting-job.contract';
 
 /**
  * Optional per-line debug context (e.g. from AR enhanced records) for DFO failure messages.
@@ -17,19 +18,14 @@ export interface FreeTextInvoiceLinePostingMeta {
   billingCode?: string;
 }
 
-export interface PostFreeTextInvoiceDFOJobPayload {
-  batchId: string;
-  company: string;
-  groupedInvoices: Array<{
-    header: D365FOFreeTextInvoiceHeaderRequest;
-    lines: D365FOFreeTextInvoiceLineRequest[];
-    HeaderDefaultDimensionDisplayValue: string;
-    HeaderFinTagDisplayValue: string;
-    LineFinTagDisplayValues: string[];
-    linePostingMeta?: FreeTextInvoiceLinePostingMeta[];
-    /** First-line FreeTextNumber (and voucher key when set); identifies the posting group in errors. */
-    postingGroupLabel?: string;
-  }>;
-  correlationId?: string;
-  sourceModule?: 'AR';
+export interface FreeTextInvoicePostingGroup {
+  header: D365FOFreeTextInvoiceHeaderRequest;
+  lines: D365FOFreeTextInvoiceLineRequest[];
+  HeaderDefaultDimensionDisplayValue: string;
+  HeaderFinTagDisplayValue: string;
+  LineFinTagDisplayValues: string[];
+  linePostingMeta?: FreeTextInvoiceLinePostingMeta[];
+  postingGroupLabel?: string;
 }
+
+export type PostFreeTextInvoiceDFOJobPayload = DurablePostingJobPayload;

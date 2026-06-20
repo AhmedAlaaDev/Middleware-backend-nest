@@ -74,6 +74,7 @@ export class D365FOAuthService {
     try {
       const response = await firstValueFrom(
         this.httpService.post<TokenResponse>(tokenUrl, params, {
+          family: 4,
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
@@ -91,6 +92,7 @@ export class D365FOAuthService {
       const errorMessage =
         error?.response?.data?.error_description ||
         error?.response?.data?.error ||
+        error?.cause?.message ||
         error?.message ||
         'Unknown error';
       const statusCode = error?.response?.status || error?.status || 'N/A';

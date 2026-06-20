@@ -1,10 +1,17 @@
 import { Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiHeader,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { RequireApiKey } from '@/modules/auth/decorators/api-key.decorator';
 import { Public } from '@/modules/auth/decorators/public.decorator';
 import { SchedulerService } from '@/modules/scheduler/scheduler.service';
 
+@ApiBearerAuth()
 @ApiTags('Scheduler (Admin/Automation)')
 @Controller('scheduler')
 @Public() // Bypass JWT authentication

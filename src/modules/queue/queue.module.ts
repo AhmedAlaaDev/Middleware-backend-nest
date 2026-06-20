@@ -1,18 +1,31 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Global, Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
 
 import { IConfig, RedisConfig } from '@/config';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
+import { AdminQueuesController } from '@/modules/queue/admin-queues.controller';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
 import { PostCustomerPaymentJournalDFOProcessor } from '@/modules/queue/processors/post-customer-payment-journal-dfo.processor';
 import { PostFreeTextInvoiceDFOProcessor } from '@/modules/queue/processors/post-free-text-invoice-dfo.processor';
 import { PostLedgerJournalDFOProcessor } from '@/modules/queue/processors/post-ledger-journal-dfo.processor';
 import { PostVendorJournalDFOProcessor } from '@/modules/queue/processors/post-vendor-journal-dfo.processor';
+import {
+  QueueJobGroup,
+  QueueJobGroupSchema,
+} from '@/modules/queue/schemas/queue-job-group.schema';
+import {
+  QueueJob,
+  QueueJobSchema,
+} from '@/modules/queue/schemas/queue-job.schema';
 import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
+import { QueueEventsMonitorService } from '@/modules/queue/services/queue-events-monitor.service';
+import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
+import { QueueRecoveryService } from '@/modules/queue/services/queue-recovery.service';
 import { QueueService } from '@/modules/queue/services/queue.service';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
@@ -34,7 +47,13 @@ const strategies = [
   CustomerPaymentJournalPostingStrategy,
   LedgerJournalPostingStrategy,
 ];
-const queueServices = [DfoRollbackService, QueueService];
+const queueServices = [
+  DfoRollbackService,
+  QueueService,
+  QueueJobStoreService,
+  QueueRecoveryService,
+  QueueEventsMonitorService,
+];
 
 @Global()
 @Module({
@@ -42,6 +61,10 @@ const queueServices = [DfoRollbackService, QueueService];
     forwardRef(() => MasterDataModule),
     forwardRef(() => DataBatchModule),
     forwardRef(() => D365FOModule),
+    MongooseModule.forFeature([
+      { name: QueueJob.name, schema: QueueJobSchema },
+      { name: QueueJobGroup.name, schema: QueueJobGroupSchema },
+    ]),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService<IConfig>) => {
@@ -72,6 +95,7 @@ const queueServices = [DfoRollbackService, QueueService];
     ),
   ],
   providers: [...processors, ...strategies, ...queueServices],
-  exports: [QueueService],
+  controllers: [AdminQueuesController],
+  exports: [QueueService, QueueJobStoreService],
 })
 export class QueueModule {}

@@ -51,7 +51,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
   ): Promise<PostVendorBatchToDFOResult> {
     const { batchId } = command;
 
-    this.logger.log(`Starting post to DFO for vendor batch ${batchId}`);
+    this.logger.log(`Received post-to-DFO request for vendor batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
 
@@ -703,26 +703,28 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       }>;
     },
   ): Promise<PostVendorBatchToDFOResult> {
-    const jobData = {
-      batchId,
-      company,
-      journalKind: payload.journalKind,
-      sourceModule: 'VENDOR' as const,
-      ...(payload.journalKind === 'invoice' &&
-        payload.groupedJournals && {
-          groupedJournals: payload.groupedJournals,
-        }),
-      ...(payload.journalKind === 'payment' &&
-        payload.paymentGroupedJournals && {
-          paymentGroupedJournals: payload.paymentGroupedJournals,
-        }),
-    };
-
-    const job = await this.queueService.addJob(
+    const groups =
+      payload.journalKind === 'invoice'
+        ? (payload.groupedJournals ?? [])
+        : (payload.paymentGroupedJournals ?? []);
+    const submission = await this.queueService.addDurableJob(
       QUEUES.DFO_VENDOR_JOURNAL,
       'post-vendor-batch-to-dfo',
-      jobData,
+      {
+        batchId,
+        company,
+        journalKind: payload.journalKind,
+        sourceModule: 'VENDOR',
+        payloadVersion: 1,
+      },
+      groups,
     );
+    if (submission.status === 'already-completed') {
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Completed,
+      );
+    }
 
     const journalCount =
       payload.journalKind === 'invoice'
@@ -730,12 +732,15 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         : (payload.paymentGroupedJournals?.length ?? 0);
 
     this.logger.log(
-      `Enqueued job ${job.id} for batch ${batchId} (${payload.journalKind}) with ${journalCount} journal batches`,
+      submission.status === 'queued' || submission.status === 'requeued'
+        ? `${submission.message} Journal type: ${payload.journalKind}; groups: ${journalCount}`
+        : submission.message,
     );
 
     return {
-      jobId: job.id!,
-      message: `Batch ${batchId} queued for posting to D365FO. Job ID: ${job.id}`,
+      jobId: submission.jobId,
+      message: submission.message,
+      submissionStatus: submission.status,
     };
   }
 

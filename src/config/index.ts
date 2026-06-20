@@ -4,6 +4,7 @@ import { AppConfig } from '@/config/app.config';
 import { AuthConfig } from '@/config/auth.config';
 import { D365FOConfig } from '@/config/d365fo.config';
 import { DBConfig } from '@/config/db.config';
+import { ObservabilityConfig } from '@/config/observability.config';
 import { RedisConfig } from '@/config/redis.config';
 import { ResilienceConfig } from '@/config/resilience.config';
 import { SchedulerConfig } from '@/config/scheduler.config';
@@ -16,6 +17,7 @@ export interface IConfig {
   redis: RedisConfig;
   resilience: ResilienceConfig;
   scheduler: SchedulerConfig;
+  observability: ObservabilityConfig;
 }
 
 export const ConfigSchema = Joi.object<IConfig>({
@@ -79,6 +81,14 @@ export const ConfigSchema = Joi.object<IConfig>({
     tempFileCleanupCron: Joi.string().default('0 * * * *'),
     tempFileCleanupRetentionHours: Joi.number().default(24),
   }),
+  observability: Joi.object<ObservabilityConfig>({
+    logMongoUri: Joi.string().required(),
+    retentionDays: Joi.number().integer().min(1).default(90),
+    streamKey: Joi.string().default('app:logs:v1'),
+    deadLetterStreamKey: Joi.string().default('app:logs:dead-letter:v1'),
+    streamMaxLength: Joi.number().integer().min(1000).default(200000),
+    consumerGroup: Joi.string().default('mongo-log-writers'),
+  }),
 });
 
 export * from './app.config';
@@ -88,3 +98,4 @@ export * from './db.config';
 export * from './redis.config';
 export * from './resilience.config';
 export * from './scheduler.config';
+export * from './observability.config';

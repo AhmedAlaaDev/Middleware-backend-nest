@@ -4,20 +4,24 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
 import { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
+import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 
-import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
 import { GlobalResponseInterceptor } from '@/common/interceptors/global-response.interceptor';
 import { botBlockMiddleware } from '@/common/middlewares/bot-block.middleware';
+import { TraceContextMiddleware } from '@/modules/observability/middleware/trace-context.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useLogger(app.get(Logger));
   const isProduction = process.env.NODE_ENV === 'production';
   const isSwaggerEnabled = !isProduction;
 
   // Early middleware to short-circuit obviously invalid/bot requests
   app.use(botBlockMiddleware);
+  const traceContextMiddleware = app.get(TraceContextMiddleware);
+  app.use(traceContextMiddleware.use.bind(traceContextMiddleware));
 
   // API Versioning
   app.enableVersioning({
@@ -37,8 +41,10 @@ async function bootstrap() {
       'Authorization',
       'X-Api-Version',
       'X-Refresh-Token',
+      'X-Request-ID',
+      'X-Correlation-ID',
     ],
-    exposedHeaders: ['Content-Disposition'],
+    exposedHeaders: ['Content-Disposition', 'X-Request-ID', 'X-Correlation-ID'],
   });
 
   // use global validation pipe to validate DTOs in the controllers
@@ -51,9 +57,6 @@ async function bootstrap() {
       transform: true,
     }),
   );
-
-  // use global exception filter to handle all exceptions
-  app.useGlobalFilters(new GlobalExceptionFilter());
 
   // use global interceptor to transform response
   app.useGlobalInterceptors(new GlobalResponseInterceptor());
@@ -89,7 +92,10 @@ async function bootstrap() {
   );
 
   // use global prefix for all routes
-  app.setGlobalPrefix(process.env.PREFIX ?? '');
+  const globalPrefix = (process.env.PREFIX ?? '').replace(/^\/+|\/+$/g, '');
+  if (globalPrefix) {
+    app.setGlobalPrefix(globalPrefix);
+  }
 
   // middleware to redirect from '/' to '/docs/
   app.use((req: Request, res: Response, next: NextFunction) => {

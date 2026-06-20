@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
 
 import {
   appConfig,
@@ -10,6 +11,7 @@ import {
   ConfigSchema,
   resilienceConfig,
   schedulerConfig,
+  observabilityConfig,
 } from '@/config';
 import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { AuthModule } from '@/modules/auth/auth.module';
@@ -18,7 +20,9 @@ import { ClosingModule } from '@/modules/closing/closing.module';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { DBModule } from '@/modules/db/db.module';
+import { HealthModule } from '@/modules/health/health.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
+import { ObservabilityModule } from '@/modules/observability/observability.module';
 import { QueueModule } from '@/modules/queue/queue.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
 import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
@@ -37,6 +41,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
         redisConfig,
         resilienceConfig,
         schedulerConfig,
+        observabilityConfig,
       ],
       isGlobal: true,
       validationSchema: ConfigSchema,
@@ -48,6 +53,33 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
         '.env.local',
         '.env',
       ],
+    }),
+    LoggerModule.forRoot({
+      forRoutes: [{ path: '{*path}', method: RequestMethod.ALL }],
+      pinoHttp: {
+        level: process.env.LOG_LEVEL ?? 'info',
+        autoLogging: false,
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers.x-refresh-token',
+            'password',
+            'passwordHash',
+            'clientSecret',
+            'accessToken',
+            'refreshToken',
+          ],
+          censor: '[REDACTED]',
+        },
+        transport:
+          process.env.NODE_ENV === 'production'
+            ? undefined
+            : {
+                target: 'pino-pretty',
+                options: { singleLine: true, colorize: true },
+              },
+      },
     }),
 
     AuthModule,
@@ -64,6 +96,8 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     D365FOModule,
     UserModule,
     SchedulerModule,
+    ObservabilityModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

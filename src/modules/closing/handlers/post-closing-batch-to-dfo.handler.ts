@@ -57,7 +57,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
   ): Promise<PostClosingBatchToDFOResult> {
     const { batchId } = command;
 
-    this.logger.log(`Starting post to DFO for ledger batch ${batchId}`);
+    this.logger.log(`Received post-to-DFO request for ledger batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
 
@@ -376,24 +376,34 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       lines: LedgerJournalLineRequest[];
     }>,
   ): Promise<PostClosingBatchToDFOResult> {
-    const job = await this.queueService.addJob(
+    const submission = await this.queueService.addDurableJob(
       QUEUES.DFO_LEDGER_JOURNAL,
       'post-ledger-journal-batch-to-dfo',
       {
         batchId,
         company,
-        groupedJournals,
         sourceModule: 'Ledger',
+        payloadVersion: 1,
       },
+      groupedJournals,
     );
+    if (submission.status === 'already-completed') {
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Completed,
+      );
+    }
 
     this.logger.log(
-      `Enqueued job ${job.id} for batch ${batchId} with ${groupedJournals.length} journal groups`,
+      submission.status === 'queued' || submission.status === 'requeued'
+        ? `${submission.message} Journal groups: ${groupedJournals.length}`
+        : submission.message,
     );
 
     return {
-      jobId: job.id!,
-      message: `Batch ${batchId} queued for posting to D365FO. Job ID: ${job.id}`,
+      jobId: submission.jobId,
+      message: submission.message,
+      submissionStatus: submission.status,
     };
   }
 
