@@ -25,12 +25,19 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 
+import type {
+  CustomerCreationStatus,
+  IDataBatchMissingMasterData,
+  MissingMasterDataType,
+} from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
+
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
+import { ReprocessBatchCommand } from '@/modules/data-batch/commands/reprocess-batch.command';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
@@ -39,6 +46,7 @@ import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
 import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-batch-by-id.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
+import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 
 /**
  * Data Migration - Data Batches
@@ -302,5 +310,37 @@ export class DataBatchController {
   @HttpCode(HttpStatus.NO_CONTENT)
   public async deleteAsync(@Query() { batchId }: BatchIdDto): Promise<void> {
     await this.commandBus.execute(new DeleteBatchCommand(batchId));
+  }
+
+  /**
+   * Get missing master data items for a batch
+   */
+  @Get(':batchId/missing-master-data')
+  @ApiOperation({
+    summary: 'Get list of missing master data items for a batch',
+  })
+  public async getMissingMasterDataAsync(
+    @Param('batchId') batchId: string,
+    @Query('type') type?: MissingMasterDataType,
+    @Query('creationStatus') creationStatus?: CustomerCreationStatus,
+  ): Promise<IDataBatchMissingMasterData[]> {
+    return this.queryBus.execute(
+      new GetMissingMasterDataQuery(batchId, type, creationStatus),
+    );
+  }
+
+  /**
+   * Trigger manual batch reprocessing
+   */
+  @Post(':batchId/reprocess')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reprocess a data batch' })
+  public async reprocessBatchAsync(
+    @Param('batchId') batchId: string,
+    @Query('missingDataId') missingDataId?: string,
+  ): Promise<void> {
+    await this.commandBus.execute(
+      new ReprocessBatchCommand(batchId, missingDataId),
+    );
   }
 }

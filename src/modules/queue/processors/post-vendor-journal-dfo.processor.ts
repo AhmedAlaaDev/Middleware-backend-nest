@@ -184,7 +184,7 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
   ): Promise<void> {
     await this.storeHeaderIds(batchId, headerIds);
     await this.batches.clearDfoPostingErrorsAsync(batchId);
-    await this.batches.updateStatusAsync(batchId, DataBatchStatus.Completed);
+    await this.batches.updateStatusAsync(batchId, DataBatchStatus.Posted);
   }
 
   private async failBatch(

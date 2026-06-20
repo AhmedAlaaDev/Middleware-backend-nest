@@ -1,4 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
 import {
@@ -9,6 +17,13 @@ import {
   ICreateDataBatchError,
   IDataBatchError,
 } from '@/modules/data-batch/interfaces/data-batch-error.interface';
+import {
+  BatchReprocessStatus,
+  CustomerCreationStatus,
+  IDataBatchMissingMasterData,
+  IMissingMasterDataItem,
+  MissingMasterDataType,
+} from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 import {
   IDataBatch,
   IDataBatchListFilter,
@@ -26,7 +41,9 @@ import {
   DataBatchRepository,
   DataEnhancedRecordRepository,
   DataSourceRecordRepository,
+  DataBatchMissingMasterDataRepository,
 } from '@/modules/data-batch/repositories/interfaces';
+import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import {
   DynDataModel,
   RawDataModel,
@@ -41,6 +58,8 @@ export class DataBatchService {
     private readonly dataBatchErrorRepo: DataBatchErrorRepository,
     private readonly dataSourceRecordRepo: DataSourceRecordRepository,
     private readonly dataEnhancedRecordRepo: DataEnhancedRecordRepository,
+    private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
+    private readonly processorFactory: EntryProcessorFactory,
     private readonly commandBus: CommandBus,
   ) {}
 
@@ -68,6 +87,7 @@ export class DataBatchService {
     const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
     const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
     const expectedGroupCount = this.calculateExpectedGroupCount(dynData);
+    const validationRunId = randomUUID();
     this.logger.debug(
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
@@ -82,9 +102,10 @@ export class DataBatchService {
       errorCount,
       totalFormattedCount: dynData.length,
       totalUploadedCount: rawData.length,
-      status: DataBatchStatus.Pending,
+      status: DataBatchStatus.PendingPosting,
       billingCodeId: billingClassification,
       expectedGroupCount,
+      activeValidationRunId: validationRunId,
     });
     this.logger.log(`Batch created: id=${dataBatch.id}`);
 
@@ -121,6 +142,7 @@ export class DataBatchService {
           sourceIds: record.SourceIds || [],
           data: record,
           dataModelType: this.getDataModelType(record),
+          validationRunId,
         }));
       // Convert to storage format for repository
       const storageRecords = enhancedRecords.map((record) => ({
@@ -129,6 +151,7 @@ export class DataBatchService {
         sourceIds: record.sourceIds,
         data: record.data as unknown as Record<string, unknown>,
         dataModelType: record.dataModelType,
+        validationRunId: record.validationRunId,
       }));
       await this.dataEnhancedRecordRepo.insertMany(storageRecords);
       this.logger.debug(
@@ -152,6 +175,7 @@ export class DataBatchService {
             : undefined,
           enhancedRecordIds: [record.LineNumber?.toString() || ''],
           enhancedData: record,
+          validationRunId,
         }));
       // Convert to storage format for repository
       const storageErrors = batchErrors.map((error) => ({
@@ -163,6 +187,7 @@ export class DataBatchService {
         enhancedData: error.enhancedData
           ? (error.enhancedData as unknown as Record<string, unknown>)
           : undefined,
+        validationRunId: error.validationRunId,
       }));
       await this.dataBatchErrorRepo.insertMany(storageErrors);
       this.logger.debug(`Inserted batch errors: count=${batchErrors.length}`);
@@ -171,6 +196,63 @@ export class DataBatchService {
     this.logger.log(
       `Data batch finalized: id=${dataBatch.id} raw=${rawData.length} dyn=${dynData.length} errors=${errorRecords.length}`,
     );
+
+    // Process and store missing master data if any
+    const missingMasterDataItems: IMissingMasterDataItem[] = [];
+
+    for (const record of dynData) {
+      for (const item of record.GetMissingMasterData()) {
+        missingMasterDataItems.push(item);
+      }
+    }
+
+    if (missingMasterDataItems.length > 0) {
+      const grouped = new Map<
+        string,
+        {
+          type: MissingMasterDataType;
+          missingField: 'CustomerAccount' | 'TaxExemptNumber';
+          missingValue: string;
+          formDefaults: Record<string, unknown>;
+          affectedCount: number;
+        }
+      >();
+
+      for (const item of missingMasterDataItems) {
+        const key = `${item.type}|${item.missingField}|${item.missingValue}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.affectedCount++;
+        } else {
+          grouped.set(key, {
+            ...item,
+            affectedCount: 1,
+          });
+        }
+      }
+
+      for (const groupedItem of grouped.values()) {
+        await this.missingMasterDataRepo.upsert(
+          dataBatch.id,
+          groupedItem.type,
+          groupedItem.missingField,
+          groupedItem.missingValue,
+          {
+            company: companyId,
+            entryProcessorType,
+            creationStatus: 'missing',
+            reprocessStatus: 'not_started',
+            affectedCount: groupedItem.affectedCount,
+            formDefaults: groupedItem.formDefaults,
+            readonlyFormFields: [groupedItem.missingField],
+            reprocessAttempts: 0,
+          },
+        );
+      }
+      this.logger.debug(
+        `Upserted missing master data records: count=${grouped.size}`,
+      );
+    }
 
     // Update settings asynchronously (batch number always, voucher number if provided)
     this.updateBatchSettingsAsync(
@@ -195,6 +277,7 @@ export class DataBatchService {
       this.dataSourceRecordRepo.deleteMany(batchId),
       this.dataEnhancedRecordRepo.deleteMany(batchId),
       this.dataBatchErrorRepo.deleteMany(batchId),
+      this.missingMasterDataRepo.deleteMany(batchId),
     ]);
   }
 
@@ -230,15 +313,23 @@ export class DataBatchService {
   public async getEnhancedRecordsAsync<TEnhancedData = Record<string, unknown>>(
     batchId: string,
   ): Promise<IDataEnhancedRecord<TEnhancedData>[]> {
-    const records = await this.dataEnhancedRecordRepo.getList(batchId);
+    const batch = await this.requireBatch(batchId);
+    const records = await this.dataEnhancedRecordRepo.getList(
+      batchId,
+      batch.activeValidationRunId,
+    );
     return records as IDataEnhancedRecord<TEnhancedData>[];
   }
 
   /**
    * Get enhanced records stream for a batch (memory-efficient)
    */
-  public getEnhancedRecordsStream(batchId: string): any {
-    return this.dataEnhancedRecordRepo.getListStream(batchId);
+  public async getEnhancedRecordsStream(batchId: string): Promise<any> {
+    const batch = await this.requireBatch(batchId);
+    return this.dataEnhancedRecordRepo.getListStream(
+      batchId,
+      batch.activeValidationRunId,
+    );
   }
 
   /**
@@ -285,15 +376,23 @@ export class DataBatchService {
   public async getErrorsAsync<TEnhancedData = Record<string, unknown>>(
     batchId: string,
   ): Promise<IDataBatchError<TEnhancedData>[]> {
-    const errors = await this.dataBatchErrorRepo.getList({ batchId });
+    const batch = await this.requireBatch(batchId);
+    const errors = await this.dataBatchErrorRepo.getList({
+      batchId,
+      validationRunId: batch.activeValidationRunId,
+    });
     return errors as IDataBatchError<TEnhancedData>[];
   }
 
   /**
    * Get data batch errors stream (memory-efficient)
    */
-  public getErrorsStream(batchId: string): any {
-    return this.dataBatchErrorRepo.getListStream({ batchId });
+  public async getErrorsStream(batchId: string): Promise<any> {
+    const batch = await this.requireBatch(batchId);
+    return this.dataBatchErrorRepo.getListStream({
+      batchId,
+      validationRunId: batch.activeValidationRunId,
+    });
   }
 
   public async getDataBatchListAsync(
@@ -314,14 +413,16 @@ export class DataBatchService {
     skipCount?: number,
     maxCount?: number,
   ): Promise<{ items: IDataBatchError[]; total: number }> {
-    const items = await this.dataBatchErrorRepo.getList(
-      { batchId },
-      {
-        skipCount,
-        maxCount,
-      },
-    );
-    const total = await this.dataBatchErrorRepo.getCount({ batchId });
+    const batch = await this.requireBatch(batchId);
+    const filter = {
+      batchId,
+      validationRunId: batch.activeValidationRunId,
+    };
+    const items = await this.dataBatchErrorRepo.getList(filter, {
+      skipCount,
+      maxCount,
+    });
+    const total = await this.dataBatchErrorRepo.getCount(filter);
     return { items, total };
   }
 
@@ -497,5 +598,290 @@ export class DataBatchService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get missing master data list for a batch
+   */
+  public getMissingMasterDataAsync(
+    batchId: string,
+    filter?: {
+      type?: MissingMasterDataType;
+      creationStatus?: CustomerCreationStatus;
+    },
+  ): Promise<IDataBatchMissingMasterData[]> {
+    return this.missingMasterDataRepo.getList(batchId, filter);
+  }
+
+  /**
+   * Reprocess a data batch by re-running formatting, enrichment, and validation
+   */
+  public async reprocessBatchAsync(
+    batchId: string,
+    missingDataId?: string,
+  ): Promise<void> {
+    this.logger.log(`Reprocessing batch: id=${batchId}`);
+    const batch = await this.dataBatchRepo.claimForRevalidation(batchId);
+    if (!batch) {
+      const existingBatch = await this.dataBatchRepo.findById(batchId);
+      if (!existingBatch) {
+        throw new NotFoundException(`Batch with ID ${batchId} not found`);
+      }
+      throw new ConflictException(
+        `Batch cannot be reprocessed while status is ${existingBatch.status}`,
+      );
+    }
+
+    const previousValidationRunId = batch.activeValidationRunId;
+    let replacementValidationRunId: string | undefined;
+    let missingRecord: IDataBatchMissingMasterData | null = null;
+
+    try {
+      if (missingDataId) {
+        missingRecord =
+          await this.missingMasterDataRepo.findById(missingDataId);
+        if (!missingRecord || missingRecord.batchId !== batchId) {
+          throw new NotFoundException(
+            `Missing master data record ${missingDataId} was not found for batch ${batchId}`,
+          );
+        }
+        if (missingRecord.creationStatus !== 'created') {
+          throw new ConflictException(
+            'Customer must be created before its batch can be reprocessed',
+          );
+        }
+        await this.missingMasterDataRepo.updateOne(missingDataId, {
+          reprocessStatus: 'processing',
+          reprocessErrorMessage: null,
+          reprocessAttempts: missingRecord.reprocessAttempts + 1,
+        });
+      }
+
+      const sourceRecords = await this.getSourceRecordsAsync(batchId);
+      const rawData = sourceRecords.map((r) => r.data);
+      if (rawData.length === 0) {
+        throw new BadRequestException(
+          `Batch ${batchId} has no source records to reprocess`,
+        );
+      }
+
+      const processor = this.processorFactory.getProcessor(
+        batch.entryProcessorType,
+      );
+      let dynData = await processor.formatAndEnrichAsync(
+        rawData,
+        batch.company,
+        batch.billingCodeId,
+      );
+
+      dynData = await processor.validateAsync(
+        dynData,
+        batch.company,
+        batch.billingCodeId,
+      );
+
+      const groupedMissingData = this.groupMissingMasterData(dynData);
+      if (
+        missingRecord &&
+        groupedMissingData.has(this.getMissingMasterDataKey(missingRecord))
+      ) {
+        throw new BadRequestException(
+          `Created customer still does not resolve ${missingRecord.missingField} ${missingRecord.missingValue}`,
+        );
+      }
+
+      const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
+      const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
+      const expectedGroupCount = this.calculateExpectedGroupCount(dynData);
+      const validationRunId = randomUUID();
+      replacementValidationRunId = validationRunId;
+
+      if (dynData.length > 0) {
+        const storageRecords = dynData.map((record) => ({
+          batchId,
+          dimensionModel: record.DimensionModel
+            ? (Object.assign({}, record.DimensionModel) as unknown as Record<
+                string,
+                unknown
+              >)
+            : undefined,
+          sourceIds: record.SourceIds || [],
+          data: record as unknown as Record<string, unknown>,
+          dataModelType: this.getDataModelType(record),
+          validationRunId,
+        }));
+        await this.dataEnhancedRecordRepo.insertMany(storageRecords);
+      }
+
+      const errorRecords = dynData.filter((d) => d.ErrorCount > 0);
+      if (errorRecords.length > 0) {
+        const storageErrors = errorRecords.map((record) => ({
+          batchId,
+          sourceRecordIds: record.SourceIds || [],
+          errorMessages: record.GetErrors(),
+          accountDimensionsModel: record.DimensionModel
+            ? (Object.assign({}, record.DimensionModel) as unknown as Record<
+                string,
+                any
+              >)
+            : undefined,
+          enhancedRecordIds: [record.LineNumber?.toString() || ''],
+          enhancedData: record as unknown as Record<string, unknown>,
+          validationRunId,
+        }));
+        await this.dataBatchErrorRepo.insertMany(storageErrors);
+      }
+
+      const existingMissingRecords =
+        await this.missingMasterDataRepo.getList(batchId);
+      for (const groupedItem of groupedMissingData.values()) {
+        const existingRecord = existingMissingRecords.find(
+          (r) =>
+            r.type === groupedItem.type &&
+            r.missingField === groupedItem.missingField &&
+            r.missingValue === groupedItem.missingValue,
+        );
+        await this.missingMasterDataRepo.upsert(
+          batchId,
+          groupedItem.type,
+          groupedItem.missingField,
+          groupedItem.missingValue,
+          {
+            company: batch.company,
+            entryProcessorType: batch.entryProcessorType,
+            creationStatus: existingRecord?.creationStatus ?? 'missing',
+            reprocessStatus: existingRecord?.reprocessStatus ?? 'not_started',
+            affectedCount: groupedItem.affectedCount,
+            formDefaults: groupedItem.formDefaults,
+            readonlyFormFields: [groupedItem.missingField],
+            reprocessAttempts: existingRecord?.reprocessAttempts ?? 0,
+          },
+        );
+      }
+
+      for (const existingRecord of existingMissingRecords) {
+        if (
+          !groupedMissingData.has(this.getMissingMasterDataKey(existingRecord))
+        ) {
+          const update: {
+            creationStatus?: CustomerCreationStatus;
+            reprocessStatus: BatchReprocessStatus;
+            reprocessErrorMessage: null;
+          } = {
+            reprocessStatus: 'succeeded',
+            reprocessErrorMessage: null,
+          };
+          if (existingRecord.creationStatus !== 'created') {
+            update.creationStatus = 'created';
+          }
+          await this.missingMasterDataRepo.updateOne(existingRecord.id, update);
+        }
+      }
+
+      await this.dataBatchRepo.updateOne(batchId, {
+        successCount,
+        errorCount,
+        totalFormattedCount: dynData.length,
+        expectedGroupCount,
+        status: DataBatchStatus.PendingPosting,
+        activeValidationRunId: replacementValidationRunId,
+      });
+
+      if (
+        previousValidationRunId &&
+        previousValidationRunId !== replacementValidationRunId
+      ) {
+        try {
+          await Promise.all([
+            this.dataEnhancedRecordRepo.deleteMany(
+              batchId,
+              previousValidationRunId,
+            ),
+            this.dataBatchErrorRepo.deleteMany(
+              batchId,
+              previousValidationRunId,
+            ),
+          ]);
+        } catch (cleanupError) {
+          this.logger.error(
+            `Batch ${batchId} switched to validation run ${replacementValidationRunId}, but old run ${previousValidationRunId} cleanup failed: ${
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : String(cleanupError)
+            }`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Batch reprocessed successfully: id=${batchId} success=${successCount} errors=${errorCount}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to reprocess batch ${batchId}: ${error.message}`,
+        error.stack,
+      );
+      if (replacementValidationRunId) {
+        await Promise.all([
+          this.dataEnhancedRecordRepo.deleteMany(
+            batchId,
+            replacementValidationRunId,
+          ),
+          this.dataBatchErrorRepo.deleteMany(
+            batchId,
+            replacementValidationRunId,
+          ),
+        ]);
+      }
+      await this.dataBatchRepo.updateOne(batchId, {
+        status: DataBatchStatus.PendingPosting,
+      });
+      if (missingDataId) {
+        await this.missingMasterDataRepo.updateOne(missingDataId, {
+          reprocessStatus: 'failed',
+          reprocessErrorMessage:
+            error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async requireBatch(batchId: string): Promise<IDataBatch> {
+    const batch = await this.dataBatchRepo.findById(batchId);
+    if (!batch) {
+      throw new NotFoundException(`Batch with ID ${batchId} not found`);
+    }
+    return batch;
+  }
+
+  private groupMissingMasterData(
+    dynData: DynDataModel[],
+  ): Map<string, IMissingMasterDataItem & { affectedCount: number }> {
+    const grouped = new Map<
+      string,
+      IMissingMasterDataItem & { affectedCount: number }
+    >();
+    for (const record of dynData) {
+      for (const item of record.GetMissingMasterData()) {
+        const key = this.getMissingMasterDataKey(item);
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.affectedCount++;
+        } else {
+          grouped.set(key, { ...item, affectedCount: 1 });
+        }
+      }
+    }
+    return grouped;
+  }
+
+  private getMissingMasterDataKey(
+    item: Pick<
+      IMissingMasterDataItem,
+      'type' | 'missingField' | 'missingValue'
+    >,
+  ): string {
+    return `${item.type}|${item.missingField}|${item.missingValue}`;
   }
 }

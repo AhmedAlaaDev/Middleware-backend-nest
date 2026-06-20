@@ -8,9 +8,18 @@ export abstract class DataEnhancedRecordRepository {
     records: ICreateDataEnhancedRecord[],
   ): Promise<void>;
 
-  public abstract deleteMany(batchId: string): Promise<void>;
+  public abstract deleteMany(
+    batchId: string,
+    validationRunId?: string,
+  ): Promise<void>;
 
-  public abstract getList(batchId?: string): Promise<IDataEnhancedRecord[]>;
+  public abstract getList(
+    batchId?: string,
+    validationRunId?: string,
+  ): Promise<IDataEnhancedRecord[]>;
 
-  public abstract getListStream(batchId?: string): any;
+  public abstract getListStream(
+    batchId?: string,
+    validationRunId?: string,
+  ): any;
 }

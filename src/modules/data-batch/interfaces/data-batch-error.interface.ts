@@ -7,6 +7,7 @@ export class IDataBatchError<TEnhancedData = Record<string, unknown>> {
   errorMessages: string[];
   accountDimensionsModel?: Record<string, any>;
   enhancedRecordIds: string[];
+  validationRunId: string;
 
   @ApiHideProperty()
   enhancedData?: TEnhancedData;
@@ -20,6 +21,7 @@ export interface ICreateDataBatchError<
   errorMessages: string[];
   accountDimensionsModel?: Record<string, any>;
   enhancedRecordIds: string[];
+  validationRunId: string;
   enhancedData?: TEnhancedData;
 }
 
@@ -28,4 +30,5 @@ export type IUpdateDataBatchError<TEnhancedData = Record<string, unknown>> =
 
 export interface IDataBatchErrorListFilter {
   batchId?: string;
+  validationRunId?: string;
 }

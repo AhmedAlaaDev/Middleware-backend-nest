@@ -9,7 +9,10 @@ export abstract class DataBatchErrorRepository {
     dataBatchErrors: ICreateDataBatchError[],
   ): Promise<void>;
 
-  public abstract deleteMany(batchId: string): Promise<void>;
+  public abstract deleteMany(
+    batchId: string,
+    validationRunId?: string,
+  ): Promise<void>;
   public abstract getList(
     filter: IDataBatchErrorListFilter,
     options?: { skipCount?: number; maxCount?: number },

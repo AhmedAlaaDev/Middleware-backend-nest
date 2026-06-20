@@ -1,5 +1,6 @@
 import { EntryAccountType } from '@/common/types/entry-account.type';
-import { EntryDimensionsModel } from '@/modules/entry-processor/models';
+import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models/entry-dimensions.model';
 
 /**
  * Mapped (dyn) line after format/enrich. Shared properties across
@@ -7,7 +8,7 @@ import { EntryDimensionsModel } from '@/modules/entry-processor/models';
  * DynLedgerClosingJournalEntryDto, and DynCustodySettlementJournalEntryDto.
  * Naming: PascalCase.
  */
-export class EntryDynDataModel {
+export class EntryDynDataModel extends DynDataModel {
   // SOURCE IDENTIFIERS
   SourceIds: string[] = [];
 
@@ -111,12 +112,11 @@ export class EntryDynDataModel {
   /** Dimension model for validation/posting */
   DimensionModel: EntryDimensionsModel;
 
-  private errors: Array<{ property: string; message: string }> = [];
-
   constructor(
     data: Partial<EntryDynDataModel>,
     dimensionModel: EntryDimensionsModel,
   ) {
+    super();
     // SOURCE IDENTIFIERS
     this.SourceIds = data.SourceIds || [];
 
@@ -181,22 +181,5 @@ export class EntryDynDataModel {
 
     // DIMENSION MODEL
     this.DimensionModel = dimensionModel;
-  }
-
-  public get ErrorCount(): number {
-    return this.errors.length;
-  }
-
-  public get ErrorsText(): string {
-    if (this.errors.length === 0) return '';
-    return this.errors.map((e) => `${e.property}: ${e.message}`).join(';');
-  }
-
-  public AddError(property: string, message: string): void {
-    this.errors.push({ property, message });
-  }
-
-  public GetErrors(): string[] {
-    return this.errors.map((e) => `${e.property}: ${e.message}`);
   }
 }

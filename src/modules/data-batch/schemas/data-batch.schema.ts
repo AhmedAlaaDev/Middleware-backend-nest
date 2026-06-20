@@ -37,7 +37,7 @@ export class DataBatch {
   @Prop({ default: 0 })
   totalUploadedCount: number;
 
-  @Prop({ enum: DataBatchStatus, default: DataBatchStatus.Pending })
+  @Prop({ enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
   status: DataBatchStatus;
 
   @Prop()
@@ -45,6 +45,9 @@ export class DataBatch {
 
   @Prop()
   expectedGroupCount?: number;
+
+  @Prop()
+  activeValidationRunId?: string;
 
   @Prop({ type: [String], default: [] })
   dfoIds?: string[];

@@ -9,24 +9,28 @@ import {
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,
+  ReprocessBatchHandler,
 } from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
 import {
   GetBatchErrorListHandler,
   GetDataBatchByIdHandler,
   GetDataBatchListHandler,
+  GetMissingMasterDataHandler,
 } from '@/modules/data-batch/queries/handlers';
 import {
   DataBatchErrorMongoRepository,
   DataBatchMongoRepository,
   DataEnhancedRecordMongoRepository,
   DataSourceRecordMongoRepository,
+  DataBatchMissingMasterDataMongoRepository,
 } from '@/modules/data-batch/repositories';
 import {
   DataBatchErrorRepository,
   DataBatchRepository,
   DataEnhancedRecordRepository,
   DataSourceRecordRepository,
+  DataBatchMissingMasterDataRepository,
 } from '@/modules/data-batch/repositories/interfaces';
 import {
   DataBatch,
@@ -37,8 +41,11 @@ import {
   DataEnhancedRecordSchema,
   DataSourceRecord,
   DataSourceRecordSchema,
+  DataBatchMissingMasterData,
+  DataBatchMissingMasterDataSchema,
 } from '@/modules/data-batch/schemas';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
 
 const CommandHandlers = [
@@ -48,23 +55,30 @@ const CommandHandlers = [
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,
+  ReprocessBatchHandler,
 ];
 
 const QueryHandlers = [
   GetDataBatchListHandler,
   GetDataBatchByIdHandler,
   GetBatchErrorListHandler,
+  GetMissingMasterDataHandler,
 ];
 
 @Module({
   imports: [
     CqrsModule.forRoot(),
     ExcelModule,
+    EntryProcessorsModule,
     MongooseModule.forFeature([
       { name: DataBatch.name, schema: DataBatchSchema },
       { name: DataBatchError.name, schema: DataBatchErrorSchema },
       { name: DataSourceRecord.name, schema: DataSourceRecordSchema },
       { name: DataEnhancedRecord.name, schema: DataEnhancedRecordSchema },
+      {
+        name: DataBatchMissingMasterData.name,
+        schema: DataBatchMissingMasterDataSchema,
+      },
     ]),
   ],
   providers: [
@@ -82,11 +96,15 @@ const QueryHandlers = [
       provide: DataEnhancedRecordRepository,
       useClass: DataEnhancedRecordMongoRepository,
     },
+    {
+      provide: DataBatchMissingMasterDataRepository,
+      useClass: DataBatchMissingMasterDataMongoRepository,
+    },
 
     ...CommandHandlers,
     ...QueryHandlers,
   ],
   controllers: [DataBatchController],
-  exports: [DataBatchService],
+  exports: [DataBatchService, DataBatchMissingMasterDataRepository],
 })
 export class DataBatchModule {}

@@ -25,7 +25,10 @@ export class DataBatchError {
 
   @Prop({ type: Object })
   enhancedData?: Record<string, unknown>;
+
+  @Prop({ required: true })
+  validationRunId: string;
 }
 export const DataBatchErrorSchema =
   SchemaFactory.createForClass(DataBatchError);
-DataBatchErrorSchema.index({ batchId: 1 });
+DataBatchErrorSchema.index({ batchId: 1, validationRunId: 1 });

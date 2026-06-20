@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import {
   ICreateDataBatch,
   IDataBatch,
@@ -34,6 +35,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       status: doc.status,
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
+      activeValidationRunId: doc.activeValidationRunId,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -60,6 +62,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       status: doc.status,
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
+      activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       creationDate: (doc as any).created_at ?? null,
@@ -71,6 +74,23 @@ export class DataBatchMongoRepository extends DataBatchRepository {
     data: IUpdateDataBatch,
   ): Promise<void> {
     await this.model.updateOne({ _id: batchId }, { $set: data });
+  }
+
+  public async claimForRevalidation(
+    batchId: string,
+  ): Promise<IDataBatch | null> {
+    const doc = await this.model
+      .findOneAndUpdate(
+        {
+          _id: batchId,
+          status: DataBatchStatus.PendingPosting,
+        },
+        { $set: { status: DataBatchStatus.Revalidating } },
+        { new: true },
+      )
+      .lean();
+
+    return doc ? this.mapDocument(doc) : null;
   }
 
   public async getList(
@@ -109,6 +129,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       status: doc.status,
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
+      activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       creationDate: (doc as any).created_at ?? null,
@@ -128,5 +149,26 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       q['_id'] = { $in: filter.batchNumberIds } as unknown;
     }
     return this.model.countDocuments(q).exec();
+  }
+
+  private mapDocument(doc: any): IDataBatch {
+    return {
+      id: doc._id.toString(),
+      company: doc.company,
+      entryProcessorType: doc.entryProcessorType,
+      entryProcessorName: doc.entryProcessorName,
+      description: doc.description,
+      successCount: doc.successCount,
+      errorCount: doc.errorCount,
+      totalFormattedCount: doc.totalFormattedCount,
+      totalUploadedCount: doc.totalUploadedCount,
+      status: doc.status,
+      billingCodeId: doc.billingCodeId,
+      expectedGroupCount: doc.expectedGroupCount,
+      activeValidationRunId: doc.activeValidationRunId,
+      dfoIds: doc.dfoIds,
+      dfoPostingErrors: doc.dfoPostingErrors,
+      creationDate: doc.created_at ?? null,
+    };
   }
 }

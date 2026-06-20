@@ -35,3 +35,10 @@ export interface ICustomerListFilter {
   company?: string;
   searchTerm?: string;
 }
+
+export interface ICreateCustomerFromMissingDataResult {
+  customer: ICustomer;
+  creationStatus: 'created';
+  reprocessStatus: 'succeeded' | 'failed';
+  reprocessErrorMessage?: string;
+}

@@ -20,7 +20,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
 
     this.logger.log(`Downloading errors for batch ${batchId}`);
 
-    const cursor = this.db.getErrorsStream(batchId);
+    const cursor = await this.db.getErrorsStream(batchId);
     const errorsStream = this.cursorToAsyncIterable(cursor);
 
     // First pass: check if there are any errors
@@ -37,7 +37,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
     }
 
     // Second pass: stream all errors to Excel
-    const cursor2 = this.db.getErrorsStream(batchId);
+    const cursor2 = await this.db.getErrorsStream(batchId);
     const errorsStream2 = this.cursorToAsyncIterable(cursor2);
     const rowsStream = this.transformErrorsToRows(errorsStream2);
 
@@ -75,6 +75,7 @@ export class DownloadBatchErrorHandler implements ICommandHandler<DownloadBatchE
           accountDimensionsModel: doc.accountDimensionsModel,
           enhancedRecordIds: doc.enhancedRecordIds || [],
           enhancedData: doc.enhancedData,
+          validationRunId: doc.validationRunId,
         };
       }
     } finally {

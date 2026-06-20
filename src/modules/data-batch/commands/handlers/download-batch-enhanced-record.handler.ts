@@ -28,7 +28,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
 
     this.logger.log(`Downloading enhanced records for batch ${batchId}`);
 
-    const cursor = this.batchService.getEnhancedRecordsStream(batchId);
+    const cursor = await this.batchService.getEnhancedRecordsStream(batchId);
 
     // Convert cursor to async iterable and process records
     const recordsStream = this.cursorToAsyncIterable(cursor);
@@ -76,7 +76,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
         'No headers/settled detected → generating single Excel file.',
       );
       // Stream all records to single Excel file
-      const cursor2 = this.batchService.getEnhancedRecordsStream(batchId);
+      const cursor2 = await this.batchService.getEnhancedRecordsStream(batchId);
       const recordsStream2 = this.cursorToAsyncIterable(cursor2);
       const dataStream = this.extractDataStream(recordsStream2, {
         removeHeader: false,
@@ -114,7 +114,8 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
     // Stream settled to Excel file (if present)
     let settledPath: string | null = null;
     if (hasSettled) {
-      const cursorSettled = this.batchService.getEnhancedRecordsStream(batchId);
+      const cursorSettled =
+        await this.batchService.getEnhancedRecordsStream(batchId);
       const recordsStreamSettled = this.cursorToAsyncIterable(cursorSettled);
       const settledStream = this.extractNestedStream(
         recordsStreamSettled,
@@ -127,7 +128,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
     }
 
     // Stream data (without header/settled) to Excel file
-    const cursor3 = this.batchService.getEnhancedRecordsStream(batchId);
+    const cursor3 = await this.batchService.getEnhancedRecordsStream(batchId);
     const recordsStream3 = this.cursorToAsyncIterable(cursor3);
     const dataStream = this.extractDataStream(recordsStream3, {
       removeHeader: true,
@@ -174,6 +175,7 @@ export class DownloadBatchEnhancedRecordHandler implements ICommandHandler<
           sourceIds: doc.sourceIds || [],
           data: doc.data,
           dataModelType: doc.dataModelType,
+          validationRunId: doc.validationRunId,
         };
       }
     } finally {

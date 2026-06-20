@@ -464,6 +464,16 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
         'CustomerAccount',
         `No customer found using normalized TaxExemptNumber "${taxNumber}" from source Tax No "${this.cleanSourceText(row['Tax No'])}".`,
       );
+      if (taxNumber) {
+        line.AddMissingMasterData({
+          type: 'customer',
+          missingField: 'TaxExemptNumber',
+          missingValue: taxNumber,
+          formDefaults: {
+            TaxExemptNumber: taxNumber,
+          },
+        });
+      }
     }
 
     return customer?.customerAccount ?? '';

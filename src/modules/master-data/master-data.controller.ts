@@ -4,6 +4,7 @@ import {
   Post,
   Query,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import {
   CreateSyncTaxItemGroupHeadingsJobCommand,
   CreateSyncVendorsJobCommand,
   SaveAccountMappingsCommand,
+  CreateCustomerFromMissingDataCommand,
 } from '@/modules/master-data/commands';
 import {
   GetAccountMappingsDto,
@@ -49,6 +51,7 @@ import {
   SyncTaxItemGroupHeadingsDto,
   SyncStatusDto,
   SyncVendorsDto,
+  CreateCustomerDto,
 } from '@/modules/master-data/dtos';
 import {
   IAccountCustomerInvoiceMapping,
@@ -56,6 +59,7 @@ import {
   IBillingClassification,
   IBillingCode,
   IBillingCodeVersion,
+  ICreateCustomerFromMissingDataResult,
   ICustomer,
   IFinancialDimension,
   IFinancialDimensionValue,
@@ -131,6 +135,28 @@ export class MasterDataController {
   public async syncCustomersAsync(@Query() dto: SyncCustomersDto) {
     return this.commandBus.execute(
       new CreateSyncCustomersJobCommand(dto.company),
+    );
+  }
+
+  /**
+   * Create a customer directly from a missing master data record
+   */
+  @Post('customers/from-missing-data/:missingDataId')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiResponse({
+    status: 201,
+    description: 'Customer created and batch reprocessed successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input or bad request',
+  })
+  public async createCustomerFromMissingDataAsync(
+    @Param('missingDataId') missingDataId: string,
+    @Body() dto: CreateCustomerDto,
+  ): Promise<ICreateCustomerFromMissingDataResult> {
+    return this.commandBus.execute(
+      new CreateCustomerFromMissingDataCommand(missingDataId, dto),
     );
   }
 

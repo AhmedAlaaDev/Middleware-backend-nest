@@ -17,3 +17,4 @@ export * from './sync-main-accounts.handler';
 export * from './sync-payment-terms.handler';
 export * from './sync-tax-item-group-headings.handler';
 export * from './sync-vendors.handler';
+export * from './create-customer-from-missing-data.handler';

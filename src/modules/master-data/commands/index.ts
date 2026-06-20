@@ -17,3 +17,4 @@ export * from './sync-main-accounts.command';
 export * from './sync-payment-terms.command';
 export * from './sync-tax-item-group-headings.command';
 export * from './sync-vendors.command';
+export * from './create-customer-from-missing-data.command';

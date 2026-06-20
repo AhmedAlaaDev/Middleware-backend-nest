@@ -353,7 +353,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     await this.dataBatchService.clearDfoPostingErrorsAsync(batchId);
     await this.dataBatchService.updateStatusAsync(
       batchId,
-      DataBatchStatus.Completed,
+      DataBatchStatus.Posted,
     );
     this.logger.log(
       `[SUCCESS] Batch ${batchId} posted ${headerKeys.length} items`,

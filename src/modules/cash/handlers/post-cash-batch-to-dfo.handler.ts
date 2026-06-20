@@ -93,6 +93,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!batch) {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
+    if (
+      batch.status === DataBatchStatus.Posting ||
+      batch.status === DataBatchStatus.Posted ||
+      batch.status === DataBatchStatus.Revalidating
+    ) {
+      throw new BadRequestException(
+        `Batch status is ${batch.status} and cannot be posted to D365FO.`,
+      );
+    }
     return batch;
   }
 
@@ -113,7 +122,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
   ): Promise<Map<string, IDataEnhancedRecord<CashEntryDynDataModel>[]>> {
-    const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
+    const cursor =
+      await this.dataBatchService.getEnhancedRecordsStream(batchId);
 
     const recordsStream =
       this.cursorToAsyncIterable<CashEntryDynDataModel>(cursor);
@@ -220,15 +230,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
         ? line.DefaultDimensionsForAccountDisplayValue
-        : (line.DefaultDimensionDisplayValue ??
-          this.toDefaultDimensionDisplayValue(accountDisplayValue) ??
-          '');
+        : line.DefaultDimensionDisplayValue ||
+          this.toDefaultDimensionDisplayValue(accountDisplayValue) ||
+          '';
       const offsetDefaultDim =
         line.DefaultDimensionsForOffsetAccountDisplayValue
           ? line.DefaultDimensionsForOffsetAccountDisplayValue
-          : (line.OffsetDefaultDimensionDisplayValue ??
-            this.toDefaultDimensionDisplayValue(offsetAccountDisplayValue) ??
-            '');
+          : line.OffsetDefaultDimensionDisplayValue ||
+            this.toDefaultDimensionDisplayValue(offsetAccountDisplayValue) ||
+            '';
 
       const lineNumber = line.LineNumber ?? 0;
       const transactionDate =
@@ -535,10 +545,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private async prepareBatchForPosting(batchId: string): Promise<void> {
     await Promise.all([
-      this.dataBatchService.updateStatusAsync(
-        batchId,
-        DataBatchStatus.Processing,
-      ),
+      this.dataBatchService.updateStatusAsync(batchId, DataBatchStatus.Posting),
       this.dataBatchService.clearDfoPostingErrorsAsync(batchId),
     ]);
   }
@@ -569,7 +576,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (submission.status === 'already-completed') {
       await this.dataBatchService.updateStatusAsync(
         batchId,
-        DataBatchStatus.Completed,
+        DataBatchStatus.Posted,
       );
     }
 
@@ -606,6 +613,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           sourceIds: doc.sourceIds || [],
           data: doc.data as TData,
           dataModelType: doc.dataModelType,
+          validationRunId: doc.validationRunId,
         };
       }
     } finally {

@@ -85,6 +85,15 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
     if (!batch) {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
+    if (
+      batch.status === DataBatchStatus.Posting ||
+      batch.status === DataBatchStatus.Posted ||
+      batch.status === DataBatchStatus.Revalidating
+    ) {
+      throw new BadRequestException(
+        `Batch status is ${batch.status} and cannot be posted to D365FO.`,
+      );
+    }
     const allowedTypes = [
       EntryProcessorTypes.LedgerFreightClosingEntry,
       EntryProcessorTypes.LedgerTruckingClosingEntry,
@@ -102,7 +111,8 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
   ): Promise<Map<string, IDataEnhancedRecord<ClosingJournalEntryModel>[]>> {
-    const cursor = this.dataBatchService.getEnhancedRecordsStream(batchId);
+    const cursor =
+      await this.dataBatchService.getEnhancedRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
     const journalGroups = new Map<
@@ -360,10 +370,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
 
   private async prepareBatchForPosting(batchId: string): Promise<void> {
     await Promise.all([
-      this.dataBatchService.updateStatusAsync(
-        batchId,
-        DataBatchStatus.Processing,
-      ),
+      this.dataBatchService.updateStatusAsync(batchId, DataBatchStatus.Posting),
       this.dataBatchService.clearDfoPostingErrorsAsync(batchId),
     ]);
   }
@@ -390,7 +397,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
     if (submission.status === 'already-completed') {
       await this.dataBatchService.updateStatusAsync(
         batchId,
-        DataBatchStatus.Completed,
+        DataBatchStatus.Posted,
       );
     }
 
@@ -419,6 +426,7 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
           sourceIds: doc.sourceIds || [],
           data: doc.data,
           dataModelType: doc.dataModelType,
+          validationRunId: doc.validationRunId,
         };
       }
     } finally {

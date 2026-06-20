@@ -207,7 +207,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     await this.dataBatchService.clearDfoPostingErrorsAsync(batchId);
     await this.dataBatchService.updateStatusAsync(
       batchId,
-      DataBatchStatus.Completed,
+      DataBatchStatus.Posted,
     );
   }
 

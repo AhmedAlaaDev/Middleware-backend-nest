@@ -160,6 +160,35 @@ export class CustomerService {
     return response.value.length > 0 ? response.value[0] : null;
   }
 
+  public async getCustomerByTaxExemptNumber(
+    company: string,
+    taxExemptNumber: string,
+    options?: { useCache?: boolean },
+  ): Promise<D365FOCustomer | null> {
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      this.queryBuilder.eq('TaxExemptNumber', taxExemptNumber),
+    );
+    const query = this.queryBuilder.buildQuery('/data/Customers', {
+      filter,
+      crossCompany: true,
+      top: 1,
+    });
+    const response = await this.d365foClient.get<D365FOCustomer>(query, {
+      useCache: options?.useCache ?? false,
+    });
+    return response.value[0] ?? null;
+  }
+
+  public createCustomer(
+    customer: Record<string, unknown>,
+  ): Promise<D365FOCustomer> {
+    return this.d365foClient.post<Record<string, unknown>, D365FOCustomer>(
+      '/data/Customers',
+      customer,
+    );
+  }
+
   /**
    * Search customers by name or account
    */

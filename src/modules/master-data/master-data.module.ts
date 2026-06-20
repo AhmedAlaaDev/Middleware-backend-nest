@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
+import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import {
   CreateSyncBillingDataJobHandler,
   CreateSyncCustomersJobHandler,
@@ -23,6 +24,7 @@ import {
   SyncPaymentTermsHandler,
   SyncTaxItemGroupHeadingsHandler,
   SyncVendorsHandler,
+  CreateCustomerFromMissingDataHandler,
 } from '@/modules/master-data/commands/handlers';
 import { MasterDataController } from '@/modules/master-data/master-data.controller';
 import {
@@ -129,6 +131,7 @@ const CommandHandlers = [
   SyncPaymentTermsHandler,
   SyncTaxItemGroupHeadingsHandler,
   SyncLedgersHandler,
+  CreateCustomerFromMissingDataHandler,
 ];
 
 const QueryHandlers = [
@@ -153,6 +156,7 @@ const QueryHandlers = [
   imports: [
     CqrsModule.forRoot(),
     D365FOModule,
+    forwardRef(() => DataBatchModule),
     MongooseModule.forFeature([
       { name: Vendor.name, schema: VendorSchema },
       { name: Customer.name, schema: CustomerSchema },

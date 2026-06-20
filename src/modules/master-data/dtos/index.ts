@@ -23,3 +23,4 @@ export * from './sync-payment-terms.dto';
 export * from './sync-tax-item-group-headings.dto';
 export * from './sync-status.dto';
 export * from './sync-vendors.dto';
+export * from './create-customer.dto';

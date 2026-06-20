@@ -29,8 +29,14 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
   /**
    * Delete multiple batch errors
    */
-  public async deleteMany(batchId: string): Promise<void> {
-    await this.model.deleteMany({ batchId });
+  public async deleteMany(
+    batchId: string,
+    validationRunId?: string,
+  ): Promise<void> {
+    await this.model.deleteMany({
+      batchId,
+      ...(validationRunId ? { validationRunId } : {}),
+    });
   }
 
   /**
@@ -45,6 +51,9 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
     const filterQuery: Record<string, any> = {};
     if (filter?.batchId) {
       filterQuery.batchId = filter.batchId;
+    }
+    if (filter?.validationRunId) {
+      filterQuery.validationRunId = filter.validationRunId;
     }
 
     const res = await this.model
@@ -63,6 +72,7 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
       accountDimensionsModel: doc.accountDimensionsModel,
       enhancedRecordIds: doc.enhancedRecordIds || [],
       enhancedData: doc.enhancedData,
+      validationRunId: doc.validationRunId,
     }));
   }
 
@@ -74,6 +84,9 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
     if (filter?.batchId) {
       filterQuery.batchId = filter.batchId;
     }
+    if (filter?.validationRunId) {
+      filterQuery.validationRunId = filter.validationRunId;
+    }
     return this.model.countDocuments(filterQuery).exec();
   }
 
@@ -84,6 +97,9 @@ export class DataBatchErrorMongoRepository implements DataBatchErrorRepository {
     const filterQuery: Record<string, any> = {};
     if (filter?.batchId) {
       filterQuery.batchId = filter.batchId;
+    }
+    if (filter?.validationRunId) {
+      filterQuery.validationRunId = filter.validationRunId;
     }
     return this.model.find(filterQuery).sort({ createdAt: -1 }).lean().cursor();
   }

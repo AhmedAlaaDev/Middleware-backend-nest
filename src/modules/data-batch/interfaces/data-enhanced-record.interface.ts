@@ -5,6 +5,7 @@ export interface IDataEnhancedRecord<TData = Record<string, unknown>> {
   sourceIds: string[];
   data: TData;
   dataModelType: string;
+  validationRunId: string;
 }
 
 export interface ICreateDataEnhancedRecord<TData = Record<string, unknown>> {
@@ -13,6 +14,7 @@ export interface ICreateDataEnhancedRecord<TData = Record<string, unknown>> {
   sourceIds: string[];
   data: TData;
   dataModelType: string;
+  validationRunId: string;
 }
 
 export type IUpdateDataEnhancedRecord<TData = Record<string, unknown>> =

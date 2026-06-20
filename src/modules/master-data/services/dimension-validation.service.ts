@@ -197,6 +197,16 @@ export class DimensionValidationService {
         errorKey,
         `${ctx}Dimension "${label}" value from your file "${displayValue}" was not found in the system. Check the value in your source file or ensure it exists in D365 and sync master data.`,
       );
+      if (label === 'Customer' || label === 'SubCustomer') {
+        ar.AddMissingMasterData({
+          type: 'customer',
+          missingField: 'CustomerAccount',
+          missingValue: rawValue!.trim(),
+          formDefaults: {
+            CustomerAccount: rawValue!.trim(),
+          },
+        });
+      }
     }
   }
 

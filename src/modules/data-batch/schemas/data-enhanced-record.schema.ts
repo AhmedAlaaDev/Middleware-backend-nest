@@ -22,7 +22,14 @@ export class DataEnhancedRecord {
 
   @Prop()
   dataModelType: string;
+
+  @Prop({ required: true })
+  validationRunId: string;
 }
 export const DataEnhancedRecordSchema =
   SchemaFactory.createForClass(DataEnhancedRecord);
-DataEnhancedRecordSchema.index({ batchId: 1, dataModelType: 1 });
+DataEnhancedRecordSchema.index({
+  batchId: 1,
+  validationRunId: 1,
+  dataModelType: 1,
+});
