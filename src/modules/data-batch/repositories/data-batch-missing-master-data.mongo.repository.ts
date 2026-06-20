@@ -5,6 +5,8 @@ import { Model } from 'mongoose';
 import {
   CustomerCreationStatus,
   IDataBatchMissingMasterData,
+  IMissingMasterDataPaginatedResponse,
+  IRemediationSummary,
   IUpdateDataBatchMissingMasterData,
   MissingCustomerField,
   MissingMasterDataType,
@@ -39,6 +41,77 @@ export class DataBatchMissingMasterDataMongoRepository implements DataBatchMissi
     }
     const documents = await this.model.find(q).lean().exec();
     return documents.map((document) => this.mapDocument(document));
+  }
+
+  public async getPaginatedList(
+    batchId: string,
+    options: {
+      page: number;
+      limit: number;
+      type?: MissingMasterDataType;
+      creationStatus?: CustomerCreationStatus;
+      search?: string;
+    },
+  ): Promise<IMissingMasterDataPaginatedResponse> {
+    const { page, limit, type, creationStatus, search } = options;
+    const q: Record<string, unknown> = { batchId };
+
+    if (type) {
+      q.type = type;
+    }
+    if (creationStatus) {
+      q.creationStatus = creationStatus;
+    }
+    if (search) {
+      q.missingValue = { $regex: search, $options: 'i' };
+    }
+
+    const skip = (page - 1) * limit;
+    const [documents, total] = await Promise.all([
+      this.model.find(q).skip(skip).limit(limit).lean().exec(),
+      this.model.countDocuments(q).exec(),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: documents.map((doc) => this.mapDocument(doc)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
+  public async getSummary(batchId: string): Promise<IRemediationSummary> {
+    const results = await this.model.aggregate<{
+      _id: MissingMasterDataType;
+      count: number;
+      affectedRows: number;
+    }>([
+      { $match: { batchId } },
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          affectedRows: { $sum: '$affectedCount' },
+        },
+      },
+    ]);
+
+    const types = results.map((r) => ({
+      type: r._id,
+      count: r.count,
+      affectedRows: r.affectedRows,
+    }));
+
+    const total = types.reduce((sum, t) => sum + t.count, 0);
+
+    return { total, types };
   }
 
   public async findById(
@@ -121,3 +194,4 @@ export class DataBatchMissingMasterDataMongoRepository implements DataBatchMissi
     };
   }
 }
+

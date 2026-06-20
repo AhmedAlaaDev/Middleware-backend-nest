@@ -1,6 +1,8 @@
 import {
   CustomerCreationStatus,
   IDataBatchMissingMasterData,
+  IMissingMasterDataPaginatedResponse,
+  IRemediationSummary,
   IUpdateDataBatchMissingMasterData,
   MissingCustomerField,
   MissingMasterDataType,
@@ -16,6 +18,19 @@ export abstract class DataBatchMissingMasterDataRepository {
       creationStatus?: CustomerCreationStatus;
     },
   ): Promise<IDataBatchMissingMasterData[]>;
+
+  public abstract getPaginatedList(
+    batchId: string,
+    options: {
+      page: number;
+      limit: number;
+      type?: MissingMasterDataType;
+      creationStatus?: CustomerCreationStatus;
+      search?: string;
+    },
+  ): Promise<IMissingMasterDataPaginatedResponse>;
+
+  public abstract getSummary(batchId: string): Promise<IRemediationSummary>;
 
   public abstract findById(
     id: string,
@@ -41,3 +56,4 @@ export abstract class DataBatchMissingMasterDataRepository {
     },
   ): Promise<void>;
 }
+

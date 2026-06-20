@@ -26,9 +26,8 @@ import {
 } from '@nestjs/swagger';
 
 import type {
-  CustomerCreationStatus,
-  IDataBatchMissingMasterData,
-  MissingMasterDataType,
+  IMissingMasterDataPaginatedResponse,
+  IRemediationSummary,
 } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
@@ -41,12 +40,14 @@ import { ReprocessBatchCommand } from '@/modules/data-batch/commands/reprocess-b
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
+import { GetMissingMasterDataDto } from '@/modules/data-batch/dtos/get-missing-master-data.dto';
 import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
 import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-batch-by-id.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
+import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
 
 /**
  * Data Migration - Data Batches
@@ -313,20 +314,39 @@ export class DataBatchController {
   }
 
   /**
-   * Get missing master data items for a batch
+   * Get missing master data items for a batch (paginated)
    */
   @Get(':batchId/missing-master-data')
   @ApiOperation({
-    summary: 'Get list of missing master data items for a batch',
+    summary: 'Get paginated list of missing master data items for a batch',
   })
   public async getMissingMasterDataAsync(
     @Param('batchId') batchId: string,
-    @Query('type') type?: MissingMasterDataType,
-    @Query('creationStatus') creationStatus?: CustomerCreationStatus,
-  ): Promise<IDataBatchMissingMasterData[]> {
+    @Query() query: GetMissingMasterDataDto,
+  ): Promise<IMissingMasterDataPaginatedResponse> {
     return this.queryBus.execute(
-      new GetMissingMasterDataQuery(batchId, type, creationStatus),
+      new GetMissingMasterDataQuery(
+        batchId,
+        query.type,
+        query.creationStatus,
+        query.page ?? 1,
+        query.limit ?? 30,
+        query.search,
+      ),
     );
+  }
+
+  /**
+   * Get lightweight remediation summary for a batch
+   */
+  @Get(':batchId/remediation-summary')
+  @ApiOperation({
+    summary: 'Get remediation summary counts for a batch',
+  })
+  public async getRemediationSummaryAsync(
+    @Param('batchId') batchId: string,
+  ): Promise<IRemediationSummary> {
+    return this.queryBus.execute(new GetRemediationSummaryQuery(batchId));
   }
 
   /**

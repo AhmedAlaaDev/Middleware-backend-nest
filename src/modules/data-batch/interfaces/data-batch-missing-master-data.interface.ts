@@ -51,3 +51,29 @@ export interface IUpdateDataBatchMissingMasterData {
   reprocessErrorMessage?: string | null;
   reprocessAttempts?: number;
 }
+
+export interface IPaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface IMissingMasterDataPaginatedResponse {
+  data: IDataBatchMissingMasterData[];
+  pagination: IPaginationMeta;
+}
+
+export interface IRemediationTypeSummary {
+  type: MissingMasterDataType;
+  count: number;
+  affectedRows: number;
+}
+
+export interface IRemediationSummary {
+  total: number;
+  types: IRemediationTypeSummary[];
+}
+

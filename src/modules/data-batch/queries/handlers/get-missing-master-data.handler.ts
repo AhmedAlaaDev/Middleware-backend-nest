@@ -1,20 +1,28 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 
-import { IDataBatchMissingMasterData } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
+import { IMissingMasterDataPaginatedResponse } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
-import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { DataBatchMissingMasterDataRepository } from '@/modules/data-batch/repositories/interfaces/data-batch-missing-master-data.repository';
 
 @QueryHandler(GetMissingMasterDataQuery)
-export class GetMissingMasterDataHandler implements IQueryHandler<GetMissingMasterDataQuery> {
-  constructor(private readonly dataBatchService: DataBatchService) {}
+export class GetMissingMasterDataHandler
+  implements IQueryHandler<GetMissingMasterDataQuery>
+{
+  constructor(
+    private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
+  ) {}
 
   public async execute(
     query: GetMissingMasterDataQuery,
-  ): Promise<IDataBatchMissingMasterData[]> {
-    const { batchId, type, creationStatus } = query;
-    return this.dataBatchService.getMissingMasterDataAsync(batchId, {
+  ): Promise<IMissingMasterDataPaginatedResponse> {
+    const { batchId, type, creationStatus, page, limit, search } = query;
+    return this.missingMasterDataRepo.getPaginatedList(batchId, {
+      page,
+      limit,
       type,
       creationStatus,
+      search,
     });
   }
 }
+

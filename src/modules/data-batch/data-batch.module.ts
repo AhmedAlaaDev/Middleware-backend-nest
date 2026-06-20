@@ -17,6 +17,7 @@ import {
   GetDataBatchByIdHandler,
   GetDataBatchListHandler,
   GetMissingMasterDataHandler,
+  GetRemediationSummaryHandler,
 } from '@/modules/data-batch/queries/handlers';
 import {
   DataBatchErrorMongoRepository,
@@ -63,6 +64,7 @@ const QueryHandlers = [
   GetDataBatchByIdHandler,
   GetBatchErrorListHandler,
   GetMissingMasterDataHandler,
+  GetRemediationSummaryHandler,
 ];
 
 @Module({
