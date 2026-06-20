@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -11,6 +13,8 @@ import { AppModule } from './app.module';
 import { GlobalResponseInterceptor } from '@/common/interceptors/global-response.interceptor';
 import { botBlockMiddleware } from '@/common/middlewares/bot-block.middleware';
 import { TraceContextMiddleware } from '@/modules/observability/middleware/trace-context.middleware';
+
+dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

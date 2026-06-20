@@ -12,6 +12,7 @@ import {
   resilienceConfig,
   schedulerConfig,
   observabilityConfig,
+  entraConfig,
 } from '@/config';
 import { AccountsReceivableModule } from '@/modules/accounts-receivable/accounts-receivable.module';
 import { AuthModule } from '@/modules/auth/auth.module';
@@ -42,6 +43,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
         resilienceConfig,
         schedulerConfig,
         observabilityConfig,
+        entraConfig,
       ],
       isGlobal: true,
       validationSchema: ConfigSchema,

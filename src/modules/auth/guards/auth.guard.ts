@@ -2,14 +2,21 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { ALLOW_STALE_SESSION } from '@/modules/auth/decorators/allow-stale-session.decorator';
 import { IS_PUBLIC_KEY } from '@/modules/auth/decorators/public.decorator';
 import { UserPayload } from '@/modules/auth/interfaces/user-payload.interface';
 import { TokenService } from '@/modules/auth/services/token.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
+import {
+  AccessStatus,
+  IdentityProvider,
+  UserRole,
+} from '@/modules/user/schemas/user.schema';
 import { UserService } from '@/modules/user/user.service';
 
 @Injectable()
@@ -33,9 +40,43 @@ export class AuthGuard implements CanActivate {
 
     const user = await this.getUserByIdOrThrow(payload.sub);
 
+    const allowStale = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_STALE_SESSION,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!allowStale && payload.sessionVersion !== user.sessionVersion) {
+      throw new UnauthorizedException('Session permissions changed.');
+    }
+
     request.user = user;
+    this.enforceAccessPolicy(request, user);
 
     return true;
+  }
+
+  private enforceAccessPolicy(
+    request: Req,
+    user: Omit<IUser, 'passwordHash'>,
+  ): void {
+    const route = request.path;
+    const method = request.method.toUpperCase();
+    const restrictedWorkforce =
+      user.identityProvider === IdentityProvider.ENTRA &&
+      user.accessStatus !== AccessStatus.APPROVED;
+    const restrictedAdmin =
+      user.role === UserRole.ADMIN && user.mustChangePassword;
+    if (!restrictedWorkforce && !restrictedAdmin) return;
+
+    const allowed = new Set([
+      'GET:/users/me',
+      'GET:/auth/access-status',
+      'POST:/auth/logout-all',
+      'POST:/users/me/change-password',
+    ]);
+    const normalizedPath = route.replace(/^\/api\/v\d+/, '');
+    if (!allowed.has(`${method}:${normalizedPath}`)) {
+      throw new ForbiddenException('Access is restricted');
+    }
   }
 
   private checkIsPublic(context: ExecutionContext): boolean {
@@ -72,15 +113,10 @@ export class AuthGuard implements CanActivate {
   private async getUserByIdOrThrow(
     userId: string,
   ): Promise<Omit<IUser, 'passwordHash'>> {
-    try {
-      const user = await this.userService.findUserById(userId);
-      if (!user) throw new UnauthorizedException('User not found.');
+    const user = await this.userService.findUserById(userId);
+    if (!user) throw new UnauthorizedException('User not found.');
 
-      const { passwordHash, ...userData } = user;
-
-      return userData;
-    } catch {
-      throw new UnauthorizedException('User not found.');
-    }
+    const { passwordHash, ...userData } = user;
+    return userData;
   }
 }

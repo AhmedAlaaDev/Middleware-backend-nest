@@ -4,6 +4,7 @@ import { AppConfig } from '@/config/app.config';
 import { AuthConfig } from '@/config/auth.config';
 import { D365FOConfig } from '@/config/d365fo.config';
 import { DBConfig } from '@/config/db.config';
+import { EntraConfig } from '@/config/entra.config';
 import { ObservabilityConfig } from '@/config/observability.config';
 import { RedisConfig } from '@/config/redis.config';
 import { ResilienceConfig } from '@/config/resilience.config';
@@ -18,6 +19,7 @@ export interface IConfig {
   resilience: ResilienceConfig;
   scheduler: SchedulerConfig;
   observability: ObservabilityConfig;
+  entra: EntraConfig;
 }
 
 export const ConfigSchema = Joi.object<IConfig>({
@@ -89,6 +91,20 @@ export const ConfigSchema = Joi.object<IConfig>({
     streamMaxLength: Joi.number().integer().min(1000).default(200000),
     consumerGroup: Joi.string().default('mongo-log-writers'),
   }),
+  entra: Joi.object<EntraConfig>({
+    tenantId: Joi.string().guid().required(),
+    clientId: Joi.string().required(),
+    clientSecret: Joi.string().min(20).required(),
+    clientSecretExpiresAt: Joi.string().isoDate().optional(),
+    redirectUri: Joi.string()
+      .uri()
+      .pattern(/^https?:\/\/[^/?#]+\/api\/v1\/auth\/microsoft\/callback$/)
+      .required(),
+    allowedEmailDomains: Joi.array().items(Joi.string()).min(1).required(),
+    frontendAuthCallbackUrl: Joi.string().uri().required(),
+    adminEmail: Joi.string().email().required(),
+    adminInitialPassword: Joi.string().min(12).required(),
+  }),
 });
 
 export * from './app.config';
@@ -99,3 +115,4 @@ export * from './redis.config';
 export * from './resilience.config';
 export * from './scheduler.config';
 export * from './observability.config';
+export * from './entra.config';

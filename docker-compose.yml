@@ -11,8 +11,13 @@ services:
       - .env.development
     ports:
       - '${PORT:-3000}:3000'
+    # Prefer IPv4 because some Docker hosts resolve Microsoft to IPv6 without an outbound IPv6 route.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       NODE_ENV: development
+      NODE_OPTIONS: '--dns-result-order=ipv4first'
     volumes:
       - ./src:/app/src
       - ./package.json:/app/package.json

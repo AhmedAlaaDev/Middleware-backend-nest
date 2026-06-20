@@ -8,6 +8,18 @@ export enum UserRole {
   OPS = 'OPS',
 }
 
+export enum IdentityProvider {
+  LOCAL = 'LOCAL',
+  ENTRA = 'ENTRA',
+}
+
+export enum AccessStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  REVOKED = 'REVOKED',
+}
+
 export type UserDocument = HydratedDocument<User>;
 
 @Schema({
@@ -27,8 +39,8 @@ export class User {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
-  passwordHash: string;
+  @Prop()
+  passwordHash?: string;
 
   @Prop({ default: '' })
   avatarPath: string;
@@ -36,9 +48,38 @@ export class User {
   @Prop({
     type: String,
     enum: UserRole,
-    default: UserRole.OPS,
   })
-  role: UserRole;
+  role?: UserRole;
+
+  @Prop({ type: String, enum: IdentityProvider, required: true })
+  identityProvider: IdentityProvider;
+
+  @Prop({ type: String, enum: AccessStatus })
+  accessStatus?: AccessStatus;
+
+  @Prop()
+  entraTenantId?: string;
+
+  @Prop()
+  entraObjectId?: string;
+
+  @Prop({ default: false })
+  mustChangePassword: boolean;
+
+  @Prop({ default: 1 })
+  sessionVersion: number;
+
+  @Prop()
+  firstSignInAt?: Date;
+
+  @Prop()
+  lastSignInAt?: Date;
+
+  @Prop()
+  lastIp?: string;
+
+  @Prop()
+  lastUserAgent?: string;
 
   // relation (one-to-many)
   @Prop({ type: [{ type: Types.ObjectId, ref: 'RefreshToken' }] })
@@ -46,6 +87,23 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+UserSchema.index(
+  { entraTenantId: 1, entraObjectId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      identityProvider: IdentityProvider.ENTRA,
+    },
+  },
+);
+UserSchema.index(
+  { role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: UserRole.ADMIN },
+  },
+);
 
 // Optional: Prisma-like cascade delete
 UserSchema.pre(

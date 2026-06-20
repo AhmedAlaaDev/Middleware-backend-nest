@@ -15,6 +15,16 @@ import {
 import { HashingService } from '@/modules/auth/services/hashing.service';
 import { SessionService } from '@/modules/auth/services/session.service';
 import { TokenService } from '@/modules/auth/services/token.service';
+import { EntraOidcService } from '@/modules/auth/services/entra-oidc.service';
+import { LoginRateLimitService } from '@/modules/auth/services/login-rate-limit.service';
+import { AdminBootstrapService } from '@/modules/auth/services/admin-bootstrap.service';
+import { AdminAccessController } from '@/modules/user/admin-access.controller';
+import { AccessReviewService } from '@/modules/user/access-review.service';
+import {
+  AccessDecision,
+  AccessDecisionSchema,
+} from '@/modules/user/schemas/access-decision.schema';
+import { UserController } from '@/modules/user/user.controller';
 import { UserModule } from '@/modules/user/user.module';
 
 @Module({
@@ -24,6 +34,7 @@ import { UserModule } from '@/modules/user/user.module';
     }),
     MongooseModule.forFeature([
       { name: RefreshToken.name, schema: RefreshTokenSchema },
+      { name: AccessDecision.name, schema: AccessDecisionSchema },
     ]),
     UserModule,
   ],
@@ -32,6 +43,10 @@ import { UserModule } from '@/modules/user/user.module';
     HashingService,
     SessionService,
     AuthService,
+    EntraOidcService,
+    LoginRateLimitService,
+    AdminBootstrapService,
+    AccessReviewService,
     {
       provide: APP_GUARD,
       useClass: ApiKeyGuard,
@@ -45,7 +60,7 @@ import { UserModule } from '@/modules/user/user.module';
       useClass: RolesGuard,
     },
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, UserController, AdminAccessController],
   exports: [SessionService],
 })
 export class AuthModule {}

@@ -21,7 +21,7 @@ export class RolesGuard implements CanActivate {
     if (!roles?.length) return true;
 
     const request = context.switchToHttp().getRequest<Req>();
-    if (!request.user || !roles.includes(request.user.role)) {
+    if (!request.user?.role || !roles.includes(request.user.role)) {
       throw new ForbiddenException('Administrator access is required');
     }
     return true;

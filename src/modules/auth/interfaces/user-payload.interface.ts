@@ -1,6 +1,18 @@
-import { IUser } from '@/modules/user/interfaces/user.interface';
+import {
+  AccessStatus,
+  IdentityProvider,
+  UserRole,
+} from '@/modules/user/schemas/user.schema';
 
-export type UserPayload = Pick<
-  IUser,
-  'firstName' | 'lastName' | 'email' | 'role' | 'avatarPath'
-> & { sub: string };
+export interface UserPayload {
+  sub: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  role?: UserRole;
+  avatarPath?: string;
+  identityProvider: IdentityProvider;
+  accessStatus?: AccessStatus;
+  mustChangePassword: boolean;
+  sessionVersion: number;
+}
