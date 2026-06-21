@@ -7,6 +7,7 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOCustomer } from '@/modules/d365fo/types';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatchMissingMasterData } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
@@ -32,6 +33,7 @@ export class CreateCustomerFromMissingDataHandler implements ICommandHandler<Cre
     private readonly masterDataService: MasterDataService,
     private readonly dataBatchService: DataBatchService,
     private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
+    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async execute(
@@ -302,9 +304,6 @@ export class CreateCustomerFromMissingDataHandler implements ICommandHandler<Cre
   }
 
   private getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return String(error);
+    return this.dfoErrorExtractor.extractMessage(error);
   }
 }

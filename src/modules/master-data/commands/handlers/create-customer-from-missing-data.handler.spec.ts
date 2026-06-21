@@ -2,6 +2,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOCustomer } from '@/modules/d365fo/types';
 import {
   DataBatchStatus,
@@ -83,6 +84,10 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       .fn()
       .mockRejectedValue(new Error('validation failed')),
   } as unknown as DataBatchService;
+  const dfoErrorExtractor = {
+    extractMessage: jest.fn((err: any) => err instanceof Error ? err.message : String(err)),
+    normalize: jest.fn((err: any) => ({ message: err instanceof Error ? err.message : String(err) })),
+  } as unknown as DfoErrorExtractorService;
 
   return {
     handler: new CreateCustomerFromMissingDataHandler(
@@ -90,6 +95,7 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       masterDataService,
       dataBatchService,
       missingRepo,
+      dfoErrorExtractor,
     ),
     customerService,
     dataBatchService,
