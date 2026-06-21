@@ -1,13 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
-  Logger,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { CustomerService } from '@/modules/d365fo/services/customer.service';
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOCustomer } from '@/modules/d365fo/types';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatchMissingMasterData } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
@@ -15,33 +13,71 @@ import { DataBatchMissingMasterDataRepository } from '@/modules/data-batch/repos
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { CreateCustomerFromMissingDataCommand } from '@/modules/master-data/commands/create-customer-from-missing-data.command';
 import { CreateCustomerDto } from '@/modules/master-data/dtos/create-customer.dto';
+import { InlineCustomerError } from '@/modules/master-data/errors/inline-customer.error';
 import {
   ICreateCustomer,
   ICreateCustomerFromMissingDataResult,
   ICustomer,
 } from '@/modules/master-data/interfaces/customer.interface';
+import { InlineCustomerCreationService } from '@/modules/master-data/services/inline-customer-creation.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 
 @CommandHandler(CreateCustomerFromMissingDataCommand)
 export class CreateCustomerFromMissingDataHandler implements ICommandHandler<CreateCustomerFromMissingDataCommand> {
-  private readonly logger = new Logger(
-    CreateCustomerFromMissingDataHandler.name,
-  );
-
   constructor(
-    private readonly customerService: CustomerService,
-    private readonly masterDataService: MasterDataService,
-    private readonly dataBatchService: DataBatchService,
-    private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
+    private readonly inlineCreation: InlineCustomerCreationService,
+    private readonly masterData: MasterDataService,
+    private readonly batches: DataBatchService,
+    private readonly missingRecords: DataBatchMissingMasterDataRepository,
+    private readonly logs: OperationalLoggerService,
   ) {}
 
   public async execute(
     command: CreateCustomerFromMissingDataCommand,
   ): Promise<ICreateCustomerFromMissingDataResult> {
-    const { missingDataId, dto } = command;
-    const missingRecord =
-      await this.missingMasterDataRepo.findById(missingDataId);
+    const missingRecord = await this.requireMissingRecord(
+      command.missingDataId,
+    );
+    await this.requireEditableBatch(missingRecord.batchId);
+    this.assertAuthoritativeIdentifiers(missingRecord, command.dto);
+
+    if (missingRecord.creationStatus === 'creating') {
+      throw new ConflictException('Customer creation is already in progress');
+    }
+    if (
+      missingRecord.creationStatus === 'created' &&
+      missingRecord.createdData
+    ) {
+      return this.finishLocalPersistence(
+        missingRecord,
+        missingRecord.createdData as unknown as D365FOCustomer,
+      );
+    }
+
+    const claimed = await this.missingRecords.claimForCreation(
+      command.missingDataId,
+    );
+    if (!claimed) {
+      throw new ConflictException('Customer creation is already in progress');
+    }
+
+    try {
+      const customer = await this.inlineCreation.create(
+        this.creationInput(claimed, command.dto),
+      );
+      await this.markCustomerCreated(claimed.id, customer);
+      return this.finishLocalPersistence(claimed, customer);
+    } catch (error) {
+      await this.markCreationFailure(claimed.id, error);
+      throw error;
+    }
+  }
+
+  private async requireMissingRecord(
+    missingDataId: string,
+  ): Promise<IDataBatchMissingMasterData> {
+    const missingRecord = await this.missingRecords.findById(missingDataId);
     if (!missingRecord) {
       throw new NotFoundException(
         `Missing master data record with ID ${missingDataId} not found`,
@@ -52,158 +88,145 @@ export class CreateCustomerFromMissingDataHandler implements ICommandHandler<Cre
         'Missing master data record is not a customer',
       );
     }
+    return missingRecord;
+  }
 
-    const batch = await this.dataBatchService.getByIdAsync(
-      missingRecord.batchId,
-    );
+  private async requireEditableBatch(batchId: string): Promise<void> {
+    const batch = await this.batches.getByIdAsync(batchId);
     if (!batch) {
-      throw new NotFoundException(
-        `Batch with ID ${missingRecord.batchId} not found`,
-      );
+      throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
     if (batch.status !== DataBatchStatus.PendingPosting) {
       throw new ConflictException(
         `Batch must be PendingPosting. Current status is ${batch.status}`,
       );
     }
+  }
 
-    this.assertAuthoritativeIdentifiers(missingRecord, dto);
+  private creationInput(
+    missingRecord: IDataBatchMissingMasterData,
+    dto: CreateCustomerDto,
+  ) {
+    const customerAccount =
+      missingRecord.missingField === 'CustomerAccount'
+        ? missingRecord.missingValue
+        : dto.customerAccount;
+    const taxExemptNumber =
+      missingRecord.missingField === 'TaxExemptNumber'
+        ? missingRecord.missingValue
+        : dto.taxExemptNumber;
+    return {
+      missingDataId: missingRecord.id,
+      batchId: missingRecord.batchId,
+      dataAreaId: missingRecord.company,
+      customerAccount,
+      taxExemptNumber,
+      customerName: dto.name,
+      customerGroupId: dto.customerGroupId,
+      partyType: dto.partyType,
+      salesTaxGroup: dto.salesTaxGroup,
+      isSalesTaxIncludedInPrices: dto.isSalesTaxIncludedInPrices as
+        | 'Yes'
+        | 'No',
+      paymentTerms: dto.paymentTerms,
+      addressCountryRegionId: dto.addressCountryRegionId,
+      salesCurrencyCode: dto.salesCurrencyCode,
+      existingCustomerPolicy:
+        missingRecord.creationStatus === 'create_failed'
+          ? ('adopt-exact-match' as const)
+          : ('conflict' as const),
+    };
+  }
 
-    if (
-      missingRecord.creationStatus === 'created' &&
-      missingRecord.createdData
-    ) {
-      return this.finishCreatedCustomer(
-        missingRecord,
-        missingRecord.createdData as unknown as D365FOCustomer,
-      );
-    }
-    if (missingRecord.creationStatus === 'creating') {
-      throw new ConflictException('Customer creation is already in progress');
-    }
-
-    const claimed =
-      await this.missingMasterDataRepo.claimForCreation(missingDataId);
-    if (!claimed) {
-      const current = await this.missingMasterDataRepo.findById(missingDataId);
-      if (current?.creationStatus === 'created' && current.createdData) {
-        return this.finishCreatedCustomer(
-          current,
-          current.createdData as unknown as D365FOCustomer,
-        );
-      }
-      throw new ConflictException('Customer creation is already in progress');
-    }
-
-    const payload = this.buildCustomerPayload(claimed, dto);
-    let createdCustomer = await this.findExistingCustomer(claimed);
-
-    if (!createdCustomer) {
-      try {
-        createdCustomer = await this.customerService.createCustomer(payload);
-      } catch (error) {
-        createdCustomer = await this.findExistingCustomer(claimed);
-        if (!createdCustomer) {
-          const message = this.getErrorMessage(error);
-          await this.missingMasterDataRepo.updateOne(missingDataId, {
-            creationStatus: 'create_failed',
-            createErrorMessage: message,
-          });
-          throw new BadRequestException(
-            `Failed to create customer in D365FO: ${message}`,
-          );
-        }
-      }
-    }
-
-    if (!this.createdCustomerMatches(claimed, createdCustomer)) {
-      const message =
-        'D365FO customer does not match the stored missing identifier';
-      await this.missingMasterDataRepo.updateOne(missingDataId, {
-        creationStatus: 'created',
-        reprocessStatus: 'failed',
-        createdData: createdCustomer as unknown as Record<string, unknown>,
-        createErrorMessage: null,
-        reprocessErrorMessage: message,
-      });
-      throw new ConflictException(message);
-    }
-    await this.missingMasterDataRepo.updateOne(missingDataId, {
+  private async markCustomerCreated(
+    missingDataId: string,
+    customer: D365FOCustomer,
+  ): Promise<void> {
+    await this.missingRecords.updateOne(missingDataId, {
       creationStatus: 'created',
       reprocessStatus: 'pending',
-      createdData: createdCustomer as unknown as Record<string, unknown>,
+      createdData: customer as unknown as Record<string, unknown>,
       createErrorMessage: null,
       reprocessErrorMessage: null,
     });
-
-    return this.finishCreatedCustomer(claimed, createdCustomer);
   }
 
-  private async finishCreatedCustomer(
+  private async finishLocalPersistence(
     missingRecord: IDataBatchMissingMasterData,
-    createdCustomer: D365FOCustomer,
+    customer: D365FOCustomer,
   ): Promise<ICreateCustomerFromMissingDataResult> {
-    const localCustomer = this.mapCustomer(createdCustomer);
+    const localCustomer = this.mapCustomer(customer);
     try {
       await Promise.all([
-        this.masterDataService.upsertCustomersAsync(missingRecord.company, [
+        this.masterData.upsertCustomersAsync(missingRecord.company, [
           localCustomer,
         ]),
-        this.masterDataService.upsertFinancialDimensionValuesAsync([
+        this.masterData.upsertFinancialDimensionValuesAsync([
           {
             financialDimensionKey: 'Customer',
-            value: createdCustomer.CustomerAccount,
-            description: createdCustomer.Name,
+            value: customer.CustomerAccount,
+            description: customer.Name,
             isSuspended: 'No',
             isBlockedForManualEntry: 'No',
             isTotal: 'No',
           },
         ]),
       ]);
-
-      if (missingRecord.reprocessStatus === 'succeeded') {
-        return {
-          customer: this.toCustomer(localCustomer),
-          creationStatus: 'created',
-          reprocessStatus: 'succeeded',
-        };
-      }
-
-      await this.dataBatchService.reprocessBatchAsync(
-        missingRecord.batchId,
-        missingRecord.id,
-      );
+      await this.emitLocalUpdate(missingRecord, customer, 'completed');
       return {
         customer: this.toCustomer(localCustomer),
         creationStatus: 'created',
-        reprocessStatus: 'succeeded',
+        reprocessStatus: 'pending',
       };
     } catch (error) {
-      const message = this.getErrorMessage(error);
-      await this.missingMasterDataRepo.updateOne(missingRecord.id, {
-        reprocessStatus: 'failed',
-        reprocessErrorMessage: message,
-      });
-      this.logger.error(
-        `Customer ${createdCustomer.CustomerAccount} was created but batch reprocessing failed: ${message}`,
-      );
-      return {
-        customer: this.toCustomer(localCustomer),
+      const message = error instanceof Error ? error.message : String(error);
+      await this.missingRecords.updateOne(missingRecord.id, {
         creationStatus: 'created',
-        reprocessStatus: 'failed',
-        reprocessErrorMessage: message,
-      };
+        reprocessStatus: 'pending',
+        createErrorMessage: message,
+      });
+      await this.emitLocalUpdate(missingRecord, customer, 'failed', message);
+      throw new InlineCustomerError(
+        'REMEDIATION_UPDATE_FAILED_AFTER_CUSTOMER_CREATED',
+        'Customer was created but the local remediation update failed. Resolve local state and retry manually.',
+        {
+          dataAreaId: missingRecord.company,
+          customerAccount: customer.CustomerAccount,
+          taxExemptNumber: customer.TaxExemptNumber,
+          action: 'update local remediation data',
+          dfoInnerMessage: message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
+  }
+
+  private async markCreationFailure(
+    missingDataId: string,
+    error: unknown,
+  ): Promise<void> {
+    const current = await this.missingRecords.findById(missingDataId);
+    if (current?.creationStatus === 'created') return;
+    const response =
+      error instanceof InlineCustomerError
+        ? (error.getResponse() as { message: string })
+        : undefined;
+    await this.missingRecords.updateOne(missingDataId, {
+      creationStatus: 'create_failed',
+      createErrorMessage:
+        response?.message ??
+        (error instanceof Error ? error.message : String(error)),
+    });
   }
 
   private assertAuthoritativeIdentifiers(
     missingRecord: IDataBatchMissingMasterData,
     dto: CreateCustomerDto,
   ): void {
+    const normalize = (part?: string) => part?.trim().toLowerCase() ?? '';
     if (
       missingRecord.missingField === 'CustomerAccount' &&
-      this.normalize(dto.customerAccount) !==
-        this.normalize(missingRecord.missingValue)
+      normalize(dto.customerAccount) !== normalize(missingRecord.missingValue)
     ) {
       throw new BadRequestException(
         'Customer account does not match the stored missing identifier',
@@ -211,71 +234,12 @@ export class CreateCustomerFromMissingDataHandler implements ICommandHandler<Cre
     }
     if (
       missingRecord.missingField === 'TaxExemptNumber' &&
-      dto.taxExemptNumber &&
-      this.normalize(dto.taxExemptNumber) !==
-        this.normalize(missingRecord.missingValue)
+      normalize(dto.taxExemptNumber) !== normalize(missingRecord.missingValue)
     ) {
       throw new BadRequestException(
         'Tax exempt number does not match the stored missing identifier',
       );
     }
-  }
-
-  private buildCustomerPayload(
-    missingRecord: IDataBatchMissingMasterData,
-    dto: CreateCustomerDto,
-  ): Record<string, unknown> {
-    return {
-      dataAreaId: missingRecord.company,
-      CustomerAccount:
-        missingRecord.missingField === 'CustomerAccount'
-          ? missingRecord.missingValue
-          : dto.customerAccount,
-      TaxExemptNumber:
-        missingRecord.missingField === 'TaxExemptNumber'
-          ? missingRecord.missingValue
-          : (dto.taxExemptNumber ?? ''),
-      Name: dto.name,
-      CustomerGroupId: dto.customerGroupId,
-      SalesTaxGroup: dto.salesTaxGroup,
-      PaymentTerms: dto.paymentTerms,
-      PartyType: dto.partyType === 'Personal' ? 'Person' : dto.partyType,
-      IsSalesTaxIncludedInPrices: dto.isSalesTaxIncludedInPrices,
-      AddressCountryRegionId: 'EGY',
-      SalesCurrencyCode: dto.salesCurrencyCode || 'EGP',
-    };
-  }
-
-  private findExistingCustomer(
-    missingRecord: IDataBatchMissingMasterData,
-  ): Promise<D365FOCustomer | null> {
-    if (missingRecord.missingField === 'CustomerAccount') {
-      return this.customerService.getCustomerByAccount(
-        missingRecord.company,
-        missingRecord.missingValue,
-        { useCache: false },
-      );
-    }
-    return this.customerService.getCustomerByTaxExemptNumber(
-      missingRecord.company,
-      missingRecord.missingValue,
-      { useCache: false },
-    );
-  }
-
-  private createdCustomerMatches(
-    missingRecord: IDataBatchMissingMasterData,
-    customer: D365FOCustomer,
-  ): boolean {
-    const actual =
-      missingRecord.missingField === 'CustomerAccount'
-        ? customer.CustomerAccount
-        : customer.TaxExemptNumber;
-    return (
-      this.normalize(customer.dataAreaId) ===
-        this.normalize(missingRecord.company) &&
-      this.normalize(actual) === this.normalize(missingRecord.missingValue)
-    );
   }
 
   private mapCustomer(customer: D365FOCustomer): ICreateCustomer {
@@ -299,11 +263,27 @@ export class CreateCustomerFromMissingDataHandler implements ICommandHandler<Cre
     return { id: '', ...customer };
   }
 
-  private normalize(value?: string): string {
-    return value?.trim().toLowerCase() ?? '';
-  }
-
-  private getErrorMessage(error: unknown): string {
-    return this.dfoErrorExtractor.extractMessage(error);
+  private emitLocalUpdate(
+    missingRecord: IDataBatchMissingMasterData,
+    customer: D365FOCustomer,
+    status: 'completed' | 'failed',
+    error?: string,
+  ): Promise<void> {
+    return this.logs.emit({
+      level: status === 'failed' ? 'error' : 'info',
+      message: `Inline customer local remediation update ${status}`,
+      context: CreateCustomerFromMissingDataHandler.name,
+      eventType: 'inline_customer.local_update',
+      status,
+      batchId: missingRecord.batchId,
+      error: error ? { message: error } : undefined,
+      metadata: {
+        missingDataId: missingRecord.id,
+        customerAccount: customer.CustomerAccount,
+        ...(customer.TaxExemptNumber
+          ? { taxExemptNumber: customer.TaxExemptNumber }
+          : {}),
+      },
+    });
   }
 }

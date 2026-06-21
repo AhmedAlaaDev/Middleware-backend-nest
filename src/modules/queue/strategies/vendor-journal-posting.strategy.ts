@@ -6,7 +6,7 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import {
   D365FOVendorInvoiceJournalHeaderRequest,
@@ -22,7 +22,6 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
 
   constructor(
     private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async postHeadersInBatches(
@@ -109,7 +108,7 @@ export class VendorJournalPostingStrategy implements IDfoPostingStrategy {
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
+          const errorMessage = dfoErrorMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
           );

@@ -6,7 +6,7 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import {
   D365FOVendorPaymentJournalHeaderRequest,
@@ -25,7 +25,6 @@ export class VendorPaymentJournalPostingStrategy implements IDfoPostingStrategy 
 
   constructor(
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async postHeadersInBatches(
@@ -116,7 +115,7 @@ export class VendorPaymentJournalPostingStrategy implements IDfoPostingStrategy 
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
+          const errorMessage = dfoErrorMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete payment line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
           );

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
+import { DfoApiError } from '@/modules/d365fo/errors/dfo-api.error';
+
 /**
- * Required normalized shape for D365FO errors. Used by all callers;
- * no ad-hoc parsing of error.response.data elsewhere.
+ * Internal normalized shape for errors at the D365FO integration boundary.
  */
 export type DfoErrorShape = {
   message: string;
@@ -11,7 +12,6 @@ export type DfoErrorShape = {
   isConcurrencyConflict?: boolean;
   isDependentLinesError?: boolean;
   isValidationError?: boolean;
-  raw?: unknown;
 };
 
 const CONCURRENCY_KEYWORDS = [
@@ -57,10 +57,20 @@ export class DfoErrorExtractorService {
 
   /**
    * Normalizes any thrown value from D365FO (Axios-style or OData) into a stable shape.
-   * Callers MUST use this instead of parsing error.response.data manually.
+   * D365FO services use this instead of parsing error.response.data ad hoc.
    */
   normalize(error: unknown): DfoErrorShape {
-    const raw = error;
+    if (error instanceof DfoApiError) {
+      return {
+        message: error.message,
+        status: error.status,
+        code: error.code,
+        isConcurrencyConflict: error.isConcurrencyConflict,
+        isDependentLinesError: error.isDependentLinesError,
+        isValidationError: error.isValidationError,
+      };
+    }
+
     const status =
       typeof (error as any)?.response?.status === 'number'
         ? (error as any).response.status
@@ -136,14 +146,34 @@ export class DfoErrorExtractorService {
       isConcurrencyConflict,
       isDependentLinesError,
       isValidationError,
-      raw,
     };
   }
 
   /**
-   * Returns normalize(error).message. Use for logging and error collector.
+   * Returns normalize(error).message for D365FO service logging.
    */
   extractMessage(error: unknown): string {
     return this.normalize(error).message;
+  }
+
+  toError(
+    error: unknown,
+    context: { method: string; endpoint: string },
+  ): DfoApiError {
+    if (error instanceof DfoApiError) return error;
+    const normalized = this.normalize(error);
+    return new DfoApiError({
+      ...normalized,
+      method: context.method,
+      endpoint: context.endpoint,
+      responseData: this.responseData(error),
+    });
+  }
+
+  private responseData(error: unknown): unknown {
+    if (!error || typeof error !== 'object') return undefined;
+    const response = (error as { response?: unknown }).response;
+    if (!response || typeof response !== 'object') return undefined;
+    return (response as { data?: unknown }).data;
   }
 }

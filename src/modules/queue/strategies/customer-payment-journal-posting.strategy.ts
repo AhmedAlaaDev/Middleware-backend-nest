@@ -6,8 +6,8 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
@@ -28,7 +28,6 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
   constructor(
     private readonly customerPaymentJournalService: CustomerPaymentJournalService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   private headerCashDirectionContext: 'in' | 'out' = 'in';
@@ -148,7 +147,7 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
+          const errorMessage = dfoErrorMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete customer payment line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
           );

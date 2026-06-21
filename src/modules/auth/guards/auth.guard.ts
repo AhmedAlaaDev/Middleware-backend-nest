@@ -11,6 +11,7 @@ import { ALLOW_STALE_SESSION } from '@/modules/auth/decorators/allow-stale-sessi
 import { IS_PUBLIC_KEY } from '@/modules/auth/decorators/public.decorator';
 import { UserPayload } from '@/modules/auth/interfaces/user-payload.interface';
 import { TokenService } from '@/modules/auth/services/token.service';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
 import {
   AccessStatus,
@@ -25,6 +26,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly userService: UserService,
     private readonly tokenService: TokenService,
+    private readonly traceContext: TraceContextService,
   ) {}
 
   public async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -49,6 +51,7 @@ export class AuthGuard implements CanActivate {
     }
 
     request.user = user;
+    this.traceContext.setAuthenticatedUser(user);
     this.enforceAccessPolicy(request, user);
 
     return true;

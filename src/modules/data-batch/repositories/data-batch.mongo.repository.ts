@@ -36,6 +36,10 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      createdByUserId: doc.createdByUserId,
+      createdByName: doc.createdByName,
+      createdByEmail: doc.createdByEmail,
+      reprocessCount: doc.reprocessCount,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -65,6 +69,17 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
+      createdByUserId: doc.createdByUserId,
+      createdByName: doc.createdByName,
+      createdByEmail: doc.createdByEmail,
+      lastReprocessedAt: doc.lastReprocessedAt,
+      lastReprocessedByUserId: doc.lastReprocessedByUserId,
+      lastReprocessedByName: doc.lastReprocessedByName,
+      lastReprocessedByEmail: doc.lastReprocessedByEmail,
+      reprocessCount: doc.reprocessCount ?? 0,
+      lastReprocessJobId: doc.lastReprocessJobId,
+      lastReprocessStatus: doc.lastReprocessStatus,
+      lastReprocessError: doc.lastReprocessError,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -91,6 +106,33 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       .lean();
 
     return doc ? this.mapDocument(doc) : null;
+  }
+
+  public async recordReprocessQueued(
+    batchId: string,
+    audit: {
+      at: Date;
+      userId: string;
+      userName: string;
+      userEmail: string;
+      jobId: string;
+    },
+  ): Promise<void> {
+    await this.model.updateOne(
+      { _id: batchId },
+      {
+        $set: {
+          lastReprocessedAt: audit.at,
+          lastReprocessedByUserId: audit.userId,
+          lastReprocessedByName: audit.userName,
+          lastReprocessedByEmail: audit.userEmail,
+          lastReprocessJobId: audit.jobId,
+          lastReprocessStatus: 'queued',
+          lastReprocessError: null,
+        },
+        $inc: { reprocessCount: 1 },
+      },
+    );
   }
 
   public async getList(
@@ -132,6 +174,17 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
+      createdByUserId: doc.createdByUserId,
+      createdByName: doc.createdByName,
+      createdByEmail: doc.createdByEmail,
+      lastReprocessedAt: doc.lastReprocessedAt,
+      lastReprocessedByUserId: doc.lastReprocessedByUserId,
+      lastReprocessedByName: doc.lastReprocessedByName,
+      lastReprocessedByEmail: doc.lastReprocessedByEmail,
+      reprocessCount: doc.reprocessCount ?? 0,
+      lastReprocessJobId: doc.lastReprocessJobId,
+      lastReprocessStatus: doc.lastReprocessStatus,
+      lastReprocessError: doc.lastReprocessError,
       creationDate: (doc as any).created_at ?? null,
     }));
   }
@@ -168,6 +221,17 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
+      createdByUserId: doc.createdByUserId,
+      createdByName: doc.createdByName,
+      createdByEmail: doc.createdByEmail,
+      lastReprocessedAt: doc.lastReprocessedAt,
+      lastReprocessedByUserId: doc.lastReprocessedByUserId,
+      lastReprocessedByName: doc.lastReprocessedByName,
+      lastReprocessedByEmail: doc.lastReprocessedByEmail,
+      reprocessCount: doc.reprocessCount ?? 0,
+      lastReprocessJobId: doc.lastReprocessJobId,
+      lastReprocessStatus: doc.lastReprocessStatus,
+      lastReprocessError: doc.lastReprocessError,
       creationDate: doc.created_at ?? null,
     };
   }

@@ -12,6 +12,7 @@ import {
   ReprocessBatchHandler,
 } from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
+import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-or-admin.guard';
 import {
   GetBatchErrorListHandler,
   GetDataBatchByIdHandler,
@@ -85,6 +86,7 @@ const QueryHandlers = [
   ],
   providers: [
     DataBatchService,
+    BatchOwnerOrAdminGuard,
     { provide: DataBatchRepository, useClass: DataBatchMongoRepository },
     {
       provide: DataBatchErrorRepository,

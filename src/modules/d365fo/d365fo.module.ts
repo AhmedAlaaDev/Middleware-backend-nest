@@ -17,6 +17,7 @@ import { LedgerService } from '@/modules/d365fo/services/ledger.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 import { PaymentTermsService } from '@/modules/d365fo/services/payment-terms.service';
 import { TaxItemGroupHeadingService } from '@/modules/d365fo/services/tax-item-group-heading.service';
+import { VatNumTableService } from '@/modules/d365fo/services/vat-num-table.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
@@ -43,11 +44,9 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
+    VatNumTableService,
   ],
   exports: [
-    D365FOAuthService,
-    D365FOClientService,
-    DfoErrorExtractorService,
     ODataQueryBuilderService,
     BillingService,
     CustomerService,
@@ -65,6 +64,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
+    VatNumTableService,
   ],
 })
 export class D365FOModule {}

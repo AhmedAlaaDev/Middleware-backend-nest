@@ -14,6 +14,7 @@ import {
   ClassSerializerInterceptor,
   Header,
   StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
@@ -32,15 +33,18 @@ import type {
 
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
+import { Auth } from '@/modules/auth/decorators/auth.decorator';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
 import { ReprocessBatchCommand } from '@/modules/data-batch/commands/reprocess-batch.command';
+import { RequireBatchOwnerOrAdmin } from '@/modules/data-batch/decorators/batch-owner-action.decorator';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
 import { GetMissingMasterDataDto } from '@/modules/data-batch/dtos/get-missing-master-data.dto';
+import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-or-admin.guard';
 import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
@@ -48,6 +52,8 @@ import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-bat
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
+import { DataBatchReprocessSubmission } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
+import { IUser } from '@/modules/user/interfaces/user.interface';
 
 /**
  * Data Migration - Data Batches
@@ -309,8 +315,15 @@ export class DataBatchController {
    */
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
-  public async deleteAsync(@Query() { batchId }: BatchIdDto): Promise<void> {
-    await this.commandBus.execute(new DeleteBatchCommand(batchId));
+  @UseGuards(BatchOwnerOrAdminGuard)
+  @RequireBatchOwnerOrAdmin('delete')
+  public async deleteAsync(
+    @Query() { batchId }: BatchIdDto,
+    @Auth() user: Omit<IUser, 'passwordHash'>,
+  ): Promise<void> {
+    await this.commandBus.execute(
+      new DeleteBatchCommand(batchId, this.actorFrom(user)),
+    );
   }
 
   /**
@@ -355,12 +368,23 @@ export class DataBatchController {
   @Post(':batchId/reprocess')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reprocess a data batch' })
+  @UseGuards(BatchOwnerOrAdminGuard)
+  @RequireBatchOwnerOrAdmin('reprocess')
   public async reprocessBatchAsync(
     @Param('batchId') batchId: string,
-    @Query('missingDataId') missingDataId?: string,
-  ): Promise<void> {
-    await this.commandBus.execute(
-      new ReprocessBatchCommand(batchId, missingDataId),
+    @Auth() user: Omit<IUser, 'passwordHash'>,
+  ): Promise<DataBatchReprocessSubmission> {
+    return this.commandBus.execute(
+      new ReprocessBatchCommand(batchId, this.actorFrom(user)),
     );
+  }
+
+  private actorFrom(user: Omit<IUser, 'passwordHash'>) {
+    return {
+      id: user.id,
+      name:
+        [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
+      email: user.email,
+    };
   }
 }

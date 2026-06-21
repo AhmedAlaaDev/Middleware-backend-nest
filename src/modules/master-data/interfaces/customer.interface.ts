@@ -39,6 +39,6 @@ export interface ICustomerListFilter {
 export interface ICreateCustomerFromMissingDataResult {
   customer: ICustomer;
   creationStatus: 'created';
-  reprocessStatus: 'succeeded' | 'failed';
+  reprocessStatus: 'pending';
   reprocessErrorMessage?: string;
 }

@@ -102,7 +102,8 @@ export class ODataQueryBuilderService {
    * Helper method to create equality filter
    */
   public eq(field: string, value: string | number | boolean): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} eq ${formattedValue}`;
   }
 
@@ -110,7 +111,8 @@ export class ODataQueryBuilderService {
    * Helper method to create not equal filter
    */
   public ne(field: string, value: string | number | boolean): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} ne ${formattedValue}`;
   }
 
@@ -118,7 +120,8 @@ export class ODataQueryBuilderService {
    * Helper method to create greater than filter
    */
   public gt(field: string, value: string | number): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} gt ${formattedValue}`;
   }
 
@@ -126,7 +129,8 @@ export class ODataQueryBuilderService {
    * Helper method to create greater than or equal filter
    */
   public ge(field: string, value: string | number): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} ge ${formattedValue}`;
   }
 
@@ -134,7 +138,8 @@ export class ODataQueryBuilderService {
    * Helper method to create less than filter
    */
   public lt(field: string, value: string | number): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} lt ${formattedValue}`;
   }
 
@@ -142,7 +147,8 @@ export class ODataQueryBuilderService {
    * Helper method to create less than or equal filter
    */
   public le(field: string, value: string | number): string {
-    const formattedValue = typeof value === 'string' ? `'${value}'` : value;
+    const formattedValue =
+      typeof value === 'string' ? `'${this.escapeString(value)}'` : value;
     return `${field} le ${formattedValue}`;
   }
 
@@ -166,21 +172,21 @@ export class ODataQueryBuilderService {
    * Helper method to create 'contains' filter
    */
   public contains(field: string, value: string): string {
-    return `contains(${field}, '${value}')`;
+    return `contains(${field}, '${this.escapeString(value)}')`;
   }
 
   /**
    * Helper method to create 'startswith' filter
    */
   public startsWith(field: string, value: string): string {
-    return `startswith(${field}, '${value}')`;
+    return `startswith(${field}, '${this.escapeString(value)}')`;
   }
 
   /**
    * Helper method to create 'endswith' filter
    */
   public endsWith(field: string, value: string): string {
-    return `endswith(${field}, '${value}')`;
+    return `endswith(${field}, '${this.escapeString(value)}')`;
   }
 
   /**
@@ -188,7 +194,7 @@ export class ODataQueryBuilderService {
    */
   public in(field: string, values: (string | number)[]): string {
     const formattedValues = values
-      .map((v) => (typeof v === 'string' ? `'${v}'` : v))
+      .map((v) => (typeof v === 'string' ? `'${this.escapeString(v)}'` : v))
       .join(', ');
     return `${field} in (${formattedValues})`;
   }
@@ -219,5 +225,9 @@ export class ODataQueryBuilderService {
    */
   private encodeValue(value: string): string {
     return encodeURIComponent(value);
+  }
+
+  public escapeString(value: string): string {
+    return value.replace(/'/g, "''");
   }
 }

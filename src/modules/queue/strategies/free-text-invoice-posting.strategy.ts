@@ -6,7 +6,7 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import {
   D365FOFreeTextInvoiceHeaderRequest,
@@ -22,7 +22,6 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
 
   constructor(
     private readonly freeTextInvoiceService: FreeTextInvoiceService,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
 
   public async postHeadersInBatches(
@@ -108,7 +107,7 @@ export class FreeTextInvoicePostingStrategy implements IDfoPostingStrategy {
           );
           result.successful.push(line);
         } catch (error) {
-          const errorMessage = this.dfoErrorExtractor.extractMessage(error);
+          const errorMessage = dfoErrorMessage(error);
           this.logger.error(
             `[DELETE] Failed to delete line ${line.lineNumber} for invoice ${line.headerId}: ${errorMessage}`,
           );

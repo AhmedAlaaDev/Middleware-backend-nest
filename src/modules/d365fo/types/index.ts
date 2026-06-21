@@ -13,3 +13,4 @@ export * from './d365fo-cash-custom-ledger-journal.type';
 export * from './payment-terms.type';
 export * from './tax-item-group-heading.type';
 export * from './d365fo-ledger.type';
+export * from './d365fo-vat-num-table.type';

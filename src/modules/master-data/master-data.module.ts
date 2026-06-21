@@ -108,6 +108,7 @@ import {
 } from '@/modules/master-data/schemas';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
+import { InlineCustomerCreationService } from '@/modules/master-data/services/inline-customer-creation.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
 import { TaxGroupService } from '@/modules/master-data/services/tax-group.service';
 
@@ -192,6 +193,7 @@ const QueryHandlers = [
     ExchangeRateService,
     TaxGroupService,
     MasterDataService,
+    InlineCustomerCreationService,
     { provide: VendorRepository, useClass: VendorMongoRepository },
     { provide: CustomerRepository, useClass: CustomerMongoRepository },
     { provide: MainAccountRepository, useClass: MainAccountMongoRepository },

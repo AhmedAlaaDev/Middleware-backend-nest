@@ -18,6 +18,17 @@ export interface ICreateDataBatch {
   activeValidationRunId?: string;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
+  createdByUserId?: string;
+  createdByName?: string;
+  createdByEmail?: string;
+  lastReprocessedAt?: Date;
+  lastReprocessedByUserId?: string;
+  lastReprocessedByName?: string;
+  lastReprocessedByEmail?: string;
+  reprocessCount?: number;
+  lastReprocessJobId?: string;
+  lastReprocessStatus?: string;
+  lastReprocessError?: string;
 }
 
 export type IUpdateDataBatch = Partial<ICreateDataBatch>;
@@ -38,6 +49,17 @@ export class IDataBatch {
   activeValidationRunId?: string;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
+  createdByUserId?: string;
+  createdByName?: string;
+  createdByEmail?: string;
+  lastReprocessedAt?: Date;
+  lastReprocessedByUserId?: string;
+  lastReprocessedByName?: string;
+  lastReprocessedByEmail?: string;
+  reprocessCount: number;
+  lastReprocessJobId?: string;
+  lastReprocessStatus?: string;
+  lastReprocessError?: string;
   creationDate: Date | null;
 }
 

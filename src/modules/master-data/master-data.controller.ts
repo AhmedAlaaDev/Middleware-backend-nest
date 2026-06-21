@@ -145,7 +145,8 @@ export class MasterDataController {
   @HttpCode(HttpStatus.CREATED)
   @ApiResponse({
     status: 201,
-    description: 'Customer created and batch reprocessed successfully',
+    description:
+      'Customer created and remediation marked for manual reprocessing',
   })
   @ApiResponse({
     status: 400,

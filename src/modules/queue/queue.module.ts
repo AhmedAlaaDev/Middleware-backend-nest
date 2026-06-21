@@ -9,6 +9,7 @@ import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { AdminQueuesController } from '@/modules/queue/admin-queues.controller';
 import { QUEUES } from '@/modules/queue/constants/queues';
+import { DataBatchReprocessProcessor } from '@/modules/queue/processors/data-batch-reprocess.processor';
 import { MasterDataSyncProcessor } from '@/modules/queue/processors/master-data-sync.processor';
 import { PostCustomerPaymentJournalDFOProcessor } from '@/modules/queue/processors/post-customer-payment-journal-dfo.processor';
 import { PostFreeTextInvoiceDFOProcessor } from '@/modules/queue/processors/post-free-text-invoice-dfo.processor';
@@ -39,6 +40,7 @@ const processors = [
   PostLedgerJournalDFOProcessor,
   PostCustomerPaymentJournalDFOProcessor,
   MasterDataSyncProcessor,
+  DataBatchReprocessProcessor,
 ];
 const strategies = [
   FreeTextInvoicePostingStrategy,

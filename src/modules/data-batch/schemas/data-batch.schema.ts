@@ -54,6 +54,39 @@ export class DataBatch {
 
   @Prop({ type: [String], default: [] })
   dfoPostingErrors?: string[];
+
+  @Prop()
+  createdByUserId?: string;
+
+  @Prop()
+  createdByName?: string;
+
+  @Prop()
+  createdByEmail?: string;
+
+  @Prop()
+  lastReprocessedAt?: Date;
+
+  @Prop()
+  lastReprocessedByUserId?: string;
+
+  @Prop()
+  lastReprocessedByName?: string;
+
+  @Prop()
+  lastReprocessedByEmail?: string;
+
+  @Prop({ default: 0 })
+  reprocessCount: number;
+
+  @Prop()
+  lastReprocessJobId?: string;
+
+  @Prop()
+  lastReprocessStatus?: string;
+
+  @Prop()
+  lastReprocessError?: string;
 }
 export const DataBatchSchema = SchemaFactory.createForClass(DataBatch);
 DataBatchSchema.index({ company: 1, entryProcessorType: 1 });

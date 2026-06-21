@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
@@ -29,7 +29,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     private readonly strategy: CustomerPaymentJournalPostingStrategy,
     private readonly batches: DataBatchService,
     private readonly rollback: DfoRollbackService,
-    private readonly errors: DfoErrorExtractorService,
     private readonly jobs: QueueJobStoreService,
     private readonly logs: OperationalLoggerService,
     private readonly trace: TraceContextService,
@@ -77,7 +76,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       await this.jobs.markCompleted(jobId);
       await this.emit('queue.job.completed', 'completed');
     } catch (error) {
-      const message = this.errors.extractMessage(error);
+      const message = dfoErrorMessage(error);
       collector.addHeaderError(message, 'Job processing');
       const finalAttempt = this.isFinalAttempt(job);
       if (finalAttempt) {

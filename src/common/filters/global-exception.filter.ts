@@ -37,6 +37,7 @@ interface ApiErrorStatus {
   developerMessage?: string;
   errorCode?: string; // e.g. "VAL_001", "AUTH_401", ...
   validationErrors?: ValidationErrors;
+  details?: Record<string, unknown>;
 }
 
 interface ApiMeta {
@@ -73,6 +74,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       developerMessage: normalized.developerMessage,
       errorCode: normalized.errorCode,
       validationErrors: normalized.validationErrors,
+      details: normalized.details,
       meta,
     });
 
@@ -134,6 +136,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     developerMessage?: string;
     errorCode?: string;
     validationErrors?: ValidationErrors;
+    details?: Record<string, unknown>;
     stack?: string;
   } {
     if (exception instanceof HttpException) {
@@ -176,6 +179,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let developerMessage: string | undefined;
     let errorCode = this.defaultErrorCode(statusEnum);
     let validationErrors: ValidationErrors | undefined;
+    let details: Record<string, unknown> | undefined;
 
     if (typeof raw === 'string') {
       developerMessage = raw;
@@ -201,6 +205,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (this.isBasicErrorObject(raw)) {
       const msg = raw.message;
       const err = raw.error;
+      errorCode = raw.errorCode ?? errorCode;
+      details = raw.details;
 
       if (Array.isArray(msg)) {
         // class-validator array of messages
@@ -222,6 +228,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         developerMessage,
         errorCode,
         validationErrors,
+        details,
       };
     }
 
@@ -264,6 +271,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     developerMessage?: string;
     errorCode?: string;
     validationErrors?: ValidationErrors;
+    details?: Record<string, unknown>;
     meta?: ApiMeta;
   }): ApiResponse<null> {
     const statusObj: ApiErrorStatus = this.compact({
@@ -275,6 +283,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         input.validationErrors && Object.keys(input.validationErrors).length
           ? input.validationErrors
           : undefined,
+      details: input.details,
     });
 
     const meta = input.meta && this.compact(input.meta);
@@ -339,6 +348,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     message?: string | string[];
     error?: string;
     statusCode?: number;
+    errorCode?: string;
+    details?: Record<string, unknown>;
   } {
     return (
       !!raw &&

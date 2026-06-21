@@ -5,6 +5,21 @@ import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import { D365FOCustomer } from '@/modules/d365fo/types';
 
+export interface CreateCustomerInput {
+  PartyType: string;
+  dataAreaId: string;
+  SalesTaxGroup: string;
+  Name: string;
+  CustomerGroupId: string;
+  SalesCurrencyCode: string;
+  CustomerAccount: string;
+  TaxExemptNumber?: string;
+  OrganizationNumber: string;
+  PaymentTerms: string;
+  AddressCountryRegionId: string;
+  IsSalesTaxIncludedInPrices: 'Yes' | 'No';
+}
+
 /**
  * Service for managing customers in D365FO
  */
@@ -181,12 +196,23 @@ export class CustomerService {
   }
 
   public createCustomer(
-    customer: Record<string, unknown>,
+    customer: CreateCustomerInput,
   ): Promise<D365FOCustomer> {
-    return this.d365foClient.post<Record<string, unknown>, D365FOCustomer>(
+    return this.d365foClient.post<CreateCustomerInput, D365FOCustomer>(
       '/data/Customers',
       customer,
     );
+  }
+
+  public async deleteCustomer(
+    dataAreaId: string,
+    customerAccount: string,
+  ): Promise<void> {
+    const escape = (part: string) => this.queryBuilder.escapeString(part);
+    const endpoint =
+      `/data/Customers(dataAreaId='${escape(dataAreaId)}',` +
+      `CustomerAccount='${escape(customerAccount)}')?cross-company=true`;
+    await this.d365foClient.delete(endpoint);
   }
 
   /**

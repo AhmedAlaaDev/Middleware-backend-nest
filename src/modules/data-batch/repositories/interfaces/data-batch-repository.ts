@@ -11,6 +11,16 @@ export abstract class DataBatchRepository {
   abstract findById(batchId: string): Promise<IDataBatch | null>;
   abstract updateOne(batchId: string, data: IUpdateDataBatch): Promise<void>;
   abstract claimForRevalidation(batchId: string): Promise<IDataBatch | null>;
+  abstract recordReprocessQueued(
+    batchId: string,
+    audit: {
+      at: Date;
+      userId: string;
+      userName: string;
+      userEmail: string;
+      jobId: string;
+    },
+  ): Promise<void>;
   abstract getList(
     filter: IDataBatchListFilter,
     options?: { skipCount?: number; maxCount?: number },

@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { D365FOConfig, IConfig } from '@/config';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
@@ -30,6 +31,7 @@ export class D365FOClientService {
     private readonly retryService: RetryService,
     private readonly configService: ConfigService<IConfig>,
     private readonly operationalLogs: OperationalLoggerService,
+    private readonly dfoErrors: DfoErrorExtractorService,
   ) {
     this.resource =
       this.configService.get<D365FOConfig>('d365fo')?.resource || '';
@@ -108,11 +110,15 @@ export class D365FOClientService {
 
     try {
       responseData = await this.circuitBreaker.fire(fullUrl, { headers });
-    } catch (error: any) {
+    } catch (error) {
+      const dfoError = this.dfoErrors.toError(error, {
+        method: 'GET',
+        endpoint,
+      });
       this.logger.error(
-        `D365FO API GET failed: ${endpoint} - ${error.message}`,
+        `D365FO API GET failed: ${endpoint} - ${dfoError.message}`,
       );
-      throw error;
+      throw dfoError;
     }
 
     // Ensure response is in OData format
@@ -252,6 +258,7 @@ export class D365FOClientService {
       });
       return response;
     } catch (error) {
+      const dfoError = this.dfoErrors.toError(error, { method, endpoint });
       await this.operationalLogs.emit({
         level: 'error',
         message: `${method} ${endpoint} failed`,
@@ -259,13 +266,14 @@ export class D365FOClientService {
         eventType: 'd365fo.request.failed',
         status: 'failed',
         durationMs: Date.now() - startedAt,
-        error:
-          error instanceof Error
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : { message: String(error) },
+        error: {
+          name: dfoError.name,
+          message: dfoError.message,
+          stack: dfoError.stack,
+        },
         metadata: { method, endpoint },
       });
-      throw error;
+      throw dfoError;
     }
   }
 }

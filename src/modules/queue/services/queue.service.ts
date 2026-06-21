@@ -6,6 +6,10 @@ import { OperationalLoggerService } from '@/modules/observability/services/opera
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import {
+  DataBatchReprocessJobPayload,
+  DataBatchReprocessSubmission,
+} from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
+import {
   DurableJobSubmissionStatus,
   DurablePostingJobPayload,
 } from '@/modules/queue/contracts/durable-posting-job.contract';
@@ -35,6 +39,8 @@ export class QueueService {
     private readonly dfoLedgerJournalQueue: Queue,
     @InjectQueue(QUEUES.MASTER_DATA_SYNC)
     private readonly masterDataSyncQueue: Queue,
+    @InjectQueue(QUEUES.DATA_BATCH_REPROCESS)
+    private readonly dataBatchReprocessQueue: Queue,
     private readonly jobStore: QueueJobStoreService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly traceContext: TraceContextService,
@@ -53,6 +59,8 @@ export class QueueService {
         return this.dfoLedgerJournalQueue;
       case QUEUES.MASTER_DATA_SYNC:
         return this.masterDataSyncQueue;
+      case QUEUES.DATA_BATCH_REPROCESS:
+        return this.dataBatchReprocessQueue;
       default:
         throw new Error(`Queue is not registered`);
     }
@@ -175,6 +183,58 @@ export class QueueService {
         ? `Batch ${metadata.batchId} requeued for posting to D365FO. Job ID: ${jobId}`
         : `Batch ${metadata.batchId} queued for posting to D365FO. Job ID: ${jobId}`,
     };
+  }
+
+  public async enqueueBatchReprocess(
+    payload: Omit<DataBatchReprocessJobPayload, 'correlationId'>,
+  ): Promise<DataBatchReprocessSubmission> {
+    const jobId = `${QUEUES.DATA_BATCH_REPROCESS}--${payload.batchId}`;
+    const existingJob = await this.dataBatchReprocessQueue.getJob(jobId);
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (['waiting', 'active', 'delayed', 'paused'].includes(state)) {
+        return {
+          jobId,
+          status: 'already-running',
+          message: 'This batch already has a reprocess job queued or running.',
+        };
+      }
+      await existingJob.remove();
+    }
+
+    const correlationId =
+      this.traceContext.get()?.correlationId ?? payload.batchId;
+    await this.dataBatchReprocessQueue.add(
+      'reprocess-data-batch',
+      { ...payload, correlationId },
+      {
+        jobId,
+        attempts: 1,
+        removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1000 },
+        removeOnFail: { age: 30 * 24 * 60 * 60, count: 5000 },
+      },
+    );
+    return {
+      jobId,
+      status: 'queued',
+      message: `Batch ${payload.batchId} queued for reprocessing.`,
+    };
+  }
+
+  public async findActiveJobsForBatch(batchId: string): Promise<string[]> {
+    const queues = Object.values(QUEUES).map((queueName) =>
+      this.getQueue(queueName),
+    );
+    const jobs = (
+      await Promise.all(
+        queues.map((queue) =>
+          queue.getJobs(['waiting', 'active', 'delayed', 'paused']),
+        ),
+      )
+    ).flat();
+    return jobs
+      .filter((job) => job.data?.batchId === batchId)
+      .map((job) => String(job.id));
   }
 
   private emitDuplicateSubmission(

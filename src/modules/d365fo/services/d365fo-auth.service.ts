@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 
 import { D365FOConfig, IConfig } from '@/config';
+import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 
 export interface TokenResponse {
@@ -22,6 +23,7 @@ export class D365FOAuthService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService<IConfig>,
     private readonly cacheService: CacheService,
+    private readonly dfoErrors: DfoErrorExtractorService,
   ) {}
 
   public async getAccessToken(): Promise<string> {
@@ -88,28 +90,16 @@ export class D365FOAuthService {
 
       this.logger.debug('Successfully obtained D365FO access token');
       return tokenResponse;
-    } catch (error: any) {
-      const errorMessage =
-        error?.response?.data?.error_description ||
-        error?.response?.data?.error ||
-        error?.cause?.message ||
-        error?.message ||
-        'Unknown error';
-      const statusCode = error?.response?.status || error?.status || 'N/A';
+    } catch (error) {
+      const dfoError = this.dfoErrors.toError(error, {
+        method: 'POST',
+        endpoint: tokenUrl,
+      });
 
       this.logger.error(
-        `Failed to obtain D365FO access token (Status: ${statusCode}): ${errorMessage}`,
+        `Failed to obtain D365FO access token (Status: ${dfoError.status ?? 'N/A'}): ${dfoError.message}`,
       );
-
-      // Log additional details for debugging (without sensitive data)
-      if (error?.response?.data) {
-        this.logger.debug(
-          'D365FO Auth Error Details:',
-          JSON.stringify(error.response.data),
-        );
-      }
-
-      throw new Error(`Failed to authenticate with D365FO: ${errorMessage}`);
+      throw dfoError;
     }
   }
 

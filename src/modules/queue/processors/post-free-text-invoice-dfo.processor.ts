@@ -2,11 +2,11 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
+import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import {
   FreeTextInvoiceLinePostError,
   type FreeTextInvoiceLinePostContext,
 } from '@/modules/d365fo/errors/free-text-invoice-line-post.error';
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { FreeTextInvoiceFinTagService } from '@/modules/d365fo/services/free-text-invoice-fin-tag.service';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
@@ -39,7 +39,6 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     private readonly dataBatchService: DataBatchService,
     private readonly freeTextInvoiceFinTagService: FreeTextInvoiceFinTagService,
     private readonly dfoRollbackService: DfoRollbackService,
-    private readonly dfoErrorExtractor: DfoErrorExtractorService,
     private readonly jobStore: QueueJobStoreService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly traceContext: TraceContextService,
@@ -89,7 +88,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
       await this.emitLifecycle('queue.job.completed', 'completed', jobId);
       this.logger.log(`Job ${job.id} completed successfully`);
     } catch (error) {
-      const msg = this.dfoErrorExtractor.extractMessage(error);
+      const msg = dfoErrorMessage(error);
       if (!errorCollector.hasErrors()) {
         errorCollector.addHeaderError(msg, 'Job processing');
       }
@@ -155,7 +154,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
       ];
       await this.handlePostingSuccess(batchId, headerKeys);
     } catch (error) {
-      const msg = this.dfoErrorExtractor.extractMessage(error);
+      const msg = dfoErrorMessage(error);
       this.logger.error(
         `[POST] Error for batch ${batchId}: ${msg}`,
         error instanceof Error ? error.stack : undefined,
@@ -279,7 +278,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
         lineDataString,
       );
     } catch (err) {
-      const msg = this.dfoErrorExtractor.extractMessage(err);
+      const msg = dfoErrorMessage(err);
       this.logger.error(
         `[FIN TAG] Fin tag update failed for ${headerKey}: ${msg}`,
         err instanceof Error ? err.stack : undefined,

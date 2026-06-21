@@ -6,6 +6,9 @@ export interface TraceContext {
   correlationId: string;
   requestId?: string;
   userId?: string;
+  userName?: string;
+  userEmail?: string;
+  userRole?: string;
   batchId?: string;
   jobId?: string;
   queueName?: string;
@@ -21,5 +24,21 @@ export class TraceContextService {
 
   get(): TraceContext | undefined {
     return this.storage.getStore();
+  }
+
+  setAuthenticatedUser(user: {
+    id: string;
+    firstName?: string;
+    lastName?: string;
+    email: string;
+    role?: string;
+  }): void {
+    const context = this.storage.getStore();
+    if (!context) return;
+    context.userId = user.id;
+    context.userName =
+      [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    context.userEmail = user.email;
+    context.userRole = user.role;
   }
 }

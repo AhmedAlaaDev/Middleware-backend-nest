@@ -48,6 +48,7 @@ import {
   DynDataModel,
   RawDataModel,
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
 
 @Injectable()
@@ -61,6 +62,7 @@ export class DataBatchService {
     private readonly missingMasterDataRepo: DataBatchMissingMasterDataRepository,
     private readonly processorFactory: EntryProcessorFactory,
     private readonly commandBus: CommandBus,
+    private readonly traceContext: TraceContextService,
   ) {}
 
   /**
@@ -88,6 +90,7 @@ export class DataBatchService {
     const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
     const expectedGroupCount = this.calculateExpectedGroupCount(dynData);
     const validationRunId = randomUUID();
+    const actor = this.traceContext.get();
     this.logger.debug(
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
@@ -106,6 +109,10 @@ export class DataBatchService {
       billingCodeId: billingClassification,
       expectedGroupCount,
       activeValidationRunId: validationRunId,
+      createdByUserId: actor?.userId,
+      createdByName: actor?.userName,
+      createdByEmail: actor?.userEmail,
+      reprocessCount: 0,
     });
     this.logger.log(`Batch created: id=${dataBatch.id}`);
 
@@ -340,6 +347,30 @@ export class DataBatchService {
     status: DataBatchStatus,
   ): Promise<void> {
     await this.dataBatchRepo.updateOne(batchId, { status });
+  }
+
+  public recordReprocessQueued(
+    batchId: string,
+    audit: {
+      at: Date;
+      userId: string;
+      userName: string;
+      userEmail: string;
+      jobId: string;
+    },
+  ): Promise<void> {
+    return this.dataBatchRepo.recordReprocessQueued(batchId, audit);
+  }
+
+  public updateReprocessStatus(
+    batchId: string,
+    status: 'active' | 'completed' | 'failed',
+    error?: string,
+  ): Promise<void> {
+    return this.dataBatchRepo.updateOne(batchId, {
+      lastReprocessStatus: status,
+      lastReprocessError: error,
+    });
   }
 
   /**

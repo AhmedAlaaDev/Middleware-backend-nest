@@ -1,15 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, IsOptional, IsEnum } from 'class-validator';
+
+const Trim = () =>
+  Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
 
 export class CreateCustomerDto {
   @ApiProperty({ example: 'C000001' })
   @IsNotEmpty()
   @IsString()
+  @Trim()
   customerAccount: string;
 
   @ApiProperty({ example: 'Customer Name' })
   @IsNotEmpty()
   @IsString()
+  @Trim()
   name: string;
 
   @ApiProperty({
@@ -60,17 +66,20 @@ export class CreateCustomerDto {
   isSalesTaxIncludedInPrices: string;
 
   @ApiProperty({ example: 'EGY', default: 'EGY' })
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
-  addressCountryRegionId?: string;
+  @Trim()
+  addressCountryRegionId: string;
 
   @ApiProperty({ example: 'EGP', default: 'EGP' })
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
-  salesCurrencyCode?: string;
+  @Trim()
+  salesCurrencyCode: string;
 
   @ApiProperty({ example: '123456789' })
   @IsOptional()
   @IsString()
+  @Trim()
   taxExemptNumber?: string;
 }
