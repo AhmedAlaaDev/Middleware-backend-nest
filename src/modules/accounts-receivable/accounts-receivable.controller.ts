@@ -17,6 +17,7 @@ import {
   ProcessARTruckingCommand,
   ProcessARTruckingCreditNoteCommand,
   ProcessARYardCommand,
+  ProcessARShippingLinesCommand,
 } from '@/modules/accounts-receivable/commands';
 import {
   ARFreightDto,
@@ -147,6 +148,25 @@ export class AccountsReceivableController {
     );
 
     return result;
+  }
+
+  /**
+   * Shipping Lines Document
+   */
+  @Post('Shipping-Lines-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: ARFreightDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async shippingLinesDocument(
+    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @Body() body: ARFreightDto,
+  ) {
+    return this.commandBus.execute(
+      new ProcessARShippingLinesCommand(file.buffer, body.companyId),
+    );
   }
 
   /**

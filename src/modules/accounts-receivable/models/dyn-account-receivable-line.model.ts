@@ -38,4 +38,5 @@ export class DynAccountReceivableLineModel extends DynDataModel {
   CurrencyCode: string;
   TransportationDocumentLineId: string;
   CreditNoteInvoiceRef: string;
+  DocType?: 'INV' | 'CN';
 }

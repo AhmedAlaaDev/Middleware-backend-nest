@@ -85,8 +85,12 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       .mockRejectedValue(new Error('validation failed')),
   } as unknown as DataBatchService;
   const dfoErrorExtractor = {
-    extractMessage: jest.fn((err: any) => err instanceof Error ? err.message : String(err)),
-    normalize: jest.fn((err: any) => ({ message: err instanceof Error ? err.message : String(err) })),
+    extractMessage: jest.fn((err: any) =>
+      err instanceof Error ? err.message : String(err),
+    ),
+    normalize: jest.fn((err: any) => ({
+      message: err instanceof Error ? err.message : String(err),
+    })),
   } as unknown as DfoErrorExtractorService;
 
   return {

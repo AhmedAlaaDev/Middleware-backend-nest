@@ -9,6 +9,7 @@ import {
   ProcessARTruckingCreditNoteHandler,
   ProcessARTruckingHandler,
   ProcessARYardHandler,
+  ProcessARShippingLinesHandler,
 } from '@/modules/accounts-receivable/handlers';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
@@ -22,6 +23,7 @@ const CommandHandlers = [
   ProcessARTruckingHandler,
   ProcessARTruckingCreditNoteHandler,
   ProcessARYardHandler,
+  ProcessARShippingLinesHandler,
 ];
 
 @Module({

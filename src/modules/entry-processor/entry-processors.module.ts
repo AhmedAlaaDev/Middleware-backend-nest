@@ -7,6 +7,7 @@ import {
   AccountReceivableTruckingCreditNoteEntryProcessor,
   AccountReceivableTruckingEntryProcessor,
   AccountReceivableYardEntryProcessor,
+  AccountReceivableShippingLinesEntryProcessor,
 } from '@/modules/accounts-receivable/processors';
 import {
   CashInFreightEntryProcessor,
@@ -41,6 +42,7 @@ const EntryProcessors = [
   AccountReceivableTruckingEntryProcessor,
   AccountReceivableTruckingCreditNoteEntryProcessor,
   AccountReceivableYardEntryProcessor,
+  AccountReceivableShippingLinesEntryProcessor,
   VendorFreightEntryProcessor,
   VendorTruckingEntryProcessor,
   VendorPaymentFreightEntryProcessor,

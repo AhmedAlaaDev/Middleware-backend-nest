@@ -1,0 +1,34 @@
+export class AccountReceivableShippingLinesFileModel {
+  Ser?: string | number;
+  'Invoice no'?: string | number;
+  'Invoice / CN'?: string;
+  'Credit Note No.'?: string;
+  'Ref NO.'?: string;
+  'Invoice Date'?: Date | string | number;
+  'Payment Date'?: Date | string | number;
+  Code?: string | number;
+  Type?: string;
+  'Invoice Items'?: string;
+  Rev_Cur?: number | string;
+  VAT_Cur?: number | string;
+  Total_Cur?: number | string;
+  Currency?: string;
+  'B/L'?: string;
+  'IMP / EXP'?: string;
+  Shipper?: string;
+  Customer?: string;
+  'TaxNo.'?: string | number;
+  '20"'?: string | number;
+  '40"'?: string | number;
+  Teus?: string | number;
+  Vessel?: string;
+  Voyage?: string;
+  'Vsl.Date'?: Date | string | number;
+  'LINE NAME'?: string;
+  'GW / LM'?: number | string;
+  'Vehicle type'?: string;
+  'Units/No.'?: number | string;
+  Remarks?: string;
+  'PORTAL REFERANCE'?: string;
+  UniqueId?: number;
+}
