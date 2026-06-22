@@ -19,11 +19,11 @@ class FakeRedisClient {
     return {
       incr: (key: string) => increments.push(key),
       expire: () => undefined,
-      exec: async () => {
+      exec: () => {
         for (const key of increments) {
           this.counters.set(key, (this.counters.get(key) ?? 0) + 1);
         }
-        return [];
+        return Promise.resolve([]);
       },
     };
   }
