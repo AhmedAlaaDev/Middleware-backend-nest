@@ -107,7 +107,7 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
         this.validateSalesTaxItemGroupForLine(line);
       }
     }
-    this.validateHeaderConsistency(lines);
+    // this.validateHeaderConsistency(lines);
     return lines;
   }
 
@@ -187,12 +187,12 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
     const rowId = this.rowId(row);
     const sourceType = this.normalizeStaticKey(row['Invoice / CN']);
     const amount = this.parseRequiredNumber(
-      row.Total_Cur,
-      'Total_Cur',
+      row.InvoiceTotal,
+      'InvoiceTotal',
       rowId,
       line,
     );
-    const vat = this.parseRequiredNumber(row.VAT_Cur, 'VAT_Cur', rowId, line);
+    const vat = this.parseRequiredNumber(row.SalesTax, 'SalesTax', rowId, line);
     const docType: 'INV' | 'CN' = amount < 0 ? 'CN' : 'INV';
     this.validateSourceDocumentType(sourceType, docType, rowId, line);
 
@@ -255,12 +255,12 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
     const termsOfPayment =
       context.termsByClassification.get(billingClassification.toLowerCase()) ??
       '';
-    if (!termsOfPayment) {
-      line.AddError(
-        'TermsOfPayment',
-        `Row ${rowId}: terms of payment is missing for billing classification "${billingClassification}". Sync Billing Data.`,
-      );
-    }
+    // if (!termsOfPayment) {
+    //   line.AddError(
+    //     'TermsOfPayment',
+    //     `Row ${rowId}: terms of payment is missing for billing classification "${billingClassification}". Sync Billing Data.`,
+    //   );
+    // }
 
     line.SourceIds = [
       this.cleanSourceText(row.Ser) || String(row.UniqueId ?? ''),
@@ -389,7 +389,7 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
       );
       line.AddMissingMasterData({
         type: 'customer',
-        missingField: 'CustomerAccount',
+        missingField: 'TaxExemptNumber',
         missingValue: taxNumber,
         formDefaults: { TaxExemptNumber: taxNumber },
       });

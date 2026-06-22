@@ -9,9 +9,9 @@ export class AccountReceivableShippingLinesFileModel {
   Code?: string | number;
   Type?: string;
   'Invoice Items'?: string;
-  Rev_Cur?: number | string;
-  VAT_Cur?: number | string;
-  Total_Cur?: number | string;
+  InvoiceBeforeTaxes?: number | string;
+  SalesTax?: number | string;
+  InvoiceTotal?: number | string;
   Currency?: string;
   'B/L'?: string;
   'IMP / EXP'?: string;
