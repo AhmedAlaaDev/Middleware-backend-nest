@@ -33,7 +33,8 @@
     "docker:prod:push": "docker push moatazali/middleware-app:1.0.2",
     "docker:deploy": "pnpm docker:prod:build && pnpm docker:prod:push && scp docker-compose.production.yml mdr:~/apps/D365FOMiddleware_Nestbackend/docker-compose.production.yml && ssh mdr \"bash -lc 'set -e; cd ~/apps/D365FOMiddleware_Nestbackend; docker compose -f docker-compose.production.yml pull; docker compose -f docker-compose.production.yml up -d --remove-orphans'\"",
     "docker:server:logs": "ssh mdr \"cd ~/apps/D365FOMiddleware_Nestbackend && docker compose -f docker-compose.production.yml logs -f --tail=200 app\"",
-    "migrate:legacy-admin": "ts-node -r tsconfig-paths/register src/scripts/migrate-legacy-admin.ts"
+    "migrate:legacy-admin": "ts-node -r tsconfig-paths/register src/scripts/migrate-legacy-admin.ts",
+    "customer-tax-audit": "docker compose exec app pnpm exec ts-node -r tsconfig-paths/register src/scripts/customer-tax-audit-report.ts && node -e \"require('fs').mkdirSync('.reports',{recursive:true})\" && docker cp d365fo-middleware-development:/app/.reports/customer-tax-audit-report.html .reports/customer-tax-audit-report.html"
   },
   "dependencies": {
     "@keyv/redis": "^5.1.4",

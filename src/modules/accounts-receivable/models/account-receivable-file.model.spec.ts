@@ -72,4 +72,60 @@ describe('AccountReceivableFileModel', () => {
       );
     });
   });
+
+  describe('enrichedDefaultDimensionDisplayValue', () => {
+    it('builds default dimensions from enriched dimensions with FreightType populated and main account blank', () => {
+      const model = new AccountReceivableFileModel();
+
+      expect(
+        model.enrichedDefaultDimensionDisplayValue({
+          mainAccount: '223706',
+          costCenter: '2101',
+          activityName: '021',
+          businessUnit: '002',
+          location: '001',
+          customer: '101000084',
+          subCustomer: '101000084',
+          vendor: '',
+          subVendor: '',
+          chargeType: '738',
+          salesMan: '2522',
+          coordinatorMan: '2522',
+          freightType: 'Payable',
+          truckerType: '13',
+          truckNumber: '',
+          direction: 'EXPORT',
+          worker: '',
+          fixedAsset: '',
+          lease: '',
+          bankAccount: '',
+        }),
+      ).toBe(
+        '|2101|021|002|001|101000084|101000084|||738|2522|2522|Payable|13||EXPORT||||',
+      );
+    });
+
+    it('defaults FreightType to Payable when the enriched dimensions do not contain a value', () => {
+      const model = new AccountReceivableFileModel();
+
+      expect(
+        model.enrichedDefaultDimensionDisplayValue({
+          costCenter: '2101',
+          activityName: '021',
+          businessUnit: '002',
+          location: '001',
+          customer: '101000084',
+          subCustomer: '101000084',
+          chargeType: '738',
+          salesMan: '2522',
+          coordinatorMan: '2522',
+          freightType: '',
+          truckerType: '13',
+          direction: 'EXPORT',
+        }),
+      ).toBe(
+        '|2101|021|002|001|101000084|101000084|||738|2522|2522|Payable|13||EXPORT||||',
+      );
+    });
+  });
 });

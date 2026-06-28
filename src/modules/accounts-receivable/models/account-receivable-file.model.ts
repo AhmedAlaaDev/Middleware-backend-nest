@@ -146,6 +146,53 @@ export class AccountReceivableFileModel {
     return defaultDimensionDisplayValue.toLowerCase().replace('cai', '002');
   }
 
+  enrichedDefaultDimensionDisplayValue(
+    dimensions: EntryDimensionsModel,
+  ): string {
+    return this.defaultDimensionFields
+      .map((fieldName) => {
+        if (!fieldName) return '';
+        if (fieldName === 'freightType') {
+          return this.dimensionPartAsString(
+            dimensions.freightType || 'Payable',
+          );
+        }
+        return this.dimensionPartAsString(dimensions[fieldName]);
+      })
+      .join('|');
+  }
+
+  private readonly defaultDimensionFields: Array<
+    keyof EntryDimensionsModel | null
+  > = [
+    null,
+    'costCenter',
+    'activityName',
+    'businessUnit',
+    'location',
+    'customer',
+    'subCustomer',
+    'vendor',
+    'subVendor',
+    'chargeType',
+    'salesMan',
+    'coordinatorMan',
+    'freightType',
+    'truckerType',
+    'truckNumber',
+    'direction',
+    'worker',
+    'fixedAsset',
+    'lease',
+    'bankAccount',
+  ];
+
+  private dimensionPartAsString(part: unknown): string {
+    if (part === null || part === undefined) return '';
+    if (typeof part !== 'string' && typeof part !== 'number') return '';
+    return typeof part === 'string' ? part.trim() : String(part);
+  }
+
   getTaxGroup(): string {
     if (!this.SALESTAXGROUP || !this.ITEMSALESTAXGROUP) {
       return 'Non-Taxabl';

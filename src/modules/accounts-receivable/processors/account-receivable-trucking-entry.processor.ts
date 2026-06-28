@@ -257,7 +257,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     line.DocumentDate = transDate;
     line.CustomerAccount = dimensions.subCustomer || '';
     line.HeaderDefaultDimensionDisplayValue =
-      custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
+      custLine.enrichedDefaultDimensionDisplayValue(dimensions);
     line.HeaderFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
     line.InvoiceTxt = dimensions.chargeType || '';
     line.Description = custLine.TEXT || '';
@@ -268,7 +268,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     line.SalesTaxGroup = ledgerLine.getTaxGroup();
     line.SalesTaxItemGroup = ledgerLine.getTaxGroupItem();
     line.DefaultDimensionDisplayValue =
-      custLine.modifiedLocationHeaderDefaultDimensionDisplayValue();
+      custLine.enrichedDefaultDimensionDisplayValue(dimensions);
     line.LineFinTagDisplayValue = custLine.FINTAGDISPLAYVALUE || '';
     line.DueDate = dueDate || undefined;
     line.CashDiscountCode = '';
