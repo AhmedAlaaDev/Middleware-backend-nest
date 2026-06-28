@@ -13,7 +13,8 @@ import { BaseVendorEntryProcessor } from '@/modules/vendor/processors/base-vendo
 export class VendorTruckingEntryProcessor extends BaseVendorEntryProcessor {
   private readonly SOKHNA_BRANCH_CODE = '014';
   private readonly TRUCKING_COST_CENTER_CODE = '2101';
-  private readonly DEFAULT_SALESMAN_CODE = '3314';
+  private readonly SALESMAN_FALLBACK_COST_CENTER_CODES = ['2101', '2201'];
+  private readonly DEFAULT_SALESMAN_CODE = '3149';
   private readonly DEFAULT_COORDINATOR_CODE = '3149';
   readonly entryProcessorType = EntryProcessorTypes.VendorTrucking;
   readonly requiredDimensions: RequiredDimensionsConfig = {
@@ -58,20 +59,27 @@ export class VendorTruckingEntryProcessor extends BaseVendorEntryProcessor {
       return dynLine;
     }
 
+    const costCenter = dimensions.costCenter?.trim();
     const isSokhnaTruckingEntry =
       dimensions.location?.trim() === this.SOKHNA_BRANCH_CODE &&
-      dimensions.costCenter?.trim() === this.TRUCKING_COST_CENTER_CODE;
+      costCenter === this.TRUCKING_COST_CENTER_CODE;
+    const isSalesmanFallbackCostCenter =
+      !!costCenter &&
+      this.SALESMAN_FALLBACK_COST_CENTER_CODES.includes(costCenter);
+    let dimensionsChanged = false;
 
-    if (!isSokhnaTruckingEntry) {
-      return dynLine;
-    }
-
-    if (!dimensions.salesMan?.trim()) {
+    if (isSalesmanFallbackCostCenter && !dimensions.salesMan?.trim()) {
       dimensions.salesMan = this.DEFAULT_SALESMAN_CODE;
+      dimensionsChanged = true;
     }
 
-    if (!dimensions.coordinatorMan?.trim()) {
+    if (isSokhnaTruckingEntry && !dimensions.coordinatorMan?.trim()) {
       dimensions.coordinatorMan = this.DEFAULT_COORDINATOR_CODE;
+      dimensionsChanged = true;
+    }
+
+    if (!dimensionsChanged) {
+      return dynLine;
     }
 
     const expectedSegments = this.utilsService.isValidDimensionSegmentLength(

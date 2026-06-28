@@ -49,7 +49,8 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
   private readonly procLogger = new Logger(ClosingTruckingEntryProcessor.name);
   private readonly SOKHNA_BRANCH_CODE = '014';
   private readonly TRUCKING_COST_CENTER_CODE = '2101';
-  private readonly DEFAULT_SALESMAN_CODE = '3314';
+  private readonly SALESMAN_FALLBACK_COST_CENTER_CODES = ['2101', '2201'];
+  private readonly DEFAULT_SALESMAN_CODE = '3149';
   private readonly DEFAULT_COORDINATOR_CODE = '3149';
   readonly entryProcessorType = EntryProcessorTypes.LedgerTruckingClosingEntry;
   readonly requiredDimensions: RequiredDimensionsConfig = {
@@ -459,17 +460,19 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
   ): void {
     if (!dimensions) return;
 
+    const costCenter = dimensions.costCenter?.trim();
     const isSokhnaTruckingEntry =
       dimensions.location?.trim() === this.SOKHNA_BRANCH_CODE &&
-      dimensions.costCenter?.trim() === this.TRUCKING_COST_CENTER_CODE;
+      costCenter === this.TRUCKING_COST_CENTER_CODE;
+    const isSalesmanFallbackCostCenter =
+      !!costCenter &&
+      this.SALESMAN_FALLBACK_COST_CENTER_CODES.includes(costCenter);
 
-    if (!isSokhnaTruckingEntry) return;
-
-    if (!dimensions.salesMan?.trim()) {
+    if (isSalesmanFallbackCostCenter && !dimensions.salesMan?.trim()) {
       dimensions.salesMan = this.DEFAULT_SALESMAN_CODE;
     }
 
-    if (!dimensions.coordinatorMan?.trim()) {
+    if (isSokhnaTruckingEntry && !dimensions.coordinatorMan?.trim()) {
       dimensions.coordinatorMan = this.DEFAULT_COORDINATOR_CODE;
     }
   }
