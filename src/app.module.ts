@@ -30,6 +30,7 @@ import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { UserModule } from '@/modules/user/user.module';
 import { VendorModule } from '@/modules/vendor/vendor.module';
+import { ReconciliationModule } from '@/modules/reconciliation/reconciliation.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { VendorModule } from '@/modules/vendor/vendor.module';
     SchedulerModule,
     ObservabilityModule,
     HealthModule,
+    ReconciliationModule,
   ],
 })
 export class AppModule {}
