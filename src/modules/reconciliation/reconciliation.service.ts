@@ -33,6 +33,7 @@ import {
   referenceTokenScore,
   scoreCandidate,
   textSimilarity,
+  isAmountMatched,
 } from './utils/matching';
 
 @Injectable()
@@ -693,6 +694,7 @@ export class ReconciliationService {
     options: ReconciliationOptions,
   ): BankTransaction[] {
     if (ist.epochDay === null || ist.amount === null) return [];
+    const isPettyCash = this.isPettyCashRow(ist);
     const candidates: BankTransaction[] = [];
     const seen = new Set<number>();
     for (
@@ -705,14 +707,18 @@ export class ReconciliationService {
           !seen.has(bank.index) &&
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          Math.abs(ist.amount - bank.amount) <= options.amountTolerance &&
+          isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
           ist.direction !== null &&
           bank.direction === ist.direction &&
           (!ist.currency || !bank.currency || ist.currency === bank.currency)
         ) {
-          const acctOk =
-            accountCompatibility(ist.accountCode, bank.normalizedDynCode) >=
-            0.3;
+          const acctScore = accountCompatibility(
+            ist.accountCode,
+            bank.normalizedDynCode,
+          );
+          // Petty cash rows need much stricter account matching to prevent
+          // PSD-EG being matched to AAIB-EG-CA, CIB-EG-CA, etc.
+          const acctOk = isPettyCash ? acctScore >= 0.75 : acctScore >= 0.3;
           const clientOk =
             textSimilarity(ist.partyText, bank.partyText) >= 0.3 ||
             textSimilarity(ist.partyText, bank.description) >= 0.3;
@@ -733,6 +739,9 @@ export class ReconciliationService {
     options: ReconciliationOptions,
   ): BankTransaction[] {
     if (ist.epochDay === null || ist.amount === null) return [];
+    // Petty cash rows should not use wide-tolerance fallback matching —
+    // they only match via direct reference or cash journal matching.
+    if (this.isPettyCashRow(ist)) return [];
     const candidates: BankTransaction[] = [];
     const seen = new Set<number>();
     const tolerance = Math.max(options.toleranceDays, 30);
@@ -742,7 +751,7 @@ export class ReconciliationService {
           !seen.has(bank.index) &&
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          Math.abs(ist.amount - bank.amount) <= options.amountTolerance &&
+          isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
           ist.direction !== null &&
           bank.direction === ist.direction
         ) {
@@ -768,7 +777,7 @@ export class ReconciliationService {
             !seen.has(bank.index) &&
             Boolean(bank.normalizedRef) &&
             bank.amount !== null &&
-            Math.abs(ist.amount - bank.amount) <= options.amountTolerance &&
+            isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
             ist.direction !== null &&
             bank.direction === ist.direction
           ) {
@@ -857,7 +866,7 @@ export class ReconciliationService {
             (!options.allowManyToOne && usedBanks.has(bank.index)) ||
             bank.direction !== anchor.direction ||
             bank.amount === null ||
-            Math.abs(total - bank.amount) > options.amountTolerance ||
+            !isAmountMatched(total, bank.amount, options.amountTolerance) ||
             (anchor.currency &&
               bank.currency &&
               anchor.currency !== bank.currency)
@@ -1011,6 +1020,7 @@ export class ReconciliationService {
   ): BankTransaction[] {
     if (ist.epochDay === null || ist.amount === null || ist.direction === null)
       return [];
+    const isPettyCash = this.isPettyCashAccount(ist.accountCode);
     const candidates: BankTransaction[] = [];
     const seen = new Set<number>();
     const tolerance = Math.max(options.toleranceDays, 3);
@@ -1020,7 +1030,7 @@ export class ReconciliationService {
           seen.has(bank.index) ||
           !bank.normalizedRef ||
           bank.amount === null ||
-          Math.abs(ist.amount - bank.amount) > options.amountTolerance ||
+          !isAmountMatched(ist.amount, bank.amount, options.amountTolerance) ||
           bank.direction !== ist.direction ||
           (!ist.currency || !bank.currency
             ? false
@@ -1031,6 +1041,15 @@ export class ReconciliationService {
           !this.isCashLikeBank(bank, ist.direction)
         ) {
           continue;
+        }
+        // For petty cash accounts, verify bank account currency compatibility
+        // to avoid matching PSD-EG cash deposits to CIB-EG or AAIB-EG cash deposits
+        if (isPettyCash && bank.normalizedDynCode) {
+          const acctScore = accountCompatibility(
+            ist.accountCode,
+            bank.normalizedDynCode,
+          );
+          if (acctScore < 0.75) continue;
         }
         seen.add(bank.index);
         candidates.push(bank);
@@ -1069,6 +1088,28 @@ export class ReconciliationService {
     );
   }
 
+  /**
+   * Detect known petty cash / safe account codes that have no corresponding
+   * bank Dyn_Map.Dyn code.  These accounts represent internal cash registers
+   * or safes, not real bank accounts, so aggressive fallback matching should
+   * be skipped for them.
+   */
+  private isPettyCashAccount(accountCode: string): boolean {
+    if (!accountCode) return false;
+    const code = accountCode.toUpperCase();
+    const PETTY_CASH_PREFIXES = [
+      'PSD', 'AIRPORT', 'DMT', 'ALEXSUB', 'ALEXHO',
+      'MERGHEM', 'POS', 'CCC', 'TR-SKHN',
+    ];
+    return PETTY_CASH_PREFIXES.some(
+      (prefix) => code === prefix || code.startsWith(prefix + '-'),
+    );
+  }
+
+  private isPettyCashRow(ist: IstTransaction): boolean {
+    return this.isCashJournal(ist) && this.isPettyCashAccount(ist.accountCode);
+  }
+
   private applyExhaustiveFallbackMatches(
     transactions: IstTransaction[],
     matches: Map<number, MatchResult>,
@@ -1087,6 +1128,25 @@ export class ReconciliationService {
         ist.hasValidPaymentReference ||
         (current?.status === 'Matched' && Boolean(current.bank?.normalizedRef))
       ) {
+        continue;
+      }
+
+      // Petty cash rows (CashIn/CashOut with safe accounts like PSD, AIRPORT, etc.)
+      // must not fall through to exhaustive fallback matching.  These accounts
+      // have no matching bank Dyn code and aggressive matching only produces
+      // false positives with unrelated bank references.
+      if (this.isPettyCashRow(ist)) {
+        if (!current || current.status === 'Unmatched') {
+          matches.set(ist.excelRowNumber, {
+            status: 'Unmatched',
+            matchCase: 'No Candidate',
+            confidence: 0,
+            reason:
+              `Petty cash account ${ist.accountCode || '(blank)'}: ` +
+              'no direct bank reference match is available. ' +
+              'PAYMENTREFERENCE was left blank.',
+          });
+        }
         continue;
       }
 
@@ -1114,7 +1174,7 @@ export class ReconciliationService {
         (bank) =>
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          Math.abs(istAmount - bank.amount) <= options.amountTolerance &&
+          isAmountMatched(istAmount, bank.amount, options.amountTolerance) &&
           bank.direction === istDirection &&
           compatibleCodes.has(bank.normalizedDynCode) &&
           (!ist.currency || !bank.currency || ist.currency === bank.currency) &&
@@ -1216,7 +1276,7 @@ export class ReconciliationService {
       if (
         !bank.normalizedRef ||
         bank.amount === null ||
-        Math.abs(istAmount - bank.amount) > options.amountTolerance ||
+        !isAmountMatched(istAmount, bank.amount, options.amountTolerance) ||
         bank.direction !== istDirection ||
         (!ist.currency || !bank.currency
           ? false
@@ -1271,7 +1331,7 @@ export class ReconciliationService {
 
       const amountDifference = Math.abs(istAmount - bank.amount);
       if (
-        amountDifference <= options.amountTolerance ||
+        isAmountMatched(istAmount, bank.amount, options.amountTolerance) ||
         amountDifference > maxDifference
       ) {
         return false;

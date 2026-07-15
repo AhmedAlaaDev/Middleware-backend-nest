@@ -261,16 +261,53 @@ export function referenceTokenScore(
   return best;
 }
 
+export function isAmountMatched(
+  amount1: number | null,
+  amount2: number | null,
+  tolerance: number,
+): boolean {
+  if (amount1 === null || amount2 === null) return false;
+
+  const diff = Math.abs(amount1 - amount2);
+  if (diff <= tolerance) return true;
+
+  // 1% tax tolerance (either direction)
+  if (Math.abs(amount1 * 0.99 - amount2) <= tolerance) return true;
+  if (Math.abs(amount2 * 0.99 - amount1) <= tolerance) return true;
+
+  // 2% tax tolerance (either direction)
+  if (Math.abs(amount1 * 0.98 - amount2) <= tolerance) return true;
+  if (Math.abs(amount2 * 0.98 - amount1) <= tolerance) return true;
+
+  return false;
+}
+
 export function scoreCandidate(
   ist: IstTransaction,
   bank: BankTransaction,
   options: ReconciliationOptions,
 ): ScoredCandidate {
-  const amountDifference =
-    ist.amount === null || bank.amount === null
-      ? Number.POSITIVE_INFINITY
-      : Math.abs(ist.amount - bank.amount);
-  const amountScore = amountDifference <= options.amountTolerance ? 1 : 0;
+  let amountMatchStyle: 'exact' | 'tax_1' | 'tax_2' | 'none' = 'none';
+  let amountScore = 0;
+
+  if (ist.amount !== null && bank.amount !== null) {
+    if (Math.abs(ist.amount - bank.amount) <= options.amountTolerance) {
+      amountScore = 1;
+      amountMatchStyle = 'exact';
+    } else if (
+      Math.abs(ist.amount * 0.99 - bank.amount) <= options.amountTolerance ||
+      Math.abs(bank.amount * 0.99 - ist.amount) <= options.amountTolerance
+    ) {
+      amountScore = 1;
+      amountMatchStyle = 'tax_1';
+    } else if (
+      Math.abs(ist.amount * 0.98 - bank.amount) <= options.amountTolerance ||
+      Math.abs(bank.amount * 0.98 - ist.amount) <= options.amountTolerance
+    ) {
+      amountScore = 1;
+      amountMatchStyle = 'tax_2';
+    }
+  }
 
   const bankDays = [bank.epochDay, bank.valueEpochDay].filter(
     (day): day is number => day !== null,
@@ -333,6 +370,7 @@ export function scoreCandidate(
     partyScore,
     hintBonus,
     sharedTerms,
+    amountMatchStyle,
   };
 }
 
@@ -430,7 +468,9 @@ export function decideScoredMatch(
           : 'Fuzzy Probable Match',
     confidence: best.score,
     reason: [
-      `amount=${best.amountScore.toFixed(2)}`,
+      best.amountMatchStyle && best.amountMatchStyle !== 'exact' && best.amountMatchStyle !== 'none'
+        ? `amount=${best.amountScore.toFixed(2)} (${best.amountMatchStyle})`
+        : `amount=${best.amountScore.toFixed(2)}`,
       `date=${best.dateScore.toFixed(2)}`,
       `account=${best.accountScore.toFixed(2)}`,
       `direction=${best.directionScore.toFixed(2)}`,
