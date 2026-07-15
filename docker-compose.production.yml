@@ -14,7 +14,7 @@ services:
       - 1.1.1.1
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: '--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-3072} --dns-result-order=ipv4first'
+      NODE_OPTIONS: '--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-6144} --dns-result-order=ipv4first'
       CACHE_REDIS_HOST: cache-redis
     networks:
       - mongodb_network
@@ -38,7 +38,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    mem_limit: '${APP_MEMORY_LIMIT:-4g}'
+    mem_limit: '${APP_MEMORY_LIMIT:-8g}'
     cpus: '${APP_CPU_LIMIT:-2.0}'
     logging:
       driver: json-file
