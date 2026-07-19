@@ -22,10 +22,16 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
 
     this.logger.log(`Downloading source records for batch ${batchId}`);
 
+    const batch = await this.batchService.getByIdAsync(batchId);
+    if (!batch) {
+      throw new NotFoundException(`Batch with ID ${batchId} not found`);
+    }
+
     const cursor = this.batchService.getSourceRecordsStream(batchId);
     const recordsStream = this.cursorToAsyncIterable(cursor);
 
     // First pass: collect header names (union of all keys in record.data)
+    // Preserve first-seen order (matches Excel column order when Mongo field order is kept).
     const headerSet = new Set<string>();
     let recordCount = 0;
     try {
@@ -34,7 +40,9 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
         const data = record.data;
         if (data && typeof data === 'object' && !Array.isArray(data)) {
           for (const key of Object.keys(data)) {
-            headerSet.add(key);
+            if (key) {
+              headerSet.add(key);
+            }
           }
         }
       }
@@ -48,7 +56,10 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
       throw new NotFoundException('No source records found for this batch');
     }
 
-    const headers = Array.from(headerSet).sort();
+    const headers = this.resolveHeaders(
+      batch.sourceColumnHeaders,
+      headerSet,
+    );
     this.logger.log(
       `Collected ${headers.length} column(s) from ${recordCount} source record(s)`,
     );
@@ -66,6 +77,27 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
 
     this.logger.log('Excel file for source records generated successfully.');
     return filePath;
+  }
+
+  /**
+   * Prefer headers saved at upload time; append any extra keys found in records.
+   * For older batches without saved headers, keep first-seen order (no alphabetical sort).
+   */
+  private resolveHeaders(
+    savedHeaders: string[] | undefined,
+    presentHeaders: Set<string>,
+  ): string[] {
+    if (savedHeaders && savedHeaders.length > 0) {
+      const ordered = savedHeaders.filter((h) => presentHeaders.has(h));
+      for (const key of presentHeaders) {
+        if (!ordered.includes(key)) {
+          ordered.push(key);
+        }
+      }
+      return ordered;
+    }
+
+    return Array.from(presentHeaders);
   }
 
   /**

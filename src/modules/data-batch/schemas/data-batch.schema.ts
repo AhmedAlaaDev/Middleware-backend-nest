@@ -79,6 +79,10 @@ export class DataBatch {
   @Prop({ default: 0 })
   reprocessCount: number;
 
+  /** Column headers in the order they appeared in the uploaded Excel file. */
+  @Prop({ type: [String], default: undefined })
+  sourceColumnHeaders?: string[];
+
   @Prop()
   lastReprocessJobId?: string;
 

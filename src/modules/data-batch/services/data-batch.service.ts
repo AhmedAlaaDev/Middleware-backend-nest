@@ -95,6 +95,8 @@ export class DataBatchService {
       `Counts computed: success=${successCount} error=${errorCount}`,
     );
 
+    const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
+
     // Create batch
     const dataBatch = await this.dataBatchRepo.create({
       company: companyId,
@@ -113,6 +115,8 @@ export class DataBatchService {
       createdByName: actor?.userName,
       createdByEmail: actor?.userEmail,
       reprocessCount: 0,
+      sourceColumnHeaders:
+        sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
     });
     this.logger.log(`Batch created: id=${dataBatch.id}`);
 
@@ -876,6 +880,33 @@ export class DataBatchService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Collects column headers in first-seen order from parsed Excel rows.
+   * ExcelJS inserts object keys in worksheet column order, so this preserves
+   * the uploaded file's column arrangement.
+   */
+  private collectSourceColumnHeaders(
+    rawData: Array<Record<string, unknown> | object>,
+  ): string[] {
+    const headers: string[] = [];
+    const seen = new Set<string>();
+
+    for (const row of rawData) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) {
+        continue;
+      }
+      for (const key of Object.keys(row)) {
+        if (!key || seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        headers.push(key);
+      }
+    }
+
+    return headers;
   }
 
   private async requireBatch(batchId: string): Promise<IDataBatch> {

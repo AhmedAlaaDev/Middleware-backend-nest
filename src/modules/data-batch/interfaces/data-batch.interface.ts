@@ -29,6 +29,8 @@ export interface ICreateDataBatch {
   lastReprocessJobId?: string;
   lastReprocessStatus?: string;
   lastReprocessError?: string;
+  /** Column headers in the order they appeared in the uploaded Excel file. */
+  sourceColumnHeaders?: string[];
 }
 
 export type IUpdateDataBatch = Partial<ICreateDataBatch>;
@@ -60,6 +62,8 @@ export class IDataBatch {
   lastReprocessJobId?: string;
   lastReprocessStatus?: string;
   lastReprocessError?: string;
+  /** Column headers in the order they appeared in the uploaded Excel file. */
+  sourceColumnHeaders?: string[];
   creationDate: Date | null;
 }
 

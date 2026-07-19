@@ -40,6 +40,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
       reprocessCount: doc.reprocessCount,
+      sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -80,6 +81,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       lastReprocessJobId: doc.lastReprocessJobId,
       lastReprocessStatus: doc.lastReprocessStatus,
       lastReprocessError: doc.lastReprocessError,
+      sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
     };
   }
@@ -185,6 +187,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       lastReprocessJobId: doc.lastReprocessJobId,
       lastReprocessStatus: doc.lastReprocessStatus,
       lastReprocessError: doc.lastReprocessError,
+      sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
     }));
   }
@@ -232,6 +235,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       lastReprocessJobId: doc.lastReprocessJobId,
       lastReprocessStatus: doc.lastReprocessStatus,
       lastReprocessError: doc.lastReprocessError,
+      sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: doc.created_at ?? null,
     };
   }
