@@ -56,6 +56,8 @@ services:
       MONGODB_INITDB_ROOT_PASSWORD: sp3awi
     volumes:
       - mongodb-data:/data/db
+      # Image declares VOLUME /data/configdb; name it to avoid anonymous orphans
+      - mongodb-configdb:/data/configdb
     networks:
       - mongodb_network
     healthcheck:
@@ -131,6 +133,9 @@ volumes:
   mongodb-data:
     driver: local
     name: mongo-data
+  mongodb-configdb:
+    driver: local
+    name: mongo-configdb
   redis-data:
     driver: local
     name: redis-data

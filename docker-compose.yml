@@ -24,7 +24,8 @@ services:
       - ./pnpm-lock.yaml:/app/pnpm-lock.yaml
       - ./tsconfig.json:/app/tsconfig.json:ro
       - ./nest-cli.json:/app/nest-cli.json:ro
-      - /app/node_modules
+      # Named volume (not anonymous) so recreate/rebuild does not orphan node_modules copies
+      - node_modules-dev:/app/node_modules
     networks:
       - mongodb_network
       - redis_network
@@ -49,6 +50,8 @@ services:
       MONGODB_INITDB_ROOT_PASSWORD: sp3awi
     volumes:
       - mongodb-data-dev:/data/db
+      # Image declares VOLUME /data/configdb; name it to avoid anonymous orphans
+      - mongodb-configdb-dev:/data/configdb
     networks:
       - mongodb_network
     healthcheck:
@@ -105,6 +108,9 @@ services:
         '--maxmemory-policy',
         'allkeys-lru',
       ]
+    # Image declares VOLUME /data; name it so recreate does not orphan anonymous volumes
+    volumes:
+      - cache-redis-data-dev:/data
     networks:
       - redis_network
     healthcheck:
@@ -117,7 +123,13 @@ services:
 volumes:
   mongodb-data-dev:
     driver: local
+  mongodb-configdb-dev:
+    driver: local
   redis-data-dev:
+    driver: local
+  cache-redis-data-dev:
+    driver: local
+  node_modules-dev:
     driver: local
 
 networks:
