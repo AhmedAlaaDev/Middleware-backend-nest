@@ -16,8 +16,12 @@ import {
 } from '@/modules/d365fo/types';
 
 /**
- * Strategy implementation for posting customer payment journals to D365FO
- * (CustomerPaymentJournalHeaders / CustomerPaymentJournalLines)
+ * Strategy for cash payment journals:
+ * - cash-in  → CustomerPaymentJournalHeaders / CustomerPaymentJournalLines
+ * - cash-out → VendorPaymentJournalHeaders / VendorPaymentJournalLines
+ *
+ * Custom X++ line APIs are still invoked via CustomerPaymentJournalService.
+ * Rollback/list/delete must use the same OData entity family as header create.
  */
 @Injectable()
 export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrategy {
@@ -36,20 +40,23 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     this.headerCashDirectionContext = direction;
   }
 
+  private get isCashOut(): boolean {
+    return this.headerCashDirectionContext === 'out';
+  }
+
   public async postHeadersInBatches(
     headers: unknown[],
     chunkSize: number,
   ): Promise<PostHeadersResult> {
-    const journalBatchNumbers =
-      this.headerCashDirectionContext === 'out'
-        ? await this.vendorPaymentJournalService.postHeadersBatch(
-            headers as D365FOVendorPaymentJournalHeaderRequest[],
-            chunkSize,
-          )
-        : await this.customerPaymentJournalService.postHeadersBatch(
-            headers as D365FOCustomerPaymentJournalHeaderRequest[],
-            chunkSize,
-          );
+    const journalBatchNumbers = this.isCashOut
+      ? await this.vendorPaymentJournalService.postHeadersBatch(
+          headers as D365FOVendorPaymentJournalHeaderRequest[],
+          chunkSize,
+        )
+      : await this.customerPaymentJournalService.postHeadersBatch(
+          headers as D365FOCustomerPaymentJournalHeaderRequest[],
+          chunkSize,
+        );
 
     const responses = journalBatchNumbers.map((batchNumber) => ({
       JournalBatchNumber: batchNumber,
@@ -116,6 +123,10 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     headerId: string,
     dataAreaId: string,
   ): Promise<void> {
+    if (this.isCashOut) {
+      await this.vendorPaymentJournalService.deleteHeader(headerId, dataAreaId);
+      return;
+    }
     await this.customerPaymentJournalService.deleteHeader(headerId, dataAreaId);
   }
 
@@ -128,6 +139,7 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       successful: [],
       failed: [],
     };
+    const entityLabel = this.isCashOut ? 'vendor payment' : 'customer payment';
 
     for (let i = 0; i < lines.length; i += chunkSize) {
       const chunk = lines.slice(i, i + chunkSize);
@@ -135,21 +147,29 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       const totalChunks = Math.ceil(lines.length / chunkSize);
 
       this.logger.debug(
-        `[DELETE] Deleting customer payment lines chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
+        `[DELETE] Deleting ${entityLabel} lines chunk ${chunkNumber} of ${totalChunks} (${chunk.length} lines)`,
       );
 
       const deletePromises = chunk.map(async (line) => {
         try {
-          await this.customerPaymentJournalService.deleteLine(
-            line.headerId,
-            line.lineNumber,
-            dataAreaId,
-          );
+          if (this.isCashOut) {
+            await this.vendorPaymentJournalService.deleteLine(
+              line.headerId,
+              line.lineNumber,
+              dataAreaId,
+            );
+          } else {
+            await this.customerPaymentJournalService.deleteLine(
+              line.headerId,
+              line.lineNumber,
+              dataAreaId,
+            );
+          }
           result.successful.push(line);
         } catch (error) {
           const errorMessage = dfoErrorMessage(error);
           this.logger.error(
-            `[DELETE] Failed to delete customer payment line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
+            `[DELETE] Failed to delete ${entityLabel} line ${line.lineNumber} for journal ${line.headerId}: ${errorMessage}`,
           );
           result.failed.push({
             ...line,
@@ -176,7 +196,13 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     headerKey: string,
     dataAreaId: string,
   ): Promise<Array<{ LineNumber: number }>> {
-    return await this.customerPaymentJournalService.listLinesForHeader(
+    if (this.isCashOut) {
+      return this.vendorPaymentJournalService.listLinesForHeader(
+        headerKey,
+        dataAreaId,
+      );
+    }
+    return this.customerPaymentJournalService.listLinesForHeader(
       headerKey,
       dataAreaId,
     );

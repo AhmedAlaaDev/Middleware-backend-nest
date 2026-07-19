@@ -31,4 +31,5 @@ export interface IVendorListFilter {
   company?: string;
   accountNumbers?: string[];
   vendorGroupIds?: (typeof VENDOR_GROUP_IDS)[number][];
+  searchTerm?: string;
 }

@@ -460,7 +460,7 @@ export class MasterDataController {
   ): Promise<IPaginatedRes<IVendor>> {
     return this.queryBus.execute(
       new GetVendorsQuery(
-        { company: query.company },
+        { company: query.company, searchTerm: query.searchTerm },
         query.skipCount,
         query.maxCount,
       ),

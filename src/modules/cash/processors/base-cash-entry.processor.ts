@@ -21,6 +21,32 @@ import {
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
+/**
+ * Cash custom APIs expect default dimensions without mainAccount, in this order
+ * (no leading empty/`|` separator for mainAccount).
+ */
+const CASH_API_DIMENSION_FIELDS: Array<keyof EntryDimensionsModel> = [
+  'costCenter',
+  'activityName',
+  'businessUnit',
+  'location',
+  'customer',
+  'subCustomer',
+  'vendor',
+  'subVendor',
+  'chargeType',
+  'salesMan',
+  'coordinatorMan',
+  'freightType',
+  'truckerType',
+  'truckNumber',
+  'direction',
+  'worker',
+  'fixedAsset',
+  'lease',
+  'bankAccount',
+];
+
 @Injectable()
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
@@ -552,7 +578,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
       : offsetLine.DESCRIPTION || '';
 
-    const dimensionStr = this.utilsService.toDimensionString(dimensions);
+    const dimensionStr = this.toCashDefaultDimensionDisplayValue(dimensions);
 
     const currencyCode =
       amountSource === 'ACCOUNT'
@@ -580,7 +606,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       JournalName: this.getJournalName(),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: dimensionStr,
+      OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
+        offsetLine,
+        dimensions,
+        isNotesReceivable,
+        dimensionStr,
+      ),
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       CreditAmount:
@@ -681,7 +712,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const paymentReference =
       offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
 
-    const dimensionStr = this.utilsService.toDimensionString(dimensions);
+    const dimensionStr = this.toCashDefaultDimensionDisplayValue(dimensions);
 
     const currencyCode =
       amountSource === 'ACCOUNT'
@@ -710,9 +741,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransDate: accountLine.TRANSDATE,
       TransactionDate: accountLine.TRANSDATE,
       VoucherType: accountLine.VoucherType,
-      // Cash-Out: AccountNum must be the vendor account, while OffsetAccountDisplayValue keeps the ledger/bank-side dimensions.
+      // Cash-Out: AccountNum = vendor; OffsetAccountDisplayValue = Bank/RCash account id or ledger account.
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: dimensionStr,
+      OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
+        offsetLine,
+        dimensions,
+        isNotesReceivable,
+        dimensionStr,
+      ),
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
       CreditAmount: 0,
@@ -748,6 +784,56 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     return dynLine;
+  }
+
+  /**
+   * Cash API default-dimension display value: no mainAccount, fixed segment order.
+   * Override lives on cash base only (not EntryProcessorBase).
+   */
+  protected toCashDefaultDimensionDisplayValue(
+    dimensions: EntryDimensionsModel | null | undefined,
+  ): string {
+    if (!dimensions) return '';
+
+    return CASH_API_DIMENSION_FIELDS.map((fieldName) => {
+      if (fieldName === 'freightType') {
+        return this.dimensionPartAsString(dimensions.freightType || 'Payable');
+      }
+      return this.dimensionPartAsString(dimensions[fieldName]);
+    }).join('|');
+  }
+
+  /**
+   * Bank / RCash (Petty cash) → FO account id from source ACCOUNTDISPLAYVALUE
+   * (e.g. "PSD EG", "AAIB-EG-CA"), never the dimension string.
+   * Ledger → full ledger account display value.
+   * Notes-receivable forced to Bank → bankAccount dim segment when present.
+   */
+  protected resolveOffsetAccountDisplayValue(
+    offsetLine: CashEntryRawDataModel,
+    dimensions: EntryDimensionsModel,
+    isNotesReceivable: boolean,
+    dimensionStrFallback: string,
+  ): string {
+    if (isNotesReceivable) {
+      const bankAccount = this.dimensionPartAsString(dimensions.bankAccount);
+      if (bankAccount) return bankAccount;
+    }
+
+    if (offsetLine.IsBank || offsetLine.IsPettyCash) {
+      return (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
+    }
+
+    const accountDisplay = (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
+    if (accountDisplay) return accountDisplay;
+
+    return dimensionStrFallback;
+  }
+
+  private dimensionPartAsString(part: unknown): string {
+    if (part === null || part === undefined) return '';
+    if (typeof part !== 'string' && typeof part !== 'number') return '';
+    return typeof part === 'string' ? part.trim() : String(part);
   }
 
   protected isNotesReceivableLine(

@@ -10,4 +10,12 @@ export class GetVendorsDto extends PaginatedDto {
   @IsOptional()
   @IsString()
   company?: string;
+
+  /**
+   * Search term (account number/organization name/search name/group id)
+   * @example VEND
+   */
+  @IsOptional()
+  @IsString()
+  searchTerm?: string;
 }

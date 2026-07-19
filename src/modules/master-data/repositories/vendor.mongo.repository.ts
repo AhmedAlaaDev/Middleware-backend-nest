@@ -34,16 +34,7 @@ export class VendorMongoRepository implements VendorRepository {
     filter: IVendorListFilter,
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IVendor[]> {
-    const q: Record<string, unknown> = {};
-    if (filter.company) q['company'] = filter.company;
-    if (filter.accountNumbers && filter.accountNumbers.length > 0) {
-      q['vendorAccountNumber'] = {
-        $in: filter.accountNumbers.map((v) => new RegExp(`^${v}$`, 'i')),
-      };
-    }
-    if (filter.vendorGroupIds && filter.vendorGroupIds.length > 0) {
-      q['vendorGroupId'] = { $in: filter.vendorGroupIds };
-    }
+    const q = this.buildQuery(filter);
 
     let query = this.model.find(q).lean();
 
@@ -71,12 +62,31 @@ export class VendorMongoRepository implements VendorRepository {
   }
 
   async getCount(filter: IVendorListFilter): Promise<number> {
+    return this.model.countDocuments(this.buildQuery(filter)).exec();
+  }
+
+  private buildQuery(filter: IVendorListFilter): Record<string, unknown> {
     const q: Record<string, unknown> = {};
     if (filter.company) q['company'] = filter.company;
     if (filter.accountNumbers && filter.accountNumbers.length > 0) {
-      q['vendorAccountNumber'] = { $in: filter.accountNumbers } as unknown;
+      q['vendorAccountNumber'] = {
+        $in: filter.accountNumbers.map((v) => new RegExp(`^${v}$`, 'i')),
+      };
     }
-    return this.model.countDocuments(q).exec();
+    if (filter.vendorGroupIds && filter.vendorGroupIds.length > 0) {
+      q['vendorGroupId'] = { $in: filter.vendorGroupIds };
+    }
+    if (filter.searchTerm) {
+      q['$or'] = [
+        { vendorAccountNumber: { $regex: filter.searchTerm, $options: 'i' } },
+        {
+          vendorOrganizationName: { $regex: filter.searchTerm, $options: 'i' },
+        },
+        { vendorSearchName: { $regex: filter.searchTerm, $options: 'i' } },
+        { vendorGroupId: { $regex: filter.searchTerm, $options: 'i' } },
+      ];
+    }
+    return q;
   }
 
   async findByAccount(

@@ -1,8 +1,14 @@
+import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
+
 import { PostCashBatchToDFOHandler } from './post-cash-batch-to-dfo.handler';
 
 describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   const buildHandler = () =>
-    new PostCashBatchToDFOHandler({} as any, {} as any);
+    new PostCashBatchToDFOHandler(
+      {} as any,
+      {} as any,
+      new EntryProcessorUtilsService(),
+    );
 
   it('maps cash-in dyn line into custom API body (strict key casing)', () => {
     const handler = buildHandler();
@@ -159,8 +165,55 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     const body = result[0].customLineApiBody;
     expect(body).toHaveProperty('OffsetAccountTypeStr', 'RCash');
+    expect(body).toHaveProperty('offsetAccountDisplayValue', 'CASH001');
     expect(body).toHaveProperty('PAYMENTMETHODNAME', 'RCash');
     expect(body).toHaveProperty('MARKEDINVOICE', 'INV-0003');
+  });
+
+  it('keeps Bank offsetAccountDisplayValue as account id (not dim string)', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'USMF',
+            JournalBatchNumber: 'JN000123',
+            LineNumber: 1,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'VEND001',
+            OffsetAccountDisplayValue: 'AAIB-EG-CA',
+            OffsetAccountType: 'Bank',
+            OffsetCompany: 'USMF',
+            DefaultDimensionDisplayValue:
+              '1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||',
+            OffsetDefaultDimensionDisplayValue:
+              '1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||',
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            ExchangeRate: 1,
+            CreditAmount: 0,
+            DebitAmount: 5000,
+            CurrencyCode: 'EGP',
+            VoucherType: 'cash',
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            PaymentId: 'PAY001',
+            PaymentReference: 'PSD EG-1 - Freight',
+            TransactionText: 'Vendor payment',
+            Voucher: '',
+          },
+        },
+      ],
+      'USMF',
+      'out',
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body).toHaveProperty('offsetAccountDisplayValue', 'AAIB-EG-CA');
+    expect(body).toHaveProperty(
+      'DEFAULTDIMENSIONDISPLAYVALUE',
+      '1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||',
+    );
   });
 
   it('rejects invalid TaxGroup values', () => {
@@ -232,7 +285,11 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result[0].customLineApiBody).toHaveProperty(
       'DEFAULTDIMENSIONDISPLAYVALUE',
-      '|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+      '2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+    );
+    expect(result[0].customLineApiBody).toHaveProperty(
+      'offsetAccountDisplayValue',
+      ledgerDisplayValue,
     );
   });
 });
