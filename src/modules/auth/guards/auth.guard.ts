@@ -66,8 +66,11 @@ export class AuthGuard implements CanActivate {
     const restrictedWorkforce =
       user.identityProvider === IdentityProvider.ENTRA &&
       user.accessStatus !== AccessStatus.APPROVED;
+    // Dev: allow bootstrapped admin to call APIs without forced password change.
     const restrictedAdmin =
-      user.role === UserRole.ADMIN && user.mustChangePassword;
+      process.env.NODE_ENV !== 'development' &&
+      user.role === UserRole.ADMIN &&
+      user.mustChangePassword;
     if (!restrictedWorkforce && !restrictedAdmin) return;
 
     const allowed = new Set([
