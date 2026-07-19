@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { isAxiosError } from 'axios';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
@@ -10,6 +11,11 @@ import {
   D365FOVendorInvoiceJournalLineRequest,
 } from '@/modules/d365fo/types';
 import { RetryService } from '@/modules/resilience/services/retry.service';
+
+/** Max invoices per OR filter chunk (FO does not support OData `in`). */
+const VENDOR_INVOICE_LOOKUP_CHUNK_SIZE = 20;
+
+export type VendorInvoiceVendorPairKey = string;
 
 /**
  * Service for managing vendor invoice journals in D365FO
@@ -24,6 +30,166 @@ export class VendorInvoiceJournalService {
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
   ) {}
+
+  /**
+   * Build map key for invoice + vendor account pair (case-insensitive).
+   */
+  public static pairKey(invoice: string, vendorAccount: string): string {
+    return `${invoice.trim().toLowerCase()}|${vendorAccount.trim().toLowerCase()}`;
+  }
+
+  /**
+   * Batch-lookup existing invoice/vendor pairs on VendInvoiceJournalLines.
+   * D365FO OData does not support `in`; uses
+   * `(Invoice eq 'a' or Invoice eq 'b' or …)` chunks, then matches
+   * AccountDisplayValue in memory. Returns a Set of pair keys that exist.
+   */
+  public async findExistingInvoiceVendorPairs(
+    company: string,
+    invoices: string[],
+    options?: { chunkSize?: number; concurrency?: number },
+  ): Promise<Set<VendorInvoiceVendorPairKey>> {
+    const uniqueInvoices = [
+      ...new Set(
+        invoices
+          .map((invoice) => invoice?.trim())
+          .filter((invoice): invoice is string => Boolean(invoice)),
+      ),
+    ];
+
+    const existingPairs = new Set<VendorInvoiceVendorPairKey>();
+
+    if (uniqueInvoices.length === 0) {
+      return existingPairs;
+    }
+
+    const chunkSize = Math.min(
+      40,
+      Math.max(1, options?.chunkSize ?? VENDOR_INVOICE_LOOKUP_CHUNK_SIZE),
+    );
+    const concurrency = Math.min(5, Math.max(1, options?.concurrency ?? 3));
+    const chunks = this.chunkArray(uniqueInvoices, chunkSize);
+    const totalChunks = chunks.length;
+
+    this.logger.debug(
+      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against VendInvoiceJournalLines for company '${company}' in ${totalChunks} chunk(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
+    );
+
+    const startMs = Date.now();
+
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const wave = chunks.slice(i, i + concurrency);
+      const waveResults = await Promise.all(
+        wave.map((chunk, j) =>
+          this.fetchInvoiceVendorPairsChunk(
+            company,
+            chunk,
+            i + j + 1,
+            totalChunks,
+          ),
+        ),
+      );
+
+      for (const pairs of waveResults) {
+        for (const key of pairs) {
+          existingPairs.add(key);
+        }
+      }
+    }
+
+    this.logger.log(
+      `[LOOKUP] Found ${existingPairs.size} invoice/vendor pair(s) for ${uniqueInvoices.length} invoice(s) in ${Date.now() - startMs}ms`,
+    );
+
+    return existingPairs;
+  }
+
+  private async fetchInvoiceVendorPairsChunk(
+    company: string,
+    invoices: string[],
+    chunkIndex: number,
+    totalChunks: number,
+  ): Promise<Set<VendorInvoiceVendorPairKey>> {
+    const pairs = new Set<VendorInvoiceVendorPairKey>();
+
+    const invoiceOrFilter = `(${this.queryBuilder.or(
+      ...invoices.map((invoice) => this.queryBuilder.eq('Invoice', invoice)),
+    )})`;
+
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      invoiceOrFilter,
+    );
+
+    let endpoint = this.queryBuilder.buildQuery(
+      '/data/VendInvoiceJournalLines',
+      {
+        filter,
+        select: ['Invoice', 'AccountDisplayValue'],
+        crossCompany: true,
+      },
+    );
+
+    type RawLine = {
+      Invoice?: string;
+      AccountDisplayValue?: string;
+    };
+
+    let pages = 0;
+
+    try {
+      while (true) {
+        pages += 1;
+        const response = await this.d365foClient.get<RawLine>(endpoint, {
+          useCache: false,
+        });
+
+        for (const row of response.value ?? []) {
+          const invoice = row.Invoice?.trim();
+          const vendorAccount = row.AccountDisplayValue?.trim();
+          if (!invoice || !vendorAccount) continue;
+          pairs.add(
+            VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
+          );
+        }
+
+        const nextLink = response['@odata.nextLink'];
+        if (!nextLink) break;
+        endpoint = this.getEndpointFromNextLink(nextLink);
+      }
+
+      this.logger.debug(
+        `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pairs.size} pair(s) in ${pages} page(s)`,
+      );
+
+      return pairs;
+    } catch (error) {
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+      this.logger.error(
+        `[LOOKUP] Chunk ${chunkIndex}/${totalChunks} failed: ${errorDetails}`,
+      );
+      throw new Error(
+        `Vendor invoice lookup failed (chunk ${chunkIndex}/${totalChunks}): ${errorDetails}`,
+      );
+    }
+  }
+
+  private chunkArray<T>(arr: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      result.push(arr.slice(i, i + size));
+    }
+    return result;
+  }
+
+  private getEndpointFromNextLink(nextLink: string): string {
+    try {
+      const url = new URL(nextLink);
+      return `${url.pathname}${url.search}`;
+    } catch {
+      return nextLink;
+    }
+  }
 
   /**
    * Post vendor invoice journal header to D365FO (single header)
@@ -347,10 +513,10 @@ export class VendorInvoiceJournalService {
         this.logger.debug(
           `Successfully posted chunk ${chunkNumber} (${chunk.length} lines)`,
         );
-      } catch (error) {
+      } catch (error: unknown) {
         const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
-        if (error?.response?.data) {
+        if (isAxiosError(error) && error.response?.data) {
           this.logger.error(
             `D365FO error response: ${JSON.stringify(error.response.data)}`,
           );

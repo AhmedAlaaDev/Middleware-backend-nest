@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
+import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import {
   FreeTextInvoiceLookupResult,
   GetByInvoiceNumbersOptions,
@@ -75,6 +76,11 @@ export interface WarmupProcessorDataOptions {
    */
   customerNames?: boolean;
   /**
+   * Whether to fetch vendor organization names from the database.
+   * @default false
+   */
+  vendorNames?: boolean;
+  /**
    * Whether to fetch vendor tax number and terms of payment from the database.
    * @default false
    */
@@ -95,6 +101,7 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   mainAccount: true,
   exchangeRates: true,
   customerNames: false,
+  vendorNames: false,
   vendorTaxNumberAndTermsOfPayment: false,
   taxItemGroupCodes: false,
   billingCodeVersions: false,
@@ -135,6 +142,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected customersList: ICustomer[] | null = null;
   protected exchangeRateMap: ExchangeRateMap | null = null;
   protected customerNameMap: Map<string, string> | null = null;
+  protected vendorNameMap: Map<string, string> | null = null;
   protected vendorTaxNumberAndTermsOfPaymentMap: Map<
     string,
     { taxNumber: string; termsOfPayment: string }
@@ -152,6 +160,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly dimensionService: DimensionValidationService;
   protected readonly taxGroupService: TaxGroupService;
   protected readonly freeTextInvoiceService: FreeTextInvoiceService;
+  protected readonly vendorInvoiceJournalService: VendorInvoiceJournalService;
 
   private _company: string;
 
@@ -165,6 +174,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     this.dimensionService = options.dependencies.dimensionService;
     this.taxGroupService = options.dependencies.taxGroupService;
     this.freeTextInvoiceService = options.dependencies.freeTextInvoiceService;
+    this.vendorInvoiceJournalService =
+      options.dependencies.vendorInvoiceJournalService;
   }
 
   protected set company(company: string) {
@@ -282,6 +293,14 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       this.customerNameMap = await this.fetchCustomerNames(this.company);
       this.baseLogger.debug(
         `[${processorName}] Customer names loaded in ${Date.now() - customerStart}ms, count: ${this.customerNameMap.size}`,
+      );
+    }
+
+    if (options.vendorNames) {
+      const vendorNameStart = Date.now();
+      this.vendorNameMap = await this.fetchVendorNames(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Vendor names loaded in ${Date.now() - vendorNameStart}ms, count: ${this.vendorNameMap.size}`,
       );
     }
 
@@ -461,6 +480,56 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
 
     return this.customerNameMap.get(customerAccount?.toLowerCase().trim());
+  }
+
+  protected async fetchVendorNames(
+    company: string,
+  ): Promise<Map<string, string>> {
+    this.baseLogger.debug(
+      `[${this.constructor.name}] Fetching vendor organization names for company: ${company}`,
+    );
+
+    const pageSize = 1500;
+    let skipCount = 0;
+    const allItems: IVendor[] = [];
+    let hasMore = true;
+
+    while (hasMore) {
+      const vendorRes = await this.queryBus.execute(
+        new GetVendorsQuery({ company }, skipCount, pageSize),
+      );
+      const pageItems = vendorRes?.items ?? [];
+      allItems.push(...pageItems);
+      if (pageItems.length < pageSize) {
+        hasMore = false;
+      } else {
+        skipCount += pageSize;
+      }
+    }
+
+    const vendorNameMap = new Map<string, string>();
+
+    for (const item of allItems) {
+      const vendorAccountNumber = item.vendorAccountNumber
+        ?.toLowerCase()
+        ?.trim();
+      const name = item.vendorOrganizationName?.trim();
+
+      if (!name || !vendorAccountNumber) continue;
+      vendorNameMap.set(vendorAccountNumber, name);
+    }
+
+    return vendorNameMap;
+  }
+
+  protected getVendorName(vendorAccount: string): string | undefined {
+    if (!this.vendorNameMap) {
+      throw new Error(
+        'warmupProcessorData must be called before getVendorName',
+      );
+    }
+
+    return this.vendorNameMap.get(vendorAccount?.toLowerCase().trim());
   }
 
   protected async fetchVendorTaxNumberAndTermsOfPayment(

@@ -5,6 +5,7 @@ import { capitalize } from '@/lib/utils';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
+import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
 import {
@@ -47,11 +48,20 @@ const CASH_API_DIMENSION_FIELDS: Array<keyof EntryDimensionsModel> = [
   'bankAccount',
 ];
 
+/** FinTag segment index for shippingLine (operationNo|quotationNo|shippingLine|...). */
+const FINTAG_SHIPPING_LINE_INDEX = 2;
+
 @Injectable()
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
 
   protected readonly MAX_LINES_PER_BATCH = 1000;
+
+  /**
+   * Cash-out: Set of `invoice|vendorAccount` keys that exist on
+   * VendInvoiceJournalLines (filled once per enrich via batched FO lookup).
+   */
+  protected vendorInvoiceExistsMap: Set<string> | null = null;
 
   protected readonly NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
     '122201',
@@ -145,7 +155,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.company = company;
 
     await this.warmupProcessorData({
-      customerNames: this.isInbound() ? true : false,
+      customerNames: this.isInbound(),
+      vendorNames: !this.isInbound(),
     });
 
     const rawCount = data.length;
@@ -220,6 +231,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       });
       this.logger.debug(
         `[STEP 6] Fetched free text invoices ${this.freeTextInvoiceMap?.size} invoices`,
+      );
+    } else {
+      this.logger.debug(
+        `[STEP 6] Batch-looking up vendor invoices on VendInvoiceJournalLines for ${updatedDfoLines.length} lines`,
+      );
+      await this.fetchVendorInvoiceExistsMap(updatedDfoLines);
+      this.logger.debug(
+        `[STEP 6] Vendor invoice pair map size: ${this.vendorInvoiceExistsMap?.size ?? 0}`,
       );
     }
 
@@ -299,6 +318,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             `(${line.Invoice}) exists in D365FO but is not posted (IsPosted=No)`,
           );
         }
+      }
+
+      if (!this.isInbound()) {
+        this.validateCashOutMarkedInvoice(line);
       }
     }
 
@@ -749,8 +772,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         isNotesReceivable,
         dimensionStr,
       ),
-      FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
-      OffsetFinTagDisplayValue: offsetLine.FINTAGDISPLAYVALUE,
+      FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
+        accountLine.FINTAGDISPLAYVALUE,
+      ),
+      OffsetFinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
+        offsetLine.FINTAGDISPLAYVALUE,
+      ),
       CreditAmount: 0,
       DebitAmount:
         amountSource === 'ACCOUNT'
@@ -766,8 +793,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile: 'V-PP',
-      Invoice: accountLine.INVOICE || offsetLine.INVOICE,
-      MarkedInvoice: accountLine.INVOICE || offsetLine.INVOICE,
+      Invoice: this.sanitizeInvoiceOutbound(
+        accountLine.INVOICE || offsetLine.INVOICE,
+      ),
+      MarkedInvoice: this.sanitizeInvoiceOutbound(
+        accountLine.INVOICE || offsetLine.INVOICE,
+      ),
       dataAreaId: this.company,
       ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
@@ -784,6 +815,39 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     return dynLine;
+  }
+
+  /**
+   * Cash-out: replace FinTag shippingLine (index 2) vendor account code
+   * (e.g. Al-000021) with vendorOrganizationName (e.g. Turkish Airlines).
+   * Leaves the segment unchanged when no vendor name is found.
+   */
+  protected replaceFinTagShippingLineWithVendorName(
+    finTagDisplayValue?: string,
+  ): string {
+    if (!finTagDisplayValue) return finTagDisplayValue ?? '';
+
+    const parts = finTagDisplayValue.split('|');
+    if (parts.length <= FINTAG_SHIPPING_LINE_INDEX) {
+      return finTagDisplayValue;
+    }
+
+    const shippingLineCode = parts[FINTAG_SHIPPING_LINE_INDEX].replace(
+      /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+      '',
+    ).trim();
+
+    if (!shippingLineCode) {
+      return finTagDisplayValue;
+    }
+
+    const vendorOrganizationName = this.getVendorName(shippingLineCode);
+    if (!vendorOrganizationName) {
+      return finTagDisplayValue;
+    }
+
+    parts[FINTAG_SHIPPING_LINE_INDEX] = vendorOrganizationName;
+    return parts.join('|');
   }
 
   /**
@@ -895,6 +959,79 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         '123510': 'NR – GBP',
       }[mainAccount] || ''
     );
+  }
+
+  /**
+   * Cash-out invoice sanitization: trim; drop empty / all-zero placeholders
+   * (0, 00, 000, ...). Does not use cash-in number/text formatting.
+   */
+  protected sanitizeInvoiceOutbound(invoice?: string): string {
+    const trimmed = invoice?.trim() ?? '';
+    if (!trimmed) return '';
+    if (/^0+$/.test(trimmed)) return '';
+    return trimmed;
+  }
+
+  /**
+   * One batched FO lookup for all cash-out marked invoices → in-memory Set.
+   * Validation is then sync from the Set (no per-line FO calls).
+   */
+  protected async fetchVendorInvoiceExistsMap(
+    lines: CashEntryDynDataModel[],
+  ): Promise<void> {
+    const invoices = [
+      ...new Set(
+        lines
+          .map((line) => (line.MarkedInvoice || line.Invoice || '').trim())
+          .filter((invoice) => Boolean(invoice)),
+      ),
+    ];
+
+    if (invoices.length === 0) {
+      this.vendorInvoiceExistsMap = new Set();
+      this.logger.debug(
+        '[LOOKUP] No cash-out marked invoices to resolve; skipping VendInvoiceJournalLines lookup',
+      );
+      return;
+    }
+
+    this.vendorInvoiceExistsMap =
+      await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
+        this.company,
+        invoices,
+      );
+  }
+
+  /**
+   * Sync cash-out MarkedInvoice check using the preloaded pair Set.
+   * Empty MarkedInvoice = payment without settle (allowed).
+   */
+  protected validateCashOutMarkedInvoice(line: CashEntryDynDataModel): void {
+    const invoice = (line.MarkedInvoice || '').trim();
+    if (!invoice) return;
+
+    if (!this.vendorInvoiceExistsMap) {
+      throw new Error(
+        'fetchVendorInvoiceExistsMap must be called before validateCashOutMarkedInvoice',
+      );
+    }
+
+    const vendorAccount = (line.AccountDisplayValue || '').trim();
+    if (!vendorAccount) {
+      line.AddError(
+        'MarkedInvoice',
+        `Vendor account is missing for invoice settlement (${invoice})`,
+      );
+      return;
+    }
+
+    const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
+    if (!this.vendorInvoiceExistsMap.has(key)) {
+      line.AddError(
+        'MarkedInvoice',
+        `The Invoice: ${invoice} does not belong to Vendor: ${vendorAccount}`,
+      );
+    }
   }
 
   protected formatInvoiceInbound(invoice?: string): string {
