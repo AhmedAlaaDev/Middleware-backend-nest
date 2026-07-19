@@ -44,7 +44,9 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.VoucherType = s(data?.VoucherType) as EntryVoucherType;
 
     this.IsCustomer = this.compare(data?.ACCOUNTTYPE, 'cust');
-    this.IsPettyCash = this.compare(data?.ACCOUNTTYPE, 'petty cash');
+    this.IsPettyCash =
+      this.compare(data?.ACCOUNTTYPE, 'petty cash') ||
+      this.compare(data?.ACCOUNTTYPE, 'rcash');
     this.IsLedger = this.compare(data?.ACCOUNTTYPE, 'ledger');
     this.IsVendor = this.compare(data?.ACCOUNTTYPE, 'vend');
     this.IsBank = this.compare(data?.ACCOUNTTYPE, 'bank');

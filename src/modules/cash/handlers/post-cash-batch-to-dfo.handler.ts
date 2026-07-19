@@ -291,7 +291,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
-        MARKEDINVOICE: line.MarkedInvoice ?? '',
+        MARKEDINVOICE: line.MarkedInvoice || line.Invoice || '',
 
         offsetAccountDisplayValue:
           offsetAccountDisplayValue || accountDisplayValue,
@@ -355,11 +355,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         : '';
     if (!raw) return '' as TSLedgerJournalCustomAccountTypeStr;
 
-    if (raw === 'Vend') return 'Vendor';
-    if (raw === 'Cust') return 'Cust';
-    if (raw === 'Petty cash') return 'Petty Cash';
-    if (raw === 'Bank') return 'Bank';
-    if (raw === 'Ledger') return 'Ledger';
+    const normalized = raw.toLowerCase().replace(/\s+/g, '');
+    if (normalized === 'vend' || normalized === 'vendor') return 'Vendor';
+    if (normalized === 'cust') return 'Cust';
+    if (normalized === 'pettycash' || normalized === 'rcash') return 'RCash';
+    if (normalized === 'bank') return 'Bank';
+    if (normalized === 'ledger') return 'Ledger';
 
     return '' as TSLedgerJournalCustomAccountTypeStr;
   }
@@ -539,8 +540,18 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.PostingProfile?.trim()) {
       missingFields.push('customLineApiBody.PostingProfile');
     }
+    if (!this.isValidTaxGroup(body.TaxGroup)) {
+      missingFields.push(
+        'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
+      );
+    }
 
     return missingFields;
+  }
+
+  private isValidTaxGroup(taxGroup: string | undefined | null): boolean {
+    const value = taxGroup?.trim() ?? '';
+    return value === 'Taxable' || value === 'Non-Taxabl';
   }
 
   private async prepareBatchForPosting(batchId: string): Promise<void> {

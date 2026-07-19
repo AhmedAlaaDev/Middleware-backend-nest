@@ -13,7 +13,7 @@ export type TSLedgerJournalCustomAccountTypeStr =
   | 'Vendor'
   | 'Bank'
   | 'Ledger'
-  | 'Petty Cash';
+  | 'RCash';
 
 export interface TSLedgerJournalTransCustomRequestBody {
   journalNum: string;

@@ -3,4 +3,5 @@ export type EntryAccountType =
   | 'Ledger'
   | 'Vend'
   | 'Bank'
-  | 'Petty cash';
+  | 'Petty cash'
+  | 'RCash';
