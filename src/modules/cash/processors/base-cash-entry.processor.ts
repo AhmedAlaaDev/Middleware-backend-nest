@@ -175,7 +175,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(`[STEP 1.5] Sorted to ${sortedLines.length} lines`);
 
     this.logger.debug(
-      `[STEP 2] Filtering custody settlements from ${sortedLines.length} lines`,
+      `[STEP 2] Filtering lines from ${sortedLines.length} lines${this.isInbound() ? ' (cash-in splits custody)' : ' (cash-out keeps all)'}`,
     );
     const { custodySettlementLines, otherLines, vendorPayment } =
       this.filterLines(sortedLines);
@@ -353,6 +353,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     otherLines: CashEntryRawDataModel[];
     vendorPayment: CashEntryRawDataModel[];
   } {
+    // Cash-out: keep every SafeType on the cash-out path (no custody/vendor split).
+    if (!this.isInbound()) {
+      return {
+        custodySettlementLines: [],
+        otherLines: sortedLines,
+        vendorPayment: [],
+      };
+    }
+
     const custodySettlementLines: CashEntryRawDataModel[] = [];
     const vendorPayment: CashEntryRawDataModel[] = [];
     const otherLines: CashEntryRawDataModel[] = [];
@@ -360,8 +369,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     for (const line of sortedLines) {
       if (line.IsCustodySettlement) {
         custodySettlementLines.push(line);
-      } else if (!this.isInbound() && line.IsVendorPayment) {
-        vendorPayment.push(line);
       } else {
         otherLines.push(line);
       }
@@ -747,6 +754,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       currencyCode,
     );
 
+    const isCustodySafeType =
+      accountLine.IsCustodySettlement || accountLine.IsCustodyIssue;
+    const sanitizedInvoice = isCustodySafeType
+      ? ''
+      : this.sanitizeInvoiceOutbound(accountLine.INVOICE || offsetLine.INVOICE);
+
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
@@ -793,12 +806,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile: 'V-PP',
-      Invoice: this.sanitizeInvoiceOutbound(
-        accountLine.INVOICE || offsetLine.INVOICE,
-      ),
-      MarkedInvoice: this.sanitizeInvoiceOutbound(
-        accountLine.INVOICE || offsetLine.INVOICE,
-      ),
+      // Custody SafeTypes post as payment without settlement.
+      Invoice: sanitizedInvoice,
+      MarkedInvoice: sanitizedInvoice,
       dataAreaId: this.company,
       ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
