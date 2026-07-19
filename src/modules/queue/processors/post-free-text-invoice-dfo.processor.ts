@@ -253,7 +253,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     this.logger.log(
       `[POST] Posted ${postedLines.length} lines for header ${index}`,
     );
-    const lineDataString = this.buildFinTagLineDataString(
+    const finTagLines = this.buildFinTagLines(
       invoice,
       postedLines,
       index,
@@ -266,7 +266,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
           lineFinTagDisplayValues: invoice.LineFinTagDisplayValues,
           headerDefaultDimensionDisplayValue:
             invoice.HeaderDefaultDimensionDisplayValue,
-          lineDataString,
+          lines: finTagLines,
         },
       )}`,
     );
@@ -275,7 +275,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
         company,
         parseInt(headerKey, 10),
         invoice.HeaderFinTagDisplayValue,
-        lineDataString,
+        finTagLines,
       );
     } catch (err) {
       const msg = dfoErrorMessage(err);
@@ -291,12 +291,12 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     }
   }
 
-  private buildFinTagLineDataString(
+  private buildFinTagLines(
     invoice: FreeTextInvoicePostingGroup,
     postedLines: Array<{ headerId: string; lineNumber: number }>,
     index: number,
     total: number,
-  ): string {
+  ): Array<{ lineNumber: number; tags: string }> {
     const groupLabel = this.resolvePostingGroupLabel(invoice, index, total);
     const lineFinTagDisplayValues = invoice.LineFinTagDisplayValues ?? [];
     const missingFields: string[] = [];
@@ -324,12 +324,10 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
       );
     }
 
-    return postedLines
-      .map(
-        (postedLine, lineIndex) =>
-          `${postedLine.lineNumber},${lineFinTagDisplayValues[lineIndex]}`,
-      )
-      .join(';');
+    return postedLines.map((postedLine, lineIndex) => ({
+      lineNumber: postedLine.lineNumber,
+      tags: lineFinTagDisplayValues[lineIndex],
+    }));
   }
 
   private async handlePostingFailure(

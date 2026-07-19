@@ -3,12 +3,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 
+export interface FreeTextInvoiceFinTagLine {
+  lineNumber: number;
+  tags: string;
+}
+
 export interface FreeTextInvoiceFinTagUpdateRequest {
   _contract: {
     CompanyId: string;
     HeaderRecordId: number;
     HeaderDisplayValue: string;
-    LineDataString: string;
+    lines: FreeTextInvoiceFinTagLine[];
   };
 }
 
@@ -29,13 +34,13 @@ export class FreeTextInvoiceFinTagService {
    * @param company Company data area ID
    * @param headerRecordId The InvoiceIdentifier of the header
    * @param headerDisplayValue The header financial tag display value
-   * @param lineDataString Formatted string: "lineNumber1,tagValue1;lineNumber2,tagValue2"
+   * @param lines Line financial tags: [{ lineNumber, tags }]
    */
   public async updateFinTag(
     company: string,
     headerRecordId: number,
     headerDisplayValue: string,
-    lineDataString: string,
+    lines: FreeTextInvoiceFinTagLine[],
   ): Promise<any> {
     this.logger.debug(
       `Updating fin tag for invoice ${headerRecordId} in company: ${company}`,
@@ -46,7 +51,7 @@ export class FreeTextInvoiceFinTagService {
         CompanyId: company,
         HeaderRecordId: headerRecordId,
         HeaderDisplayValue: headerDisplayValue,
-        LineDataString: lineDataString,
+        lines,
       },
     };
 
