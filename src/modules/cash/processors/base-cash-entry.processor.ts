@@ -760,6 +760,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? ''
       : this.sanitizeInvoiceOutbound(accountLine.INVOICE || offsetLine.INVOICE);
 
+    const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
+    const itemSalesTaxGroup =
+      offsetLine.ITEMSALESTAXGROUP?.trim()?.toLowerCase() || '';
+    const isTaxable = salesTaxGroup === 'taxable' && !!itemSalesTaxGroup;
+
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
@@ -801,8 +806,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ReportingCurrencyExchRate: reportingRate,
       DefaultDimensionDisplayValue: dimensionStr,
       OffsetDefaultDimensionDisplayValue: dimensionStr,
-      SalesTaxGroup: offsetLine.SALESTAXGROUP,
-      ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
+      SalesTaxGroup: isTaxable ? 'Taxable' : 'Non-Taxabl',
+      ItemSalesTaxGroup: itemSalesTaxGroup,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile: 'V-PP',
