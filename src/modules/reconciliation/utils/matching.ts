@@ -1,4 +1,5 @@
 import levenshtein from 'fast-levenshtein';
+
 import {
   BankTransaction,
   IstTransaction,
@@ -6,6 +7,7 @@ import {
   ReconciliationOptions,
   ScoredCandidate,
 } from '../types';
+
 import {
   compactText,
   meaningfulTerms,
@@ -264,20 +266,30 @@ export function referenceTokenScore(
 export function isAmountMatched(
   amount1: number | null,
   amount2: number | null,
-  tolerance: number,
+  options: ReconciliationOptions,
 ): boolean {
   if (amount1 === null || amount2 === null) return false;
 
   const diff = Math.abs(amount1 - amount2);
-  if (diff <= tolerance) return true;
+  if (diff <= options.amountTolerance) return true;
+
+  const maxDiff = Math.min(
+    Math.max(amount1, amount2) * (options.amountTolerancePercent ?? 0.05),
+    options.amountToleranceCap ?? 100,
+  );
+  if (diff <= maxDiff) return true;
 
   // 1% tax tolerance (either direction)
-  if (Math.abs(amount1 * 0.99 - amount2) <= tolerance) return true;
-  if (Math.abs(amount2 * 0.99 - amount1) <= tolerance) return true;
+  if (Math.abs(amount1 * 0.99 - amount2) <= options.amountTolerance)
+    return true;
+  if (Math.abs(amount2 * 0.99 - amount1) <= options.amountTolerance)
+    return true;
 
   // 2% tax tolerance (either direction)
-  if (Math.abs(amount1 * 0.98 - amount2) <= tolerance) return true;
-  if (Math.abs(amount2 * 0.98 - amount1) <= tolerance) return true;
+  if (Math.abs(amount1 * 0.98 - amount2) <= options.amountTolerance)
+    return true;
+  if (Math.abs(amount2 * 0.98 - amount1) <= options.amountTolerance)
+    return true;
 
   return false;
 }
@@ -287,13 +299,23 @@ export function scoreCandidate(
   bank: BankTransaction,
   options: ReconciliationOptions,
 ): ScoredCandidate {
-  let amountMatchStyle: 'exact' | 'tax_1' | 'tax_2' | 'none' = 'none';
+  let amountMatchStyle: 'exact' | 'percentage' | 'tax_1' | 'tax_2' | 'none' =
+    'none';
   let amountScore = 0;
 
   if (ist.amount !== null && bank.amount !== null) {
-    if (Math.abs(ist.amount - bank.amount) <= options.amountTolerance) {
+    const diff = Math.abs(ist.amount - bank.amount);
+    const maxDiffPercent = Math.min(
+      Math.max(ist.amount, bank.amount) * options.amountTolerancePercent,
+      options.amountToleranceCap,
+    );
+
+    if (diff <= options.amountTolerance) {
       amountScore = 1;
       amountMatchStyle = 'exact';
+    } else if (diff <= maxDiffPercent) {
+      amountScore = 1;
+      amountMatchStyle = 'percentage';
     } else if (
       Math.abs(ist.amount * 0.99 - bank.amount) <= options.amountTolerance ||
       Math.abs(bank.amount * 0.99 - ist.amount) <= options.amountTolerance
@@ -317,9 +339,14 @@ export function scoreCandidate(
     const difference = Math.min(
       ...bankDays.map((day) => Math.abs(ist.epochDay! - day)),
     );
-    if (difference === 0) dateScore = 1;
-    else if (options.toleranceDays > 0 && difference <= options.toleranceDays) {
-      dateScore = Math.max(0, 1 - difference / (options.toleranceDays + 1));
+    if (difference === 0) {
+      dateScore = 1;
+    } else if (
+      options.toleranceDays > 0 &&
+      difference <= options.toleranceDays
+    ) {
+      if (difference <= 2) dateScore = 0.85;
+      else dateScore = 0.75;
     }
   }
 
@@ -468,7 +495,9 @@ export function decideScoredMatch(
           : 'Fuzzy Probable Match',
     confidence: best.score,
     reason: [
-      best.amountMatchStyle && best.amountMatchStyle !== 'exact' && best.amountMatchStyle !== 'none'
+      best.amountMatchStyle &&
+      best.amountMatchStyle !== 'exact' &&
+      best.amountMatchStyle !== 'none'
         ? `amount=${best.amountScore.toFixed(2)} (${best.amountMatchStyle})`
         : `amount=${best.amountScore.toFixed(2)}`,
       `date=${best.dateScore.toFixed(2)}`,

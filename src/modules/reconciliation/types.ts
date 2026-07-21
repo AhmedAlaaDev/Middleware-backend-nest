@@ -1,6 +1,8 @@
 export interface ReconciliationOptions {
   toleranceDays: number;
   amountTolerance: number;
+  amountTolerancePercent: number;
+  amountToleranceCap: number;
   confidenceThreshold: number;
   audit: boolean;
   allowManyToOne: boolean;
@@ -104,7 +106,7 @@ export interface ScoredCandidate {
   partyScore: number;
   hintBonus: number;
   sharedTerms: string[];
-  amountMatchStyle?: 'exact' | 'tax_1' | 'tax_2' | 'none';
+  amountMatchStyle?: 'exact' | 'percentage' | 'tax_1' | 'tax_2' | 'none';
 }
 
 export interface ReviewRecord {
