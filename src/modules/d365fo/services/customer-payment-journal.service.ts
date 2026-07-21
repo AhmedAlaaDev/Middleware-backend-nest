@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
@@ -37,6 +38,7 @@ export class CustomerPaymentJournalService {
     private readonly queryBuilder: ODataQueryBuilderService,
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
+    private readonly vendorPaymentJournalService: VendorPaymentJournalService,
   ) {}
 
   /**
@@ -200,7 +202,14 @@ export class CustomerPaymentJournalService {
     let existingLines: Set<number> = new Set();
     if (dataAreaId && lines.length > 0) {
       try {
-        const existing = await this.listLinesForHeader(headerKey, dataAreaId);
+        // Cash-out lines live on VendorPaymentJournalLines; cash-in on CustomerPaymentJournalLines.
+        const existing =
+          cashDirection === 'out'
+            ? await this.vendorPaymentJournalService.listLinesForHeader(
+                headerKey,
+                dataAreaId,
+              )
+            : await this.listLinesForHeader(headerKey, dataAreaId);
         existingLines = new Set(existing.map((l) => l.LineNumber));
       } catch (error) {
         this.logger.warn(
@@ -226,7 +235,23 @@ export class CustomerPaymentJournalService {
       );
 
       for (const line of chunk) {
+        const body = line.customLineApiBody;
+        if (!body) {
+          throw new Error(
+            `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
+          );
+        }
+
         if (existingLines.has(line.LineNumber)) {
+          // Retry safety: prior run may have created the line but failed FinTag PATCH.
+          if (cashDirection === 'out' && dataAreaId) {
+            await this.patchCashOutLineFinancialTags(
+              headerKey,
+              line.LineNumber,
+              dataAreaId,
+              body,
+            );
+          }
           successfullyPosted.push({
             headerId: headerKey,
             lineNumber: line.LineNumber,
@@ -235,16 +260,20 @@ export class CustomerPaymentJournalService {
         }
 
         try {
-          const body = line.customLineApiBody;
-          if (!body) {
-            throw new Error(
-              `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
-            );
-          }
           await this.postCustomCashLine(endpoint, {
             ...body,
             journalNum: headerKey,
           });
+
+          // Temp workaround: custom cash-out API does not persist FinTags — patch via OData.
+          if (cashDirection === 'out' && dataAreaId) {
+            await this.patchCashOutLineFinancialTags(
+              headerKey,
+              line.LineNumber,
+              dataAreaId,
+              body,
+            );
+          }
 
           successfullyPosted.push({
             headerId: headerKey,
@@ -267,6 +296,26 @@ export class CustomerPaymentJournalService {
     }
 
     return successfullyPosted;
+  }
+
+  /**
+   * Temp workaround: after cash-out custom create, set FinTags on VendorPaymentJournalLines.
+   */
+  private async patchCashOutLineFinancialTags(
+    journalBatchNumber: string,
+    lineNumber: number,
+    dataAreaId: string,
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): Promise<void> {
+    await this.vendorPaymentJournalService.updateLineFinancialTags(
+      journalBatchNumber,
+      lineNumber,
+      dataAreaId,
+      {
+        FinTagDisplayValue: body.FinTagStr,
+        OffsetFinTagDisplayValue: body.OFFSETFINTAGDISPLAYVALUE,
+      },
+    );
   }
 
   private async postCustomCashLine(

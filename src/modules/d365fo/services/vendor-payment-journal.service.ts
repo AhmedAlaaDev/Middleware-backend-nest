@@ -288,4 +288,65 @@ export class VendorPaymentJournalService {
       },
     );
   }
+
+  /**
+   * Temp workaround: patch financial tags on a VendorPaymentJournalLines row
+   * after cash-out custom API create (custom endpoint does not persist FinTags).
+   */
+  public async updateLineFinancialTags(
+    journalBatchNumber: string,
+    lineNumber: number,
+    dataAreaId: string,
+    tags: {
+      FinTagDisplayValue?: string;
+      OffsetFinTagDisplayValue?: string;
+    },
+  ): Promise<unknown> {
+    const finTag = tags.FinTagDisplayValue?.trim() ?? '';
+    const offsetFinTag = tags.OffsetFinTagDisplayValue?.trim() ?? '';
+
+    if (!finTag && !offsetFinTag) {
+      this.logger.debug(
+        `[PATCH] Skipping FinTag update for line ${lineNumber} / ${journalBatchNumber} — both tags empty`,
+      );
+      return undefined;
+    }
+
+    const body: {
+      FinTagDisplayValue?: string;
+      OffsetFinTagDisplayValue?: string;
+    } = {};
+    if (finTag) body.FinTagDisplayValue = finTag;
+    if (offsetFinTag) body.OffsetFinTagDisplayValue = offsetFinTag;
+
+    this.logger.debug(
+      `[PATCH] Updating FinTags on vendor payment line ${lineNumber} for journal ${journalBatchNumber} in company: ${dataAreaId}`,
+    );
+
+    const endpoint = `/data/VendorPaymentJournalLines(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}',LineNumber=${lineNumber})?cross-company=true`;
+
+    return this.retryService.executeWithRetry(
+      async () => {
+        return await this.d365foClient.patch<typeof body, unknown>(
+          endpoint,
+          body,
+          { headers: { 'If-Match': '*' } },
+        );
+      },
+      {
+        retries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryCondition: (error: unknown) => {
+          if (!(error as any)?.response) return true;
+          const status = (error as any).response?.status;
+          if (status && status >= 500) return true;
+          return (
+            this.dfoErrorExtractor.normalize(error).isConcurrencyConflict ===
+            true
+          );
+        },
+      },
+    );
+  }
 }

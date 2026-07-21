@@ -638,7 +638,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private formatDate(date?: Date | string): string {
     if (!date) {
-      throw new Error('Date is required');
+      return '';
     }
     if (date instanceof Date) {
       return date.toISOString();
@@ -650,6 +650,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
       return parsed.toISOString();
     }
-    throw new Error(`Invalid date type: ${typeof date}`);
+
+    return '';
   }
 }

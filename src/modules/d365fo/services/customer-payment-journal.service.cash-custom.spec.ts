@@ -6,6 +6,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       post: jest.fn(),
       get: jest.fn(),
       delete: jest.fn(),
+      patch: jest.fn(),
     };
 
     const queryBuilder = {
@@ -24,18 +25,25 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       normalize: jest.fn(() => ({ isConcurrencyConflict: false })),
     };
 
+    const vendorPaymentJournalService = {
+      listLinesForHeader: jest.fn().mockResolvedValue([]),
+      updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
+    };
+
     const service = new CustomerPaymentJournalService(
       d365foClient as any,
       queryBuilder as any,
       retryService as any,
       dfoErrorExtractor as any,
+      vendorPaymentJournalService as any,
     );
 
-    return { service, d365foClient };
+    return { service, d365foClient, vendorPaymentJournalService };
   }
 
   it('posts cash-in via addLedgerJournalTransCustPaym with journalNum (key casing)', async () => {
-    const { service, d365foClient } = buildService();
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
 
     jest
       .spyOn(service, 'listLinesForHeader')
@@ -99,14 +107,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(body).toHaveProperty('AccountNum', 'CUST001');
     expect(body).toHaveProperty('accountTypeStr', 'Cust');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(
+      vendorPaymentJournalService.updateLineFinancialTags,
+    ).not.toHaveBeenCalled();
   });
 
-  it('posts cash-out via addLedgerJournalTransVendPaym and maps Vendor accountTypeStr', async () => {
-    const { service, d365foClient } = buildService();
-
-    jest
-      .spyOn(service, 'listLinesForHeader')
-      .mockResolvedValueOnce([] as Array<{ LineNumber: number }>);
+  it('posts cash-out via addLedgerJournalTransVendPaym then patches FinTags via VendorPaymentJournalLines', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
 
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -166,5 +174,77 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(body).toHaveProperty('AccountNum', 'VEND001');
     expect(body).toHaveProperty('accountTypeStr', 'Vendor');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+
+    expect(
+      vendorPaymentJournalService.listLinesForHeader,
+    ).toHaveBeenCalledWith('JN000123', 'USMF');
+    expect(
+      vendorPaymentJournalService.updateLineFinancialTags,
+    ).toHaveBeenCalledWith('JN000123', 1, 'USMF', {
+      FinTagDisplayValue: 'TAG1',
+      OffsetFinTagDisplayValue: 'TAG2',
+    });
+  });
+
+  it('retries FinTag PATCH for existing cash-out lines without re-posting custom API', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValueOnce([
+      { LineNumber: 1 },
+    ]);
+
+    const lines: any[] = [
+      {
+        dataAreaId: 'USMF',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'VEND001',
+          accountTypeStr: 'Vendor',
+          BANKTRANSACTIONTYPE: 'Transfer',
+          CENTRALBANKPURPOSECODE: '',
+          CENTRALBANKPURPOSETEXT: '',
+          company: 'USMF',
+          creditAmount: 0,
+          currency: 'USD',
+          debitAmount: 1000,
+          DEFAULTDIMENSIONDISPLAYVALUE: '',
+          offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+          EXCHANGERATE: 1,
+          FinTagStr: 'TAG1',
+          ISPREPAYMENT: 'No',
+          ITEMWITHHOLDINGTAXGROUP: '',
+          MARKEDINVOICE: '',
+          offsetAccountDisplayValue: 'BANK001',
+          OffsetAccountTypeStr: 'Bank',
+          OffsetCompany: 'USMF',
+          OFFSETFINTAGDISPLAYVALUE: 'TAG2',
+          OFFSETTRANSACTIONTEXT: '',
+          PAYMENTID: '',
+          PAYMENTMETHODNAME: 'Bank',
+          PAYMENTNOTES: '',
+          PAYMENTREFERENCE: '',
+          PAYMENTSPECIFICATION: '',
+          PostingProfile: 'V-PP',
+          TaxGroup: 'Non-Taxabl',
+          TAXITEMGROUP: '',
+          transDate: '2026-04-21T00:00:00',
+          TRANSACTIONTEXT: 'Vendor payment',
+          Voucher: '',
+        },
+      },
+    ];
+
+    await service.postCashOutLinesForHeader('JN000123', lines, 20, 'USMF');
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
+    expect(
+      vendorPaymentJournalService.updateLineFinancialTags,
+    ).toHaveBeenCalledWith('JN000123', 1, 'USMF', {
+      FinTagDisplayValue: 'TAG1',
+      OffsetFinTagDisplayValue: 'TAG2',
+    });
   });
 });
