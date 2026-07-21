@@ -82,6 +82,10 @@ export class DataBatchService {
     dynData: TEnhancedData[],
     billingClassification?: string,
     voucherNumberSettingLogicalName?: string,
+    options?: {
+      withholdingRemovedCount?: number;
+      withholdingRemovedAmount?: number;
+    }
   ): Promise<IDataBatch> {
     this.logger.log(
       `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
@@ -115,6 +119,8 @@ export class DataBatchService {
       createdByName: actor?.userName,
       createdByEmail: actor?.userEmail,
       reprocessCount: 0,
+      withholdingRemovedCount: options?.withholdingRemovedCount ?? 0,
+      withholdingRemovedAmount: options?.withholdingRemovedAmount ?? 0,
       sourceColumnHeaders:
         sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
     });

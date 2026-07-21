@@ -12,6 +12,8 @@ export interface ICreateDataBatch {
   errorCount: number;
   totalFormattedCount: number;
   totalUploadedCount: number;
+  withholdingRemovedCount: number;
+  withholdingRemovedAmount: number;
   status: DataBatchStatus;
   billingCodeId: string | undefined;
   expectedGroupCount?: number;
@@ -45,6 +47,8 @@ export class IDataBatch {
   errorCount: number;
   totalFormattedCount: number;
   totalUploadedCount: number;
+  withholdingRemovedCount: number;
+  withholdingRemovedAmount: number;
   status: DataBatchStatus;
   billingCodeId?: string;
   expectedGroupCount?: number;
