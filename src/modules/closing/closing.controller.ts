@@ -42,7 +42,7 @@ export class ClosingController {
   })
   @UseInterceptors(FileInterceptor('dataFile'))
   public async freightClosingEntry(
-    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @UploadedFile(new ExcelFilePipe()) file: Express.Multer.File,
     @Body() body: ClosingEntryDto,
   ) {
     const result = await this.commandBus.execute(
@@ -63,7 +63,7 @@ export class ClosingController {
   })
   @UseInterceptors(FileInterceptor('dataFile'))
   public async freightClosingDifference(
-    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @UploadedFile(new ExcelFilePipe()) file: Express.Multer.File,
     @Body() body: ClosingFreightDifferenceDto,
   ) {
     const result = await this.commandBus.execute(
@@ -84,7 +84,7 @@ export class ClosingController {
   })
   @UseInterceptors(FileInterceptor('dataFile'))
   public async custodySettlementEntry(
-    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @UploadedFile(new ExcelFilePipe()) file: Express.Multer.File,
     @Body() body: ClosingEntryDto,
   ) {
     const result = await this.commandBus.execute(
@@ -105,7 +105,7 @@ export class ClosingController {
   })
   @UseInterceptors(FileInterceptor('dataFile'))
   public async truckingClosingEntry(
-    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @UploadedFile(new ExcelFilePipe()) file: Express.Multer.File,
     @Body() body: ClosingEntryDto,
   ) {
     const result = await this.commandBus.execute(

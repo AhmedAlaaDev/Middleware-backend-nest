@@ -49,7 +49,7 @@ export class ExcelController {
   })
   @UseInterceptors(FileInterceptor('file'))
   public async excelToJson(
-    @UploadedFile(new ExcelFilePipe()) file: MulterFile,
+    @UploadedFile(new ExcelFilePipe()) file: Express.Multer.File,
     @Query() pagination: PaginatedDto,
   ): Promise<IPaginatedRes<unknown>> {
     const data = await this.excelService.excelToJson<unknown>(file.buffer);

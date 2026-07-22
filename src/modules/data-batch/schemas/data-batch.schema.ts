@@ -16,7 +16,7 @@ export class DataBatch {
   @Prop()
   company: string;
 
-  @Prop({ enum: EntryProcessorTypes })
+  @Prop({ type: Number, enum: EntryProcessorTypes })
   entryProcessorType: EntryProcessorTypes;
 
   @Prop()
@@ -43,7 +43,7 @@ export class DataBatch {
   @Prop({ default: 0 })
   withholdingRemovedAmount: number;
 
-  @Prop({ enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
+  @Prop({ type: Number, enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
   status: DataBatchStatus;
 
   @Prop()
