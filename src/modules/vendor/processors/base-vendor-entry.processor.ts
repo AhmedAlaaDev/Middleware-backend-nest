@@ -256,9 +256,12 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       ? ''
       : line.MARKEDINVOICE || line.INVOICE || '';
 
+    const descriptionSuffix = isPartialPayment || !markedInvoice ? ' - unmarked' : '';
+    const description = `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}${descriptionSuffix}`;
+
     const dynLine = new VendorEntryDynDataModel(dimensions, {
       dataAreaId: this.company,
-      Description: `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}`,
+      Description: description,
       JournalName: this.getJournalName(),
       JournalBatchNumber: line.JOURNALBATCHNUMBER,
       LineNumber: Number(line.LINENUMBER),

@@ -112,9 +112,10 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
     expect(result).toHaveLength(1);
     expect(result[0].Invoice).toBe('INV-2026-001');
     expect(result[0].MarkedInvoice).toBe('INV-2026-001');
+    expect(result[0].Description).toBe('Test Vendor Freight Jan 2026');
   });
 
-  it('should default MarkedInvoice to empty string "" for regular vendors when INVOICE is missing', async () => {
+  it('should default MarkedInvoice to empty string "" and append "- unmarked" to Description when INVOICE is missing', async () => {
     const rawData: any[] = [
       {
         UniqueId: 2,
@@ -136,9 +137,10 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
     expect(result).toHaveLength(1);
     expect(result[0].Invoice).toBe('');
     expect(result[0].MarkedInvoice).toBe('');
+    expect(result[0].Description).toContain('unmarked');
   });
 
-  it('should set MarkedInvoice to empty string "" when Payment Amount < Saved Invoice Amount (Partial Payment)', () => {
+  it('should set MarkedInvoice to empty string "" and append "- unmarked" to Description for Partial Payment', () => {
     const lineRaw: any = {
       UniqueId: 3,
       LINENUMBER: 3,
@@ -158,9 +160,10 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
 
     expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
     expect(builtLine.MarkedInvoice).toBe('');
+    expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
   });
 
-  it('should retain MarkedInvoice string when Payment Amount >= Saved Invoice Amount (Full / Over Payment)', () => {
+  it('should retain MarkedInvoice string and normal Description for Full / Over Payment', () => {
     const lineRaw: any = {
       UniqueId: 4,
       LINENUMBER: 4,
@@ -180,5 +183,6 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
 
     expect(builtLine.Invoice).toBe('INV-2026-FULL');
     expect(builtLine.MarkedInvoice).toBe('INV-2026-FULL');
+    expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
   });
 });
