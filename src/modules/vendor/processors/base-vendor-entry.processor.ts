@@ -227,7 +227,17 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
     const segmentLength =
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
-    const dimensions = this.utilsService.parseDimensionString(dimensionString);
+    let dimensions = this.utilsService.parseDimensionString(dimensionString);
+
+    const isLedgerLine = this.isLedger(line);
+    const tagOrAccount = String(
+      line.FINTAGDISPLAYVALUE || line.ACCOUNTDISPLAYVALUE || '',
+    ).trim();
+
+    if (isLedgerLine && tagOrAccount.startsWith('22420')) {
+      dimensions =
+        this.utilsService.filterDimensionsForLedgerTag22420(dimensions);
+    }
 
     const vendorInfo = this.isVendor(line)
       ? this.getVendorTaxNumberAndTermsOfPayment(line.ACCOUNTDISPLAYVALUE)

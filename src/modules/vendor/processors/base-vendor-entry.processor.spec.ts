@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 import { BaseVendorEntryProcessor } from '@/modules/vendor/processors/base-vendor-entry.processor';
 
@@ -34,15 +35,29 @@ class TestVendorEntryProcessor extends BaseVendorEntryProcessor {
   }
 }
 
-describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
+describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', () => {
   let processor: TestVendorEntryProcessor;
   let queryBus: jest.Mocked<QueryBus>;
   let commandBus: jest.Mocked<CommandBus>;
 
+  const realUtilsService = new EntryProcessorUtilsService();
+
   const mockUtilsService = {
     suffixDuplicateInvoices: jest.fn((lines) => lines),
     getDimensionSegmentLength: jest.fn(() => 19),
-    parseDimensionString: jest.fn(() => ({ mainAccount: '200101' })),
+    parseDimensionString: jest.fn(() => ({
+      mainAccount: '224201',
+      costCenter: 'CC01',
+      activityName: 'ACT01',
+      businessUnit: 'BU01',
+      location: 'LOC01',
+      customer: 'CUST01',
+      vendor: 'VEND01',
+      chargeType: 'CHG01',
+    })),
+    filterDimensionsForLedgerTag22420: jest.fn((dims) =>
+      realUtilsService.filterDimensionsForLedgerTag22420(dims),
+    ),
     normalizeCurrencyCode: jest.fn((c) => c || 'EGP'),
     formatMonthYear: jest.fn(() => 'Jan 2026'),
     updateBatchAndVoucher: jest.fn(({ lines }) => lines),
@@ -184,5 +199,34 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
     expect(builtLine.Invoice).toBe('INV-2026-FULL');
     expect(builtLine.MarkedInvoice).toBe('INV-2026-FULL');
     expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
+  });
+
+  it('should drop non-core dimensions for Ledger line where tag/account starts with 22420', () => {
+    const lineRaw: any = {
+      UniqueId: 5,
+      LINENUMBER: 5,
+      JOURNALBATCHNUMBER: 'B100',
+      ACCOUNTTYPE: 'Ledger',
+      ACCOUNTDISPLAYVALUE: '224201-01',
+      FINTAGDISPLAYVALUE: '224201_TAG',
+      CREDITAMOUNT: 0,
+      DEBITAMOUNT: 2000,
+      CURRENCYCODE: 'EGP',
+      TRANSDATE: '2026-01-15',
+    };
+
+    const builtLine = (processor as any).buildLine('SRC-5', lineRaw);
+
+    // Retained core dimensions
+    expect(builtLine.DimensionModel.mainAccount).toBe('224201');
+    expect(builtLine.DimensionModel.costCenter).toBe('CC01');
+    expect(builtLine.DimensionModel.activityName).toBe('ACT01');
+    expect(builtLine.DimensionModel.businessUnit).toBe('BU01');
+    expect(builtLine.DimensionModel.location).toBe('LOC01');
+    expect(builtLine.DimensionModel.vendor).toBe('VEND01');
+
+    // Dropped non-core dimensions
+    expect(builtLine.DimensionModel.customer).toBeUndefined();
+    expect(builtLine.DimensionModel.chargeType).toBeUndefined();
   });
 });
