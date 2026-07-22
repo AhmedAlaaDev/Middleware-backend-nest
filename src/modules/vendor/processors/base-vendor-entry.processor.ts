@@ -265,7 +265,8 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       DueDate: line.DUEDATE,
       ExchRate: exchangeRate,
       FinTagDisplayValue: line.FINTAGDISPLAYVALUE,
-      Invoice: line.INVOICE,
+      Invoice: line.INVOICE || '',
+      MarkedInvoice: line.MARKEDINVOICE || line.INVOICE || '',
       InvoiceDate: line.DOCUMENTDATE,
       IsWithholdingTaxCalculate: isWithholding ? 'Yes' : 'No',
       ItemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
@@ -313,6 +314,6 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
   protected sortDfoLines(
     lines: VendorEntryDynDataModel[],
   ): VendorEntryDynDataModel[] {
-    return lines.sort((a, b) => a.Invoice.localeCompare(b.Invoice));
+    return lines.sort((a, b) => (a.Invoice || '').localeCompare(b.Invoice || ''));
   }
 }

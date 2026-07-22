@@ -49,6 +49,8 @@ export class EntryRawDataModel {
   DOCUMENT: string;
   /** Invoice */
   INVOICE: string;
+  /** Marked Invoice */
+  MARKEDINVOICE: string;
   /** Posting profile */
   POSTINGPROFILE: string;
   /** Posting layer */
@@ -129,6 +131,7 @@ export class EntryRawDataModel {
     );
     this.DOCUMENT = s(data.DOCUMENT);
     this.INVOICE = s(data.INVOICE);
+    this.MARKEDINVOICE = s(data.MARKEDINVOICE);
     this.POSTINGPROFILE = s(data.POSTINGPROFILE);
     this.POSTINGLAYER = s(data.POSTINGLAYER);
     this.TAXEXEMPTNUMBER = n(data.TAXEXEMPTNUMBER);

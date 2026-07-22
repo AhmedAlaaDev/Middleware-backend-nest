@@ -23,6 +23,8 @@ export class EntryDynDataModel extends DynDataModel {
   Voucher: string;
   /** Invoice */
   Invoice: string;
+  /** Marked Invoice for settlement/posting */
+  MarkedInvoice: string;
 
   // ACCOUNTS
   /** Account type */
@@ -126,6 +128,7 @@ export class EntryDynDataModel extends DynDataModel {
     this.LineNumber = data.LineNumber || 0;
     this.Voucher = data.Voucher || '';
     this.Invoice = data.Invoice || '';
+    this.MarkedInvoice = data.MarkedInvoice || '';
 
     // ACCOUNTS
     this.AccountType = data.AccountType || ('' as EntryAccountType);
