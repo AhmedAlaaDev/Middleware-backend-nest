@@ -13,11 +13,7 @@ export class SyncJob {
   @Prop({ required: true })
   name: string;
 
-  @Prop({
-    required: true,
-    enum: SyncJobStatus,
-    default: SyncJobStatus.PENDING,
-  })
+  @Prop({ type: Number, enum: SyncJobStatus, default: SyncJobStatus.PENDING })
   status: SyncJobStatus;
 
   @Prop()

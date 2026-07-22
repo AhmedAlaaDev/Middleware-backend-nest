@@ -13,6 +13,7 @@ import {
 } from '@/modules/data-batch/decorators/batch-owner-action.decorator';
 import { DataBatchRepository } from '@/modules/data-batch/repositories/interfaces';
 import { UserRole } from '@/modules/user/schemas/user.schema';
+import { Request } from 'express';
 
 @Injectable()
 export class BatchOwnerOrAdminGuard implements CanActivate {
@@ -28,7 +29,7 @@ export class BatchOwnerOrAdminGuard implements CanActivate {
     );
     if (!action) return true;
 
-    const request = context.switchToHttp().getRequest<Req>();
+    const request = context.switchToHttp().getRequest<Request>();
     const batchId =
       (request.params?.batchId as string | undefined) ??
       (request.query?.batchId as string | undefined);
@@ -40,8 +41,8 @@ export class BatchOwnerOrAdminGuard implements CanActivate {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
     if (
-      request.user?.role === UserRole.ADMIN ||
-      batch.createdByUserId === request.user?.id
+      (request as any).user?.role === UserRole.ADMIN ||
+      batch.createdByUserId === (request as any).user?.id
     ) {
       return true;
     }

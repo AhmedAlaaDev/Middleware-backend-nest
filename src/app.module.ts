@@ -25,12 +25,12 @@ import { HealthModule } from '@/modules/health/health.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
 import { ObservabilityModule } from '@/modules/observability/observability.module';
 import { QueueModule } from '@/modules/queue/queue.module';
+import { ReconciliationModule } from '@/modules/reconciliation/reconciliation.module';
 import { ResilienceModule } from '@/modules/resilience/resilience.module';
 import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { UserModule } from '@/modules/user/user.module';
 import { VendorModule } from '@/modules/vendor/vendor.module';
-import { ReconciliationModule } from '@/modules/reconciliation/reconciliation.module';
 
 @Module({
   imports: [

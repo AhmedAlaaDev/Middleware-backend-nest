@@ -1,0 +1,1 @@
+const fs = require('fs'); const file = 'src/modules/reconciliation/reconciliation.service.ts'; let content = fs.readFileSync(file, 'utf8'); content = content.replace(/isAmountMatched\(([^,]+),\s*([^,]+),\s*options\.amountTolerance\)/g, 'isAmountMatched(, , options)'); fs.writeFileSync(file, content);

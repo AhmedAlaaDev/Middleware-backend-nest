@@ -12,7 +12,7 @@ const ALLOWED_TYPES = [
 
 @Injectable()
 export class ExcelFilePipe implements PipeTransform {
-  transform(value: MulterFile, _: ArgumentMetadata): MulterFile {
+  transform(value: Express.Multer.File, _: ArgumentMetadata): Express.Multer.File {
     if (!value) {
       throw new BadRequestException('File is required');
     }

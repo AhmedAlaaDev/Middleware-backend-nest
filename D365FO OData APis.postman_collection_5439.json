@@ -1,0 +1,3569 @@
+{
+  "info": {
+    "_postman_id": "76fb6547-5005-4f1a-91c4-9e076f08cf84",
+    "name": "D365FO OData APis",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "45508356",
+    "_collection_link": "https://go.postman.co/collection/45508356-76fb6547-5005-4f1a-91c4-9e076f08cf84?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Ledger (Closing)",
+      "item": [
+        {
+          "name": "Ledger Journal Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalHeaders?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000007010'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000007010'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Journal Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"dataAreaId\": \"m-p\",\r\n  \"JournalName\": \"CustSettle\",\r\n  \"Description\": \"[TESTING_ONLY] Custody Settlement Entry January 2026 (Without Cash)\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalHeaders?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Journal Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000007010')?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000007010')"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Journal Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalLines?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000007010'&$top=100",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000007010'"
+                },
+                {
+                  "key": "$top",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Journal Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"dataAreaId\": \"m-p\",\r\n  \"JournalBatchNumber\": \"Mesco-010000170\",\r\n  \"CurrencyCode\": \"USD\",\r\n  \"TransDate\": \"2026-01-01T00:00:00.000Z\",\r\n  \"DocumentDate\": \"2025-12-14T00:00:00.000Z\",\r\n  \"DueDate\": \"2025-12-14T00:00:00.000Z\",\r\n  \"AccountType\": \"Ledger\",\r\n  \"AccountDisplayValue\": \"223404|1201|012|001|001|101004592|101004592|6121|6121|16469|4061|3363|Payable|||Export||||\",\r\n  \"DefaultDimensionDisplayValue\": \"\",\r\n  \"Text\": \"سيف الدين خالد سعد\",\r\n  \"DebitAmount\": 2,\r\n  \"CreditAmount\": 0,\r\n  \"OffsetAccountType\": \"\",\r\n  \"OffsetAccountDisplayValue\": \"\",\r\n  \"OffsetDefaultDimensionDisplayValue\": \"\",\r\n  \"OffsetText\": \"\",\r\n  \"Voucher\": \"CustSettle-000002549\",\r\n  \"Document\": 15175,\r\n  \"Invoice\": 15175,\r\n  \"PostingProfile\": \"\",\r\n  \"PaymentMethod\": \"\",\r\n  \"SalesTaxGroup\": \"Non-Taxabl\",\r\n  \"ItemSalesTaxGroup\": \"\",\r\n  \"ExchRate\": 0,\r\n  \"FinTagDisplayValue\": \"\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalLines?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Journal Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000007010',LineNumber=1)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000007010',LineNumber=1)"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Vendor (AP)",
+      "item": [
+        {
+          "name": "Vendor Invoice Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalHeaders?cross-company=true&$top=1&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013063'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013063'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000012527')?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000012527')"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Headers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"dataAreaId\": \"m-p\",\r\n  \"JournalName\": \"V-Freight\",\r\n  \"Description\": \"[TESTING_ONLY] Vendor Invoice Freight January 2025\"\r\n}\r\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalHeaders",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalHeaders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Headers Copy",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"dataAreaId\": \"m-p\",\r\n  \"JournalName\": \"V-Freight\",\r\n  \"Description\": \"[TESTING_ONLY] Vendor Invoice Freight January 2025\"\r\n}\r\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalHeaders",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalHeaders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalLines?cross-company=true&$filter=dataAreaId eq 'm-p' and Invoice eq 'TMT13' and AccountDisplayValue eq '3071'&$top=100&$select=Invoice,AccountDisplayValue,AccountType,JournalBatchNumber,LineNumber",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and Invoice eq 'TMT13' and AccountDisplayValue eq '3071'"
+                },
+                {
+                  "key": "$top",
+                  "value": "100"
+                },
+                {
+                  "key": "$select",
+                  "value": "Invoice,AccountDisplayValue,AccountType,JournalBatchNumber,LineNumber"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY5MzI5OTE1LCJuYmYiOjE3NjkzMjk5MTUsImV4cCI6MTc2OTMzMzgxNSwiYWlvIjoiazJaZ1lBZytVdnJnMDZMb2lkeFNuNmViM1ZSVkFBQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiMmpEeXlQTUY4RTJhNnJTbXBKUXJBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6Imo1Mk41cXpmRFdsNzFIMHBjRXhsWWszcV9jVlFFZzVVdjN0WFkyM3VWRllCWm5KaGJtTmxZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgMTAiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiI5IDMifQ.Zbn7HQavpfNUCOGmApftwKAGMKH8u-eKtkVzSXQ2G5vgrjzF6FA198IpOG6MyOdOhT0t8y34QEbTwNOBv3tIdrJIXzM7zsgTu-QWGFLAsZOTGnolpqxEYN0nBQvVF9gEkEyl1vgvCIkiPHKKKHdWPHmW7b9kO5J8IX9aP0izpMO6SStEYF67krs4xPMow00UPjpNUXbmLmiiw28aG9YF3U3Zr51bn8bi0MdpCqwb2NeJ_fqZzhzijpH69tCPJF7iT9tdP1Gb006Rlc3Yx3-QobcYdL_BcQaZuSAdkho0S8jCYfz8SuLhZyQtBCq1ZTheajj9bPmH3nU658OQov8COQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000100014',LineNumber=20)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000100014',LineNumber=20)"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Invoice Lines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"dataAreaId\": \"m-p\",\r\n  \"JournalBatchNumber\": \"Mesco-000005621\",\r\n  \"LineNumber\": 1,\r\n  \"AccountDisplayValue\": \"Al-000006\",\r\n  \"PostingProfile\": \"V-PP\",\r\n  \"OffsetAccountDisplayValue\": \"\",\r\n  \"DefaultDimensionDisplayValue\": \"|1101|011|001|004|101004540|101004540|Al-000006|Al-000006|433|3068|4018|Collect|||IMPORT||||\",\r\n  \"FinTagDisplayValue\": \"O25-IMP-AI-39|‏ME_Q-20250106652-IMP-AI‎|‏Al-000006‎|‏Ag-000121‎|‏077-58856722‎|‏‎|‏‎|‏‎|‏‎|‏‎|‏PVG SHANGHAI‎|‏CAI CAIRO‎|‏‎|‏‎|‏03/01/2025‎|‏‎|‏‎|‏02/01/2025‎|‏31/01/2025‎\",\r\n  \"OffsetFinTagDisplayValue\": \"\",\r\n  \"ReportingCurrencyExchRate\": 100,\r\n  \"AccountType\": \"Vend\",\r\n  \"TermsOfPayment\": \"0 Days\",\r\n  \"ExchRateSecond\": 0,\r\n  \"TransactionType\": \"Vendor\",\r\n  \"ExchRate\": 100,\r\n  \"Document\": \"53\",\r\n  \"Description\": \"Vendor Invoice Freight January 2025\",\r\n  \"Invoice\": \"2162841\",\r\n  \"Date\": \"2025-01-05T00:00:00.000Z\",\r\n  \"Voucher\": \"V-Freight-000000001\",\r\n  \"Currency\": \"EGP\",\r\n  \"OffsetAccountType\": \"\",\r\n  \"InvoiceDate\": \"2025-01-05T00:00:00.000Z\",\r\n  \"Debit\": 0,\r\n  \"DueDate\": \"2025-01-05T00:00:00.000Z\",\r\n  \"Credit\": 542.41\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VendInvoiceJournalLines",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendInvoiceJournalLines"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Journal Line Settled Invoices",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?$top=1",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLineSettledInvoices"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "1"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalBatchNumber eq 'OB-000000246'",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013063'&$select=dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted&$top=1&$orderby=JournalBatchNumber desc",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013063'"
+                },
+                {
+                  "key": "$select",
+                  "value": "dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted"
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                },
+                {
+                  "key": "$orderby",
+                  "value": "JournalBatchNumber desc"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'OB-000000246'&$top=1",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'OB-000000246'"
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vend Trans Bi Entities",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendTransBiEntities?$select=dataAreaId,SourceKey,AccountNum,Invoice,Voucher,TransDate,DocumentDate,DueDate,AmountCur,AmountMST,CurrencyCode,Closed,Settlement,LastSettleVoucher,SettleAmountCur,PaymReference&$filter=dataAreaId eq 'm-p'&$top=10",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendTransBiEntities"
+              ],
+              "query": [
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$select",
+                  "value": "dataAreaId,SourceKey,AccountNum,Invoice,Voucher,TransDate,DocumentDate,DueDate,AmountCur,AmountMST,CurrencyCode,Closed,Settlement,LastSettleVoucher,SettleAmountCur,PaymReference"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                },
+                {
+                  "key": "$top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Master Data",
+      "item": [
+        {
+          "name": "METADATA",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/$metadata#LedgerJournalLines",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "$metadata"
+              ],
+              "hash": "LedgerJournalLines"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "metadata#DataEntities",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY0MTU3MjQzLCJuYmYiOjE3NjQxNTcyNDMsImV4cCI6MTc2NDE2MTE0MywiYWlvIjoiazJKZ1lMQzdrTk82c0hHWDRKRzdwYmRLRGx4ZUJRQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiakRZYVVBTDFBazZYMVpCdGxQdHFBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6IlpXMzRGbkxTem5tX2FnYnNNMXA4TGMwclJVcmZxYWZkeVMtZ3o0Vi1ydklCYzNkbFpHVnVZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgMjAiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.FXA4iVnpzycTALmOIC30qy5vAA_rpCxZHFfDC8lTOa5PQOusDvlQnOk-ieWHAZF8Vy0tThFBx145wlWjOjxysRs9oaVPjqaQnsa3X86QB4Wo10IRxGUO5KQJGND-zb_ogQy-Ly3YvH2CoAsW9FjbZ150BjdUZ4aRavwnQ66EF2I61lUJ7Kv95Xiu-NOCCHpDVoepZrgwIU3RxIfRJD6v1wwoj9dFs2lM3pwdbnNTtFG56gh8veEKE9v8drQ6Rigg58MsUXQi0JADRAuFTacEKbuzY77NVSBXd3FcRwzxfW5Xnaiop9LLXFk_UYII0Wg8YDL2iob_xqC0FGw30uL9Rw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/$metadata#DataEntities",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "$metadata"
+              ],
+              "hash": "DataEntities"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vat Numbers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VATNumTables?cross-company=true&$filter=dataAreaId eq 'm-p' and VATNum eq '100023118'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VATNumTables"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and VATNum eq '100023118'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vat Numbers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"dataAreaId\": \"m-p\",\r\n    \"VATNum\": \"100243770\",\r\n    \"CountryRegionId\": \"EGY\",\r\n    \"Name\": \"Testing From API2\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VATNumTables",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VATNumTables"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vat Numbers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VATNumTables(dataAreaId='m-p',VATNum='100243770',CountryRegionId='EGY')?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VATNumTables(dataAreaId='m-p',VATNum='100243770',CountryRegionId='EGY')"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customers",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/Customers?cross-company=true&$filter=dataAreaId eq 'm-p'&$top=1&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Customers"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cust Transactions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/CustTransactions?cross-company=true&%24filter=dataAreaId%20eq%20%27m-p%27&%24apply=groupby((dataAreaId,AccountNum))&%24select=dataAreaId,AccountNum&%24top=10",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustTransactions"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "%24filter",
+                  "value": "dataAreaId%20eq%20%27m-p%27"
+                },
+                {
+                  "key": "%24apply",
+                  "value": "groupby((dataAreaId,AccountNum))"
+                },
+                {
+                  "key": "%24select",
+                  "value": "dataAreaId,AccountNum"
+                },
+                {
+                  "key": "%24top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"PartyType\":\"Organization\",\r\n    \"dataAreaId\":\"m-p\",\r\n    \"SalesTaxGroup\":\"Taxable\",\r\n    \"Name\":\"Testing From API2\",\r\n    \"CustomerGroupId\":\"Domestic\",\r\n    \"SalesCurrencyCode\":\"EGP\",\r\n    \"CustomerAccount\":\"100243770\",\r\n    \"TaxExemptNumber\" : \"100243770\",\r\n    \"OrganizationNumber\":\"\",\r\n    \"PaymentTerms\":\"30 Days\",\r\n    \"AddressCountryRegionId\":\"EGY\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/Customers",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Customers"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/Customers(dataAreaId='m-p',CustomerAccount='100243770')?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Customers(dataAreaId='m-p',CustomerAccount='100243770')"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendors",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorsV3?cross-company=true&$filter=dataAreaId eq 'm-p' and VendorAccountNumber eq 'Al-000001'&$count=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorsV3"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and VendorAccountNumber eq 'Al-000001'"
+                },
+                {
+                  "key": "$top",
+                  "value": "10",
+                  "disabled": true
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "VendTransBiEntities",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendTransBiEntities?cross-company=true&$filter=dataAreaId eq 'm-p'&$select=Invoice,AccountNum,Closed,Approved,Cancel,AmountCur,SettleAmountCur,TransType&$top=5",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendTransBiEntities"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                },
+                {
+                  "key": "$select",
+                  "value": "Invoice,AccountNum,Closed,Approved,Cancel,AmountCur,SettleAmountCur,TransType"
+                },
+                {
+                  "key": "$top",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ExchangeRates",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY0NzE5Mjg2LCJuYmYiOjE3NjQ3MTkyODYsImV4cCI6MTc2NDcyMzE4NiwiYWlvIjoiazJKZ1lMaW84SER5VFFWcDBjTFRxODViSDVyaUNnQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiWmQ1bHB0Qi1SVXVCcjhvTUFndVBBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6ImhhSjVyal8wSDJnSXQzWFpoemdfSmRqM01aaDJNbXZZZzN0ZXg4aW55aDRCWlhWeWIzQmxibTl5ZEdndFpITnRjdyIsInhtc19pZHJlbCI6IjI4IDciLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.DV-VZafGAAv6WrtXCHGZmNU73M91gRTxlSbCTTJgHIkMhEEFY82ZwEHGsOsdpdTZEEE4uxssplqpzyYMLyXWizh7oYkUE_WWE2uN_ArQI3wqkrfn0Tyr7VYdPBk4-4IkGh-tyWqSV66qCfg1GrcCh4j7mOJF_WLytlVdUyaXqEWwTeb1NZ9AU2UhQhusFnzyXFkYdDXGnfeApRtz8RS9afwhVHleN4mFKx1ha_2GFcd4FMIxYrvFaM4kBndJ8TAAdqs7DAock2Dl6Ow9zuyUQtvaaNaDXMqHr0936LRxtgbW3ps5PMBT8xS2XY-WLN2zOBw3IPqXEIRLPjoIzn6tRQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/ExchangeRates?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "ExchangeRates"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Back Checks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY0MTU3MjQzLCJuYmYiOjE3NjQxNTcyNDMsImV4cCI6MTc2NDE2MTE0MywiYWlvIjoiazJKZ1lMQzdrTk82c0hHWDRKRzdwYmRLRGx4ZUJRQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiakRZYVVBTDFBazZYMVpCdGxQdHFBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6IlpXMzRGbkxTem5tX2FnYnNNMXA4TGMwclJVcmZxYWZkeVMtZ3o0Vi1ydklCYzNkbFpHVnVZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgMjAiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.FXA4iVnpzycTALmOIC30qy5vAA_rpCxZHFfDC8lTOa5PQOusDvlQnOk-ieWHAZF8Vy0tThFBx145wlWjOjxysRs9oaVPjqaQnsa3X86QB4Wo10IRxGUO5KQJGND-zb_ogQy-Ly3YvH2CoAsW9FjbZ150BjdUZ4aRavwnQ66EF2I61lUJ7Kv95Xiu-NOCCHpDVoepZrgwIU3RxIfRJD6v1wwoj9dFs2lM3pwdbnNTtFG56gh8veEKE9v8drQ6Rigg58MsUXQi0JADRAuFTacEKbuzY77NVSBXd3FcRwzxfW5Xnaiop9LLXFk_UYII0Wg8YDL2iob_xqC0FGw30uL9Rw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/BankAccounts?cross-company=true&$filter=dataAreaId eq 'm-p'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "BankAccounts"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Chart Of Accounts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY4ODMyMzc1LCJuYmYiOjE3Njg4MzIzNzUsImV4cCI6MTc2ODgzNjI3NSwiYWlvIjoiazJaZ1lKQUszTGFyWXZwbGR1MWNwcGZaYkZxYkFBPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiNEhSS3hnVTRaRVdWem5oZHU2SFpBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6Im5hWVhUM3dvUTgxMmEwZEJKa2xmdkpNUUNEZHFNcUpWQ3c3UUpiY0trdGNCWlhWeWIzQmxkMlZ6ZEMxa2MyMXoiLCJ4bXNfaWRyZWwiOiIyNCA3IiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSIsInhtc19zdWJfZmN0IjoiMyA5In0.E_l9XXnoFEW9bAz2Ln33HkSC-B12xaeKobGHOlhcYrFrwT1fSKSlyuHKHYsPhT4rxl7ceNlWdRUNiIh2JRc4OxRCXvIAX9Ph791bas_PMo83mzmb3tJMMVExvKKoFdR2SBRTzvW2zaZ50C2ZA6W6r_m6ENyXZi0XmFKHVhuwpmy1U8Tb-YUyzr-SH_KhY1-7LkJpH1_fR5CIkzJgAceNjR11F5BvxhLkzcMmJoPbdRQ4bbZlyVb70lBVQARCxlPJycGfbBZjmRweUAwwoA6EMfnBr_1190zb03icpHXbMvPs5Yct7nBy24nYtKk8XXE38lldL4wb0rbLzZo8JB-9DQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/MainAccounts?cross-company=true&$filter=ChartOfAccounts eq 'Chart of Accounts' ",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "MainAccounts"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "ChartOfAccounts eq 'Chart of Accounts' "
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "BillingClassifications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/BillingClassifications?cross-company=true&$filter=dataAreaId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "BillingClassifications"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Billing Codes",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/BillingClassificationCodes?cross-company=true&$filter=dataAreaId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "BillingClassificationCodes"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Billing Code Versions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/BillingCodeVersions?cross-company=true&$filter=dataAreaId eq 'm-p' and BillingCode eq 'YD-05008'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "BillingCodeVersions"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and BillingCode eq 'YD-05008'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Billing Code Accounting Distributions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/BillingCodeAccountingDistributions?cross-company=true&$filter=dataAreaId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "BillingCodeAccountingDistributions"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Tax Item Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/TaxItemGroupHeadings?cross-company=true&$filter=dataAreaId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "TaxItemGroupHeadings"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Tax Item Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"dataAreaId\": \"m-p\",\r\n    \"TaxItemGroup\": \"VAT-10%\",\r\n    \"Name\": \"VAT-10%\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/TaxItemGroupHeadings?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "TaxItemGroupHeadings"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Terms of payment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY5MjQyNDE2LCJuYmYiOjE3NjkyNDI0MTYsImV4cCI6MTc2OTI0NjMxNiwiYWlvIjoiazJaZ1lGZ3FIUDF4anQ5azM5VFp2anZZRjZ5YURnQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiN1dIcVZyWFk5MFNPQzJvOHRDWU9BQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6ImFXY3pCWnppTzAzbFBISTFhc2s3eHdoMmszNVRLSERjdHJxZlRkWjZpRWNCWlhWeWIzQmxibTl5ZEdndFpITnRjdyIsInhtc19pZHJlbCI6IjcgMjgiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.DqU7Aq1nVMoXI_T2jRwMeUGybptF6Q4FchvAkBM9QGWZyZippWcBaSBMajjWom4ylk5JjL8RYIfFnFd3lJOWqiS6iuxPDt-Ak0WLWCo8U_qvaxUkxlzFz9zji4dwmRqfGRL3AGAOpsX6f-zwDAU3EE2fxMSaZSqU0fQCOALwn0j7u6uTvyLqZ2A-M_6387T0rLUVE0IIfvkiULxyBR0MVP5JH-VoGfUm3KV64b-HcguuZWz0JtBJqIHheEZL9N9Kj1V3EOGIs04Rv4wS-ePgoYYZRcMdEoTBCOa_HTHGHxjE4BtAHV3mjCpPRFItqDERchfTv8SoMamQsDv2mYEXWQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/PaymentTerms?cross-company=true&$filter=dataAreaId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "PaymentTerms"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$select",
+                  "value": "TermsOfPayment,Description",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Legal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY5Mjc5NDY0LCJuYmYiOjE3NjkyNzk0NjQsImV4cCI6MTc2OTI4MzM2NCwiYWlvIjoiazJaZ1lMRHExb3ZJbUJROXYvU2x3WlVOZ3RtQ0FBPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiSEw4bDV5MTlFMGFxRE1Mdzg2RWRBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6IkNEMW0xQjBzYjYtd2dMeXM2SXM0NVd6N3NLU2UwWU1nMDRWMUJ6MWRWaFVCYzNkbFpHVnVZeTFrYzIxeiIsInhtc19pZHJlbCI6IjI2IDciLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiI5IDMifQ.XB9Tuw216VFRd0TbVkBXBU0uCyIAMuCC5e3JxAR7WXf3RDkqZNMNs2xHyfpbVRYVH47g60edIqWDEtw_-u4ngjEJeogplDaXeVHj_lySiZBRqS4BdXjT78-LdUpoC1waB6R4YNjjNljAGTlhZuAJLedHkYtl0DEBNK-zQPkfB6W1D39Xj9dpaEpxgenS443U5-7efFtRW-RWkZ1DtXc7mLa6qnfqmlIzGLnpcDrqHgW6acKXLdjv_ueSHkUesO0wKveS6PUmyQ4gMYbBUJmvLii2fpEE7Ol1uakohNEGT1ThkHLQ73i3IPNqVjjG4mHpamS9laJQdwtAw9x1qHHtZA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/Ledgers?cross-company=true&$filter=LegalEntityId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Ledgers"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$select",
+                  "value": "DataArea,Name,PrimaryAddressLocation,DefaultCurrency",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "LegalEntityId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Languages",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/Languages?cross-company=true&$filter=LegalEntityId eq 'm-p'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Languages"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$select",
+                  "value": "DataArea,Name,PrimaryAddressLocation,DefaultCurrency",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "LegalEntityId eq 'm-p'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Employees",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyIsImtpZCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzUyNTg0MTk1LCJuYmYiOjE3NTI1ODQxOTUsImV4cCI6MTc1MjU4ODA5NSwiYWlvIjoiazJSZ1lPam12djdWT2I3TlJFcnl6bTVPcjlwdkFBPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoibHpCZGZjb2xJMFMxS1B1YzZXWUlBQSIsInZlciI6IjEuMCIsInhtc19mdGQiOiJWLXdfZGxvNVBSU2VxUEluNDZJV1ZMN2F1Qm9DbnFFNWFDbXpJcGNfcVh3QlpuSmhibU5sWXkxa2MyMXoiLCJ4bXNfaWRyZWwiOiI3IDE0IiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSJ9.hwY0HDiriZ5j7D8OHCoGQ-DBO07JwRhaFoyfn2S9vNlHHbxhiE2d4c9V-hf508WSU7Zq6t6fVYqSKKcwBpuo6q-Nj1U-hz3patJLVARSeZ8apGYqkqkhhUZ1YZYZnd4XaTzYMLu6CWLkBI2irDRsRU47DrzePVcY3dPyrV1CiJrA6uDr5Y5gdQrSSBvKVvIMqeJwcP1tNYx0wqWcjKCAtPXyAnV-mNn1wqVOcCIcFt9LCpEsAWevtjsJmU74A0mp1a-W8wgLy-5sme6_JIeR3gbd2o-B7CdFpLyU2CBJ6MJHcg-Qe17ZHLjY-X84Vrli37M2lbGTSWaXA8Sp_UkRaQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/Employees?cross-company=true&$filter=EmploymentLegalEntityId eq 'hub'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "Employees"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "EmploymentLegalEntityId eq 'hub'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Financial Dim",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/DimensionAttributes?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "DimensionAttributes"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Financial Dim Values",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/FinancialDimensionValues?cross-company=true&$filter=FinancialDimension eq 'ChargeType'&$count=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FinancialDimensionValues"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "FinancialDimension eq 'ChargeType'"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DIm Financial Tags",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IkpZaEFjVFBNWl9MWDZEQmxPV1E3SG4wTmVYRSIsImtpZCI6IkpZaEFjVFBNWl9MWDZEQmxPV1E3SG4wTmVYRSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzUzNjE3MDMxLCJuYmYiOjE3NTM2MTcwMzEsImV4cCI6MTc1MzYyMDkzMSwiYWlvIjoiazJSZ1lKRDZraEU1cjZWVXNIU2hUTkNQWGRlbEFBPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiVDF0cFFrQTlKMHVBbHpfeFdzdnRBQSIsInZlciI6IjEuMCIsInhtc19mdGQiOiJFZ1VRN3M3RklZS2s3R2VvRnlhWnhXNGQxVlotUmxSXzNrNjliS1RuWkVNQmMzZGxaR1Z1WXkxa2MyMXoiLCJ4bXNfaWRyZWwiOiI4IDciLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIn0.nYILjK2GwGkMVCZy9L3OwuVZQupqg3XDela4zYxpROhtTDWpPyFhUcGVJTcx3a8yNU7nmF8-Fvv68tNoMIZ9pBp3CwguzMB23VyMVTppRt2Oh2AIMg4XYmytc4BUpCiGo1YR_sb0rb1WwiWLCYmzq-2Pjf7hrZoyn3jX-n40Np6O0cm7jWVd0TTUVpQ6-WBu6cfs742qKI5oZJg667cUgIhVh5LKcHEz-C_jKFXK3HCC9ujIwZ7SJXnjihl-nqsP3AcAdrnd7Tl0xFuzwMaqUxswlBZwAVfHsPSU3Urew_YtT4x8ujTlX-UNTjHwSd26JxZL2F9tv25OmhlmU3wS2Q",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/DimAttributeFinancialTags?cross-company=true&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "DimAttributeFinancialTags"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Balance",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyIsImtpZCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzUyNTcwNjk0LCJuYmYiOjE3NTI1NzA2OTQsImV4cCI6MTc1MjU3NDU5NCwiYWlvIjoiazJSZ1lMaksrVENqZXMwaXRTc1NQNzVNKzJsaUFRQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiMVN3TFNNeVBJay03MENCcmZ2MlRBQSIsInZlciI6IjEuMCIsInhtc19mdGQiOiJCbWwzYWtIMC1JNjFVWlJSQmtDME81QjU2UXpHa0h5SWJQNDdueGp5Wl9VQmMzZGxaR1Z1WXkxa2MyMXoiLCJ4bXNfaWRyZWwiOiI3IDEyIiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSJ9.QqWDtJ-ffsVZiLDmHqRMjl9tE1cwoqD-quo7vkLA1deszwWGXPwBR46Tozqe29PvJtPa-4EJUjvjaJBB1T23lenuaButL_OPlIdB7s8ORSAM3C-OlXhXmJiER_KLvFQdtdPx9qRyFDBaphRhMcGa24SjVitchiz0uI7LeaJD90L7dU0NaZJTMKuWe5uaCYbrD3nZo2irbQF0xcldwgRtYdxksrPg-So9dH7nzhPsema0NxcgC98A-YxDgd1-ePW8GJ0YZTGZpLOOB0DsxKjSF31XjZg2ob32HJeqSNpW5nAJgiL69oI3tE4odCrZoUJpGegNZTN_UpedlHudCpugow",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/CustBalanceStats?cross-company=true&$filter=dataAreaId eq 'hub'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustBalanceStats"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'hub'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendors Groups",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzYzNDcyNDc2LCJuYmYiOjE3NjM0NzI0NzYsImV4cCI6MTc2MzQ3NjM3NiwiYWlvIjoiazJKZ1lQaTExN2kva2F0M0h0K09nN051SEJYaEJ3QT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiaXlSaFJmYUxsVTJrenRDZ0FmZ0ZBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6IlBubTV4MkZwbWFUeXlzamFDVTN0UWVJMFhibDFkU2VMdnAtZnBDb2hwb0lCWlhWeWIzQmxibTl5ZEdndFpITnRjdyIsInhtc19pZHJlbCI6IjcgNCIsInhtc19yZCI6IjAuNDJMbFlCSmk5QmNTNFdBWEVyQjh1bU42SEV1dng0eGx1WDJyZFptLUFVVTVoUVRNX18zNFhlQ1Y3dHFRWFhydjlBV2VScUFvaDVDQUtBTUVISURTQUEiLCJ4bXNfc3ViX2ZjdCI6IjMgOSJ9.Mv3HQ-lt9OmDqH8YtDJ2lDhjGWSsd4xZU-dt2HMVRzOWT5qTFs9egY_uAjA6_CeOFX8jKXHVIfH8UJ4WRLqWipAi5Nsz272FJQmxvp9xRoygKoWkdAsTCJtHvI_1KhiiVOs5GkaZrdWtbU0raYo-8h8OaSRl8tyql52PfHJwLgId3wD1-bH6K7CewjI4Qxh7CafXP8x9gDvk1frrUBoC1CVRcNN-Ij5Ili3mWW_4XqT2bZJgSaHQSexv0j4e0USOkljd9a1ZAy54I0QmNce5sSNx_tu-MT5DeXXzQ6cdj47kPhF3dOGhHSjeSpNCavEweBtwT-NEvkS2rryGWPEcUA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorGroups?cross-company=true&$filter=dataAreaId eq 'saco'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorGroups"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'saco'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Employee Positions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyIsImtpZCI6Il9qTndqZVNudlRUSzhYRWRyNVFVUGtCUkxMbyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzUyNjU3ODg0LCJuYmYiOjE3NTI2NTc4ODQsImV4cCI6MTc1MjY2MTc4NCwiYWlvIjoiazJSZ1lOai9QTkgrZ2JHVTZZeEhYOFdQZk4zWkN3QT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiNU5fMEt6UWs2RUNyMTZEVnZuRFVBQSIsInZlciI6IjEuMCIsInhtc19mdGQiOiJ5SUFMa3VTVnZreXMzc2NxZUE2Rk1kZ3RhUGpfVjZQWFpYZDJrTTg1di1VQlpYVnliM0JsYm05eWRHZ3RaSE50Y3ciLCJ4bXNfaWRyZWwiOiI3IDE4IiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSJ9.Y7wSlQS4aWAOJvloV0cTimo7A-QPJjyXRbzKYpHO16FuO4G9Y-Qf1e8CUZFWQvDNe08VCQik-yl_N-80AblSx-4ipuuzInT-4d34uKwmLR-2OlBR8IQ3wcecckvqfHGXyac9IC0G57ki7DJ_PrSPrjBlKiZw1cNOBPdGA4qdr5r2OJxqid_uy7lj7qzg4kzjlkHdttGNVT5r5EyEaPzNji0dELuqUTp1ZZ2-F5fWuctoFgZTcQsZLX1k5fx5cj3p9miOFWTNjd6PJ1NTWc9NGj4xPWTniMTTWkIFRUxWoEvbCgBLODQnvX6cXCp3NpDG8Ogeuw6kHp9Hlkofozm0fA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "mesco3",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/PositionWorkerAssignments?$top=50&$skip=0&$expand=Worker($select=Name,PersonnelNumber)",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "PositionWorkerAssignments"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                },
+                {
+                  "key": "$expand",
+                  "value": "Worker($select=Name,PersonnelNumber)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Main Account Legal Entity",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/MainAccountLegalEntities?cross-company=true&$filter=ChartOfAccounts eq 'Chart of Accounts' and LegalEntityId eq 'S-P' and IsSuspended eq Microsoft.Dynamics.DataEntities.NoYes'Yes'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "MainAccountLegalEntities"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "ChartOfAccounts eq 'Chart of Accounts' and LegalEntityId eq 'S-P' and IsSuspended eq Microsoft.Dynamics.DataEntities.NoYes'Yes'"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Main Account",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/MainAccounts?cross-company=true&$filter=MainAccountId eq '415106'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "MainAccounts"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "MainAccountId eq '415106'"
+                },
+                {
+                  "key": "$top",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ledger Settlement Trans",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY4OTI5ODcxLCJuYmYiOjE3Njg5Mjk4NzEsImV4cCI6MTc2ODkzMzc3MSwiYWlvIjoiazJaZ1lKQTBtY0s4S25ucDNKTmY1WmRmL1haME93QT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiSXdybE1YVE5rVUd6dXBlWG1iZ2ZBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6IklsYUlxNkwyOEVXNGlKQUMxQ3ZYeGZfZEx3dXFyeVhNSUx2RkZfLTlIeEFCWlhWeWIzQmxkMlZ6ZEMxa2MyMXoiLCJ4bXNfaWRyZWwiOiI3IDE2IiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSIsInhtc19zdWJfZmN0IjoiMyA5In0.fvUKsQQAYi5w88OP9dbfHEuhsl8uzqNaBoGAfWfDEvgDGVB-lGyzvBvQzr3sZqlIgSnyy5nLp8vN2R4KjhR1QEgdHao5VElWdd0f6TSmaHKyMXIYBS0u0volRfAeui6TEJW7yQGhPI7EE7jvNdlyTSB4kzdYI7FMno8qwWKXlxDqreRJiD_cf04wz1JNxlBd27-URIQqSsTY55igWTYd0qN5QnhxpQg-WGoeeqrYYCT1UcNOLxTLqRKTV3OqZDwoE3xp3g5VajEwKYMtDDkNE13e4v5VP_fu4ppL_l10iSkZn0yj0nV3rVgKHUrfxgN9ODW_H7nW5IQyEMswDXv1rA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/LedgerTransSettlementBiEntities?cross-company=true&$filter= dataAreaId eq 'saco'",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "LedgerTransSettlementBiEntities"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": " dataAreaId eq 'saco'"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "AR",
+      "item": [
+        {
+          "name": "FreeTextInvoiceHeaders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6..."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "hub"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataAreaId\": \"m-p\",\n  \"InvoiceAccount\": \"101000070\",\n  \"CustomerAccount\": \"101000070\",\n  \"DocumentDate\": \"2026-01-03\",\n  \"InvoiceDate\": \"2026-01-03\",\n  \"DueDate\": \"2026-01-03\",\n  \"CurrencyCode\": \"USD\",\n  \"TermsOfPayment\": \"0 Days\",\n  \"BillingClassification\": \"OF-FW\",\n  \"CustomerReference\": \"000005651/OF-FW\",\n  \"DefaultDimensionDisplayValue\": \"|1301|013|001|005|101000070|101000070|||16544|3038|5013|collect|||import||||\",\n  \"PostingProfile\": \"Cust-PP\",\n  \"SalesTaxGroupId\": \"Non-Taxabl\",\n  \"SalesTaxItemGroupId\": \"\",\n  \"EInvoiceIsLineSpecific\": \"No\",\n  \"OverrideSalesTax\": \"No\",\n  \"InclTax\": \"Yes\",\n  \"LanguageId\": \"en-US\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceHeaders",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceHeaders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceHeaders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{bearer_token_0ts0}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "hub"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceHeaders?cross-company=true&$top=10&$filter=dataAreaId eq 'm-p'&$count=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "10"
+                },
+                {
+                  "key": "$select",
+                  "value": "SalesTaxGroupId",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p'"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceHeaders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceHeaders(dataAreaId='m-p',InvoiceIdentifier=5637929976)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceHeaders(dataAreaId='m-p',InvoiceIdentifier=5637929976)"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceLines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6..."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "hub"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataAreaId\": \"m-p\",\n  \"LineNumber\": 1,\n  \"ParentRecId\": 5637752780,\n  \"BillingCode\": \"16544-OF\",\n  \"Description\": \" - GLASS TEXTILE PRIVATE FREE ZONE BRANCH OF GLASS TEXTILE CO. S.A.E\",\n  \"MainAccountDisplayValue\": \"124109\",\n  \"CurrencyCode\": \"USD\",\n  \"UnitPrice\": 560,\n  \"DefaultDimensionDisplayValue\": \"|1301|013|001|005|101000070|101000070|||16544|3038|5013|collect|||import||||\",\n  \"Quantity\": 1,\n  \"SalesTaxGroupId\": \"Non-Taxabl\",\n  \"SalesTaxItemGroupId\": \"\",\n  \"InvoiceText\": \"16544\",\n  \"OverrideSalesTax\": \"No\",\n  \"EInvoiceAccountCode\": null\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceLines",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceLines"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceLines",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6..."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "hub"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"dataAreaId\": \"hub\",\n    \"LineNumber\": 2,\n    \"ParentRecId\":5637450553,\n    \"BillingCode\":\"1235\",\n    \"Description\":\"Testing Item\",\n    \"MainAccountDisplayValue\":\"125507\",\n    \"CurrencyCode\":\"USD\",\n    \"UnitPrice\":55.3,\n    \"DefaultDimensionDisplayValue\":\"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceLines?cross-company=true&$filter=dataAreaId eq 'm-p' and ParentRecId eq 5637934247&$top=100",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and ParentRecId eq 5637934247"
+                },
+                {
+                  "key": "$top",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceLines",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/FreeTextInvoiceLines(dataAreaId='m-p',ParentRecId=5637752780,LineNumber=1)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "FreeTextInvoiceLines(dataAreaId='m-p',ParentRecId=5637752780,LineNumber=1)"
+              ],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "$skip",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "FreeTextInvoiceFinTagService",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6..."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "hub"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"_contract\": {\n        \"CompanyId\": \"m-p\",\n        \"HeaderRecordId\": 5637932035,\n        \"HeaderDisplayValue\": \"Dept01|GFTGD|V1\",\n        \"LineDataString\": \"68719487386,5620|dfg|V1;68719487387,7700|abc|V2\"\n    }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/api/services/FreeTextInvoiceServiceGroup/FreeTextInvoiceFinTagService/update",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "FreeTextInvoiceServiceGroup",
+                "FreeTextInvoiceFinTagService",
+                "update"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cash",
+      "item": [
+        {
+          "name": "Customer Payments Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/CustomerPaymentJournalHeaders?cross-company=true&$filter= dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000008545'&$top=1",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustomerPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": " dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000008545'"
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Payments Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": " {\r\n    \"dataAreaId\": \"m-p\",\r\n    \"JournalBatchNumber\": \"Mesco-000000001\",\r\n    \"JournalName\": \"Cust-Pay\",\r\n    \"Description\": \"[TESTING_ONLY] Customer Collection - Freight January 2026 (Cash)\"\r\n }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/CustomerPaymentJournalHeaders?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustomerPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/CustomerPaymentJournalLines?cross-company=true&$filter=JournalBatchNumber eq 'Mesco-000008545'&$top=10",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustomerPaymentJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalBatchNumber eq 'Mesco-000008545'"
+                },
+                {
+                  "key": "$top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"journalNum\": \"JN000123\",\r\n  \"AccountNum\": \"CUST001\",\r\n  \"accountTypeStr\": \"Cust\",\r\n  \"BANKTRANSACTIONTYPE\": \"Transfer\",\r\n  \"CENTRALBANKPURPOSECODE\": \"001\",\r\n  \"CENTRALBANKPURPOSETEXT\": \"Payment\",\r\n  \"company\": \"USMF\",\r\n  \"creditAmount\": 1000,\r\n  \"currency\": \"USD\",\r\n  \"debitAmount\": 0,\r\n  \"DEFAULTDIMENSIONDISPLAYVALUE\": \"BU-001|CC-002|Dept-003\",\r\n  \"offsetDEFAULTDIMENSIONDISPLAYVALUE\": \"BU-001|CC-002|Dept-004\",\r\n  \"EXCHANGERATE\": 1,\r\n  \"FinTagStr\": \"TAG1\",\r\n  \"ISPREPAYMENT\": \"No\",\r\n  \"ITEMWITHHOLDINGTAXGROUP\": \"TAX1\",\r\n  \"MARKEDINVOICE\": \"INV-0001\",\r\n  \"offsetAccountDisplayValue\": \"BANK001\",\r\n  \"OffsetAccountTypeStr\": \"Bank\",\r\n  \"OffsetCompany\": \"USMF\",\r\n  \"OFFSETFINTAGDISPLAYVALUE\": \"TAG2\",\r\n  \"OFFSETTRANSACTIONTEXT\": \"Offset text\",\r\n  \"PAYMENTID\": \"PAY123\",\r\n  \"PAYMENTMETHODNAME\": \"Bank\",\r\n  \"PAYMENTNOTES\": \"Test payment\",\r\n  \"PAYMENTREFERENCE\": \"REF123\",\r\n  \"PAYMENTSPECIFICATION\": \"Spec\",\r\n  \"PostingProfile\": \"PP1\",\r\n  \"TaxGroup\": \"TG1\",\r\n  \"TAXITEMGROUP\": \"TIG1\",\r\n  \"transDate\": \"2026-04-21T00:00:00\",\r\n  \"TRANSACTIONTEXT\": \"Customer payment\",\r\n  \"Voucher\": \"\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransCustPaym",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "TSLedgerJournalServiceGroup",
+                "ServiceBasic",
+                "addLedgerJournalTransCustPaym"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Customer Payments Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY5MzI5OTE1LCJuYmYiOjE3NjkzMjk5MTUsImV4cCI6MTc2OTMzMzgxNSwiYWlvIjoiazJaZ1lBZytVdnJnMDZMb2lkeFNuNmViM1ZSVkFBQT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiMmpEeXlQTUY4RTJhNnJTbXBKUXJBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6Imo1Mk41cXpmRFdsNzFIMHBjRXhsWWszcV9jVlFFZzVVdjN0WFkyM3VWRllCWm5KaGJtTmxZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgMTAiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiI5IDMifQ.Zbn7HQavpfNUCOGmApftwKAGMKH8u-eKtkVzSXQ2G5vgrjzF6FA198IpOG6MyOdOhT0t8y34QEbTwNOBv3tIdrJIXzM7zsgTu-QWGFLAsZOTGnolpqxEYN0nBQvVF9gEkEyl1vgvCIkiPHKKKHdWPHmW7b9kO5J8IX9aP0izpMO6SStEYF67krs4xPMow00UPjpNUXbmLmiiw28aG9YF3U3Zr51bn8bi0MdpCqwb2NeJ_fqZzhzijpH69tCPJF7iT9tdP1Gb006Rlc3Yx3-QobcYdL_BcQaZuSAdkho0S8jCYfz8SuLhZyQtBCq1ZTheajj9bPmH3nU658OQov8COQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/CustomerPaymentJournalLines(dataAreaId='m-p',JournalBatchNumber='JN000123',LineNumber=20)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "CustomerPaymentJournalLines(dataAreaId='m-p',JournalBatchNumber='JN000123',LineNumber=20)"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter= dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013557'&$top=1",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": " dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000013557'"
+                },
+                {
+                  "key": "$top",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"dataAreaId\": \"m-p\",\r\n    \"JournalBatchNumber\": \"Mesco-000000001\",\r\n    \"JournalName\": \"P-Freight\",\r\n    \"Description\": \"[TESTING_ONLY] Vendor Payment - Freight January 2026 (Cash)\"\r\n  }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Header",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000013557')?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalHeaders(dataAreaId='m-p',JournalBatchNumber='Mesco-000013557')"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=JournalBatchNumber eq 'Mesco-000008632'&$top=10",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalBatchNumber eq 'Mesco-000008632'"
+                },
+                {
+                  "key": "$top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"journalNum\": \"Mesco-000013557\",\r\n  \"AccountNum\": \"5019\",\r\n  \"accountTypeStr\": \"Vendor\",\r\n  \"BANKTRANSACTIONTYPE\": \"Cash\",\r\n  \"CENTRALBANKPURPOSECODE\": \"\",\r\n  \"CENTRALBANKPURPOSETEXT\": \"\",\r\n  \"company\": \"m-p\",\r\n  \"creditAmount\": 0,\r\n  \"currency\": \"EGP\",\r\n  \"debitAmount\": 5000,\r\n  \"DEFAULTDIMENSIONDISPLAYVALUE\": \"1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||\",\r\n  \"offsetDEFAULTDIMENSIONDISPLAYVALUE\": \"1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||\",\r\n  \"EXCHANGERATE\": 100,\r\n  \"FinTagStr\": \"O25-IMP-OC-11585|‏‎|‏Arkas Line‎|‏Ag-000010‎|‏261633796‎|‏‎|‏‎|‏‎|‏‎|‏EGY CROWN‎|‏CNSHA Shanghai‎|‏EGPSD Port Said West‎|‏‎|‏‎|‏30/12/2025‎|‏‎|‏‎|‏02/12/2025‎|‏31/12/2025‎\",\r\n  \"ISPREPAYMENT\": \"No\",\r\n  \"ITEMWITHHOLDINGTAXGROUP\": \"\",\r\n  \"MARKEDINVOICE\": \"\",\r\n  \"offsetAccountDisplayValue\": \"PSD EG\",\r\n  \"OffsetAccountTypeStr\": \"RCash\",\r\n  \"OffsetCompany\": \"m-p\",\r\n  \"OFFSETFINTAGDISPLAYVALUE\": \"O25-IMP-OC-11585|‏‎|‏Arkas Line‎|‏Ag-000010‎|‏261633796‎|‏‎|‏‎|‏‎|‏‎|‏EGY CROWN‎|‏CNSHA Shanghai‎|‏EGPSD Port Said West‎|‏‎|‏‎|‏30/12/2025‎|‏‎|‏‎|‏02/12/2025‎|‏31/12/2025‎\",\r\n  \"OFFSETTRANSACTIONTEXT\": \"PSD EG-1\",\r\n  \"PAYMENTID\": \"466672\",\r\n  \"PAYMENTMETHODNAME\": \"RCash\",\r\n  \"PAYMENTNOTES\": \"Vendor Payment - Freight January 2026 (Cash)\",\r\n  \"PAYMENTREFERENCE\": \"PSD EG-1 - Freight\",\r\n  \"PAYMENTSPECIFICATION\": \"\",\r\n  \"PostingProfile\": \"V-PP\",\r\n  \"TaxGroup\": \"Non-Taxabl\",\r\n  \"TAXITEMGROUP\": \"\",\r\n  \"transDate\": \"2026-01-01T00:00:00\",\r\n  \"TRANSACTIONTEXT\": \"Vendor Payment - Freight January 2026 (Cash)\",\r\n  \"Voucher\": \"\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "TSLedgerJournalServiceGroup",
+                "ServiceBasic",
+                "addLedgerJournalTransVendPaym"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Line",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000013557',LineNumber=1)?cross-company=true",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLines(dataAreaId='m-p',JournalBatchNumber='Mesco-000013557',LineNumber=1)"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Others",
+      "item": [
+        {
+          "name": "PaymentJournalLineSettledInvoices",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSIsImtpZCI6IlBjWDk4R1g0MjBUMVg2c0JEa3poUW1xZ3dNVSJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY5MDA4ODg1LCJuYmYiOjE3NjkwMDg4ODUsImV4cCI6MTc2OTAxMjc4NSwiYWlvIjoiazJaZ1lHQjVFMi9OKyt0OTM4ZHZPZHFXVmkzUEFBPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiNUc4UzBULTNDMHVueXlLY1N0UWhBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6Im9zTHBhbDZnQVVmTVVkUHcyblJQRnNGX0xzdkI0dWFYdUswa19KeWdiREVCWm5KaGJtTmxZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgMzAiLCJ4bXNfcmQiOiIwLjQyTGxZQkppOUJjUzRXQVhFckI4dW1ONkhFdXZ4NHhsdVgycmRabS1BVVU1aFFUTV9fMzRYZUNWN3RxUVhYcnY5QVdlUnFBb2g1Q0FLQU1FSElEU0FBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.akIyrBiaquCKMiDCpYZsaFqEu2xtkgys50iIlrRZpt8mDu9OwvvA9kb5xz0lPe7PKqzIBONApQcaNXt87evjpjHxnRbWh4Z3w6H6husyH6VqKhCP3gsanqqI7mOJjHXVPgb2wyouGwwnz1VPDyd2dbXHrEApaZsaMOmQFPN17M6iDnPsDdLVBhwtDiZQAWspXBJ_agg-oWZLPiow7IX4xwaLeKaFAYk5LoanVmh6VOpuMYXPZyCa3IMM7Ad8ynpbiby03XClIYmfIVSdKADxAXd0ollDVWPSaU53yRc1sYegjeJot-0GXCv10_MxMjtIDEkHKCEXAatSy3NqK1jVpg",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/PaymentJournalLineSettledInvoices?cross-company=true&$filter=InvoiceCompany eq 'saco' and JournalBatchNumber eq 'JBa- 000000139'  and (InvoiceNumber eq 'Inv-000000025' or InvoiceNumber eq 'Inv-000000015')",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "PaymentJournalLineSettledInvoices"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$top",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "$filter",
+                  "value": "InvoiceCompany eq 'saco' and JournalBatchNumber eq 'JBa- 000000139'  and (InvoiceNumber eq 'Inv-000000025' or InvoiceNumber eq 'Inv-000000015')"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vendor Payment Settlement",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzYzNTAyMzQyLCJuYmYiOjE3NjM1MDIzNDIsImV4cCI6MTc2MzUwNjI0MiwiYWlvIjoiazJKZ1lHZ3lQN0hCTUhWbjc2WnBxdzZzNHRiZEF3QT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoiaTlPekRCNnFmMFdXNjBmYURoZzFBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6IldETktxZjg5V3g1N04xSnBtc1l4ZjMzZjk2di1jNkJhYnVWd1pXdFJCYjhCWlhWeWIzQmxkMlZ6ZEMxa2MyMXoiLCJ4bXNfaWRyZWwiOiI3IDIwIiwieG1zX3JkIjoiMC40MkxsWUJKaTlCY1M0V0FYRXJCOHVtTjZIRXV2eDR4bHVYMnJkWm0tQVVVNWhRVE1fXzM0WGVDVjd0cVFYWHJ2OUFXZVJxQW9oNUNBS0FNRUhJRFNBQSIsInhtc19zdWJfZmN0IjoiOSAzIn0.D-xKfpwZNX-w0d5B6FM2_GrREYHXf4ZOT_hHfgyUKqARqsam7V2n9j2HVp-1ykj_BP-BRn6WUTbo55zRGBYPkt_4lpSF2BlsBdPm8qtQp0DWZwxZKawGAbMUywqaRStx4U0fJ2Fl26HlGtDSY7XLdGKXo_CUd994ocoeXigGXUaFA5-JCF8-6z8dDlf2h0G4RH4sW9gG2MESeYZVXjOrV8a5TJjNeqAxJ0c0rqdW2N2MXgE9h23u_He2EuaOQaE70H1FRqUy6duSBS8_7iPnZNUt2SxuBKNbxpvN6_paO3MWC2G9jASWTjDRiIlNLJbIaxTL4PzOG8XyWrH9aNKktA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "DataAreaId",
+                "value": "hub",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalLineCompany eq 'msco'&$top=50&$skip=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLineSettledInvoices"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalLineCompany eq 'msco'"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Post Free Text Invoice",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL21lc2NvLnNhbmRib3gub3BlcmF0aW9ucy5ldS5keW5hbWljcy5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8xODYyOGYzYy1kNTg0LTRlMGYtOTFjZC01YTJmMDRhMGQ4Y2IvIiwiaWF0IjoxNzY1NzM0ODc4LCJuYmYiOjE3NjU3MzQ4NzgsImV4cCI6MTc2NTczODc3OCwiYWlvIjoiazJKZ1lHaDQ3VnloZWlYdHJKYkZCNGNYL0tmaUFRPT0iLCJhcHBpZCI6ImM4Mjg5MzVlLWJlNWMtNDk1Ni04OTk2LWZmMGFhZDZlYzgwZSIsImFwcGlkYWNyIjoiMSIsImlkcCI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzE4NjI4ZjNjLWQ1ODQtNGUwZi05MWNkLTVhMmYwNGEwZDhjYi8iLCJpZHR5cCI6ImFwcCIsIm9pZCI6IjRkMzMwYTE5LThlMTMtNDcwNy05MGVkLTkxZTY2OTZjMmI3MyIsInJoIjoiMS5BVThBUEk5aUdJVFZEMDZSelZvdkJLRFl5eFVBQUFBQUFBQUF3QUFBQUFBQUFBQlBBQUJQQUEuIiwicm9sZXMiOlsiQ29ubmVjdG9yLkZ1bGxBY2Nlc3MiXSwic3ViIjoiNGQzMzBhMTktOGUxMy00NzA3LTkwZWQtOTFlNjY5NmMyYjczIiwidGlkIjoiMTg2MjhmM2MtZDU4NC00ZTBmLTkxY2QtNWEyZjA0YTBkOGNiIiwidXRpIjoieGM2ZHIzNzJ3VTJxdkg2cUVDRkxBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6IjJwRWZFSlpBS2M3YjlHcm5NTzlnZHIzdnhpV2RWV3Rmc3hDa3lweGY3eDhCWm5KaGJtTmxZeTFrYzIxeiIsInhtc19pZHJlbCI6IjcgNiIsInhtc19yZCI6IjAuNDJMbFlCSmk5QmNTNFdBWEVyQjh1bU42SEV1dng0eGx1WDJyZFptLUFVVTVoUVRNX18zNFhlQ1Y3dHFRWFhydjlBV2VScUFvaDVDQUtBTUVISURTQUEiLCJ4bXNfc3ViX2ZjdCI6IjkgMyJ9.AEOe0Ac9vhkPudFvyzUaHfqV_SZ6cvh0i1SWxP_DEWVaXfHYoa3WoGmctGuMp6QTEulWrd2vT_uK3SVBWlfJmir7ePbItLGkVv4rOe5T3oP5Ta6D77Nc8g42UvpkDKF5-ECOplmpSJDUuzmgGSyyczD-WwgrNzAgYhQJpQiCEw5yKk-Hb4jUA26HGyLOIgttbGIC261HgnDMr8rrAP0X-ld_MWWTsbVzrcmELs30Cu1rw88UnXdJSUw_YBRzhOdTorI3HKB6kbUslmLpTP4odMsBbSqZLjuPpd5obY-uBYo8I_Q-qTEdZOt71XEF6ke8TpuFHUH99UC0MySbOdiaJA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6..."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "DataAreaId",
+                "value": "saco",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"_contract\":{\r\n        \"InvoiceRecId\":5637673266,\r\n        \"CompanyId\":\"saco\"\r\n    }\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/api/services/FreeTextInvoiceServiceGroup/FreeTextInvoicePostService/postInvoice",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "FreeTextInvoiceServiceGroup",
+                "FreeTextInvoicePostService",
+                "postInvoice"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Parse the response\r",
+              "const response = pm.response.json();\r",
+              "\r",
+              "// Save the access_token to an environment variable\r",
+              "if (response.access_token) {\r",
+              "  pm.collectionVariables.set(\"token\", response.access_token);\r",
+              "  console.log(\"✅ Token saved to environment variable\");\r",
+              "} else {\r",
+              "  console.error(\"❌ No access_token found in response\");\r",
+              "}\r",
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "resource",
+              "value": "https://mesco.sandbox.operations.eu.dynamics.com",
+              "type": "text"
+            },
+            {
+              "key": "client_id",
+              "value": "c828935e-be5c-4956-8996-ff0aad6ec80e",
+              "type": "text"
+            },
+            {
+              "key": "client_secret",
+              "value": "BSM8Q~UNQln6x7zHvc9zbp-FF~akCdpGkVIahaw4",
+              "type": "text"
+            },
+            {
+              "key": "grant_type",
+              "value": "client_credentials",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "https://login.microsoftonline.com/18628f3c-d584-4e0f-91cd-5a2f04a0d8cb/oauth2/token",
+          "protocol": "https",
+          "host": [
+            "login",
+            "microsoftonline",
+            "com"
+          ],
+          "path": [
+            "18628f3c-d584-4e0f-91cd-5a2f04a0d8cb",
+            "oauth2",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseURL",
+      "value": "https://mesco.sandbox.operations.eu.dynamics.com"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "bearer_token_0ts0",
+      "secret": true
+    }
+  ]
+}

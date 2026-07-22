@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
+
 import {
   AUDIT_COLUMNS,
   BANK_REQUIRED_COLUMNS,
@@ -15,6 +16,15 @@ import {
   ScoredCandidate,
 } from './types';
 import {
+  accountCompatibility,
+  decideScoredMatch,
+  TwoWayReferenceMatcher,
+  referenceTokenScore,
+  scoreCandidate,
+  textSimilarity,
+  isAmountMatched,
+} from './utils/matching';
+import {
   cellText,
   chooseAmount,
   currencyFromAccountCode,
@@ -24,17 +34,9 @@ import {
   normalizeDate,
   normalizeReference,
   normalizeText,
+  compactText,
   toEpochDay,
 } from './utils/normalization';
-import {
-  accountCompatibility,
-  decideScoredMatch,
-  TwoWayReferenceMatcher,
-  referenceTokenScore,
-  scoreCandidate,
-  textSimilarity,
-  isAmountMatched,
-} from './utils/matching';
 
 @Injectable()
 export class ReconciliationService {
@@ -53,6 +55,20 @@ export class ReconciliationService {
         0,
         1_000_000,
         'amountTolerance',
+      ),
+      amountTolerancePercent: this.numberOption(
+        input.amountTolerancePercent,
+        0.05,
+        0,
+        1,
+        'amountTolerancePercent',
+      ),
+      amountToleranceCap: this.numberOption(
+        input.amountToleranceCap,
+        100,
+        0,
+        1_000_000,
+        'amountToleranceCap',
       ),
       confidenceThreshold: this.numberOption(
         input.confidenceThreshold,
@@ -87,17 +103,17 @@ export class ReconciliationService {
     ]);
 
     // Temp sheet references to perform inspection
-    let istSheetTemp =
+    const istSheetTemp =
       istWorkbook.getWorksheet('Sheet1') ?? istWorkbook.worksheets[0];
-    let bankSheetTemp =
+    const bankSheetTemp =
       bankWorkbook.getWorksheet('All banks') ??
       bankWorkbook.getWorksheet('Sheet1') ??
       bankWorkbook.worksheets[0];
     if (!istSheetTemp || !bankSheetTemp)
       throw new BadRequestException('One of the workbooks has no worksheets.');
 
-    let istHeadersTemp = this.headerMap(istSheetTemp);
-    let bankHeadersTemp = this.headerMap(bankSheetTemp);
+    const istHeadersTemp = this.headerMap(istSheetTemp);
+    const bankHeadersTemp = this.headerMap(bankSheetTemp);
 
     // Auto-detect and swap if user uploaded them in reverse
     const istScore1 = IST_REQUIRED_COLUMNS.filter((col) =>
@@ -170,7 +186,9 @@ export class ReconciliationService {
     const banksByDay = this.indexBanksByDay(banks);
     const usedBanks = new Set<number>();
 
-    // 3. Process matches
+    // 3. Process matches in phases
+
+    // Phase 1: Direct Matches (Priority 1)
     for (const ist of transactions) {
       const rowNumber = ist.excelRowNumber;
       if (ist.hasValidPaymentReference) {
@@ -192,7 +210,7 @@ export class ReconciliationService {
         continue;
       }
 
-      let match = this.directMatch(
+      const match = this.directMatch(
         ist,
         referenceMatcher,
         usedBanks,
@@ -200,14 +218,34 @@ export class ReconciliationService {
         options,
       );
 
-      if (!match) {
-        const candidates = this.candidatesFor(ist, banksByDay, options)
-          .filter(
-            (bank) => options.allowManyToOne || !usedBanks.has(bank.index),
-          )
-          .map((bank) => scoreCandidate(ist, bank, options));
-        match = decideScoredMatch(candidates, options);
+      if (match) {
+        matches.set(rowNumber, match);
+        if (match.bank && !options.allowManyToOne) {
+          usedBanks.add(match.bank.index);
+        }
       }
+    }
+
+    // Phase 2: Batch Grouping Match (Priority 1.5)
+    this.applyGroupedSettlementMatches(
+      transactions,
+      matches,
+      banksByDay,
+      usedBanks,
+      options,
+    );
+
+    // Phase 3: Fuzzy Matches (Priority 2+)
+    for (const ist of transactions) {
+      const rowNumber = ist.excelRowNumber;
+      if (matches.has(rowNumber)) continue;
+
+      let match: MatchResult;
+
+      const candidates = this.candidatesFor(ist, banksByDay, options)
+        .filter((bank) => options.allowManyToOne || !usedBanks.has(bank.index))
+        .map((bank) => scoreCandidate(ist, bank, options));
+      match = decideScoredMatch(candidates, options);
 
       // Fallback matching if still unmatched
       if (match.status === 'Unmatched') {
@@ -238,14 +276,6 @@ export class ReconciliationService {
         usedBanks.add(match.bank.index);
       }
     }
-
-    this.applyGroupedSettlementMatches(
-      transactions,
-      matches,
-      banksByDay,
-      usedBanks,
-      options,
-    );
 
     if (options.forceAll) {
       this.applyExhaustiveFallbackMatches(
@@ -635,6 +665,36 @@ export class ReconciliationService {
     };
   }
 
+  private evaluateDirectMatchRule(
+    ist: IstTransaction,
+    bank: BankTransaction,
+  ): { confidence: number; rule: string } {
+    const bRef = bank.compactRef;
+    if (!bRef) return { confidence: 0.8, rule: 'Direct Token Match' };
+
+    const payRef = compactText(ist.paymentReference);
+    if (payRef && payRef === bRef)
+      return { confidence: 1.0, rule: 'Exact PAYMENTREFERENCE Match' };
+
+    const doc = compactText(ist.document);
+    const inv = compactText(ist.invoice);
+    if ((doc && doc === bRef) || (inv && inv === bRef))
+      return { confidence: 0.95, rule: 'Exact DOCUMENT/INVOICE Match' };
+
+    const vou = compactText(ist.voucher);
+    const op = compactText(ist.operationNo);
+    if ((vou && vou === bRef) || (op && op === bRef))
+      return { confidence: 0.9, rule: 'Exact VOUCHER/Operation No Match' };
+
+    if (payRef && payRef.length >= 4) {
+      if (payRef.includes(bRef) || bRef.includes(payRef)) {
+        return { confidence: 0.85, rule: 'Substring PAYMENTREFERENCE Match' };
+      }
+    }
+
+    return { confidence: 0.8, rule: 'Direct Token Match' };
+  }
+
   private directMatch(
     ist: IstTransaction,
     matcher: TwoWayReferenceMatcher,
@@ -650,14 +710,15 @@ export class ReconciliationService {
     );
     const best = this.bestDirectCandidate(ist, available, options);
     if (best) {
+      const rule = this.evaluateDirectMatchRule(ist, best);
       return {
-        status: 'Matched',
+        status: rule.confidence >= 0.9 ? 'Matched' : 'Needs Review',
         matchCase: 'Direct Reference Match',
-        confidence: 1,
+        confidence: rule.confidence,
         reason:
           available.length > 1
-            ? 'Exact reference found; duplicate bank rows were resolved using account, direction, amount, and date.'
-            : 'An IST reference-bearing field contains the exact bank reference.',
+            ? `${rule.rule}; duplicate bank rows were resolved using account, direction, amount, and date.`
+            : rule.rule,
         bank: best,
       };
     }
@@ -707,7 +768,7 @@ export class ReconciliationService {
           !seen.has(bank.index) &&
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
+          isAmountMatched(ist.amount, bank.amount, options) &&
           ist.direction !== null &&
           bank.direction === ist.direction &&
           (!ist.currency || !bank.currency || ist.currency === bank.currency)
@@ -751,7 +812,7 @@ export class ReconciliationService {
           !seen.has(bank.index) &&
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
+          isAmountMatched(ist.amount, bank.amount, options) &&
           ist.direction !== null &&
           bank.direction === ist.direction
         ) {
@@ -777,7 +838,7 @@ export class ReconciliationService {
             !seen.has(bank.index) &&
             Boolean(bank.normalizedRef) &&
             bank.amount !== null &&
-            isAmountMatched(ist.amount, bank.amount, options.amountTolerance) &&
+            isAmountMatched(ist.amount, bank.amount, options) &&
             ist.direction !== null &&
             bank.direction === ist.direction
           ) {
@@ -866,7 +927,7 @@ export class ReconciliationService {
             (!options.allowManyToOne && usedBanks.has(bank.index)) ||
             bank.direction !== anchor.direction ||
             bank.amount === null ||
-            !isAmountMatched(total, bank.amount, options.amountTolerance) ||
+            !isAmountMatched(total, bank.amount, options) ||
             (anchor.currency &&
               bank.currency &&
               anchor.currency !== bank.currency)
@@ -1030,7 +1091,7 @@ export class ReconciliationService {
           seen.has(bank.index) ||
           !bank.normalizedRef ||
           bank.amount === null ||
-          !isAmountMatched(ist.amount, bank.amount, options.amountTolerance) ||
+          !isAmountMatched(ist.amount, bank.amount, options) ||
           bank.direction !== ist.direction ||
           (!ist.currency || !bank.currency
             ? false
@@ -1098,8 +1159,15 @@ export class ReconciliationService {
     if (!accountCode) return false;
     const code = accountCode.toUpperCase();
     const PETTY_CASH_PREFIXES = [
-      'PSD', 'AIRPORT', 'DMT', 'ALEXSUB', 'ALEXHO',
-      'MERGHEM', 'POS', 'CCC', 'TR-SKHN',
+      'PSD',
+      'AIRPORT',
+      'DMT',
+      'ALEXSUB',
+      'ALEXHO',
+      'MERGHEM',
+      'POS',
+      'CCC',
+      'TR-SKHN',
     ];
     return PETTY_CASH_PREFIXES.some(
       (prefix) => code === prefix || code.startsWith(prefix + '-'),
@@ -1174,7 +1242,7 @@ export class ReconciliationService {
         (bank) =>
           Boolean(bank.normalizedRef) &&
           bank.amount !== null &&
-          isAmountMatched(istAmount, bank.amount, options.amountTolerance) &&
+          isAmountMatched(istAmount, bank.amount, options) &&
           bank.direction === istDirection &&
           compatibleCodes.has(bank.normalizedDynCode) &&
           (!ist.currency || !bank.currency || ist.currency === bank.currency) &&
@@ -1276,7 +1344,7 @@ export class ReconciliationService {
       if (
         !bank.normalizedRef ||
         bank.amount === null ||
-        !isAmountMatched(istAmount, bank.amount, options.amountTolerance) ||
+        !isAmountMatched(istAmount, bank.amount, options) ||
         bank.direction !== istDirection ||
         (!ist.currency || !bank.currency
           ? false
@@ -1331,7 +1399,7 @@ export class ReconciliationService {
 
       const amountDifference = Math.abs(istAmount - bank.amount);
       if (
-        isAmountMatched(istAmount, bank.amount, options.amountTolerance) ||
+        isAmountMatched(istAmount, bank.amount, options) ||
         amountDifference > maxDifference
       ) {
         return false;
