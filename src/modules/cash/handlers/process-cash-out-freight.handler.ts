@@ -39,6 +39,8 @@ export class ProcessCashOutFreightHandler implements ICommandHandler<ProcessCash
     const enriched = await processor.formatAndEnrichAsync(rawData, company);
     const validated = await processor.validateAsync(enriched, company);
 
+    const metadata = (enriched as any).metadata;
+
     const dataBatch = await this.dataBatchService.createAsync(
       EntryProcessorTypes.CashOutFreight,
       ENTRY_PROCESSOR_NAMES.CASH_OUT_FREIGHT,
@@ -48,6 +50,7 @@ export class ProcessCashOutFreightHandler implements ICommandHandler<ProcessCash
       validated,
       undefined,
       'last.ledger.voucher.cash.out.freight',
+      metadata,
     );
 
     return dataBatch;

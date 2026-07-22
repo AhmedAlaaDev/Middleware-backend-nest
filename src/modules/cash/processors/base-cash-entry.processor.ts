@@ -174,13 +174,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const sortedLines = this.sortRawDataByLineNumber(rawLines);
     this.logger.debug(`[STEP 1.5] Sorted to ${sortedLines.length} lines`);
 
+    let processedLines = sortedLines;
+    let withholdingStats: any = null;
+
+    if (!this.isInbound()) {
+      const result = this.applyWithholdingReductions(sortedLines);
+      processedLines = result.lines;
+      withholdingStats = result.stats;
+    }
+
     this.logger.debug(
-      `[STEP 2] Filtering lines from ${sortedLines.length} lines${this.isInbound() ? ' (cash-in splits custody)' : ' (cash-out keeps all)'}`,
+      `[STEP 2] Filtering lines from ${processedLines.length} lines${this.isInbound() ? ' (cash-in splits custody)' : ' (cash-out keeps all)'}`,
     );
     const { custodySettlementLines, otherLines, vendorPayment } =
-      this.filterLines(sortedLines);
+      this.filterLines(processedLines);
     this.logger.debug(
-      `[FILTER] Processed ${sortedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${vendorPayment.length} vendor payment, ${otherLines.length} remaining lines`,
+      `[FILTER] Processed ${processedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${vendorPayment.length} vendor payment, ${otherLines.length} remaining lines`,
     );
 
     this.logger.debug(
@@ -254,6 +263,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.processVendorPaymentLines(vendorPayment);
     }
 
+    if (withholdingStats) {
+      (updatedDfoLines as any).metadata = withholdingStats;
+    }
     return updatedDfoLines;
   }
 
@@ -1124,5 +1136,77 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     return `${number.toString().padStart(9, '0')}/${textPart.toUpperCase()}`;
+  }
+
+  protected applyWithholdingReductions(
+    lines: CashEntryRawDataModel[],
+  ): { lines: CashEntryRawDataModel[]; stats: { withholdingRemovedCount: number; withholdingRemovedAmount: number } } {
+    const voucherGroups = new Map<string, CashEntryRawDataModel[]>();
+    for (const line of lines) {
+      const voucher = line.VOUCHER;
+      if (!voucher) continue;
+      if (!voucherGroups.has(voucher)) {
+        voucherGroups.set(voucher, []);
+      }
+      voucherGroups.get(voucher)!.push(line);
+    }
+
+    const linesToRemove = new Set<CashEntryRawDataModel>();
+    let totalRemovedAmount = 0;
+
+    for (const groupLines of voucherGroups.values()) {
+      const withholdingLines = groupLines.filter(
+        (l) =>
+          l.ACCOUNTTYPE === 'Ledger' &&
+          l.ACCOUNTDISPLAYVALUE?.startsWith('223304'),
+      );
+
+      for (const wLine of withholdingLines) {
+        const invoice = wLine.INVOICE;
+        if (!invoice) continue;
+
+        const vendorLines = groupLines.filter(
+          (l) => l.ACCOUNTTYPE === 'Vend' && l.INVOICE === invoice,
+        );
+
+        if (vendorLines.length > 0) {
+          const vLine = vendorLines[0];
+
+          if (wLine.CREDITAMOUNT > 0 && vLine.DEBITAMOUNT > 0) {
+            vLine.DEBITAMOUNT = Math.max(
+              0,
+              vLine.DEBITAMOUNT - wLine.CREDITAMOUNT,
+            );
+            linesToRemove.add(wLine);
+            totalRemovedAmount += wLine.CREDITAMOUNT;
+          } else if (wLine.DEBITAMOUNT > 0 && vLine.CREDITAMOUNT > 0) {
+            vLine.CREDITAMOUNT = Math.max(
+              0,
+              vLine.CREDITAMOUNT - wLine.DEBITAMOUNT,
+            );
+            linesToRemove.add(wLine);
+            totalRemovedAmount += wLine.DEBITAMOUNT;
+          }
+        }
+      }
+    }
+
+    if (linesToRemove.size > 0) {
+      this.logger.debug(
+        `[WITHHOLDING] Removed ${linesToRemove.size} withholding lines and updated corresponding vendor line amounts`,
+      );
+      return {
+        lines: lines.filter((l) => !linesToRemove.has(l)),
+        stats: {
+          withholdingRemovedCount: linesToRemove.size,
+          withholdingRemovedAmount: totalRemovedAmount,
+        },
+      };
+    }
+
+    return {
+      lines,
+      stats: { withholdingRemovedCount: 0, withholdingRemovedAmount: 0 },
+    };
   }
 }

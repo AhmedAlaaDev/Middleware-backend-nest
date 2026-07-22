@@ -37,6 +37,12 @@ export class DataBatch {
   @Prop({ default: 0 })
   totalUploadedCount: number;
 
+  @Prop({ default: 0 })
+  withholdingRemovedCount: number;
+
+  @Prop({ default: 0 })
+  withholdingRemovedAmount: number;
+
   @Prop({ type: Number, enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
   status: DataBatchStatus;
 
