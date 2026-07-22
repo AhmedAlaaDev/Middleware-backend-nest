@@ -247,6 +247,15 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
       'yes';
 
+    const paymentAmount = Number(line.CREDITAMOUNT || line.DEBITAMOUNT || 0);
+    const invoiceAmount = Number(
+      line.INVOICEAMOUNT ?? line.ORIGINALINVOICEAMOUNT ?? 0,
+    );
+    const isPartialPayment = invoiceAmount > 0 && paymentAmount < invoiceAmount;
+    const markedInvoice = isPartialPayment
+      ? ''
+      : line.MARKEDINVOICE || line.INVOICE || '';
+
     const dynLine = new VendorEntryDynDataModel(dimensions, {
       dataAreaId: this.company,
       Description: `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}`,
@@ -266,7 +275,7 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       ExchRate: exchangeRate,
       FinTagDisplayValue: line.FINTAGDISPLAYVALUE,
       Invoice: line.INVOICE || '',
-      MarkedInvoice: line.MARKEDINVOICE || line.INVOICE || '',
+      MarkedInvoice: markedInvoice,
       InvoiceDate: line.DOCUMENTDATE,
       IsWithholdingTaxCalculate: isWithholding ? 'Yes' : 'No',
       ItemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',

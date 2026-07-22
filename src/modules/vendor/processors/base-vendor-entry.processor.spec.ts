@@ -138,7 +138,7 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
     expect(result[0].MarkedInvoice).toBe('');
   });
 
-  it('should safely build single line with empty string MarkedInvoice when invoice is missing', () => {
+  it('should set MarkedInvoice to empty string "" when Payment Amount < Saved Invoice Amount (Partial Payment)', () => {
     const lineRaw: any = {
       UniqueId: 3,
       LINENUMBER: 3,
@@ -146,16 +146,39 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback Tests', () => {
       ACCOUNTTYPE: 'Vend',
       ACCOUNTDISPLAYVALUE: 'V003',
       DEFAULTDIMENSIONDISPLAYVALUE: '200101-01-02-03',
-      CREDITAMOUNT: 750,
+      CREDITAMOUNT: 400, // Payment amount: 400
       DEBITAMOUNT: 0,
+      INVOICEAMOUNT: 1000, // Invoice amount: 1000
       CURRENCYCODE: 'EGP',
       TRANSDATE: '2026-01-15',
-      INVOICE: '',
+      INVOICE: 'INV-2026-PARTIAL',
     };
 
     const builtLine = (processor as any).buildLine('SRC-3', lineRaw);
 
-    expect(builtLine.Invoice).toBe('');
+    expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
     expect(builtLine.MarkedInvoice).toBe('');
+  });
+
+  it('should retain MarkedInvoice string when Payment Amount >= Saved Invoice Amount (Full / Over Payment)', () => {
+    const lineRaw: any = {
+      UniqueId: 4,
+      LINENUMBER: 4,
+      JOURNALBATCHNUMBER: 'B100',
+      ACCOUNTTYPE: 'Vend',
+      ACCOUNTDISPLAYVALUE: 'V004',
+      DEFAULTDIMENSIONDISPLAYVALUE: '200101-01-02-03',
+      CREDITAMOUNT: 1000, // Payment amount: 1000
+      DEBITAMOUNT: 0,
+      INVOICEAMOUNT: 1000, // Invoice amount: 1000
+      CURRENCYCODE: 'EGP',
+      TRANSDATE: '2026-01-15',
+      INVOICE: 'INV-2026-FULL',
+    };
+
+    const builtLine = (processor as any).buildLine('SRC-4', lineRaw);
+
+    expect(builtLine.Invoice).toBe('INV-2026-FULL');
+    expect(builtLine.MarkedInvoice).toBe('INV-2026-FULL');
   });
 });
