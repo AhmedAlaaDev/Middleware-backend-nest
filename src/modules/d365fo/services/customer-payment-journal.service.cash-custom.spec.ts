@@ -72,7 +72,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           debitAmount: 0,
           DEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-003',
           offsetDEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-004',
-          EXCHANGERATE: 1,
           FinTagStr: 'TAG1',
           ISPREPAYMENT: 'No',
           ITEMWITHHOLDINGTAXGROUP: 'TAX1',
@@ -91,6 +90,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           TaxGroup: 'Taxable',
           TAXITEMGROUP: 'TIG1',
           transDate: '2026-04-21T00:00:00',
+          DocumentNum: 'DOC-1001',
+          DocumentDate: '2026-04-20T00:00:00',
           TRANSACTIONTEXT: 'Customer payment',
           Voucher: '',
         },
@@ -103,16 +104,23 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const [endpoint, body] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransCustPaym');
-    expect(body).toHaveProperty('journalNum', 'JN000123');
-    expect(body).toHaveProperty('AccountNum', 'CUST001');
-    expect(body).toHaveProperty('accountTypeStr', 'Cust');
-    expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(body._contract).toHaveProperty('journalNum', 'JN000123');
+    expect(body._contract).toHaveProperty('AccountNum', 'CUST001');
+    expect(body._contract).toHaveProperty('accountTypeStr', 'Cust');
+    expect(body._contract).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(body._contract).toHaveProperty('DocumentNum', 'DOC-1001');
+    expect(body._contract).toHaveProperty(
+      'DocumentDate',
+      '2026-04-20T00:00:00',
+    );
+    expect(body._contract).not.toHaveProperty('ExchangeRate');
+    expect(body._contract).not.toHaveProperty('EXCHANGERATE');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
   });
 
-  it('posts cash-out via addLedgerJournalTransVendPaym then patches FinTags via VendorPaymentJournalLines', async () => {
+  it('posts cash-out financial tags through the main API contract without a Vendor Line update', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
 
@@ -139,7 +147,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           debitAmount: 1000,
           DEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-003',
           offsetDEFAULTDIMENSIONDISPLAYVALUE: 'BU-001|CC-002|Dept-004',
-          EXCHANGERATE: 1,
           FinTagStr: 'TAG1',
           ISPREPAYMENT: 'No',
           ITEMWITHHOLDINGTAXGROUP: 'TAX1',
@@ -158,6 +165,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           TaxGroup: 'Non-Taxabl',
           TAXITEMGROUP: 'TIG1',
           transDate: '2026-04-21T00:00:00',
+          DocumentNum: 'DOC-2002',
+          DocumentDate: '2026-04-19T00:00:00',
           TRANSACTIONTEXT: 'Vendor payment',
           Voucher: '',
         },
@@ -170,23 +179,29 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const [endpoint, body] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransVendPaym');
-    expect(body).toHaveProperty('journalNum', 'JN000123');
-    expect(body).toHaveProperty('AccountNum', 'VEND001');
-    expect(body).toHaveProperty('accountTypeStr', 'Vendor');
-    expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(body._contract).toHaveProperty('journalNum', 'JN000123');
+    expect(body._contract).toHaveProperty('AccountNum', 'VEND001');
+    expect(body._contract).toHaveProperty('accountTypeStr', 'Vendor');
+    expect(body._contract).toHaveProperty('FinTagStr', 'TAG1');
+    expect(body._contract).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
+    expect(body._contract).toHaveProperty('DocumentNum', 'DOC-2002');
+    expect(body._contract).toHaveProperty(
+      'DocumentDate',
+      '2026-04-19T00:00:00',
+    );
+    expect(body._contract).not.toHaveProperty('ExchangeRate');
+    expect(body._contract).not.toHaveProperty('EXCHANGERATE');
 
-    expect(
-      vendorPaymentJournalService.listLinesForHeader,
-    ).toHaveBeenCalledWith('JN000123', 'USMF');
+    expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
+      'JN000123',
+      'USMF',
+    );
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
-    ).toHaveBeenCalledWith('JN000123', 1, 'USMF', {
-      FinTagDisplayValue: 'TAG1',
-      OffsetFinTagDisplayValue: 'TAG2',
-    });
+    ).not.toHaveBeenCalled();
   });
 
-  it('retries FinTag PATCH for existing cash-out lines without re-posting custom API', async () => {
+  it('skips existing cash-out lines without calling the obsolete Vendor Line update API', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
 
@@ -212,7 +227,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           debitAmount: 1000,
           DEFAULTDIMENSIONDISPLAYVALUE: '',
           offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
-          EXCHANGERATE: 1,
           FinTagStr: 'TAG1',
           ISPREPAYMENT: 'No',
           ITEMWITHHOLDINGTAXGROUP: '',
@@ -242,9 +256,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).not.toHaveBeenCalled();
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
-    ).toHaveBeenCalledWith('JN000123', 1, 'USMF', {
-      FinTagDisplayValue: 'TAG1',
-      OffsetFinTagDisplayValue: 'TAG2',
-    });
+    ).not.toHaveBeenCalled();
   });
 });

@@ -39,13 +39,11 @@ export interface D365FOVendorInvoiceJournalLineRequest {
   PostingProfile: string;
   Listcode?: string;
   OffsetDefaultDimensionDisplayValue?: string;
-  ReportingCurrencyExchRate?: number;
   PaymId?: string;
   AccountType: 'Vend' | 'Ledger';
   TermsOfPayment?: string;
   RemittanceAddressStreet?: string;
   RemittanceAddressDistrictName?: string;
-  ExchRateSecond?: number;
   TransactionType: string;
   ChineseVoucher?: string;
   Tax1099Fields?: number;
@@ -53,7 +51,6 @@ export interface D365FOVendorInvoiceJournalLineRequest {
   ChineseVoucherType?: string;
   AssetId?: string;
   RemittanceAddressCity?: string;
-  ExchRate: number;
   Document?: string;
   Description?: string;
   RemittanceAddressState?: string;

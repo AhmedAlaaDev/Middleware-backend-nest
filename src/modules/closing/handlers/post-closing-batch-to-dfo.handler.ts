@@ -274,7 +274,6 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       PaymentMethod: line.PaymentMethod,
       SalesTaxGroup: line.SalesTaxGroup,
       ItemSalesTaxGroup: line.ItemSalesTaxGroup,
-      ExchRate: line.ExchangeRate,
       FinTagDisplayValue: line.FinTagDisplayValue || '',
       PaymentId: line.UniqueId?.toString() || '',
     };

@@ -166,6 +166,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
     const rawLines = this.mapToModel(data);
+    this.assignMissingUniqueIds(rawLines);
     this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
 
     this.logger.debug(
@@ -347,6 +348,39 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected mapToModel(data: EntryRawDataModel[]): CashEntryRawDataModel[] {
     const kind = this.isTrucking() ? 'Fleet' : 'Freight';
     return data.map((d) => new CashEntryRawDataModel(d, kind));
+  }
+
+  /**
+   * When the source file has no UniqueId column (all values are 0),
+   * derive UniqueId from the VOUCHER field so that lines sharing
+   * the same voucher are grouped together by buildUniqueIdMap.
+   */
+  protected assignMissingUniqueIds(lines: CashEntryRawDataModel[]): void {
+    const hasMissing = lines.some((l) => !l.UniqueId);
+    if (!hasMissing) return;
+
+    const voucherToId = new Map<string, number>();
+    let nextId = 1;
+
+    for (const line of lines) {
+      if (line.UniqueId) continue;
+
+      const voucher = (line.VOUCHER || '').trim();
+      if (!voucher) {
+        // No voucher either — assign a unique id per line
+        line.UniqueId = nextId++;
+        continue;
+      }
+
+      if (!voucherToId.has(voucher)) {
+        voucherToId.set(voucher, nextId++);
+      }
+      line.UniqueId = voucherToId.get(voucher)!;
+    }
+
+    this.logger.debug(
+      `[STEP 1] Assigned UniqueIds to ${lines.filter((l) => l.UniqueId > 0).length} lines from ${voucherToId.size} vouchers`,
+    );
   }
 
   protected getJournalName(): string {
@@ -679,6 +713,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           ? accountLine.EXCHANGERATESECONDARY
           : offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
+      DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: accountLine.SafeType,
@@ -829,6 +864,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dataAreaId: this.company,
       ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
       Document: accountLine.DOCUMENT,
+      DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: accountLine.SafeType,
@@ -1138,9 +1174,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return `${number.toString().padStart(9, '0')}/${textPart.toUpperCase()}`;
   }
 
-  protected applyWithholdingReductions(
-    lines: CashEntryRawDataModel[],
-  ): { lines: CashEntryRawDataModel[]; stats: { withholdingRemovedCount: number; withholdingRemovedAmount: number } } {
+  protected applyWithholdingReductions(lines: CashEntryRawDataModel[]): {
+    lines: CashEntryRawDataModel[];
+    stats: {
+      withholdingRemovedCount: number;
+      withholdingRemovedAmount: number;
+    };
+  } {
     const voucherGroups = new Map<string, CashEntryRawDataModel[]>();
     for (const line of lines) {
       const voucher = line.VOUCHER;

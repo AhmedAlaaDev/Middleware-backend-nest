@@ -763,12 +763,36 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         'warmupProcessorData must be called before validateDimensionsForLine',
       );
     }
+    const dynLine = line as EntryDynDataModel;
+    const isLedgerLine = dynLine.AccountType === 'Ledger';
+    const tagOrAccount = String(
+      dynLine.FinTagDisplayValue || dynLine.AccountDisplayValue || '',
+    ).trim();
+
+    let dimensionIsRequiredOverride = overrides?.dimensionIsRequired;
+    if (isLedgerLine && tagOrAccount.startsWith('22420')) {
+      dimensionIsRequiredOverride = {
+        ...dimensionIsRequiredOverride,
+        Customer: false,
+        SubCustomer: false,
+        SubVendor: false,
+        ChargeType: false,
+        SalesMan: false,
+        CoordinatorMan: false,
+        FreightType: false,
+        Direction: false,
+        Worker: false,
+        TruckerType: false,
+      };
+    }
+
     this.dimensionService.validateDimensions(
       line,
       {
         requiredDimensions: this.requiredDimensions,
         chartNumber: this.chartNumber,
         ...overrides,
+        dimensionIsRequired: dimensionIsRequiredOverride,
       },
       {
         dimensionsMap: this.dimensionsMap,

@@ -227,7 +227,17 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
     const segmentLength =
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
-    const dimensions = this.utilsService.parseDimensionString(dimensionString);
+    let dimensions = this.utilsService.parseDimensionString(dimensionString);
+
+    const isLedgerLine = this.isLedger(line);
+    const tagOrAccount = String(
+      line.FINTAGDISPLAYVALUE || line.ACCOUNTDISPLAYVALUE || '',
+    ).trim();
+
+    if (isLedgerLine && tagOrAccount.startsWith('22420')) {
+      dimensions =
+        this.utilsService.filterDimensionsForLedgerTag22420(dimensions);
+    }
 
     const vendorInfo = this.isVendor(line)
       ? this.getVendorTaxNumberAndTermsOfPayment(line.ACCOUNTDISPLAYVALUE)
@@ -247,9 +257,21 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
       'yes';
 
+    const paymentAmount = Number(line.CREDITAMOUNT || line.DEBITAMOUNT || 0);
+    const invoiceAmount = Number(
+      line.INVOICEAMOUNT ?? line.ORIGINALINVOICEAMOUNT ?? 0,
+    );
+    const isPartialPayment = invoiceAmount > 0 && paymentAmount < invoiceAmount;
+    const markedInvoice = isPartialPayment
+      ? ''
+      : line.MARKEDINVOICE || line.INVOICE || '';
+
+    const descriptionSuffix = isPartialPayment || !markedInvoice ? ' - unmarked' : '';
+    const description = `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}${descriptionSuffix}`;
+
     const dynLine = new VendorEntryDynDataModel(dimensions, {
       dataAreaId: this.company,
-      Description: `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}`,
+      Description: description,
       JournalName: this.getJournalName(),
       JournalBatchNumber: line.JOURNALBATCHNUMBER,
       LineNumber: Number(line.LINENUMBER),
@@ -265,7 +287,8 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       DueDate: line.DUEDATE,
       ExchRate: exchangeRate,
       FinTagDisplayValue: line.FINTAGDISPLAYVALUE,
-      Invoice: line.INVOICE,
+      Invoice: line.INVOICE || '',
+      MarkedInvoice: markedInvoice,
       InvoiceDate: line.DOCUMENTDATE,
       IsWithholdingTaxCalculate: isWithholding ? 'Yes' : 'No',
       ItemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
@@ -313,6 +336,6 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
   protected sortDfoLines(
     lines: VendorEntryDynDataModel[],
   ): VendorEntryDynDataModel[] {
-    return lines.sort((a, b) => a.Invoice.localeCompare(b.Invoice));
+    return lines.sort((a, b) => (a.Invoice || '').localeCompare(b.Invoice || ''));
   }
 }

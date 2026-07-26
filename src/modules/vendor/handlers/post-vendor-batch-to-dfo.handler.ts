@@ -260,12 +260,9 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const lineNumber = line.LineNumber ?? 0;
       const postingProfile = line.PostingProfile ?? '';
       const finTag = line.FinTagDisplayValue ?? '';
-      const reportingRate = line.ReportingCurrencyExchRate ?? 0;
       const termsOfPayment = line.TermsOfPayment ?? '';
-      const exchRateSecond = line.ExchRateSecond ?? 0;
       const transactionType = 'Vendor';
       const methodOfPayment = line.MethodOfPayment ?? '';
-      const exchRate = line.ExchRate ?? 1;
       const document = line.Document ?? '';
       const description = line.Description ?? '';
       const invoice = line.Invoice ?? '';
@@ -293,13 +290,10 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         PostingProfile: postingProfile,
         DefaultDimensionDisplayValue: this.toOptionalTrimmedString(defaultDim),
         FinTagDisplayValue: finTag,
-        ReportingCurrencyExchRate: reportingRate,
         AccountType: accountType as 'Vend' | 'Ledger',
         TermsOfPayment: this.toOptionalTrimmedString(termsOfPayment),
-        ExchRateSecond: exchRateSecond || 0,
         TransactionType: transactionType,
         MethodOfPayment: this.toOptionalTrimmedString(methodOfPayment),
-        ExchRate: exchRate,
         Document: document != null ? String(document) : undefined,
         Description: this.toOptionalTrimmedString(description),
         Invoice: invoice,
@@ -429,12 +423,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         ),
         TransactionDate: this.formatDate(date),
         PostingProfile: line.PostingProfile ?? '',
-        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate ?? 0,
-        ReportingCurrencyExchRateSecondary:
-          line.ReportingCurrencyExchRateSecondary ?? 0,
         TransactionText: this.toOptionalTrimmedString(line.Description),
         CurrencyCode: line.Currency ?? '',
-        ExchangeRate: line.ExchRate ?? 1,
         CreditAmount: credit,
         DebitAmount: debit,
         Voucher: this.toOptionalTrimmedString(line.Voucher),
@@ -577,9 +567,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (line.Credit > 0 && line.Debit > 0) {
       missingFields.push('Credit and Debit cannot both be > 0');
     }
-    if (line.ExchRate === undefined || line.ExchRate === null) {
-      missingFields.push('ExchRate');
-    }
     if (!line.TransactionType?.trim()) {
       missingFields.push('TransactionType');
     }
@@ -668,8 +655,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (!line.AccountType?.trim()) missingFields.push('AccountType');
     if (!line.CurrencyCode?.trim()) missingFields.push('CurrencyCode');
     if (!line.TransactionDate?.trim()) missingFields.push('TransactionDate');
-    if (line.ExchangeRate === undefined || line.ExchangeRate === null)
-      missingFields.push('ExchangeRate');
     if (line.CreditAmount === undefined || line.CreditAmount === null)
       missingFields.push('CreditAmount');
     if (line.DebitAmount === undefined || line.DebitAmount === null)

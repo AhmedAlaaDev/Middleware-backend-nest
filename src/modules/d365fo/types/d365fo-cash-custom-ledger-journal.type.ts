@@ -33,8 +33,6 @@ export interface TSLedgerJournalTransCustomRequestBody {
   DEFAULTDIMENSIONDISPLAYVALUE: string;
   offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
 
-  EXCHANGERATE: number;
-
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
@@ -58,8 +56,14 @@ export interface TSLedgerJournalTransCustomRequestBody {
   TAXITEMGROUP: string;
 
   transDate: string;
+  DocumentNum: string;
+  DocumentDate: string;
   TRANSACTIONTEXT: string;
   Voucher: string;
+}
+
+export interface TSLedgerJournalTransCustomRequest {
+  _contract: TSLedgerJournalTransCustomRequestBody;
 }
 
 export interface TSLedgerJournalTransCustomResponseBody {

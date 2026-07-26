@@ -36,11 +36,8 @@ export interface D365FOVendorPaymentJournalLineRequest {
   FinTagDisplayValue?: string;
   TransactionDate: string;
   PostingProfile: string;
-  ReportingCurrencyExchRate?: number;
-  ReportingCurrencyExchRateSecondary?: number;
   TransactionText?: string;
   CurrencyCode: string;
-  ExchangeRate: number;
   CreditAmount: number;
   DebitAmount: number;
   Voucher?: string;

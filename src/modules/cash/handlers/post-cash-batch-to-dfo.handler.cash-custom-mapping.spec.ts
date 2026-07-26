@@ -1,6 +1,6 @@
-import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
-
 import { PostCashBatchToDFOHandler } from './post-cash-batch-to-dfo.handler';
+
+import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 
 describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   const buildHandler = () =>
@@ -29,6 +29,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             DefaultDimensionsForOffsetAccountDisplayValue:
               'BU-001|CC-002|Dept-004',
             TransactionDate: '2026-04-21T00:00:00.000Z',
+            Document: 'DOC-1001',
+            DocumentDate: '2026-04-20T00:00:00.000Z',
             ExchangeRate: 1,
             CreditAmount: 1000,
             DebitAmount: 0,
@@ -64,6 +66,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('TaxGroup', 'Taxable');
     expect(body).toHaveProperty('PostingProfile', 'Cust-PP');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
+    expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
+    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
@@ -85,6 +91,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             DefaultDimensionsForOffsetAccountDisplayValue:
               'BU-001|CC-002|Dept-004',
             TransactionDate: '2026-04-21T00:00:00.000Z',
+            Document: 'DOC-2002',
+            DocumentDate: '2026-04-19T00:00:00.000Z',
             ExchangeRate: 1,
             CreditAmount: 0,
             DebitAmount: 1000,
@@ -123,6 +131,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('debitAmount', 1000);
     expect(body).toHaveProperty('creditAmount', 0);
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(body).toHaveProperty('DocumentNum', 'DOC-2002');
+    expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
+    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
   });
 
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
@@ -285,11 +297,166 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result[0].customLineApiBody).toHaveProperty(
       'DEFAULTDIMENSIONDISPLAYVALUE',
-      '2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+      '|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
     );
     expect(result[0].customLineApiBody).toHaveProperty(
       'offsetAccountDisplayValue',
       ledgerDisplayValue,
     );
+  });
+
+  it('maps real Safe Out group 466698 with tags and without exchange rates', () => {
+    const handler = buildHandler();
+    const finTag =
+      'O25-IMP-OC-12581|ME_Q-20251239362-IMP-FCL|Sl-000020|Sl-000020|SOKCB25001058||||||INMUN1 Mundra|EGSOK Sokhna Port||||||31/12/2025|';
+    const defaultDimension =
+      '|1201|012|001|001|101006533|101006533|Sl-000020|Sl-000020|16544|3076|3040|Payable|||IMPORT||||';
+    const offsetDimension =
+      '|1201|012|001|001|101006533|101006533|Sl-000020|Sl-000020||3076|3040|Payable|||IMPORT||||';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: '1',
+            LineNumber: 1,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Sl-000020',
+            OffsetAccountType: 'Petty cash',
+            OffsetAccountDisplayValue: 'ALEXHO US',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue: defaultDimension,
+            DefaultDimensionsForOffsetAccountDisplayValue: offsetDimension,
+            TransactionDate: '2026-01-01T00:00:00.000Z',
+            Document: '15936',
+            DocumentDate: '2026-01-01T00:00:00.000Z',
+            ExchangeRate: 4765,
+            DebitAmount: 300,
+            CreditAmount: 0,
+            CurrencyCode: 'USD',
+            VoucherType: 'Cash',
+            FinTagDisplayValue: finTag,
+            OffsetFinTagDisplayValue: finTag,
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            PaymentReference: 'ALEXHO US-2 - Freight',
+            TransactionText: 'Vendor Payment - Freight Jan 2026 (Cash)',
+            MarkedInvoice: '2025001410',
+          },
+        },
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: '1',
+            LineNumber: 2,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Sl-000020',
+            OffsetAccountType: 'Petty cash',
+            OffsetAccountDisplayValue: 'ALEXHO US',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue: defaultDimension,
+            DefaultDimensionsForOffsetAccountDisplayValue: offsetDimension,
+            TransactionDate: '2026-01-01T00:00:00.000Z',
+            Document: '15936',
+            DocumentDate: '2026-01-01T00:00:00.000Z',
+            ExchangeRate: 4765,
+            DebitAmount: 255,
+            CreditAmount: 0,
+            CurrencyCode: 'USD',
+            VoucherType: 'Cash',
+            FinTagDisplayValue: finTag,
+            OffsetFinTagDisplayValue: finTag,
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            PaymentReference: 'ALEXHO US-2 - Freight',
+            TransactionText: 'Vendor Payment - Freight Jan 2026 (Cash)',
+            MarkedInvoice: '2025011319',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+    );
+
+    expect(result).toHaveLength(2);
+    expect(
+      result.map((line: any) => line.customLineApiBody.MARKEDINVOICE),
+    ).toEqual(['2025001410', '2025011319']);
+    expect(
+      result.map((line: any) => line.customLineApiBody.debitAmount),
+    ).toEqual([300, 255]);
+
+    for (const line of result) {
+      const body = line.customLineApiBody;
+      expect(body).toHaveProperty('FinTagStr', finTag);
+      expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
+      expect(body).toHaveProperty('DocumentNum', '15936');
+      expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
+      expect(body).not.toHaveProperty('ExchangeRate');
+      expect(body).not.toHaveProperty('EXCHANGERATE');
+      expect(
+        Object.keys(body).filter((key) => /exchange.?rate|exchrate/i.test(key)),
+      ).toEqual([]);
+    }
+  });
+
+  it('maps successfully posted Custody Issue group 466672 without invoice settlement', () => {
+    const handler = buildHandler();
+    const finTag =
+      'O25-IMP-OC-11585||Sl-000009|Ag-000010|261633796|||||EGY CROWN|CNSHA Shanghai|EGPSD Port Said West|||30/12/2025||02/12/2025|31/12/2025|';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: 'Mesco-000000001',
+            LineNumber: 1,
+            AccountType: 'Vend',
+            AccountDisplayValue: '5019',
+            OffsetAccountType: 'Petty cash',
+            OffsetAccountDisplayValue: 'PSD EG',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue:
+              '1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||',
+            DefaultDimensionsForOffsetAccountDisplayValue:
+              '1301|013|001|005|101001213|101001213|5019|5019|16545|3042|5013|Collect|||IMPORT||||',
+            TransactionDate: '2026-01-01T00:00:00.000Z',
+            Document: '15925',
+            DocumentDate: '2026-01-01T00:00:00.000Z',
+            ExchangeRate: 100,
+            DebitAmount: 5000,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            VoucherType: 'Cash',
+            SafeType: 'Custody Issue',
+            FinTagDisplayValue: finTag,
+            OffsetFinTagDisplayValue: finTag,
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            PaymentId: '1',
+            PaymentReference: 'PSD EG-1 - Freight',
+            TransactionText: 'Vendor Payment - Freight January 2026 (Cash)',
+            MarkedInvoice: '',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+    );
+
+    expect(result).toHaveLength(1);
+    const body = result[0].customLineApiBody;
+    expect(body).toHaveProperty('AccountNum', '5019');
+    expect(body).toHaveProperty('debitAmount', 5000);
+    expect(body).toHaveProperty('MARKEDINVOICE', '');
+    expect(body).toHaveProperty('FinTagStr', finTag);
+    expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
+    expect(body).toHaveProperty('DocumentNum', '15925');
+    expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
+    expect(
+      Object.keys(body).filter((key) => /exchange.?rate|exchrate/i.test(key)),
+    ).toEqual([]);
   });
 });

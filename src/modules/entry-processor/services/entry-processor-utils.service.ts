@@ -152,6 +152,38 @@ export class EntryProcessorUtilsService {
   }
 
   /**
+   * Filters dimensions for Ledger lines where the tag or account starts with '22420'.
+   * Retains ONLY: mainAccount, costCenter, activityName, businessUnit, location, vendor.
+   * All other dimension fields are cleared to undefined.
+   */
+  filterDimensionsForLedgerTag22420(
+    dimensions: EntryDimensionsModel,
+  ): EntryDimensionsModel {
+    return {
+      mainAccount: dimensions?.mainAccount,
+      costCenter: dimensions?.costCenter,
+      activityName: dimensions?.activityName,
+      businessUnit: dimensions?.businessUnit,
+      location: dimensions?.location,
+      vendor: dimensions?.vendor,
+      customer: undefined,
+      subCustomer: undefined,
+      subVendor: undefined,
+      chargeType: undefined,
+      salesMan: undefined,
+      coordinatorMan: undefined,
+      freightType: 'Payable',
+      truckerType: undefined,
+      truckNumber: undefined,
+      direction: undefined,
+      worker: undefined,
+      fixedAsset: undefined,
+      lease: undefined,
+      bankAccount: undefined,
+    };
+  }
+
+  /**
    * Returns the number of pipe-separated segments in a dimension string.
    */
   getDimensionSegmentLength(dimensionString?: unknown): number {

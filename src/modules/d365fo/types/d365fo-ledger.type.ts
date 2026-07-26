@@ -34,7 +34,6 @@ export interface LedgerJournalLineRequest {
   PaymentMethod?: string;
   SalesTaxGroup?: string;
   ItemSalesTaxGroup?: string;
-  ExchRate?: number;
   FinTagDisplayValue: string;
   PaymentId: string;
 }
