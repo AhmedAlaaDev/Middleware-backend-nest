@@ -11,6 +11,7 @@ import {
   D365FOCustomerPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
 import {
+  TSLedgerJournalTransCustomRequest,
   TSLedgerJournalTransCustomRequestBody,
   TSLedgerJournalTransCustomResponseBody,
 } from '@/modules/d365fo/types/d365fo-cash-custom-ledger-journal.type';
@@ -243,15 +244,6 @@ export class CustomerPaymentJournalService {
         }
 
         if (existingLines.has(line.LineNumber)) {
-          // Retry safety: prior run may have created the line but failed FinTag PATCH.
-          if (cashDirection === 'out' && dataAreaId) {
-            await this.patchCashOutLineFinancialTags(
-              headerKey,
-              line.LineNumber,
-              dataAreaId,
-              body,
-            );
-          }
           successfullyPosted.push({
             headerId: headerKey,
             lineNumber: line.LineNumber,
@@ -264,16 +256,6 @@ export class CustomerPaymentJournalService {
             ...body,
             journalNum: headerKey,
           });
-
-          // Temp workaround: custom cash-out API does not persist FinTags — patch via OData.
-          if (cashDirection === 'out' && dataAreaId) {
-            await this.patchCashOutLineFinancialTags(
-              headerKey,
-              line.LineNumber,
-              dataAreaId,
-              body,
-            );
-          }
 
           successfullyPosted.push({
             headerId: headerKey,
@@ -298,35 +280,15 @@ export class CustomerPaymentJournalService {
     return successfullyPosted;
   }
 
-  /**
-   * Temp workaround: after cash-out custom create, set FinTags on VendorPaymentJournalLines.
-   */
-  private async patchCashOutLineFinancialTags(
-    journalBatchNumber: string,
-    lineNumber: number,
-    dataAreaId: string,
-    body: TSLedgerJournalTransCustomRequestBody,
-  ): Promise<void> {
-    await this.vendorPaymentJournalService.updateLineFinancialTags(
-      journalBatchNumber,
-      lineNumber,
-      dataAreaId,
-      {
-        FinTagDisplayValue: body.FinTagStr,
-        OffsetFinTagDisplayValue: body.OFFSETFINTAGDISPLAYVALUE,
-      },
-    );
-  }
-
   private async postCustomCashLine(
     endpoint: string,
     body: TSLedgerJournalTransCustomRequestBody,
   ): Promise<TSLedgerJournalTransCustomResponseBody> {
     try {
       const result = await this.d365foClient.post<
-        TSLedgerJournalTransCustomRequestBody,
+        TSLedgerJournalTransCustomRequest,
         TSLedgerJournalTransCustomResponseBody
-      >(endpoint, body);
+      >(endpoint, { _contract: body });
 
       const statusCode = result?.StatusCode;
       if (statusCode === 'Success') {

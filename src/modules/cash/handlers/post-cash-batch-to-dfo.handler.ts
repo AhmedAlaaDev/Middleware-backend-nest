@@ -245,7 +245,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         line.TransactionDate || line.TransDate || line.Date || '';
       const credit = Number(line.CreditAmount ?? 0);
       const debit = Number(line.DebitAmount ?? 0);
-      const exchangeRate = line.ExchangeRate || line.ExchRate;
       const transDate = this.normalizeTransDateForCustomApi(
         this.formatDate(transactionDate),
       );
@@ -286,8 +285,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
-
-        EXCHANGERATE: Number(exchangeRate),
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
@@ -314,6 +311,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
 
         transDate,
+        DocumentNum: line.Document ?? '',
+        DocumentDate: this.normalizeTransDateForCustomApi(
+          this.formatDate(line.DocumentDate || transactionDate),
+        ),
         TRANSACTIONTEXT: transactionTextValue,
         Voucher: '',
       };
