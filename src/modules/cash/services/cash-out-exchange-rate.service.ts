@@ -60,7 +60,11 @@ export class CashOutExchangeRateService {
     const foreignCurrencies = [
       ...new Set(
         lines
-          .map((line) => this.normalizeCurrency(line.CURRENCYCODE))
+          .map((line) =>
+            this.normalizeCurrency(
+              line.CURRENCYCODE || CashOutExchangeRateService.BASE_CURRENCY,
+            ),
+          )
           .filter(
             (currency) =>
               Boolean(currency) &&
@@ -72,7 +76,11 @@ export class CashOutExchangeRateService {
     const nonUsdCurrencies = [
       ...new Set(
         lines
-          .map((line) => this.normalizeCurrency(line.CURRENCYCODE))
+          .map((line) =>
+            this.normalizeCurrency(
+              line.CURRENCYCODE || CashOutExchangeRateService.BASE_CURRENCY,
+            ),
+          )
           .filter(
             (currency) =>
               Boolean(currency) &&
