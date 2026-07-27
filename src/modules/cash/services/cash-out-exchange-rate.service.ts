@@ -19,7 +19,7 @@ export interface CashOutExchangeRateContext {
 
 export type CashOutExchangeRateResolution =
   | { kind: 'matched'; rate: number }
-  | { kind: 'not-required'; rate: 100 }
+  | { kind: 'not-required'; rate: number }
   | { kind: 'missing'; rate: 0; message: string };
 
 /**
@@ -256,8 +256,9 @@ export class CashOutExchangeRateService {
     const currency = this.normalizeCurrency(currencyCode);
     const date = this.normalizeDateOnly(transactionDate);
 
+    // Rule: Currency is USD -> set value to 1
     if (currency === CashOutExchangeRateService.REPORTING_CURRENCY) {
-      return { kind: 'not-required', rate: 100 };
+      return { kind: 'not-required', rate: 1 };
     }
 
     if (!currency || !date) {
@@ -267,7 +268,7 @@ export class CashOutExchangeRateService {
       );
     }
 
-    // 1. Attempt direct retrieval: Currency -> USD
+    // 1. Attempt direct retrieval: Currency -> USD (e.g. GBP -> USD = 1.34, EUR -> USD = 1.18)
     const directRates = context.reportingRatesByCurrency.get(currency) ?? [];
     const directSelected = this.matchPeriodRate(
       directRates,
@@ -277,10 +278,10 @@ export class CashOutExchangeRateService {
     );
 
     if (directSelected) {
-      return { kind: 'matched', rate: Number(directSelected.rate * 100) };
+      return { kind: 'matched', rate: Number(directSelected.rate) };
     }
 
-    // 2. Fallback to reverse lookup: USD -> Currency and calculate reciprocal
+    // 2. Fallback to reverse lookup: USD -> Currency (e.g. USD -> EGP = 47.65 => EGP -> USD = 1 / 47.65)
     const reverseRates =
       context.reverseReportingRatesByCurrency.get(currency) ?? [];
     const reverseSelected = this.matchPeriodRate(
@@ -292,7 +293,7 @@ export class CashOutExchangeRateService {
 
     if (reverseSelected) {
       const reciprocal = 1 / reverseSelected.rate;
-      return { kind: 'matched', rate: Number(reciprocal * 100) };
+      return { kind: 'matched', rate: Number(reciprocal) };
     }
 
     // 3. Neither direction configured -> validation error
@@ -366,21 +367,63 @@ export class CashOutExchangeRateService {
     return (value ?? '').trim().toUpperCase();
   }
 
-  private normalizeDateOnly(value: string | null | undefined): string | null {
-    const input = (value ?? '').trim();
-    const match = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!match) return null;
+  private normalizeDateOnly(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
 
-    const dateOnly = `${match[1]}-${match[2]}-${match[3]}`;
-    const parsed = new Date(`${dateOnly}T00:00:00.000Z`);
-    if (
-      Number.isNaN(parsed.getTime()) ||
-      parsed.toISOString().slice(0, 10) !== dateOnly
-    ) {
-      return null;
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return null;
+      return value.toISOString().slice(0, 10);
     }
 
-    return dateOnly;
+    const input = String(value).trim();
+    if (!input) return null;
+
+    // Standard ISO YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = input.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+    if (isoMatch) {
+      const dateOnly = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+      const parsed = new Date(`${dateOnly}T00:00:00.000Z`);
+      if (!Number.isNaN(parsed.getTime())) {
+        return dateOnly;
+      }
+    }
+
+    // Slash format DD/MM/YYYY or MM/DD/YYYY (e.g. 05/01/2026)
+    const slashMatch = input.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (slashMatch) {
+      const p1 = Number(slashMatch[1]);
+      const p2 = Number(slashMatch[2]);
+      const year = slashMatch[3];
+      let month = p1;
+      let day = p2;
+      if (p1 > 12) {
+        day = p1;
+        month = p2;
+      }
+      const mm = String(month).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      return `${year}-${mm}-${dd}`;
+    }
+
+    // General Date parsing fallback
+    const parsed = new Date(input);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+
+    // Excel numeric serial date fallback (e.g. 46027)
+    const numeric = Number(input);
+    if (Number.isFinite(numeric) && numeric > 25000 && numeric < 75000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const dateFromExcel = new Date(
+        excelEpoch.getTime() + numeric * 86400000,
+      );
+      if (!Number.isNaN(dateFromExcel.getTime())) {
+        return dateFromExcel.toISOString().slice(0, 10);
+      }
+    }
+
+    return null;
   }
 
   private lastDayOfMonth(dateOnly: string): string {

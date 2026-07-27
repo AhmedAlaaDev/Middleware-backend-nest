@@ -120,11 +120,11 @@ describe('CashOutExchangeRateService', () => {
 
     expect(service.resolveReporting(context, '2026-01-10', 'USD')).toEqual({
       kind: 'not-required',
-      rate: 100,
+      rate: 1,
     });
     expect(service.resolveReporting(context, '2026-01-01', 'EGP')).toEqual({
       kind: 'matched',
-      rate: 2,
+      rate: 0.02,
     });
   });
 
@@ -231,10 +231,10 @@ describe('CashOutExchangeRateService', () => {
       rawLine('2026-01-05', 'EUR'),
     ]);
 
-    // EGP -> USD reporting rate uses reverse USD -> EGP = 50.25 => (1 / 50.25) * 100
+    // EGP -> USD reporting rate uses reverse USD -> EGP = 50.25 => 1 / 50.25
     const reportingRes = service.resolveReporting(context, '2026-01-05', 'EGP');
     expect(reportingRes.kind).toBe('matched');
-    expect(reportingRes.rate).toBeCloseTo((1 / 50.25) * 100, 5);
+    expect(reportingRes.rate).toBeCloseTo(1 / 50.25, 5);
 
     // EUR -> EGP transaction rate uses reverse EGP -> EUR = 0.019157 => (1 / 0.019157) * 100
     const eurEgpRes = service.resolve(context, '2026-01-05', 'EUR');
