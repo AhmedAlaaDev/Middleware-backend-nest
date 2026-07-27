@@ -7,6 +7,7 @@ import { EntryRawDataModel } from '@/modules/entry-processor/models';
 export interface CashOutExchangeRateContext {
   earliestTransactionDate: string | null;
   latestTransactionDate: string | null;
+  requestStartDate: string | null;
   requestEndDate: string | null;
   ratesByCurrency: ReadonlyMap<string, readonly D365FOExchangeRate[]>;
   reverseRatesByCurrency: ReadonlyMap<string, readonly D365FOExchangeRate[]>;
@@ -47,6 +48,9 @@ export class CashOutExchangeRateService {
       .sort();
 
     const earliestTransactionDate = transactionDates[0] ?? null;
+    const requestStartDate = earliestTransactionDate
+      ? this.firstDayOfMonth(earliestTransactionDate)
+      : null;
     const latestTransactionDate =
       transactionDates[transactionDates.length - 1] ?? null;
     const requestEndDate = latestTransactionDate
@@ -91,7 +95,7 @@ export class CashOutExchangeRateService {
       readonly D365FOExchangeRate[]
     >();
 
-    if (earliestTransactionDate && requestEndDate) {
+    if (requestStartDate && requestEndDate) {
       const [
         directResults,
         reverseResults,
@@ -108,7 +112,7 @@ export class CashOutExchangeRateService {
                   rateType: CashOutExchangeRateService.RATE_TYPE,
                   fromCurrency,
                   toCurrency: CashOutExchangeRateService.BASE_CURRENCY,
-                  startDate: earliestTransactionDate,
+                  startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: false,
                 },
@@ -127,7 +131,7 @@ export class CashOutExchangeRateService {
                   rateType: CashOutExchangeRateService.RATE_TYPE,
                   fromCurrency: CashOutExchangeRateService.BASE_CURRENCY,
                   toCurrency,
-                  startDate: earliestTransactionDate,
+                  startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: false,
                 },
@@ -146,7 +150,7 @@ export class CashOutExchangeRateService {
                   rateType: CashOutExchangeRateService.RATE_TYPE,
                   fromCurrency,
                   toCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
-                  startDate: earliestTransactionDate,
+                  startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: false,
                 },
@@ -165,7 +169,7 @@ export class CashOutExchangeRateService {
                   rateType: CashOutExchangeRateService.RATE_TYPE,
                   fromCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
                   toCurrency,
-                  startDate: earliestTransactionDate,
+                  startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: false,
                 },
@@ -193,6 +197,7 @@ export class CashOutExchangeRateService {
     return {
       earliestTransactionDate,
       latestTransactionDate,
+      requestStartDate,
       requestEndDate,
       ratesByCurrency,
       reverseRatesByCurrency,
@@ -424,6 +429,10 @@ export class CashOutExchangeRateService {
     }
 
     return null;
+  }
+
+  private firstDayOfMonth(dateOnly: string): string {
+    return `${dateOnly.slice(0, 7)}-01`;
   }
 
   private lastDayOfMonth(dateOnly: string): string {

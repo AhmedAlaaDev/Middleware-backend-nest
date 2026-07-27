@@ -151,7 +151,7 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
       rateType: 'Default',
       fromCurrency: 'EGP',
       toCurrency: 'USD',
-      startDate: '2026-03-20',
+      startDate: '2026-03-01',
       endDate: '2026-03-31',
       useCache: false,
     });
