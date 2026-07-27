@@ -172,7 +172,7 @@ describe('CashOutExchangeRateService', () => {
     });
   });
 
-  it('returns a date-and-currency-specific missing result instead of falling back to 100', async () => {
+  it('returns a date-and-currency-specific missing result instead of falling back to 100 when neither direction exists', async () => {
     const { d365ExchangeRateService, service } = setup();
     d365ExchangeRateService.getExchangeRatesForCurrencyRange.mockResolvedValue([
       d365Rate('USD', '2026-03-01T12:00:00Z', '2026-03-10T12:00:00Z', 48.75),
@@ -190,5 +190,55 @@ describe('CashOutExchangeRateService', () => {
       rate: 0,
       message: 'No valid reporting exchange rate found for EGP to USD on 2026-03-20',
     });
+  });
+
+  it('automatically falls back to reverse currency pair and calculates reciprocal rate when direct rate is missing', async () => {
+    const { d365ExchangeRateService, service } = setup();
+    d365ExchangeRateService.getExchangeRatesForCurrencyRange.mockImplementation(
+      (_company: string, options: { fromCurrency: string; toCurrency?: string }) => {
+        // Direct EGP -> USD is empty; reverse USD -> EGP exists with 50.25
+        if (options.fromCurrency === 'USD' && options.toCurrency === 'EGP') {
+          return Promise.resolve([
+            {
+              RateTypeName: 'Default',
+              FromCurrency: 'USD',
+              ToCurrency: 'EGP',
+              StartDate: '2026-01-01T00:00:00Z',
+              EndDate: '2026-01-31T00:00:00Z',
+              Rate: 50.25,
+            },
+          ]);
+        }
+        // Direct EUR -> EGP is empty; reverse EGP -> EUR exists with 0.019157
+        if (options.fromCurrency === 'EGP' && options.toCurrency === 'EUR') {
+          return Promise.resolve([
+            {
+              RateTypeName: 'Default',
+              FromCurrency: 'EGP',
+              ToCurrency: 'EUR',
+              StartDate: '2026-01-01T00:00:00Z',
+              EndDate: '2026-01-31T00:00:00Z',
+              Rate: 0.019157,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    );
+
+    const context = await service.load('m-p', [
+      rawLine('2026-01-05', 'EGP'),
+      rawLine('2026-01-05', 'EUR'),
+    ]);
+
+    // EGP -> USD reporting rate uses reverse USD -> EGP = 50.25 => (1 / 50.25) * 100
+    const reportingRes = service.resolveReporting(context, '2026-01-05', 'EGP');
+    expect(reportingRes.kind).toBe('matched');
+    expect(reportingRes.rate).toBeCloseTo((1 / 50.25) * 100, 5);
+
+    // EUR -> EGP transaction rate uses reverse EGP -> EUR = 0.019157 => (1 / 0.019157) * 100
+    const eurEgpRes = service.resolve(context, '2026-01-05', 'EUR');
+    expect(eurEgpRes.kind).toBe('matched');
+    expect(eurEgpRes.rate).toBeCloseTo((1 / 0.019157) * 100, 5);
   });
 });

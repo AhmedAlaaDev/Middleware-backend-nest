@@ -9,7 +9,12 @@ export interface CashOutExchangeRateContext {
   latestTransactionDate: string | null;
   requestEndDate: string | null;
   ratesByCurrency: ReadonlyMap<string, readonly D365FOExchangeRate[]>;
+  reverseRatesByCurrency: ReadonlyMap<string, readonly D365FOExchangeRate[]>;
   reportingRatesByCurrency: ReadonlyMap<string, readonly D365FOExchangeRate[]>;
+  reverseReportingRatesByCurrency: ReadonlyMap<
+    string,
+    readonly D365FOExchangeRate[]
+  >;
 }
 
 export type CashOutExchangeRateResolution =
@@ -19,8 +24,8 @@ export type CashOutExchangeRateResolution =
 
 /**
  * Task 2047 & 2048 exchange-rate loader and in-memory matcher for Cash files.
- * The returned context belongs to one processing invocation, avoiding mutable
- * singleton state when multiple uploads are formatted concurrently.
+ * Supports direct and reverse (reciprocal) exchange-rate lookups for both
+ * transaction rates (Currency <-> EGP) and reporting rates (Currency <-> USD).
  */
 @Injectable()
 export class CashOutExchangeRateService {
@@ -73,13 +78,27 @@ export class CashOutExchangeRateService {
     ].sort();
 
     const ratesByCurrency = new Map<string, readonly D365FOExchangeRate[]>();
+    const reverseRatesByCurrency = new Map<
+      string,
+      readonly D365FOExchangeRate[]
+    >();
     const reportingRatesByCurrency = new Map<
+      string,
+      readonly D365FOExchangeRate[]
+    >();
+    const reverseReportingRatesByCurrency = new Map<
       string,
       readonly D365FOExchangeRate[]
     >();
 
     if (earliestTransactionDate && requestEndDate) {
-      const [results, reportingResults] = await Promise.all([
+      const [
+        directResults,
+        reverseResults,
+        directReportingResults,
+        reverseReportingResults,
+      ] = await Promise.all([
+        // Direct transaction rates: Currency -> EGP
         Promise.all(
           foreignCurrencies.map(async (fromCurrency) => {
             const rates =
@@ -98,6 +117,26 @@ export class CashOutExchangeRateService {
             return [fromCurrency, Object.freeze([...(rates || [])])] as const;
           }),
         ),
+        // Reverse transaction rates: EGP -> Currency
+        Promise.all(
+          foreignCurrencies.map(async (toCurrency) => {
+            const rates =
+              await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
+                company,
+                {
+                  rateType: CashOutExchangeRateService.RATE_TYPE,
+                  fromCurrency: CashOutExchangeRateService.BASE_CURRENCY,
+                  toCurrency,
+                  startDate: earliestTransactionDate,
+                  endDate: requestEndDate,
+                  useCache: false,
+                },
+              );
+
+            return [toCurrency, Object.freeze([...(rates || [])])] as const;
+          }),
+        ),
+        // Direct reporting rates: Currency -> USD
         Promise.all(
           nonUsdCurrencies.map(async (fromCurrency) => {
             const rates =
@@ -116,13 +155,38 @@ export class CashOutExchangeRateService {
             return [fromCurrency, Object.freeze([...(rates || [])])] as const;
           }),
         ),
+        // Reverse reporting rates: USD -> Currency
+        Promise.all(
+          nonUsdCurrencies.map(async (toCurrency) => {
+            const rates =
+              await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
+                company,
+                {
+                  rateType: CashOutExchangeRateService.RATE_TYPE,
+                  fromCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
+                  toCurrency,
+                  startDate: earliestTransactionDate,
+                  endDate: requestEndDate,
+                  useCache: false,
+                },
+              );
+
+            return [toCurrency, Object.freeze([...(rates || [])])] as const;
+          }),
+        ),
       ]);
 
-      for (const [currency, rates] of results) {
+      for (const [currency, rates] of directResults) {
         ratesByCurrency.set(currency, rates);
       }
-      for (const [currency, rates] of reportingResults) {
+      for (const [currency, rates] of reverseResults) {
+        reverseRatesByCurrency.set(currency, rates);
+      }
+      for (const [currency, rates] of directReportingResults) {
         reportingRatesByCurrency.set(currency, rates);
+      }
+      for (const [currency, rates] of reverseReportingResults) {
+        reverseReportingRatesByCurrency.set(currency, rates);
       }
     }
 
@@ -131,7 +195,9 @@ export class CashOutExchangeRateService {
       latestTransactionDate,
       requestEndDate,
       ratesByCurrency,
+      reverseRatesByCurrency,
       reportingRatesByCurrency,
+      reverseReportingRatesByCurrency,
     };
   }
 
@@ -151,49 +217,35 @@ export class CashOutExchangeRateService {
       return this.missing(currency || '(empty)', date || '(invalid date)');
     }
 
-    const rates = context.ratesByCurrency.get(currency) ?? [];
-    let selected: { startDate: string; rate: number } | null = null;
+    // 1. Attempt direct retrieval: Currency -> EGP
+    const directRates = context.ratesByCurrency.get(currency) ?? [];
+    const directSelected = this.matchPeriodRate(
+      directRates,
+      currency,
+      CashOutExchangeRateService.BASE_CURRENCY,
+      date,
+    );
 
-    for (const rate of rates) {
-      if (
-        this.normalizeCurrency(rate.FromCurrency) !== currency ||
-        this.normalizeCurrency(rate.ToCurrency) !==
-          CashOutExchangeRateService.BASE_CURRENCY ||
-        (rate.RateTypeName || '').trim().toLowerCase() !==
-          CashOutExchangeRateService.RATE_TYPE.toLowerCase()
-      ) {
-        continue;
-      }
-
-      const startDate = this.normalizeDateOnly(rate.StartDate);
-      const endDate = this.normalizeDateOnly(rate.EndDate);
-      const numericRate = Number(rate.Rate);
-
-      if (
-        !startDate ||
-        !endDate ||
-        !Number.isFinite(numericRate) ||
-        numericRate <= 0 ||
-        date < startDate ||
-        date > endDate
-      ) {
-        continue;
-      }
-
-      // If D365 contains overlapping periods, use the one that became valid
-      // most recently, matching the previous master-data selection rule.
-      if (!selected || startDate > selected.startDate) {
-        selected = { startDate, rate: numericRate };
-      }
+    if (directSelected) {
+      return { kind: 'matched', rate: Number(directSelected.rate * 100) };
     }
 
-    if (!selected) {
-      return this.missing(currency, date);
+    // 2. Fallback to reverse lookup: EGP -> Currency and calculate reciprocal
+    const reverseRates = context.reverseRatesByCurrency.get(currency) ?? [];
+    const reverseSelected = this.matchPeriodRate(
+      reverseRates,
+      CashOutExchangeRateService.BASE_CURRENCY,
+      currency,
+      date,
+    );
+
+    if (reverseSelected) {
+      const reciprocal = 1 / reverseSelected.rate;
+      return { kind: 'matched', rate: Number(reciprocal * 100) };
     }
 
-    // D365 journal exchange-rate fields use the percentage-rate convention
-    // already used throughout this middleware (48.75 => 4875).
-    return { kind: 'matched', rate: Number(selected.rate * 100) };
+    // 3. Neither direction configured -> validation error
+    return this.missing(currency, date);
   }
 
   public resolveReporting(
@@ -215,14 +267,50 @@ export class CashOutExchangeRateService {
       );
     }
 
-    const rates = context.reportingRatesByCurrency.get(currency) ?? [];
+    // 1. Attempt direct retrieval: Currency -> USD
+    const directRates = context.reportingRatesByCurrency.get(currency) ?? [];
+    const directSelected = this.matchPeriodRate(
+      directRates,
+      currency,
+      CashOutExchangeRateService.REPORTING_CURRENCY,
+      date,
+    );
+
+    if (directSelected) {
+      return { kind: 'matched', rate: Number(directSelected.rate * 100) };
+    }
+
+    // 2. Fallback to reverse lookup: USD -> Currency and calculate reciprocal
+    const reverseRates =
+      context.reverseReportingRatesByCurrency.get(currency) ?? [];
+    const reverseSelected = this.matchPeriodRate(
+      reverseRates,
+      CashOutExchangeRateService.REPORTING_CURRENCY,
+      currency,
+      date,
+    );
+
+    if (reverseSelected) {
+      const reciprocal = 1 / reverseSelected.rate;
+      return { kind: 'matched', rate: Number(reciprocal * 100) };
+    }
+
+    // 3. Neither direction configured -> validation error
+    return this.missingReporting(currency, date);
+  }
+
+  private matchPeriodRate(
+    rates: readonly D365FOExchangeRate[],
+    fromCurrency: string,
+    toCurrency: string,
+    targetDate: string,
+  ): { startDate: string; rate: number } | null {
     let selected: { startDate: string; rate: number } | null = null;
 
     for (const rate of rates) {
       if (
-        this.normalizeCurrency(rate.FromCurrency) !== currency ||
-        this.normalizeCurrency(rate.ToCurrency) !==
-          CashOutExchangeRateService.REPORTING_CURRENCY ||
+        this.normalizeCurrency(rate.FromCurrency) !== fromCurrency ||
+        this.normalizeCurrency(rate.ToCurrency) !== toCurrency ||
         (rate.RateTypeName || '').trim().toLowerCase() !==
           CashOutExchangeRateService.RATE_TYPE.toLowerCase()
       ) {
@@ -238,8 +326,8 @@ export class CashOutExchangeRateService {
         !endDate ||
         !Number.isFinite(numericRate) ||
         numericRate <= 0 ||
-        date < startDate ||
-        date > endDate
+        targetDate < startDate ||
+        targetDate > endDate
       ) {
         continue;
       }
@@ -249,11 +337,7 @@ export class CashOutExchangeRateService {
       }
     }
 
-    if (!selected) {
-      return this.missingReporting(currency, date);
-    }
-
-    return { kind: 'matched', rate: Number(selected.rate * 100) };
+    return selected;
   }
 
   private missing(
