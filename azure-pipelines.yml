@@ -5,7 +5,7 @@ trigger:
 
 jobs:
 - deployment: DeployProduction
-  displayName: Deploy to Production
+  displayName: Deploy D365FO Middleware
   environment: vmi2919763
 
   strategy:
@@ -13,14 +13,23 @@ jobs:
       deploy:
         steps:
         - script: |
+            set -e
+
             cd /home/deploy/apps/D365FOMiddleware_Nestbackend
 
-            echo "Current branch:"
-            git branch
-
+            echo "Updating repository..."
             git fetch origin
             git checkout production
             git reset --hard origin/production
 
-            docker compose -f docker-compose.production.yml up -d --build app
-          displayName: Build and Deploy
+            echo "Building new image..."
+            docker compose -f docker-compose.production.yml build app
+
+            echo "Restarting application..."
+            docker compose -f docker-compose.production.yml up -d app
+
+            echo "Cleaning old images..."
+            docker image prune -f
+
+            echo "Deployment completed."
+          displayName: Deploy Application
