@@ -4,7 +4,7 @@ trigger:
       - production
 
 jobs:
-* deployment: DeployProduction
+- deployment: DeployProduction
   displayName: Deploy D365FO Middleware
   environment: Contabo Live Server
 
