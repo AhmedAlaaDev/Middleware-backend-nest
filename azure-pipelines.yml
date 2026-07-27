@@ -6,7 +6,7 @@ trigger:
 jobs:
 - deployment: DeployProduction
   displayName: Deploy D365FO Middleware
-  environment: vmi2919763
+  environment: Contabo Live Server
 
   strategy:
     runOnce:
