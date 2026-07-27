@@ -906,7 +906,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
-        'Cust-PP',
+        '',
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
       SecondaryExchangeRate:
@@ -1121,7 +1121,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
-        (route?.kind === 'customer-payment' ? 'Cust-PP' : 'V-PP'),
+        '',
       // Custody SafeTypes post as payment without settlement.
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
