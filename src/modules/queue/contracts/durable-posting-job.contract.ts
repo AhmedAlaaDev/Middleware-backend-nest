@@ -3,7 +3,7 @@ export interface DurablePostingJobPayload {
   company: string;
   correlationId: string;
   sourceModule: 'AR' | 'VENDOR' | 'CASH' | 'Ledger';
-  payloadVersion: 1;
+  payloadVersion: 1 | 2;
   journalKind?: 'invoice' | 'payment';
   cashDirection?: 'in' | 'out';
 }

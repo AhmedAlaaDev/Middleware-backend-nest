@@ -764,13 +764,25 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       );
     }
     const dynLine = line as EntryDynDataModel;
-    const isLedgerLine = dynLine.AccountType === 'Ledger';
-    const tagOrAccount = String(
-      dynLine.FinTagDisplayValue || dynLine.AccountDisplayValue || '',
-    ).trim();
+    const accountIsTriggeredLedger =
+      dynLine.AccountType === 'Ledger' &&
+      (String(dynLine.FinTagDisplayValue || '')
+        .trim()
+        .startsWith('22420') ||
+        String(dynLine.AccountDisplayValue || '')
+          .trim()
+          .startsWith('22420'));
+    const offsetIsTriggeredLedger =
+      dynLine.OffsetAccountType === 'Ledger' &&
+      (String(dynLine.OffsetFinTagDisplayValue || '')
+        .trim()
+        .startsWith('22420') ||
+        String(dynLine.OffsetAccountDisplayValue || '')
+          .trim()
+          .startsWith('22420'));
 
     let dimensionIsRequiredOverride = overrides?.dimensionIsRequired;
-    if (isLedgerLine && tagOrAccount.startsWith('22420')) {
+    if (accountIsTriggeredLedger || offsetIsTriggeredLedger) {
       dimensionIsRequiredOverride = {
         ...dimensionIsRequiredOverride,
         Customer: false,

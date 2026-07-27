@@ -12,11 +12,19 @@ import {
 } from '@/modules/cash/commands';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import {
+  CashJournalRoute,
+  CashJournalRoutingError,
+  CashJournalRoutingService,
+  CashTargetProcessor,
+} from '@/modules/cash/services/cash-journal-routing.service';
+import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalLineRequest,
+  D365FOVendorInvoiceJournalHeaderRequest,
   TSLedgerJournalTransCustomRequestBody,
   TSLedgerJournalCustomAccountTypeStr,
 } from '@/modules/d365fo/types';
+import { LedgerJournalHeaderRequest } from '@/modules/d365fo/types/d365fo-ledger.type';
 import {
   DataBatchStatus,
   EntryProcessorTypes,
@@ -24,6 +32,10 @@ import {
 import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
+import {
+  CashJournalHeaderRequest,
+  CashJournalPostingGroup,
+} from '@/modules/queue/contracts/post-customer-payment-journal-dfo-job.contract';
 import { QueueService } from '@/modules/queue/services/queue.service';
 
 @CommandHandler(PostCashBatchToDFOCommand)
@@ -39,6 +51,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   constructor(
     private readonly dataBatchService: DataBatchService,
     private readonly queueService: QueueService,
+    private readonly routingService: CashJournalRoutingService = new CashJournalRoutingService(),
   ) {}
 
   public async execute(
@@ -51,13 +64,19 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     const batch = await this.validateBatch(batchId);
     const cashDirection = this.getCashDirection(batch.entryProcessorType);
     this.ensureCashEntryProcessor(batch.entryProcessorType);
+    const targetProcessor = this.getTargetProcessor(batch.entryProcessorType);
 
-    const journalGroups = await this.groupRecordsByJournalBatchNumber(batchId);
+    const journalGroups = await this.groupRecordsByJournalBatchNumber(
+      batchId,
+      cashDirection,
+      targetProcessor,
+    );
 
-    const groupedJournals = this.mapToD365FOCustomerPaymentRequests(
+    const groupedJournals = this.mapToD365FOCashJournalRequests(
       journalGroups,
       batch.company,
       cashDirection,
+      targetProcessor,
     );
 
     const journalsToQueue = this.applyTestingMode(groupedJournals);
@@ -88,6 +107,20 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
   }
 
+  private getTargetProcessor(
+    entryProcessorType: EntryProcessorTypes,
+  ): CashTargetProcessor | undefined {
+    switch (entryProcessorType) {
+      case EntryProcessorTypes.CashOutFreight:
+        return 'Freight';
+      case EntryProcessorTypes.CashOutTrucking:
+        return 'Fleet';
+      default:
+        // Task 2045 uses Target Processor only for outbound Vendor Payment.
+        return undefined;
+    }
+  }
+
   private async validateBatch(batchId: string) {
     const batch = await this.dataBatchService.getByIdAsync(batchId);
     if (!batch) {
@@ -100,6 +133,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     ) {
       throw new BadRequestException(
         `Batch status is ${batch.status} and cannot be posted to D365FO.`,
+      );
+    }
+    if ((batch.errorCount ?? 0) > 0) {
+      throw new BadRequestException(
+        `Batch contains ${batch.errorCount} validation error(s) and cannot be posted to D365FO. Correct the source data and upload or reprocess the batch before posting.`,
       );
     }
     return batch;
@@ -121,6 +159,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private async groupRecordsByJournalBatchNumber(
     batchId: string,
+    cashDirection: 'in' | 'out',
+    targetProcessor: CashTargetProcessor | undefined,
   ): Promise<Map<string, IDataEnhancedRecord<CashEntryDynDataModel>[]>> {
     const cursor =
       await this.dataBatchService.getEnhancedRecordsStream(batchId);
@@ -142,17 +182,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
 
       const journalBatchNumber = data.JournalBatchNumber ?? '';
-      if (!journalGroups.has(journalBatchNumber)) {
-        journalGroups.set(journalBatchNumber, []);
+      const groupKey =
+        cashDirection === 'out'
+          ? this.cashOutGroupKey(
+              journalBatchNumber,
+              this.resolveCashOutRoute(data, targetProcessor),
+            )
+          : journalBatchNumber;
+      if (!journalGroups.has(groupKey)) {
+        journalGroups.set(groupKey, []);
       }
 
       journalGroups
-        .get(journalBatchNumber)!
+        .get(groupKey)!
         .push(record as unknown as IDataEnhancedRecord<CashEntryDynDataModel>);
     }
 
     if (recordCount === 0) {
       throw new NotFoundException('No enhanced records found for this batch');
+    }
+    if (journalGroups.size === 0) {
+      throw new BadRequestException(
+        'No postable cash records were found. Every enhanced record is missing JournalBatchNumber.',
+      );
     }
 
     this.logger.log(
@@ -160,6 +212,40 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     );
 
     return journalGroups;
+  }
+
+  private cashOutGroupKey(
+    journalBatchNumber: string,
+    route: CashJournalRoute,
+  ): string {
+    // Existing voucher/month/1,000-line batching is preserved. A route suffix
+    // prevents a provisional batch from mixing different D365 header families.
+    return [
+      journalBatchNumber,
+      route.kind,
+      route.journalName,
+      route.headerApi,
+    ].join('::');
+  }
+
+  private resolveCashOutRoute(
+    line: CashEntryDynDataModel,
+    targetProcessor: CashTargetProcessor | undefined,
+  ): CashJournalRoute {
+    try {
+      return this.routingService.resolve({
+        safeType: line.SafeType,
+        targetProcessor,
+        voucherType: line.VoucherType,
+      });
+    } catch (error) {
+      if (error instanceof CashJournalRoutingError) {
+        throw new BadRequestException(
+          `Cash line ${line.LineNumber ?? '?'}: ${error.message}`,
+        );
+      }
+      throw error;
+    }
   }
 
   private isValidCashRecord(
@@ -179,26 +265,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return true;
   }
 
-  private mapToD365FOCustomerPaymentRequests(
+  private mapToD365FOCashJournalRequests(
     journalGroups: Map<string, IDataEnhancedRecord<CashEntryDynDataModel>[]>,
     company: string,
     cashDirection: 'in' | 'out',
-  ): Array<{
-    header: D365FOCustomerPaymentJournalHeaderRequest;
-    lines: D365FOCustomerPaymentJournalLineRequest[];
-  }> {
-    const result: Array<{
-      header: D365FOCustomerPaymentJournalHeaderRequest;
-      lines: D365FOCustomerPaymentJournalLineRequest[];
-    }> = [];
+    targetProcessor: CashTargetProcessor | undefined,
+  ): CashJournalPostingGroup[] {
+    const result: CashJournalPostingGroup[] = [];
 
     for (const [_journalBatchNumber, lines] of journalGroups.entries()) {
       if (lines.length === 0) continue;
 
-      const header = this.mapHeaderFromLines(lines, company);
-      const mappedLines = this.mapLines(lines, company, cashDirection);
+      if (cashDirection === 'in') {
+        const header = this.mapHeaderFromLines(lines, company);
+        const mappedLines = this.mapLines(lines, company, 'in');
+        result.push({ header, lines: mappedLines });
+        continue;
+      }
 
-      result.push({ header, lines: mappedLines });
+      const route = this.resolveCashOutRoute(lines[0].data, targetProcessor);
+      const header = this.mapRoutedHeaderFromLines(lines, company, route);
+      const mappedLines = this.mapLines(lines, company, route.lineDirection);
+
+      result.push({ route, header, lines: mappedLines });
     }
 
     return result;
@@ -218,12 +307,38 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     };
   }
 
+  private mapRoutedHeaderFromLines(
+    lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
+    company: string,
+    route: CashJournalRoute,
+  ): CashJournalHeaderRequest {
+    const firstLine = lines[0].data;
+    const baseHeader = {
+      dataAreaId: company,
+      JournalName: route.journalName,
+      Description: firstLine.Description ?? '',
+    };
+
+    if (route.kind === 'ledger') {
+      return baseHeader as LedgerJournalHeaderRequest;
+    }
+
+    return {
+      ...baseHeader,
+      // AP/AR services omit this provisional value from the header POST. It is
+      // retained for validation/audit, then replaced by D365's returned number.
+      JournalBatchNumber: firstLine.JournalBatchNumber ?? '',
+    } as
+      | D365FOCustomerPaymentJournalHeaderRequest
+      | D365FOVendorInvoiceJournalHeaderRequest;
+  }
+
   private mapLines(
     lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
     company: string,
     cashDirection: 'in' | 'out',
   ): D365FOCustomerPaymentJournalLineRequest[] {
-    return lines.map((lineRecord) => {
+    return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
       const accountDisplayValue = line.AccountDisplayValue ?? '';
@@ -240,7 +355,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             this.toDefaultDimensionDisplayValue(offsetAccountDisplayValue) ||
             '';
 
-      const lineNumber = line.LineNumber ?? 0;
+      // D365 assigns line numbers inside each created header. Reindex after
+      // route splitting so retry/idempotency checks match the actual header.
+      const lineNumber = groupLineIndex + 1;
       const transactionDate =
         line.TransactionDate || line.TransDate || line.Date || '';
       const credit = Number(line.CreditAmount ?? 0);
@@ -261,8 +378,21 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const offsetDefaultDimDisplayValue =
         this.toOptionalTrimmedString(offsetDefaultDim) ?? '';
 
-      const transactionTextValue =
+      const markedInvoice = (
+        line.MarkedInvoice !== undefined
+          ? line.MarkedInvoice
+          : line.Invoice || ''
+      ).trim();
+      let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
+      if (
+        !markedInvoice &&
+        !transactionTextValue.toLowerCase().includes('unmarked')
+      ) {
+        transactionTextValue = transactionTextValue
+          ? `${transactionTextValue} - unmarked`
+          : 'unmarked';
+      }
       const offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
 
@@ -283,12 +413,30 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
+        ExchRate:
+          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+            ? 100
+            : line.ExchRate || 100,
+        EXCHANGERATE:
+          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+            ? 100
+            : line.ExchRate || 100,
+        ExchangeRate:
+          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+            ? 100
+            : line.ExchRate || 100,
+
+        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate || 0,
+        ReportingExchangeRate: line.ReportingCurrencyExchRate || 0,
+        REPORTINGEXCHANGERATE: line.ReportingCurrencyExchRate || 0,
+        ExchRateSecond: line.ReportingCurrencyExchRate || 0,
+
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
-        MARKEDINVOICE: line.MarkedInvoice || line.Invoice || '',
+        MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
           offsetAccountDisplayValue || accountDisplayValue,
@@ -298,8 +446,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         OFFSETTRANSACTIONTEXT: offsetTransactionTextValue,
 
         PAYMENTID: line.PaymentId ?? '',
-        // TODO: confirm the exact source field for PAYMENTMETHODNAME.
-        PAYMENTMETHODNAME: offsetAccountTypeStr,
+        PAYMENTMETHODNAME:
+          this.toOptionalTrimmedString(line.PaymentMethodName) ?? '',
         PAYMENTNOTES: transactionTextValue,
         PAYMENTREFERENCE: line.PaymentReference ?? '',
         // TODO: mapping is unknown; keeping empty until confirmed.
@@ -378,14 +526,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   }
 
   private applyTestingMode(
-    groupedJournals: Array<{
-      header: D365FOCustomerPaymentJournalHeaderRequest;
-      lines: D365FOCustomerPaymentJournalLineRequest[];
-    }>,
-  ): Array<{
-    header: D365FOCustomerPaymentJournalHeaderRequest;
-    lines: D365FOCustomerPaymentJournalLineRequest[];
-  }> {
+    groupedJournals: CashJournalPostingGroup[],
+  ): CashJournalPostingGroup[] {
     if (!this.testingModeEnabled) {
       return groupedJournals;
     }
@@ -396,6 +538,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
 
     const limited = {
+      ...first,
       header: {
         ...first.header,
         Description: `[TESTING_ONLY] ${first.header.Description ?? ''}`.trim(),
@@ -413,14 +556,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       `TEST MODE payload - lines: ${JSON.stringify(limited.lines, null, 2)}`,
     );
 
-    return [limited];
+    return [limited as CashJournalPostingGroup];
   }
 
   private validateCustomerPaymentJournals(
-    groupedJournals: Array<{
-      header: D365FOCustomerPaymentJournalHeaderRequest;
-      lines: D365FOCustomerPaymentJournalLineRequest[];
-    }>,
+    groupedJournals: CashJournalPostingGroup[],
   ): void {
     const validationErrors: Array<{
       journalIndex?: number;
@@ -429,7 +569,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }> = [];
 
     groupedJournals.forEach((journal, journalIndex) => {
-      const headerErrors = this.validateHeader(journal.header);
+      const requiresProvisionalBatchNumber =
+        !('route' in journal) || journal.route.kind !== 'ledger';
+      const headerErrors = this.validateHeader(
+        journal.header,
+        requiresProvisionalBatchNumber,
+      );
       if (headerErrors.length > 0) {
         validationErrors.push({
           journalIndex,
@@ -458,7 +603,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       });
 
       throw new BadRequestException({
-        message: 'Validation failed for cash customer payment journal data',
+        message: 'Validation failed for routed cash journal data',
         errors: validationErrors,
         details: errorMessages.join('; '),
       });
@@ -466,14 +611,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   }
 
   private validateHeader(
-    header: D365FOCustomerPaymentJournalHeaderRequest,
+    header: CashJournalHeaderRequest,
+    requiresProvisionalBatchNumber: boolean,
   ): string[] {
     const missingFields: string[] = [];
 
     if (!header.dataAreaId?.trim()) {
       missingFields.push('dataAreaId');
     }
-    if (!header.JournalBatchNumber?.trim()) {
+    const provisionalBatchNumber =
+      'JournalBatchNumber' in header ? header.JournalBatchNumber : undefined;
+    if (requiresProvisionalBatchNumber && !provisionalBatchNumber?.trim()) {
       missingFields.push('JournalBatchNumber');
     }
     if (!header.JournalName?.trim()) {
@@ -566,10 +714,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     batchId: string,
     company: string,
     payload: {
-      groupedJournals: Array<{
-        header: D365FOCustomerPaymentJournalHeaderRequest;
-        lines: D365FOCustomerPaymentJournalLineRequest[];
-      }>;
+      groupedJournals: CashJournalPostingGroup[];
       cashDirection: 'in' | 'out';
     },
   ): Promise<PostCashBatchToDFOResult> {
@@ -581,7 +726,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         company,
         cashDirection: payload.cashDirection,
         sourceModule: 'CASH',
-        payloadVersion: 1,
+        // Version 2 requires route metadata and is used only by task-2045
+        // outbound groups. Cash-In keeps its backward-compatible v1 shape.
+        payloadVersion: payload.cashDirection === 'out' ? 2 : 1,
       },
       payload.groupedJournals,
     );

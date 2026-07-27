@@ -28,6 +28,7 @@ describe(QueueService.name, () => {
       {} as Queue,
       redisQueue,
       {} as Queue,
+      {} as Queue,
       jobStore,
       operationalLogs as never,
       traceContext as never,
@@ -44,7 +45,7 @@ describe(QueueService.name, () => {
         batchId: 'batch-42',
         company: 'm-p',
         sourceModule: 'Ledger',
-        payloadVersion: 1,
+        payloadVersion: 2,
       },
       groups,
     );
@@ -56,7 +57,7 @@ describe(QueueService.name, () => {
       company: 'm-p',
       correlationId: 'request-7',
       sourceModule: 'Ledger',
-      payloadVersion: 1,
+      payloadVersion: 2,
       journalKind: undefined,
       cashDirection: undefined,
     });
@@ -86,6 +87,7 @@ describe(QueueService.name, () => {
     } as unknown as QueueJobStoreService;
     const service = new QueueService(
       redisQueue,
+      {} as Queue,
       {} as Queue,
       {} as Queue,
       {} as Queue,
@@ -124,6 +126,7 @@ describe(QueueService.name, () => {
     } as unknown as Queue;
     const service = new QueueService(
       redisQueue,
+      {} as Queue,
       {} as Queue,
       {} as Queue,
       {} as Queue,

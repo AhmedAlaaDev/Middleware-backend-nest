@@ -17,6 +17,10 @@ import {
 } from '@/modules/d365fo/types/d365fo-cash-custom-ledger-journal.type';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
+export type CashJournalExistingLinesLoader = () => Promise<
+  Array<{ LineNumber: number }>
+>;
+
 /**
  * Service for managing customer payment journals in D365FO
  * (CustomerPaymentJournalHeaders / CustomerPaymentJournalLines)
@@ -155,6 +159,8 @@ export class CustomerPaymentJournalService {
     lines: D365FOCustomerPaymentJournalLineRequest[],
     chunkSize: number = 20,
     dataAreaId?: string,
+    existingLinesLoader?: CashJournalExistingLinesLoader,
+    allowUnmarkedInvoiceRetry = false,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     return this.postCashLinesForHeader(
       headerKey,
@@ -162,6 +168,8 @@ export class CustomerPaymentJournalService {
       chunkSize,
       dataAreaId,
       'in',
+      existingLinesLoader,
+      allowUnmarkedInvoiceRetry,
     );
   }
 
@@ -174,6 +182,8 @@ export class CustomerPaymentJournalService {
     lines: D365FOCustomerPaymentJournalLineRequest[],
     chunkSize: number = 20,
     dataAreaId?: string,
+    existingLinesLoader?: CashJournalExistingLinesLoader,
+    allowUnmarkedInvoiceRetry = true,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     return this.postCashLinesForHeader(
       headerKey,
@@ -181,6 +191,8 @@ export class CustomerPaymentJournalService {
       chunkSize,
       dataAreaId,
       'out',
+      existingLinesLoader,
+      allowUnmarkedInvoiceRetry,
     );
   }
 
@@ -190,6 +202,8 @@ export class CustomerPaymentJournalService {
     chunkSize: number,
     dataAreaId: string | undefined,
     cashDirection: 'in' | 'out',
+    existingLinesLoader?: CashJournalExistingLinesLoader,
+    allowUnmarkedInvoiceRetry = cashDirection === 'out',
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const endpoint =
       cashDirection === 'in'
@@ -204,8 +218,9 @@ export class CustomerPaymentJournalService {
     if (dataAreaId && lines.length > 0) {
       try {
         // Cash-out lines live on VendorPaymentJournalLines; cash-in on CustomerPaymentJournalLines.
-        const existing =
-          cashDirection === 'out'
+        const existing = existingLinesLoader
+          ? await existingLinesLoader()
+          : cashDirection === 'out'
             ? await this.vendorPaymentJournalService.listLinesForHeader(
                 headerKey,
                 dataAreaId,
@@ -213,10 +228,14 @@ export class CustomerPaymentJournalService {
             : await this.listLinesForHeader(headerKey, dataAreaId);
         existingLines = new Set(existing.map((l) => l.LineNumber));
       } catch (error) {
+        const lookupError = this.dfoErrorExtractor.extractMessage(error);
+        if (existingLinesLoader) {
+          throw new Error(
+            `[CASH-CUSTOM] Could not verify existing lines for routed header ${headerKey}; posting was stopped to prevent duplicates: ${lookupError}`,
+          );
+        }
         this.logger.warn(
-          `[CASH-CUSTOM] Could not query existing lines for header ${headerKey}: ${this.dfoErrorExtractor.extractMessage(
-            error,
-          )}`,
+          `[CASH-CUSTOM] Could not query existing lines for header ${headerKey}: ${lookupError}`,
         );
       }
     }
@@ -256,28 +275,87 @@ export class CustomerPaymentJournalService {
             ...body,
             journalNum: headerKey,
           });
-
-          successfullyPosted.push({
-            headerId: headerKey,
-            lineNumber: line.LineNumber,
-          });
-          if (line !== chunk[chunk.length - 1]) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
-          }
         } catch (error) {
           const errorDetails = this.dfoErrorExtractor.extractMessage(error);
-          this.logger.error(
-            `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-          throw new Error(
-            `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-          );
+
+          if (
+            allowUnmarkedInvoiceRetry &&
+            !!body.MARKEDINVOICE &&
+            this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
+          ) {
+            this.logger.warn(
+              `[CASH-CUSTOM] D365FO cannot settle invoice ${body.MARKEDINVOICE} on cash-out line ${line.LineNumber} because the line amount exceeds the remaining invoice amount. Retrying without invoice settlement.`,
+            );
+
+            try {
+              const transactionText = this.appendUnmarkedDescription(
+                body.TRANSACTIONTEXT,
+              );
+              const paymentNotes = this.appendUnmarkedDescription(
+                body.PAYMENTNOTES || body.TRANSACTIONTEXT,
+              );
+
+              await this.postCustomCashLine(endpoint, {
+                ...body,
+                journalNum: headerKey,
+                MARKEDINVOICE: null,
+                PAYMENTNOTES: paymentNotes,
+                TRANSACTIONTEXT: transactionText,
+              });
+            } catch (retryError) {
+              const retryErrorDetails =
+                this.dfoErrorExtractor.extractMessage(retryError);
+              this.logger.error(
+                `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey} after retrying without invoice settlement: ${retryErrorDetails}`,
+                retryError instanceof Error ? retryError.stack : undefined,
+              );
+              throw new Error(
+                `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey} after retrying with MARKEDINVOICE null: ${retryErrorDetails}`,
+              );
+            }
+          } else {
+            this.logger.error(
+              `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+              error instanceof Error ? error.stack : undefined,
+            );
+            throw new Error(
+              `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+            );
+          }
+        }
+
+        successfullyPosted.push({
+          headerId: headerKey,
+          lineNumber: line.LineNumber,
+        });
+        if (line !== chunk[chunk.length - 1]) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
         }
       }
     }
 
     return successfullyPosted;
+  }
+
+  private isInvoiceAmountGreaterThanRemainingError(message: string): boolean {
+    const normalized = String(message ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return (
+      normalized.includes('amount of the invoice') &&
+      normalized.includes('is greater than the') &&
+      (normalized.includes('remain amount') ||
+        normalized.includes('remaining amount'))
+    );
+  }
+
+  private appendUnmarkedDescription(description: string): string {
+    const trimmed = String(description ?? '').trim();
+    if (!trimmed) return 'unmarked';
+    if (trimmed.toLowerCase().includes('unmarked')) return trimmed;
+    return `${trimmed} - unmarked`;
   }
 
   private async postCustomCashLine(

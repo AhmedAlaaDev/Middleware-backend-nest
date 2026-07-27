@@ -411,6 +411,18 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
       this.assertValidDateInput(date, 'TransactionDate', lineNumber);
 
+      const markedInvoiceStr = this.toOptionalTrimmedString(
+        line.MarkedInvoice !== undefined ? line.MarkedInvoice : line.Invoice,
+      );
+      let transactionText = this.toOptionalTrimmedString(line.Description);
+      if (
+        !markedInvoiceStr &&
+        transactionText &&
+        !transactionText.toLowerCase().includes('unmarked')
+      ) {
+        transactionText = `${transactionText} - unmarked`;
+      }
+
       return {
         dataAreaId: company,
         JournalBatchNumber: journalBatchNumber,
@@ -423,7 +435,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         ),
         TransactionDate: this.formatDate(date),
         PostingProfile: line.PostingProfile ?? '',
-        TransactionText: this.toOptionalTrimmedString(line.Description),
+        TransactionText: transactionText,
         CurrencyCode: line.Currency ?? '',
         CreditAmount: credit,
         DebitAmount: debit,
@@ -432,7 +444,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
           defaultDim || line.DefaultDimensionDisplayValue,
         ),
         Company: company,
-        MarkedInvoice: this.toOptionalTrimmedString(line.Invoice),
+        MarkedInvoice: markedInvoiceStr,
       } as D365FOVendorPaymentJournalLineRequest;
     });
   }

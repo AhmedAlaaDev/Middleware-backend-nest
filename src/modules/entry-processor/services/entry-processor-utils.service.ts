@@ -172,7 +172,7 @@ export class EntryProcessorUtilsService {
       chargeType: undefined,
       salesMan: undefined,
       coordinatorMan: undefined,
-      freightType: 'Payable',
+      freightType: undefined,
       truckerType: undefined,
       truckNumber: undefined,
       direction: undefined,
@@ -595,10 +595,11 @@ export class EntryProcessorUtilsService {
 
   /**
    * Cash module only: same rules as `updateBatchAndVoucher` (same calendar month per batch,
-   * max lines, uniqueId kept together), and a batch never mixes voucher buckets.
-   * Invoice groups are ordered Cash → Cheque → Other (Visa, Transfer, Deposit, POS, etc.)
-   * before batching, preserving original order within each bucket so all cash lines are
-   * processed in one contiguous block (then cheque, then others), still split by month/line cap.
+   * max lines, uniqueId kept together), and a batch never mixes voucher buckets
+   * or task-2045 journal routes (represented by JournalName).
+   * Invoice groups are ordered Cash → Cheque → Other (Visa, Transfer, Deposit, POS, etc.),
+   * then consolidated by first-seen journal route and calendar month. Source order is
+   * preserved within each bucket/route/month before the 1,000-line split.
    */
   updateCashBatchAndVoucher<
     T extends EntryDynDataModel & {
@@ -627,10 +628,34 @@ export class EntryProcessorUtilsService {
       invoiceMap.get(uniqueId)!.push(line);
     }
 
+    const routeOrder = new Map<string, number>();
+    for (const [, groupedLines] of invoiceMap) {
+      const journalNameKey = (groupedLines[0]?.JournalName ?? '')
+        .trim()
+        .toLowerCase();
+      if (!routeOrder.has(journalNameKey)) {
+        routeOrder.set(journalNameKey, routeOrder.size);
+      }
+    }
+
     const sortedEntries = Array.from(invoiceMap.entries()).sort((a, b) => {
       const ra = this.cashVoucherTypeBucketRank(a[1][0]?.VoucherType);
       const rb = this.cashVoucherTypeBucketRank(b[1][0]?.VoucherType);
-      return ra - rb;
+      if (ra !== rb) return ra - rb;
+
+      const routeA = (a[1][0]?.JournalName ?? '').trim().toLowerCase();
+      const routeB = (b[1][0]?.JournalName ?? '').trim().toLowerCase();
+      const routeDifference =
+        (routeOrder.get(routeA) ?? 0) - (routeOrder.get(routeB) ?? 0);
+      if (routeDifference !== 0) return routeDifference;
+
+      const monthA = this.toMonthKey(
+        a[1][0]?.TransDate || a[1][0]?.Date || a[1][0]?.TransactionDate || '',
+      );
+      const monthB = this.toMonthKey(
+        b[1][0]?.TransDate || b[1][0]?.Date || b[1][0]?.TransactionDate || '',
+      );
+      return monthA.localeCompare(monthB);
     });
 
     const updatedMap = new Map<string, T[]>();
@@ -640,6 +665,7 @@ export class EntryProcessorUtilsService {
     let currentBatchNumber = startBatchNumber;
     let currentVoucherNum = startVoucherNumber;
     let currentVoucherBucket: 'cash' | 'cheque' | 'other' | null = null;
+    let currentJournalName: string | null = null;
 
     let lineNumberInBatch = 1;
 
@@ -656,6 +682,9 @@ export class EntryProcessorUtilsService {
           '',
       );
       const voucherBucket = this.cashVoucherTypeBucket(headerLine.VoucherType);
+      const journalNameKey = (headerLine.JournalName ?? '')
+        .trim()
+        .toLowerCase();
 
       const invoiceLineCount = groupedLines.length;
       const monthChanged = currentBatchMonth !== invoiceMonth;
@@ -663,8 +692,15 @@ export class EntryProcessorUtilsService {
         currentBatchLineCount + invoiceLineCount > maxLinesPerBatch;
       const bucketChanged =
         currentVoucherBucket !== null && currentVoucherBucket !== voucherBucket;
+      const journalRouteChanged =
+        currentJournalName !== null && currentJournalName !== journalNameKey;
 
-      if (monthChanged || wouldExceedLimit || bucketChanged) {
+      if (
+        monthChanged ||
+        wouldExceedLimit ||
+        bucketChanged ||
+        journalRouteChanged
+      ) {
         if (currentBatchMonth !== null) {
           currentBatchNumber++;
         }
@@ -674,6 +710,7 @@ export class EntryProcessorUtilsService {
       }
 
       currentVoucherBucket = voucherBucket;
+      currentJournalName = journalNameKey;
 
       const journalName = headerLine.JournalName;
       const formattedBatch = this.formatBatchNumber(currentBatchNumber);

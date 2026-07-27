@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
+import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
@@ -8,8 +9,9 @@ import { OperationalLoggerService } from '@/modules/observability/services/opera
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import {
-  CustomerPaymentJournalPostingGroup,
+  CashJournalPostingGroup,
   PostCustomerPaymentJournalDFOJobPayload,
+  RoutedCashJournalPostingGroup,
 } from '@/modules/queue/contracts/post-customer-payment-journal-dfo-job.contract';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
 import {
@@ -18,15 +20,22 @@ import {
 } from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
+import { CashJournalPostingStrategy } from '@/modules/queue/strategies/cash-journal-posting.strategy';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
+import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
 
 const LINE_CHUNK_SIZE = 20;
 const ROLLBACK_CHUNK_SIZE = 20;
+
+interface RoutedCreatedHeader extends CreatedHeader {
+  route?: CashJournalRoute;
+}
 
 @Processor(QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL, { concurrency: 1 })
 export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
   constructor(
     private readonly strategy: CustomerPaymentJournalPostingStrategy,
+    private readonly cashJournalStrategy: CashJournalPostingStrategy,
     private readonly batches: DataBatchService,
     private readonly rollback: DfoRollbackService,
     private readonly jobs: QueueJobStoreService,
@@ -55,14 +64,14 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     const collector = new PostingErrorCollector();
     const legacyGroups = (
       job.data as PostCustomerPaymentJournalDFOJobPayload & {
-        groupedJournals?: CustomerPaymentJournalPostingGroup[];
+        groupedJournals?: CashJournalPostingGroup[];
       }
     ).groupedJournals;
     if (legacyGroups?.length) {
       await this.jobs.prepare({
         ...job.data,
         correlationId: job.data.correlationId ?? job.data.batchId,
-        payloadVersion: 1,
+        payloadVersion: job.data.payloadVersion,
         jobId,
         queueName: QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL,
         jobName: job.name,
@@ -99,33 +108,63 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     collector: PostingErrorCollector,
   ): Promise<void> {
     const jobId = String(job.id);
-    const groups =
-      await this.jobs.listGroups<CustomerPaymentJournalPostingGroup>(jobId);
+    const groups = await this.jobs.listGroups<CashJournalPostingGroup>(jobId);
     if (!groups.length) throw new Error('No durable customer payment groups');
-    const created: CreatedHeader[] = [];
+    // Include headers completed by an earlier worker attempt so a failure in a
+    // later group can still roll the complete middleware batch back atomically.
+    const created: RoutedCreatedHeader[] = groups
+      .filter(
+        (record) =>
+          record.status === QueueJobGroupStatus.COMPLETED &&
+          Boolean(record.createdHeaderId),
+      )
+      .map((record) => ({
+        headerKey: record.createdHeaderId!,
+        dataAreaId: job.data.company,
+        route: this.asRoutedGroup(record.payload)?.route,
+      }));
 
     try {
       for (const record of groups) {
         if (record.status === QueueJobGroupStatus.COMPLETED) continue;
         await this.jobs.markGroupActive(jobId, record.index);
-        this.strategy.setHeaderCashDirectionContext(
+        const routedGroup = this.asRoutedGroup(record.payload);
+        if (job.data.payloadVersion === 2 && !routedGroup) {
+          throw new Error(
+            'Cash journal payload version 2 requires route metadata for every group',
+          );
+        }
+        const postingStrategy = this.selectStrategy(
+          routedGroup,
           job.data.cashDirection ?? 'in',
         );
 
         let headerId = record.createdHeaderId;
         if (!headerId) {
-          const result = await this.strategy.postHeadersInBatches(
+          const result = await postingStrategy.postHeadersInBatches(
             [record.payload.header],
             1,
           );
-          if (result.headerIds.length !== 1) {
+          if (result.headerIds.length !== 1 || !result.headerIds[0]?.trim()) {
             throw new Error('D365FO did not return one payment header ID');
           }
           headerId = result.headerIds[0];
+          // Track the D365 header before persisting its ID. If the Mongo write
+          // fails, the catch block can still roll the external header back.
+          created.push({
+            headerKey: headerId,
+            dataAreaId: job.data.company,
+            route: routedGroup?.route,
+          });
           await this.jobs.setCreatedHeader(jobId, record.index, headerId);
+        } else {
+          created.push({
+            headerKey: headerId,
+            dataAreaId: job.data.company,
+            route: routedGroup?.route,
+          });
         }
-        created.push({ headerKey: headerId, dataAreaId: job.data.company });
-        await this.strategy.postLinesForHeader(
+        await postingStrategy.postLinesForHeader(
           headerId,
           record.payload.lines,
           job.data.company,
@@ -145,28 +184,73 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       ]);
     } catch (error) {
       if (created.length) {
-        const result = await this.rollback.rollbackAll(
-          this.strategy,
+        const failedToDeleteHeaders = await this.rollbackCreatedHeaders(
           created,
-          ROLLBACK_CHUNK_SIZE,
           collector,
+          job.data.cashDirection ?? 'in',
         );
-        if (result.failedToDeleteHeaders.length) {
-          await this.storeHeaderIds(
-            job.data.batchId,
-            result.failedToDeleteHeaders,
-          );
+        if (failedToDeleteHeaders.length) {
+          await this.storeHeaderIds(job.data.batchId, failedToDeleteHeaders);
         }
         await this.jobs.resetAfterRollback(
           jobId,
           created.map((header) => header.headerKey),
-          result.failedToDeleteHeaders,
+          failedToDeleteHeaders,
         );
       } else {
         await this.jobs.resetAfterRollback(jobId, []);
       }
       throw error;
     }
+  }
+
+  private asRoutedGroup(
+    group: CashJournalPostingGroup,
+  ): RoutedCashJournalPostingGroup | undefined {
+    if (!('route' in group) || !group.route) return undefined;
+    return group;
+  }
+
+  private selectStrategy(
+    routedGroup: RoutedCashJournalPostingGroup | undefined,
+    legacyDirection: 'in' | 'out',
+  ): IDfoPostingStrategy {
+    if (routedGroup) {
+      this.cashJournalStrategy.setRouteContext(routedGroup.route);
+      return this.cashJournalStrategy;
+    }
+
+    // Backward compatibility for durable jobs created before task 2045.
+    this.strategy.setHeaderCashDirectionContext(legacyDirection);
+    return this.strategy;
+  }
+
+  private async rollbackCreatedHeaders(
+    created: RoutedCreatedHeader[],
+    collector: PostingErrorCollector,
+    legacyDirection: 'in' | 'out',
+  ): Promise<string[]> {
+    const failedToDeleteHeaders: string[] = [];
+
+    for (const header of [...created].reverse()) {
+      let strategy: IDfoPostingStrategy;
+      if (header.route) {
+        this.cashJournalStrategy.setRouteContext(header.route);
+        strategy = this.cashJournalStrategy;
+      } else {
+        this.strategy.setHeaderCashDirectionContext(legacyDirection);
+        strategy = this.strategy;
+      }
+      const result = await this.rollback.rollbackAll(
+        strategy,
+        [header],
+        ROLLBACK_CHUNK_SIZE,
+        collector,
+      );
+      failedToDeleteHeaders.push(...result.failedToDeleteHeaders);
+    }
+
+    return failedToDeleteHeaders;
   }
 
   private async completeBatch(

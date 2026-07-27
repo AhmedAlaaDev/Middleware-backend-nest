@@ -4,6 +4,16 @@ import { CommandBus } from '@nestjs/cqrs';
 import { capitalize } from '@/lib/utils';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import {
+  CashJournalRoute,
+  CashJournalRoutingError,
+  CashJournalRoutingService,
+} from '@/modules/cash/services/cash-journal-routing.service';
+import {
+  CashOutExchangeRateContext,
+  CashOutExchangeRateResolution,
+  CashOutExchangeRateService,
+} from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -54,6 +64,8 @@ const FINTAG_SHIPPING_LINE_INDEX = 2;
 @Injectable()
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
+  private readonly cashJournalRoutingService = new CashJournalRoutingService();
+  private readonly cashOutExchangeRateService: CashOutExchangeRateService;
 
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
@@ -146,6 +158,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     baseDeps: EntryProcessorBaseDependencies,
   ) {
     super({ dependencies: baseDeps });
+    this.cashOutExchangeRateService = baseDeps.cashOutExchangeRateService;
   }
 
   public async formatAndEnrichAsync(
@@ -155,6 +168,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.company = company;
 
     await this.warmupProcessorData({
+      // Task 2047: Cash-Out obtains a file-scoped snapshot directly from D365
+      // after the source dates/currencies are normalized. Cash-In retains the
+      // existing synchronized master-data behavior.
+      exchangeRates: this.isInbound(),
       customerNames: this.isInbound(),
       vendorNames: !this.isInbound(),
     });
@@ -168,6 +185,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const rawLines = this.mapToModel(data);
     this.assignMissingUniqueIds(rawLines);
     this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
+
+    const cashOutExchangeRateContext =
+      await this.cashOutExchangeRateService.load(company, rawLines);
+
+    if (cashOutExchangeRateContext) {
+      this.logger.debug(
+        `[STEP 1.25] Loaded Cash-Out D365 exchange-rate snapshot for ${cashOutExchangeRateContext.ratesByCurrency.size} currencies, range ${cashOutExchangeRateContext.earliestTransactionDate ?? 'n/a'}..${cashOutExchangeRateContext.requestEndDate ?? 'n/a'}`,
+      );
+    }
 
     this.logger.debug(
       `[STEP 1.5] Sorting ${rawLines.length} lines by line number`,
@@ -203,7 +229,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 3.5] Checking invoice balanced after FX for ${invoiceCount} invoices`,
     );
-    this.checkInvoiceBalancedAfterFx(invoiceMap);
+    this.checkInvoiceBalancedAfterFx(invoiceMap, cashOutExchangeRateContext);
 
     if (this.unbalancedUniqueIds.size > 0) {
       this.logger.error(
@@ -216,7 +242,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 4] Building DFO lines from ${invoiceCount} invoices`,
     );
-    const dfoLines = this.buildInvoiceLines(invoiceMap);
+    const dfoLines = this.buildInvoiceLines(
+      invoiceMap,
+      cashOutExchangeRateContext,
+    );
     this.logger.debug(`[STEP 4] Built ${dfoLines.length} DFO lines`);
 
     this.logger.debug(
@@ -334,7 +363,28 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
 
       if (!this.isInbound()) {
-        this.validateCashOutMarkedInvoice(line);
+        let shouldValidateCashOutMarkedInvoice = true;
+        try {
+          const route = this.cashJournalRoutingService.resolve({
+            safeType: line.SafeType,
+            targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+            voucherType: line.VoucherType,
+          });
+          // Only AP Vendor Payment routes settle against vendor invoices.
+          // GL routes and AR customer-payment routes must not inherit the
+          // vendor/account ownership validation.
+          shouldValidateCashOutMarkedInvoice = route.kind === 'vendor-invoice';
+        } catch (error) {
+          const message =
+            error instanceof CashJournalRoutingError
+              ? error.message
+              : `Unable to resolve cash journal route: ${String(error)}`;
+          line.AddError('SafeType', message);
+        }
+
+        if (shouldValidateCashOutMarkedInvoice) {
+          this.validateCashOutMarkedInvoice(line);
+        }
       }
     }
 
@@ -383,11 +433,29 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
   }
 
-  protected getJournalName(): string {
+  protected getJournalName(safeType?: string): string {
     if (this.isInbound()) {
       return this.isTrucking() ? 'Cust-Pay' : 'Cust-Pay';
     }
+
+    const route = this.resolveCashOutJournalRoute(safeType);
+    if (route) return route.journalName;
     return this.isTrucking() ? 'P-Fleet' : 'P-Freight';
+  }
+
+  protected resolveCashOutJournalRoute(
+    safeType?: string,
+  ): CashJournalRoute | undefined {
+    if (!safeType) return undefined;
+    try {
+      return this.cashJournalRoutingService.resolve({
+        safeType,
+        targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+      });
+    } catch {
+      // Validation records the unsupported Safe Type on the formatted line.
+      return undefined;
+    }
   }
 
   protected getCollectionDescriptionLabel(): string {
@@ -473,13 +541,61 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       });
   }
 
+  /**
+   * Cash-Out balance validation uses the same official per-file D365 snapshot
+   * as journal creation. If any source line has no period, the specific
+   * ExchangeRate validation is emitted later and a misleading secondary
+   * UnbalancedInvoice error is suppressed.
+   */
+  protected checkInvoiceBalancedAfterFx(
+    invoiceMap: Map<string, EntryRawDataModel[]>,
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): Set<string> {
+    if (!exchangeRateContext) {
+      return super.checkInvoiceBalancedAfterFx(invoiceMap);
+    }
+
+    this.unbalancedUniqueIds.clear();
+
+    for (const [uniqueId, lines] of invoiceMap) {
+      let totalDebit = 0;
+      let totalCredit = 0;
+      let canEvaluateBalance = true;
+
+      for (const line of lines) {
+        const resolution = this.resolveCashOutExchangeRate(
+          exchangeRateContext,
+          line.TRANSDATE,
+          line.CURRENCYCODE,
+        );
+
+        if (resolution.kind === 'missing') {
+          canEvaluateBalance = false;
+          break;
+        }
+
+        const fxRate =
+          resolution.kind === 'not-required' ? 1 : resolution.rate / 100;
+        totalDebit += Number(line.DEBITAMOUNT || 0) * fxRate;
+        totalCredit += Number(line.CREDITAMOUNT || 0) * fxRate;
+      }
+
+      if (canEvaluateBalance && Math.abs(totalDebit - totalCredit) > 0.01) {
+        this.unbalancedUniqueIds.add(uniqueId);
+      }
+    }
+
+    return this.unbalancedUniqueIds;
+  }
+
   protected buildInvoiceLines(
     invoiceMap: RawDataInvoiceMap,
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     const dfoLines: CashEntryDynDataModel[] = [];
 
     for (const [sourceId, lines] of invoiceMap.entries()) {
-      dfoLines.push(...this.buildLines(sourceId, lines));
+      dfoLines.push(...this.buildLines(sourceId, lines, exchangeRateContext));
     }
 
     return dfoLines;
@@ -488,16 +604,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected buildLines(
     sourceId: string,
     lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     const invoiceLines: CashEntryDynDataModel[] = [];
     const invoiceLineCount = lines.length;
 
     switch (invoiceLineCount) {
       case 2:
-        invoiceLines.push(...this.caseTwoLines(sourceId, lines));
+        invoiceLines.push(
+          ...this.caseTwoLines(sourceId, lines, exchangeRateContext),
+        );
         break;
       default:
-        invoiceLines.push(...this.caseMoreThanTwoLines(sourceId, lines));
+        invoiceLines.push(
+          ...this.caseMoreThanTwoLines(sourceId, lines, exchangeRateContext),
+        );
     }
 
     return invoiceLines;
@@ -506,6 +627,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected caseTwoLines(
     sourceId: string,
     lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     let accountLine: CashEntryRawDataModel | undefined;
     let offsetLine: CashEntryRawDataModel | undefined;
@@ -518,12 +640,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine = lines.find((l) => l.CREDITAMOUNT > 0);
     }
 
-    return [this.buildLine(sourceId, accountLine, offsetLine)];
+    return [
+      this.buildLine(
+        sourceId,
+        accountLine,
+        offsetLine,
+        undefined,
+        exchangeRateContext,
+      ),
+    ];
   }
 
   protected caseMoreThanTwoLines(
     sourceId: string,
     lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     let accountLines: CashEntryRawDataModel[] = [];
     let offsetLines: CashEntryRawDataModel[] = [];
@@ -538,7 +669,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       if (accountLinesLength > 1 && offsetLinesLength === 1) {
         return accountLines.map((accLine) =>
-          this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
+          this.buildLine(
+            sourceId,
+            accLine,
+            offsetLines[0],
+            'ACCOUNT',
+            exchangeRateContext,
+          ),
         );
       }
 
@@ -549,11 +686,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
 
         return withoutSettlementOffsetLines.map((offLine) =>
-          this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
+          this.buildLine(
+            sourceId,
+            accountLines[0],
+            offLine,
+            'OFFSET',
+            exchangeRateContext,
+          ),
         );
       }
 
-      return [this.buildLine(sourceId)];
+      return [
+        this.buildLine(
+          sourceId,
+          undefined,
+          undefined,
+          undefined,
+          exchangeRateContext,
+        ),
+      ];
     } else {
       accountLines = lines.filter((l) => l.DEBITAMOUNT > 0);
       offsetLines = lines.filter((l) => l.CREDITAMOUNT > 0);
@@ -564,7 +715,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       if (accountLinesLength > 1 && offsetLinesLength === 1) {
         return accountLines.map((accLine) =>
-          this.buildLine(sourceId, accLine, offsetLines[0], 'ACCOUNT'),
+          this.buildLine(
+            sourceId,
+            accLine,
+            offsetLines[0],
+            'ACCOUNT',
+            exchangeRateContext,
+          ),
         );
       }
 
@@ -575,11 +732,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
 
         return withoutSettlementOffsetLines.map((offLine) =>
-          this.buildLine(sourceId, accountLines[0], offLine, 'OFFSET'),
+          this.buildLine(
+            sourceId,
+            accountLines[0],
+            offLine,
+            'OFFSET',
+            exchangeRateContext,
+          ),
         );
       }
 
-      return [this.buildLine(sourceId)];
+      return [
+        this.buildLine(
+          sourceId,
+          undefined,
+          undefined,
+          undefined,
+          exchangeRateContext,
+        ),
+      ];
     }
   }
 
@@ -588,6 +759,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
     amountSource?: 'ACCOUNT' | 'OFFSET',
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
     return this.isInbound()
       ? this.buildLineInbound(
@@ -595,12 +767,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           accountLine,
           offsetLine,
           amountSource ?? 'OFFSET',
+          exchangeRateContext,
         )
       : this.buildLineOutbound(
           sourceId,
           accountLine,
           offsetLine,
           amountSource ?? 'OFFSET',
+          exchangeRateContext,
         );
   }
 
@@ -609,6 +783,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
     amountSource?: 'ACCOUNT' | 'OFFSET',
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -618,7 +793,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const segmentLength =
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
-    const dimensions = this.utilsService.parseDimensionString(dimensionString);
+    let dimensions = this.utilsService.parseDimensionString(dimensionString);
+    dimensions = this.filter22420LedgerDimensions(
+      dimensions,
+      accountLine,
+      offsetLine,
+    );
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
@@ -654,17 +834,35 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
       : offsetLine.DESCRIPTION || '';
 
-    const dimensionStr = this.toCashDefaultDimensionDisplayValue(dimensions);
+    const dimensionStr = this.toCashDefaultDimensionDisplayValue(
+      dimensions,
+      !this.is22420LedgerDimensionLine(accountLine, offsetLine),
+    );
 
     const currencyCode =
       amountSource === 'ACCOUNT'
         ? accountLine.CURRENCYCODE
         : offsetLine.CURRENCYCODE;
 
-    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
-      offsetLine.TRANSDATE || accountLine.TRANSDATE,
+    const transactionDate = offsetLine.TRANSDATE || accountLine.TRANSDATE;
+
+    const officialReportingResolution = exchangeRateContext
+      ? this.cashOutExchangeRateService.resolveReporting(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        )
+      : undefined;
+
+    const legacyRates = this.fetchExchangeRates(
+      transactionDate,
       currencyCode,
     );
+
+    const exchangeRate = legacyRates.exchangeRate;
+    const reportingRate = officialReportingResolution
+      ? officialReportingResolution.rate
+      : legacyRates.reportingRate;
 
     const markedInvoice = this.formatInvoiceInbound(
       accountLine.INVOICE || offsetLine.INVOICE,
@@ -677,7 +875,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethodName: this.getMethodOfPayment(dimensions.mainAccount),
+      PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
       JournalName: this.getJournalName(),
       TransactionDate: accountLine.TRANSDATE,
@@ -727,6 +925,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
+    if (exchangeRateContext) {
+      this.addCashOutExchangeRateErrors(
+        dynLine,
+        [accountLine, offsetLine],
+        exchangeRateContext,
+      );
+    }
+
     return dynLine;
   }
 
@@ -735,6 +941,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
     amountSource?: 'ACCOUNT' | 'OFFSET',
+    exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -746,7 +953,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const segmentLength =
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
-    const dimensions = this.utilsService.parseDimensionString(dimensionString);
+    let dimensions = this.utilsService.parseDimensionString(dimensionString);
+    dimensions = this.filter22420LedgerDimensions(
+      dimensions,
+      accountLine,
+      offsetLine,
+    );
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
@@ -784,28 +996,72 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       accountLine.TRANSDATE,
     );
     const label = this.getCollectionDescriptionLabel();
-    const description = `Vendor Payment - ${label} ${formattedDate} (${accountLine.VoucherType})`;
+    const route = this.resolveCashOutJournalRoute(accountLine.SafeType);
 
     const paymentReference =
       offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
 
-    const dimensionStr = this.toCashDefaultDimensionDisplayValue(dimensions);
-
-    const currencyCode =
-      amountSource === 'ACCOUNT'
-        ? accountLine.CURRENCYCODE
-        : offsetLine.CURRENCYCODE;
-
-    const { exchangeRate, reportingRate } = this.fetchExchangeRates(
-      offsetLine.TRANSDATE || accountLine.TRANSDATE,
-      currencyCode,
+    const dimensionStr = this.toCashDefaultDimensionDisplayValue(
+      dimensions,
+      !this.is22420LedgerDimensionLine(accountLine, offsetLine),
     );
+
+    // Currency, date, amount, and official rate must all come from the same
+    // split source row. This matters for one-to-many journal groups.
+    const amountLine = amountSource === 'ACCOUNT' ? accountLine : offsetLine;
+    const fallbackLine = amountSource === 'ACCOUNT' ? offsetLine : accountLine;
+    const currencyCode = amountLine.CURRENCYCODE || fallbackLine.CURRENCYCODE;
+    const transactionDate = amountLine.TRANSDATE || fallbackLine.TRANSDATE;
+
+    const officialResolution = exchangeRateContext
+      ? this.resolveCashOutExchangeRate(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        )
+      : undefined;
+    const officialReportingResolution = exchangeRateContext
+      ? this.cashOutExchangeRateService.resolveReporting(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        )
+      : undefined;
+    const legacyRates = officialResolution
+      ? undefined
+      : this.fetchExchangeRates(transactionDate, currencyCode);
+    const exchangeRate = officialResolution?.rate ?? legacyRates!.exchangeRate;
+    const reportingRate = officialReportingResolution
+      ? officialReportingResolution.rate
+      : (officialResolution ? 0 : legacyRates!.reportingRate);
 
     const isCustodySafeType =
       accountLine.IsCustodySettlement || accountLine.IsCustodyIssue;
-    const sanitizedInvoice = isCustodySafeType
-      ? ''
-      : this.sanitizeInvoiceOutbound(accountLine.INVOICE || offsetLine.INVOICE);
+    const paymentAmount = Number(
+      amountSource === 'ACCOUNT'
+        ? accountLine.DEBITAMOUNT
+        : offsetLine.CREDITAMOUNT,
+    );
+    const invoiceAmount = Number(
+      accountLine.INVOICEAMOUNT ??
+        accountLine.ORIGINALINVOICEAMOUNT ??
+        offsetLine.INVOICEAMOUNT ??
+        offsetLine.ORIGINALINVOICEAMOUNT ??
+        0,
+    );
+    const isPartialPayment = invoiceAmount > 0 && paymentAmount < invoiceAmount;
+
+    const rawInvoice = accountLine.INVOICE || offsetLine.INVOICE;
+    const sanitizedInvoice =
+      isCustodySafeType || isPartialPayment
+        ? ''
+        : this.sanitizeInvoiceOutbound(rawInvoice);
+
+    const descriptionSuffix =
+      isCustodySafeType || isPartialPayment || !sanitizedInvoice
+        ? ' - unmarked'
+        : '';
+    const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
     const itemSalesTaxGroup =
@@ -815,19 +1071,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
+      TransactionText: description,
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethodName: this.getMethodOfPayment(dimensions.mainAccount),
+      PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
       // Custom API requires OFFSETTRANSACTIONTEXT.
       // For non-notes-receivable cash-out we still use the offset line description.
       OffsetTransactionText: isNotesReceivable
         ? paymentReference
         : offsetLine.DESCRIPTION || '',
-      JournalName: this.getJournalName(),
-      TransDate: accountLine.TRANSDATE,
-      TransactionDate: accountLine.TRANSDATE,
+      JournalName:
+        route?.journalName ?? this.getJournalName(accountLine.SafeType),
+      TransDate: transactionDate,
+      TransactionDate: transactionDate,
       VoucherType: accountLine.VoucherType,
       // Cash-Out: AccountNum = vendor; OffsetAccountDisplayValue = Bank/RCash account id or ledger account.
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
@@ -857,12 +1115,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: itemSalesTaxGroup,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
-      PostingProfile: 'V-PP',
+      PostingProfile: route?.kind === 'customer-payment' ? 'Cust-PP' : 'V-PP',
       // Custody SafeTypes post as payment without settlement.
-      Invoice: sanitizedInvoice,
+      Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
       dataAreaId: this.company,
-      ExchRateSecond: offsetLine.EXCHANGERATESECONDARY,
+      // Excel exchange-rate fields (including secondary/reporting variants)
+      // are intentionally ignored for Cash-Out.
+      ExchRateSecond: 0,
       Document: accountLine.DOCUMENT,
       DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
@@ -877,7 +1137,102 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
+    if (exchangeRateContext) {
+      this.addCashOutExchangeRateErrors(
+        dynLine,
+        [accountLine, offsetLine],
+        exchangeRateContext,
+      );
+    }
+
     return dynLine;
+  }
+
+  private resolveCashOutExchangeRate(
+    context: CashOutExchangeRateContext,
+    transactionDate: string,
+    currencyCode: string,
+  ): CashOutExchangeRateResolution {
+    if (!this.cashOutExchangeRateService) {
+      throw new Error('CashOutExchangeRateService is not configured');
+    }
+
+    return this.cashOutExchangeRateService.resolve(
+      context,
+      transactionDate,
+      currencyCode,
+    );
+  }
+
+  private addCashOutExchangeRateErrors(
+    dynLine: CashEntryDynDataModel,
+    sourceLines: CashEntryRawDataModel[],
+    context: CashOutExchangeRateContext,
+  ): void {
+    const checked = new Set<string>();
+
+    for (const sourceLine of sourceLines) {
+      if (!sourceLine?.CURRENCYCODE || !sourceLine?.TRANSDATE) continue;
+      const key = `${sourceLine.CURRENCYCODE.trim().toUpperCase()}|${sourceLine.TRANSDATE}`;
+      if (checked.has(key)) continue;
+      checked.add(key);
+
+      const resolution = this.resolveCashOutExchangeRate(
+        context,
+        sourceLine.TRANSDATE,
+        sourceLine.CURRENCYCODE,
+      );
+
+      if (resolution.kind === 'missing') {
+        dynLine.AddError('ExchangeRate', resolution.message);
+      }
+
+      const reportingResolution =
+        this.cashOutExchangeRateService.resolveReporting(
+          context,
+          sourceLine.TRANSDATE,
+          sourceLine.CURRENCYCODE,
+        );
+
+      if (reportingResolution.kind === 'missing') {
+        dynLine.AddError('ExchangeRate', reportingResolution.message);
+      }
+    }
+  }
+
+  /**
+   * Applies PBI #2039 to cash journals as well as vendor journals. A Ledger
+   * source row can become either side of the combined cash line, so inspect
+   * both account and offset inputs and treat tag/account as independent OR
+   * triggers.
+   */
+  protected filter22420LedgerDimensions(
+    dimensions: EntryDimensionsModel,
+    accountLine?: CashEntryRawDataModel,
+    offsetLine?: CashEntryRawDataModel,
+  ): EntryDimensionsModel {
+    return this.is22420LedgerDimensionLine(accountLine, offsetLine)
+      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
+      : dimensions;
+  }
+
+  protected is22420LedgerDimensionLine(
+    accountLine?: CashEntryRawDataModel,
+    offsetLine?: CashEntryRawDataModel,
+  ): boolean {
+    const ledgerLine = [accountLine, offsetLine].find(
+      (line) => line?.IsLedger || line?.ACCOUNTTYPE === 'Ledger',
+    );
+    if (!ledgerLine) return false;
+
+    const has22420Tag = String(ledgerLine.FINTAGDISPLAYVALUE || '')
+      .trim()
+      .startsWith('22420');
+    const has22420Account = String(ledgerLine.ACCOUNTDISPLAYVALUE || '')
+      .trim()
+      .startsWith('22420');
+
+    return has22420Tag || has22420Account;
   }
 
   /**
@@ -919,12 +1274,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    */
   protected toCashDefaultDimensionDisplayValue(
     dimensions: EntryDimensionsModel | null | undefined,
+    defaultFreightType = true,
   ): string {
     if (!dimensions) return '';
 
     return CASH_API_DIMENSION_FIELDS.map((fieldName) => {
       if (fieldName === 'freightType') {
-        return this.dimensionPartAsString(dimensions.freightType || 'Payable');
+        return this.dimensionPartAsString(
+          dimensions.freightType || (defaultFreightType ? 'Payable' : ''),
+        );
       }
       return this.dimensionPartAsString(dimensions[fieldName]);
     }).join('|');
@@ -1010,17 +1368,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return withoutSettlement;
   }
 
-  protected getMethodOfPayment(mainAccount?: string): string {
-    if (!mainAccount) return '';
-
+  /**
+   * PAYMENTMETHODNAME is source-owned: use the Excel PAYMENTMETHOD value from
+   * the transaction row, then the paired row, and never derive it from an
+   * account type such as Petty cash/RCash.
+   */
+  protected getPaymentMethodName(
+    accountLine: CashEntryRawDataModel,
+    offsetLine: CashEntryRawDataModel,
+  ): string {
     return (
-      {
-        '122201': 'NR – EGP',
-        '122202': 'NR – USD',
-        '122203': 'NR – EUR',
-        '122204': 'NR – GBP',
-        '123510': 'NR – GBP',
-      }[mainAccount] || ''
+      [accountLine.PAYMENTMETHOD, offsetLine.PAYMENTMETHOD]
+        .map((value) => value?.trim() ?? '')
+        .find(Boolean) ?? ''
     );
   }
 
@@ -1045,6 +1405,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const invoices = [
       ...new Set(
         lines
+          .filter((line) => {
+            try {
+              return (
+                this.cashJournalRoutingService.resolve({
+                  safeType: line.SafeType,
+                  targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+                  voucherType: line.VoucherType,
+                }).kind === 'vendor-invoice'
+              );
+            } catch {
+              // Unsupported Safe Types are reported by validateAsync.
+              return false;
+            }
+          })
           .map((line) => (line.MarkedInvoice || line.Invoice || '').trim())
           .filter((invoice) => Boolean(invoice)),
       ),
@@ -1090,10 +1464,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
     if (!this.vendorInvoiceExistsMap.has(key)) {
-      line.AddError(
-        'MarkedInvoice',
-        `The Invoice: ${invoice} does not belong to Vendor: ${vendorAccount}`,
-      );
+      line.MarkedInvoice = '';
+      if (!line.Description?.toLowerCase().includes('unmarked')) {
+        line.Description = line.Description
+          ? `${line.Description} - unmarked`
+          : 'unmarked';
+      }
+      if (!line.TransactionText?.toLowerCase().includes('unmarked')) {
+        line.TransactionText = line.TransactionText
+          ? `${line.TransactionText} - unmarked`
+          : 'unmarked';
+      }
     }
   }
 

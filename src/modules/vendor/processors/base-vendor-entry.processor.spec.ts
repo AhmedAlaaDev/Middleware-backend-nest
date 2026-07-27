@@ -208,7 +208,9 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
       JOURNALBATCHNUMBER: 'B100',
       ACCOUNTTYPE: 'Ledger',
       ACCOUNTDISPLAYVALUE: '224201-01',
-      FINTAGDISPLAYVALUE: '224201_TAG',
+      // The task trigger is tag OR account. Keep a non-22420 tag to cover
+      // the account-only branch used by the real Cash-Out data.
+      FINTAGDISPLAYVALUE: 'O25-EXP-OC-12574',
       CREDITAMOUNT: 0,
       DEBITAMOUNT: 2000,
       CURRENCYCODE: 'EGP',
@@ -228,5 +230,6 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     // Dropped non-core dimensions
     expect(builtLine.DimensionModel.customer).toBeUndefined();
     expect(builtLine.DimensionModel.chargeType).toBeUndefined();
+    expect(builtLine.DimensionModel.freightType).toBeUndefined();
   });
 });

@@ -169,6 +169,14 @@ export class ODataQueryBuilderService {
   }
 
   /**
+   * Less than or equal for Edm.DateTimeOffset (OData datetime literal, no
+   * quotes). D365FO rejects quoted DateTimeOffset values on some entities.
+   */
+  public leDateTime(field: string, isoDateTime: string): string {
+    return `${field} le ${isoDateTime}`;
+  }
+
+  /**
    * Helper method to create 'contains' filter
    */
   public contains(field: string, value: string): string {
