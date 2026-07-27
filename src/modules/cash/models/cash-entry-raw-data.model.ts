@@ -27,6 +27,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   IsCustodySettlement: boolean;
   IsCustomerCollection: boolean;
   IsDownPayment: boolean;
+  IsCN: boolean;
   IsCustodyIssue: boolean;
   IsDirect: boolean;
   IsOther: boolean;
@@ -68,6 +69,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
       'Customer Collection',
     );
     this.IsDownPayment = this.compare(data?.SafeType, 'DownPayment');
+    this.IsCN = this.compare(data?.SafeType, 'CN');
     this.IsCustodyIssue = this.compare(data?.SafeType, 'Custody Issue');
     this.IsDirect = this.compare(data?.SafeType, 'Direct');
     this.IsOther = this.compare(data?.SafeType, 'Other');

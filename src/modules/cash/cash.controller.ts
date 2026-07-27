@@ -103,12 +103,11 @@ export class CashController {
     );
   }
 
-  /**
-   * Post cash batch to D365FO (CustomerPaymentJournalHeaders/Lines)
-   */
+  /** Post a cash batch to its task-2045 AP, GL, or AR journal route. */
   @Post('PostToDFO')
   @ApiBody({
-    description: 'Post cash batch enhanced records to D365FO',
+    description:
+      'Post cash batch enhanced records to the D365FO journal selected by Safe Type and target processor',
     type: PostToDFODto,
   })
   public async postToDFO(@Body() body: PostToDFODto) {

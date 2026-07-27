@@ -230,11 +230,14 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
     let dimensions = this.utilsService.parseDimensionString(dimensionString);
 
     const isLedgerLine = this.isLedger(line);
-    const tagOrAccount = String(
-      line.FINTAGDISPLAYVALUE || line.ACCOUNTDISPLAYVALUE || '',
-    ).trim();
+    const has22420Tag = String(line.FINTAGDISPLAYVALUE || '')
+      .trim()
+      .startsWith('22420');
+    const has22420Account = String(line.ACCOUNTDISPLAYVALUE || '')
+      .trim()
+      .startsWith('22420');
 
-    if (isLedgerLine && tagOrAccount.startsWith('22420')) {
+    if (isLedgerLine && (has22420Tag || has22420Account)) {
       dimensions =
         this.utilsService.filterDimensionsForLedgerTag22420(dimensions);
     }

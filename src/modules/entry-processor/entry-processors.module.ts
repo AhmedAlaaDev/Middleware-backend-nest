@@ -15,6 +15,7 @@ import {
   CashOutFreightEntryProcessor,
   CashOutTruckingEntryProcessor,
 } from '@/modules/cash/processors';
+import { CashOutExchangeRateService } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import {
   ClosingCustodySettlementEntryProcessor,
   ClosingFreightDifferenceEntryProcessor,
@@ -62,6 +63,7 @@ const EntryProcessors = [
   imports: [CqrsModule, D365FOModule, MasterDataModule, SettingsModule],
   providers: [
     EntryProcessorUtilsService,
+    CashOutExchangeRateService,
     EntryProcessorBaseDependencies,
     EntryProcessorFactory,
     ...EntryProcessors,

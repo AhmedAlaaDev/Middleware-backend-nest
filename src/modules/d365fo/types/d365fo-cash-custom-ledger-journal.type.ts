@@ -30,13 +30,22 @@ export interface TSLedgerJournalTransCustomRequestBody {
   currency: string;
   debitAmount: number;
 
+  ExchRate?: number;
+  EXCHANGERATE?: number;
+  ExchangeRate?: number;
+
+  ReportingCurrencyExchRate?: number;
+  ReportingExchangeRate?: number;
+  REPORTINGEXCHANGERATE?: number;
+  ExchRateSecond?: number;
+
   DEFAULTDIMENSIONDISPLAYVALUE: string;
   offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
 
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
-  MARKEDINVOICE: string;
+  MARKEDINVOICE: string | null;
 
   offsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr;

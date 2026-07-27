@@ -143,7 +143,7 @@ export class QueueService {
       company: metadata.company,
       correlationId,
       sourceModule: metadata.sourceModule,
-      payloadVersion: 1,
+      payloadVersion: metadata.payloadVersion,
       journalKind: metadata.journalKind,
       cashDirection: metadata.cashDirection,
     };
@@ -279,6 +279,11 @@ export class QueueService {
   }): Promise<boolean> {
     const queueName = job.queueName as QueueName;
     if (await this.getJob(queueName, job.jobId)) return false;
+    if (job.payloadVersion !== 1 && job.payloadVersion !== 2) {
+      throw new Error(
+        `Unsupported durable posting payload version ${job.payloadVersion}`,
+      );
+    }
 
     await this.getQueue(queueName).add(
       job.jobName,
@@ -287,7 +292,7 @@ export class QueueService {
         company: job.company,
         correlationId: job.correlationId,
         sourceModule: job.sourceModule,
-        payloadVersion: 1,
+        payloadVersion: job.payloadVersion,
         journalKind: job.journalKind,
         cashDirection: job.cashDirection,
       } satisfies DurablePostingJobPayload,

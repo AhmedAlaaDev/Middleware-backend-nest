@@ -1,14 +1,38 @@
 import { PostCashBatchToDFOHandler } from './post-cash-batch-to-dfo.handler';
 
-import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
+import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
 
 describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   const buildHandler = () =>
     new PostCashBatchToDFOHandler(
       {} as any,
       {} as any,
-      new EntryProcessorUtilsService(),
+      new CashJournalRoutingService(),
     );
+
+  it('rejects an invalid formatted batch before creating a D365 posting job', async () => {
+    const dataBatchService = {
+      getByIdAsync: jest.fn().mockResolvedValue({
+        _id: '6a65e873576185ca307a8c52',
+        company: 'm-p',
+        entryProcessorType: 22,
+        status: 1,
+        errorCount: 1,
+      }),
+    };
+    const queueService = { addJob: jest.fn() };
+    const handler = new PostCashBatchToDFOHandler(
+      dataBatchService as any,
+      queueService as any,
+    );
+
+    await expect(
+      handler.execute({ batchId: '6a65e873576185ca307a8c52' } as any),
+    ).rejects.toThrow(
+      'Batch contains 1 validation error(s) and cannot be posted to D365FO',
+    );
+    expect(queueService.addJob).not.toHaveBeenCalled();
+  });
 
   it('maps cash-in dyn line into custom API body (strict key casing)', () => {
     const handler = buildHandler();
@@ -68,8 +92,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
-    expect(body).not.toHaveProperty('ExchangeRate');
-    expect(body).not.toHaveProperty('EXCHANGERATE');
+    expect(body).toHaveProperty('ExchangeRate');
+    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).toHaveProperty('ReportingExchangeRate');
+    expect(body).toHaveProperty('ReportingCurrencyExchRate');
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
@@ -133,8 +159,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
-    expect(body).not.toHaveProperty('ExchangeRate');
-    expect(body).not.toHaveProperty('EXCHANGERATE');
+    expect(body).toHaveProperty('ExchangeRate');
+    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).toHaveProperty('ReportingExchangeRate');
+    expect(body).toHaveProperty('ReportingCurrencyExchRate');
   });
 
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
@@ -148,8 +176,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             JournalBatchNumber: 'JN000123',
             LineNumber: 1,
             AccountType: 'Vend',
-            AccountDisplayValue: 'VEND001',
-            OffsetAccountDisplayValue: 'CASH001',
+            AccountDisplayValue: '5019',
+            OffsetAccountDisplayValue: 'PSD EG',
             OffsetAccountType: 'Petty cash',
             OffsetCompany: 'USMF',
             DefaultDimensionsForAccountDisplayValue: 'BU-001|CC-002|Dept-003',
@@ -158,12 +186,13 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             TransactionDate: '2026-04-21T00:00:00.000Z',
             ExchangeRate: 1,
             CreditAmount: 0,
-            DebitAmount: 1000,
+            DebitAmount: 5000,
             CurrencyCode: 'EGP',
             VoucherType: 'cash',
             SalesTaxGroup: 'Non-Taxabl',
             PostingProfile: 'V-PP',
             PaymentId: 'PAY789',
+            PaymentMethodName: '51',
             PaymentReference: 'REF789',
             TransactionText: 'Vendor payment',
             Invoice: 'INV-0003',
@@ -177,9 +206,40 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     const body = result[0].customLineApiBody;
     expect(body).toHaveProperty('OffsetAccountTypeStr', 'RCash');
-    expect(body).toHaveProperty('offsetAccountDisplayValue', 'CASH001');
-    expect(body).toHaveProperty('PAYMENTMETHODNAME', 'RCash');
+    expect(body).toHaveProperty('offsetAccountDisplayValue', 'PSD EG');
+    expect(body).toHaveProperty('PAYMENTMETHODNAME', '51');
     expect(body).toHaveProperty('MARKEDINVOICE', 'INV-0003');
+  });
+
+  it('keeps PAYMENTMETHODNAME empty for Petty cash when Excel has no payment method', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'USMF',
+            LineNumber: 1,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'VEND001',
+            OffsetAccountDisplayValue: 'CASH001',
+            OffsetAccountType: 'Petty cash',
+            TransactionDate: '2026-04-21',
+            DebitAmount: 1000,
+            CurrencyCode: 'EGP',
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            PaymentMethodName: '',
+          },
+        },
+      ],
+      'USMF',
+      'out',
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body).toHaveProperty('OffsetAccountTypeStr', 'RCash');
+    expect(body).toHaveProperty('PAYMENTMETHODNAME', '');
   });
 
   it('keeps Bank offsetAccountDisplayValue as account id (not dim string)', () => {
@@ -393,11 +453,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
       expect(body).toHaveProperty('DocumentNum', '15936');
       expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
-      expect(body).not.toHaveProperty('ExchangeRate');
-      expect(body).not.toHaveProperty('EXCHANGERATE');
-      expect(
-        Object.keys(body).filter((key) => /exchange.?rate|exchrate/i.test(key)),
-      ).toEqual([]);
+      expect(body).toHaveProperty('ExchangeRate');
+      expect(body).toHaveProperty('EXCHANGERATE');
     }
   });
 
@@ -455,8 +512,46 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
     expect(body).toHaveProperty('DocumentNum', '15925');
     expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
-    expect(
-      Object.keys(body).filter((key) => /exchange.?rate|exchrate/i.test(key)),
-    ).toEqual([]);
+    expect(body).toHaveProperty('ExchangeRate');
+    expect(body).toHaveProperty('EXCHANGERATE');
+  });
+
+  it('preserves empty MARKEDINVOICE and appends " - unmarked" to TRANSACTIONTEXT/PAYMENTNOTES when MarkedInvoice was cleared by business rules', () => {
+    const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            LineNumber: 1,
+            AccountDisplayValue: 'VEND-001',
+            OffsetAccountDisplayValue: 'BANK-001',
+            AccountType: 'Vend',
+            OffsetAccountType: 'Bank',
+            DebitAmount: 500,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-15',
+            VoucherType: 'Cash',
+            Description: 'Vendor Payment - Freight Jan 2026',
+            TransactionText: 'Vendor Payment - Freight Jan 2026',
+            Invoice: 'INV-RAW-ORIGINAL',
+            MarkedInvoice: '',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+    );
+
+    expect(result).toHaveLength(1);
+    const body = result[0].customLineApiBody;
+    expect(body.MARKEDINVOICE).toBe('');
+    expect(body.TRANSACTIONTEXT).toBe(
+      'Vendor Payment - Freight Jan 2026 - unmarked',
+    );
+    expect(body.PAYMENTNOTES).toBe(
+      'Vendor Payment - Freight Jan 2026 - unmarked',
+    );
   });
 });

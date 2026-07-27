@@ -11,7 +11,7 @@ export class EntryDimensionsModel {
   chargeType?: string;
   salesMan?: string;
   coordinatorMan?: string;
-  freightType: string = 'Payable';
+  freightType?: string = 'Payable';
   truckerType?: string;
   truckNumber?: string;
   direction?: string;

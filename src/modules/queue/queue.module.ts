@@ -28,6 +28,7 @@ import { QueueEventsMonitorService } from '@/modules/queue/services/queue-events
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
 import { QueueRecoveryService } from '@/modules/queue/services/queue-recovery.service';
 import { QueueService } from '@/modules/queue/services/queue.service';
+import { CashJournalPostingStrategy } from '@/modules/queue/strategies/cash-journal-posting.strategy';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
 import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-text-invoice-posting.strategy';
 import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
@@ -48,6 +49,7 @@ const strategies = [
   VendorPaymentJournalPostingStrategy,
   CustomerPaymentJournalPostingStrategy,
   LedgerJournalPostingStrategy,
+  CashJournalPostingStrategy,
 ];
 const queueServices = [
   DfoRollbackService,

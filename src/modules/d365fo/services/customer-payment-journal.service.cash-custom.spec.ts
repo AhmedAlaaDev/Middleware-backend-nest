@@ -94,6 +94,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           DocumentDate: '2026-04-20T00:00:00',
           TRANSACTIONTEXT: 'Customer payment',
           Voucher: '',
+          ExchRate: 100,
+          EXCHANGERATE: 100,
+          ExchangeRate: 100,
         },
       },
     ];
@@ -113,8 +116,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'DocumentDate',
       '2026-04-20T00:00:00',
     );
-    expect(body._contract).not.toHaveProperty('ExchangeRate');
-    expect(body._contract).not.toHaveProperty('EXCHANGERATE');
+    expect(body._contract).toHaveProperty('ExchangeRate');
+    expect(body._contract).toHaveProperty('EXCHANGERATE');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
@@ -169,6 +172,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           DocumentDate: '2026-04-19T00:00:00',
           TRANSACTIONTEXT: 'Vendor payment',
           Voucher: '',
+          ExchRate: 100,
+          EXCHANGERATE: 100,
+          ExchangeRate: 100,
         },
       },
     ];
@@ -189,8 +195,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'DocumentDate',
       '2026-04-19T00:00:00',
     );
-    expect(body._contract).not.toHaveProperty('ExchangeRate');
-    expect(body._contract).not.toHaveProperty('EXCHANGERATE');
+    expect(body._contract).toHaveProperty('ExchangeRate');
+    expect(body._contract).toHaveProperty('EXCHANGERATE');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -257,5 +263,193 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
+  });
+
+  it('retries a cash-out line with MARKEDINVOICE null when its amount exceeds the remaining invoice amount', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Error',
+        Message:
+          'The amount of the Invoice: 2025001409 is greater than the remain amount.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000013709',
+      });
+
+    const result = await service.postCashOutLinesForHeader(
+      'Mesco-000013709',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 9,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            MARKEDINVOICE: '2025001409',
+            PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+            TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(result).toEqual([{ headerId: 'Mesco-000013709', lineNumber: 9 }]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[0][1]._contract).toMatchObject({
+      journalNum: 'Mesco-000013709',
+      MARKEDINVOICE: '2025001409',
+      PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+      TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+    });
+    expect(d365foClient.post.mock.calls[1][1]._contract).toMatchObject({
+      journalNum: 'Mesco-000013709',
+      MARKEDINVOICE: null,
+      PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
+      TRANSACTIONTEXT:
+        'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
+    });
+  });
+
+  it('does not clear MARKEDINVOICE for unrelated cash-out errors', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message: 'Vendor account is blocked for transactions.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000013709',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 9,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              MARKEDINVOICE: '2025001409',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('Vendor account is blocked for transactions.');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract).toHaveProperty(
+      'MARKEDINVOICE',
+      '2025001409',
+    );
+  });
+
+  it('does not apply the cash-out invoice fallback to cash-in lines', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+    });
+
+    await expect(
+      service.postCashInLinesForHeader(
+        'Mesco-000013709',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 9,
+            cashDirection: 'in',
+            customLineApiBody: {
+              journalNum: '',
+              MARKEDINVOICE: '2025001409',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('greater than the remaining amount');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the unmarked-invoice retry for outbound AR routes using the cash-in endpoint', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Error',
+        Message:
+          'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! AR-0001',
+      });
+
+    await service.postCashInLinesForHeader(
+      'AR-0001',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'in',
+          customLineApiBody: {
+            journalNum: '',
+            MARKEDINVOICE: '2025001409',
+            PAYMENTNOTES: 'DownPayment - Freight Jan 2026',
+            TRANSACTIONTEXT: 'DownPayment - Freight Jan 2026',
+          },
+        } as any,
+      ],
+      20,
+      undefined,
+      undefined,
+      true,
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[0][0]).toContain(
+      '/addLedgerJournalTransCustPaym',
+    );
+    expect(d365foClient.post.mock.calls[1][1]._contract).toMatchObject({
+      MARKEDINVOICE: null,
+      PAYMENTNOTES: 'DownPayment - Freight Jan 2026 - unmarked',
+      TRANSACTIONTEXT: 'DownPayment - Freight Jan 2026 - unmarked',
+    });
+  });
+
+  it('fails closed when routed-line idempotency lookup cannot be verified', async () => {
+    const { service, d365foClient } = buildService();
+    const existingLinesLoader = jest
+      .fn()
+      .mockRejectedValue(new Error('LedgerJournalLines unavailable'));
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000020045',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: { journalNum: '' },
+          } as any,
+        ],
+        20,
+        'm-p',
+        existingLinesLoader,
+      ),
+    ).rejects.toThrow('posting was stopped to prevent duplicates');
+
+    expect(existingLinesLoader).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post).not.toHaveBeenCalled();
   });
 });
