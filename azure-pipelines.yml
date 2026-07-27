@@ -1,0 +1,37 @@
+trigger:
+  branches:
+    include:
+      - production
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  imageName: middleware-app
+  dockerRepo: moatazali
+  tag: $(Build.BuildId)
+
+steps:
+
+- checkout: self
+
+# Build image
+- task: Docker@2
+  displayName: Build Docker Image
+  inputs:
+    command: build
+    repository: $(dockerRepo)/$(imageName)
+    dockerfile: Dockerfile
+    tags: |
+      $(tag)
+      latest
+
+# Push image
+- task: Docker@2
+  displayName: Push Docker Image
+  inputs:
+    command: push
+    repository: $(dockerRepo)/$(imageName)
+    tags: |
+      $(tag)
+      latest
