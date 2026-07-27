@@ -1,17 +1,35 @@
-trigger: none
+trigger:
+  branches:
+    include:
+      - production
 
 jobs:
-- deployment: Test
-  environment:
-    name: 'Contabo Live Server'
+* deployment: DeployProduction
+  displayName: Deploy D365FO Middleware
+  environment: Contabo Live Server
 
   strategy:
     runOnce:
       deploy:
         steps:
-        - checkout: none
-
         - script: |
-            hostname
-            pwd
-            docker --version
+            set -e
+
+            cd /home/deploy/apps/D365FOMiddleware_Nestbackend
+
+            echo "Updating repository..."
+            git fetch origin
+            git checkout production
+            git reset --hard origin/production
+
+            echo "Building new image..."
+            docker compose -f docker-compose.production.yml build app
+
+            echo "Restarting application..."
+            docker compose -f docker-compose.production.yml up -d app
+
+            echo "Cleaning old images..."
+            docker image prune -f
+
+            echo "Deployment completed."
+          displayName: Deploy Application
