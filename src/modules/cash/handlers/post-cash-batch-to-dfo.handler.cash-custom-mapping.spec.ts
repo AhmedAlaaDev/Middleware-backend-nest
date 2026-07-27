@@ -66,7 +66,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             ItemSalesTaxGroup: 'TIG1',
             OffsetFinTagDisplayValue: 'TAG2',
             OffsetTransactionText: 'Offset text',
-            PostingProfile: 'Cust-PP',
+            ReportingCurrencyExchRate: 1,
+            PostingProfile: 'Custom-PP',
             PaymentId: 'PAY123',
             PaymentReference: 'REF123',
             SafeType: 'Spec',
@@ -88,14 +89,16 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('AccountNum', 'CUST001');
     expect(body).toHaveProperty('accountTypeStr', 'Cust');
     expect(body).toHaveProperty('TaxGroup', 'Taxable');
-    expect(body).toHaveProperty('PostingProfile', 'Cust-PP');
+    expect(body).toHaveProperty('PostingProfile', 'Custom-PP');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
     expect(body).toHaveProperty('EXCHANGERATE');
-    expect(body).toHaveProperty('ReportingExchangeRate');
-    expect(body).toHaveProperty('ReportingCurrencyExchRate');
+    expect(body.ReportingCurrencyExchRate).toBe(100);
+    expect(body.ReportingExchangeRate).toBe(100);
+    expect(body.REPORTINGEXCHANGERATE).toBe(100);
+    expect(body.ExchRateSecond).toBe(100);
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
