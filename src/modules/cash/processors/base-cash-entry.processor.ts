@@ -334,31 +334,24 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
         const entries = this.freeTextInvoiceMap.get(invoiceKey);
 
+        const displayInvoice = line.MarkedInvoice || line.Invoice;
+
         if (!entries?.length) {
           line.AddError(
             'Invoice',
-            `Free text invoice (${line.Invoice}) not exists in D365FO`,
+            `Free text invoice (${displayInvoice}) not exists in D365FO`,
           );
           continue;
         }
 
-        const atLeastOnePosted = entries.some((e) => e.isPosted);
+        const postedEntries = entries.filter((e) => e.isPosted);
 
-        if (entries.length > 1) {
-          const notPostedCount = entries.filter((e) => !e.isPosted).length;
-          const duplicateMessage =
-            notPostedCount > 0
-              ? `Duplicate free text invoices in D365FO: (${line.Invoice}) has ${entries.length} matching records. ${notPostedCount} of these are not posted. Resolve duplicates in D365FO.`
-              : `Duplicate free text invoices in D365FO: (${line.Invoice}) has ${entries.length} matching records. Resolve duplicates in D365FO.`;
-          line.AddError('Invoice', duplicateMessage);
-          continue;
-        }
-
-        if (!atLeastOnePosted) {
+        if (postedEntries.length === 0) {
           line.AddError(
             'Invoice',
-            `(${line.Invoice}) exists in D365FO but is not posted (IsPosted=No)`,
+            `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`,
           );
+          continue;
         }
       }
 
@@ -865,7 +858,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       : legacyRates.reportingRate;
 
     const markedInvoice = this.formatInvoiceInbound(
-      accountLine.INVOICE || offsetLine.INVOICE,
+      accountLine.INVOICE ||
+        offsetLine.INVOICE ||
+        accountLine.DOCUMENT ||
+        offsetLine.DOCUMENT,
     );
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
@@ -907,6 +903,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
         '',
+      Invoice: markedInvoice,
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
       SecondaryExchangeRate:
@@ -1052,16 +1049,41 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         offsetLine.ORIGINALINVOICEAMOUNT ??
         0,
     );
-    const isPartialPayment = invoiceAmount > 0 && paymentAmount < invoiceAmount;
 
-    const rawInvoice = accountLine.INVOICE || offsetLine.INVOICE;
+    const withholdingAmount =
+      Number((accountLine as any).withholdingAmount || 0) +
+      Number((offsetLine as any).withholdingAmount || 0);
+
+    const isWithholding =
+      String(accountLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+        'yes' ||
+      String(offsetLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+        'yes' ||
+      (!!accountLine.ITEMWITHHOLDINGTAXGROUPCODE &&
+        String(accountLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+        String(accountLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
+      (!!offsetLine.ITEMWITHHOLDINGTAXGROUPCODE &&
+        String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+        String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
+      !!(accountLine as any).hasWithholdingReduction ||
+      !!(offsetLine as any).hasWithholdingReduction ||
+      withholdingAmount > 0;
+
+    const totalEffectivePaymentAmount = paymentAmount + withholdingAmount;
+    const isPartialPayment = false; // Logic removed per user request
+
+    const rawInvoice =
+      accountLine.INVOICE ||
+      offsetLine.INVOICE ||
+      accountLine.DOCUMENT ||
+      offsetLine.DOCUMENT;
     const sanitizedInvoice =
-      isCustodySafeType || isPartialPayment
+      isCustodySafeType
         ? ''
         : this.sanitizeInvoiceOutbound(rawInvoice);
 
     const descriptionSuffix =
-      isCustodySafeType || isPartialPayment || !sanitizedInvoice
+      isCustodySafeType || !sanitizedInvoice
         ? ' - unmarked'
         : '';
     const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
@@ -1080,11 +1102,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
-      // Custom API requires OFFSETTRANSACTIONTEXT.
-      // For non-notes-receivable cash-out we still use the offset line description.
-      OffsetTransactionText: isNotesReceivable
-        ? paymentReference
-        : offsetLine.DESCRIPTION || '',
+      OffsetTransactionText: (() => {
+        let offsetText = isNotesReceivable
+          ? paymentReference
+          : offsetLine.DESCRIPTION || '';
+        if (descriptionSuffix) {
+          if (!offsetText) {
+            offsetText = 'unmarked';
+          } else if (!offsetText.toLowerCase().includes('unmarked')) {
+            offsetText = `${offsetText}${descriptionSuffix}`;
+          }
+        }
+        return offsetText;
+      })(),
       JournalName:
         route?.journalName ?? this.getJournalName(accountLine.SafeType),
       TransDate: transactionDate,
@@ -1481,6 +1511,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           ? `${line.TransactionText} - unmarked`
           : 'unmarked';
       }
+      if (!line.OffsetTransactionText?.toLowerCase().includes('unmarked')) {
+        line.OffsetTransactionText = line.OffsetTransactionText
+          ? `${line.OffsetTransactionText} - unmarked`
+          : 'unmarked';
+      }
     }
   }
 
@@ -1604,6 +1639,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               0,
               vLine.DEBITAMOUNT - wLine.CREDITAMOUNT,
             );
+            (vLine as any).hasWithholdingReduction = true;
+            (vLine as any).withholdingAmount =
+              ((vLine as any).withholdingAmount || 0) + wLine.CREDITAMOUNT;
             linesToRemove.add(wLine);
             totalRemovedAmount += wLine.CREDITAMOUNT;
           } else if (wLine.DEBITAMOUNT > 0 && vLine.CREDITAMOUNT > 0) {
@@ -1611,6 +1649,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               0,
               vLine.CREDITAMOUNT - wLine.DEBITAMOUNT,
             );
+            (vLine as any).hasWithholdingReduction = true;
+            (vLine as any).withholdingAmount =
+              ((vLine as any).withholdingAmount || 0) + wLine.DEBITAMOUNT;
             linesToRemove.add(wLine);
             totalRemovedAmount += wLine.DEBITAMOUNT;
           }

@@ -32,6 +32,7 @@ import { SettingsModule } from '@/modules/settings/settings.module';
 import { UserModule } from '@/modules/user/user.module';
 import { VendorModule } from '@/modules/vendor/vendor.module';
 
+
 @Module({
   imports: [
     ConfigModule.forRoot({

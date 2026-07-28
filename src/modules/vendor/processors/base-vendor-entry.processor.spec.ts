@@ -155,7 +155,7 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     expect(result[0].Description).toContain('unmarked');
   });
 
-  it('should set MarkedInvoice to empty string "" and append "- unmarked" to Description for Partial Payment', () => {
+  it('should set MarkedInvoice to empty string "" and append "- unmarked" to Description for Partial Payment without withholding', () => {
     const lineRaw: any = {
       UniqueId: 3,
       LINENUMBER: 3,
@@ -176,6 +176,31 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
     expect(builtLine.MarkedInvoice).toBe('');
     expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+  });
+
+  it('should retain MarkedInvoice and normal Description for Partial Payment when Withholding Tax is present', () => {
+    const lineRaw: any = {
+      UniqueId: 31,
+      LINENUMBER: 31,
+      JOURNALBATCHNUMBER: 'B100',
+      ACCOUNTTYPE: 'Vend',
+      ACCOUNTDISPLAYVALUE: 'V0031',
+      DEFAULTDIMENSIONDISPLAYVALUE: '200101-01-02-03',
+      CREDITAMOUNT: 990, // Net payment amount: 990 (Invoice 1000 - Withholding 10)
+      DEBITAMOUNT: 0,
+      INVOICEAMOUNT: 1000, // Invoice amount: 1000
+      ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+      ITEMWITHHOLDINGTAXGROUPCODE: 'TAX1',
+      CURRENCYCODE: 'EGP',
+      TRANSDATE: '2026-01-15',
+      INVOICE: 'INV-2026-WITHHOLDING',
+    };
+
+    const builtLine = (processor as any).buildLine('SRC-31', lineRaw);
+
+    expect(builtLine.Invoice).toBe('INV-2026-WITHHOLDING');
+    expect(builtLine.MarkedInvoice).toBe('INV-2026-WITHHOLDING');
+    expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
   });
 
   it('should retain MarkedInvoice string and normal Description for Full / Over Payment', () => {

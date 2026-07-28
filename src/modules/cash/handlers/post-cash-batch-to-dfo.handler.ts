@@ -393,8 +393,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? `${transactionTextValue} - unmarked`
           : 'unmarked';
       }
-      const offsetTransactionTextValue =
+      let offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
+      if (
+        !markedInvoice &&
+        !offsetTransactionTextValue.toLowerCase().includes('unmarked')
+      ) {
+        offsetTransactionTextValue = offsetTransactionTextValue
+          ? `${offsetTransactionTextValue} - unmarked`
+          : 'unmarked';
+      }
 
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
@@ -440,6 +448,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
+        IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
+        ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
         MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
@@ -689,9 +699,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
     if (!body.transDate?.trim()) {
       missingFields.push('customLineApiBody.transDate');
-    }
-    if (!body.PostingProfile?.trim()) {
-      missingFields.push('customLineApiBody.PostingProfile');
     }
     if (!this.isValidTaxGroup(body.TaxGroup)) {
       missingFields.push(

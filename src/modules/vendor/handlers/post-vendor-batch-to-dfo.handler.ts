@@ -415,12 +415,12 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         line.MarkedInvoice !== undefined ? line.MarkedInvoice : line.Invoice,
       );
       let transactionText = this.toOptionalTrimmedString(line.Description);
-      if (
-        !markedInvoiceStr &&
-        transactionText &&
-        !transactionText.toLowerCase().includes('unmarked')
-      ) {
-        transactionText = `${transactionText} - unmarked`;
+      if (!markedInvoiceStr) {
+        if (!transactionText) {
+          transactionText = 'unmarked';
+        } else if (!transactionText.toLowerCase().includes('unmarked')) {
+          transactionText = `${transactionText} - unmarked`;
+        }
       }
 
       return {
@@ -445,6 +445,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         ),
         Company: company,
         MarkedInvoice: markedInvoiceStr,
+        IsWithholdingTaxCalculate: line.IsWithholdingTaxCalculate ?? 'No',
       } as D365FOVendorPaymentJournalLineRequest;
     });
   }
