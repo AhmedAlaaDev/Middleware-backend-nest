@@ -393,8 +393,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? `${transactionTextValue} - unmarked`
           : 'unmarked';
       }
-      const offsetTransactionTextValue =
+      let offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
+      if (
+        !markedInvoice &&
+        !offsetTransactionTextValue.toLowerCase().includes('unmarked')
+      ) {
+        offsetTransactionTextValue = offsetTransactionTextValue
+          ? `${offsetTransactionTextValue} - unmarked`
+          : 'unmarked';
+      }
 
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
@@ -426,16 +434,22 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             ? 100
             : line.ExchRate || 100,
 
-        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate || 0,
-        ReportingExchangeRate: line.ReportingCurrencyExchRate || 0,
-        REPORTINGEXCHANGERATE: line.ReportingCurrencyExchRate || 0,
-        ExchRateSecond: line.ReportingCurrencyExchRate || 0,
+        ReportingCurrencyExchRate:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingExchangeRate:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        REPORTINGEXCHANGERATE:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        ExchRateSecond:
+          (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
+        IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
+        ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
         MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
@@ -685,9 +699,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
     if (!body.transDate?.trim()) {
       missingFields.push('customLineApiBody.transDate');
-    }
-    if (!body.PostingProfile?.trim()) {
-      missingFields.push('customLineApiBody.PostingProfile');
     }
     if (!this.isValidTaxGroup(body.TaxGroup)) {
       missingFields.push(

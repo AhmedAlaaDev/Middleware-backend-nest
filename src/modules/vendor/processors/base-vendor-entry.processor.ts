@@ -258,18 +258,19 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
 
     const isWithholding =
       String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
-      'yes';
+        'yes' ||
+      (!!line.ITEMWITHHOLDINGTAXGROUPCODE &&
+        String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+        String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0');
 
     const paymentAmount = Number(line.CREDITAMOUNT || line.DEBITAMOUNT || 0);
     const invoiceAmount = Number(
       line.INVOICEAMOUNT ?? line.ORIGINALINVOICEAMOUNT ?? 0,
     );
-    const isPartialPayment = invoiceAmount > 0 && paymentAmount < invoiceAmount;
-    const markedInvoice = isPartialPayment
-      ? ''
-      : line.MARKEDINVOICE || line.INVOICE || '';
+    const isPartialPayment = false; // Logic removed per user request
+    const markedInvoice = line.MARKEDINVOICE || line.INVOICE || '';
 
-    const descriptionSuffix = isPartialPayment || !markedInvoice ? ' - unmarked' : '';
+    const descriptionSuffix = !markedInvoice ? ' - unmarked' : '';
     const description = `${this.getDescriptionPrefix()} ${this.utilsService.formatMonthYear(line.TRANSDATE)}${descriptionSuffix}`;
 
     const dynLine = new VendorEntryDynDataModel(dimensions, {

@@ -1,7 +1,7 @@
 # docker-compose.production.yml
 services:
   app:
-    image: moatazali/middleware-app:1.0.2
+    image: moatazali/middleware-app:1.0.7
     container_name: d365fo-middleware-production
     restart: unless-stopped
     env_file:

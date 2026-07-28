@@ -95,7 +95,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted).toMatchObject({
       AccountType: 'Cust',
       JournalName: 'Cust-Pay',
-      PostingProfile: 'Cust-PP',
+      PostingProfile: '',
       SafeType: 'DownPayment',
     });
     expect(formatted.Description).toContain('DownPayment - Freight');
@@ -250,6 +250,102 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       expect(formatted.Invoice).toBe('INV-2026-FULL');
       expect(formatted.MarkedInvoice).toBe('INV-2026-FULL');
+      expect(formatted.Description).not.toContain(' - unmarked');
+    });
+    it('retains MarkedInvoice and normal description when withholding tax is enabled on payment line', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2046,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 990,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+          ITEMWITHHOLDINGTAXGROUPCODE: 'TAX1',
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2046,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 990,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const [formatted] = (processor as any).buildLines('2046', rawLines);
+
+      expect(formatted.Invoice).toBe('INV-2026-WITHHOLDING');
+      expect(formatted.MarkedInvoice).toBe('INV-2026-WITHHOLDING');
+      expect(formatted.Description).not.toContain(' - unmarked');
+    });
+
+    it('retains MarkedInvoice when withholding reduction was applied from a withholding ledger line', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2047,
+          LINENUMBER: 1,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING-LINE',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2047,
+          LINENUMBER: 2,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 10,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING-LINE',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2047,
+          LINENUMBER: 3,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 990,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const { lines: processedLines } = (processor as any).applyWithholdingReductions(rawLines);
+      const [formatted] = (processor as any).buildLines('2047', processedLines);
+
+      expect(formatted.Invoice).toBe('INV-2026-WITHHOLDING-LINE');
+      expect(formatted.MarkedInvoice).toBe('INV-2026-WITHHOLDING-LINE');
       expect(formatted.Description).not.toContain(' - unmarked');
     });
   });
