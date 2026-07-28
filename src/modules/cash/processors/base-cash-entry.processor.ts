@@ -903,7 +903,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
-      PostingProfile: 'Cust-PP',
+      PostingProfile:
+        accountLine.POSTINGPROFILE?.trim() ||
+        offsetLine.POSTINGPROFILE?.trim() ||
+        '',
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
       SecondaryExchangeRate:
@@ -1115,7 +1118,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: itemSalesTaxGroup,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
-      PostingProfile: route?.kind === 'customer-payment' ? 'Cust-PP' : 'V-PP',
+      PostingProfile:
+        accountLine.POSTINGPROFILE?.trim() ||
+        offsetLine.POSTINGPROFILE?.trim() ||
+        '',
       // Custody SafeTypes post as payment without settlement.
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,

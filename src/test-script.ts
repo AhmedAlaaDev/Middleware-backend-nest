@@ -45,7 +45,6 @@ async function bootstrap() {
           debitAmount: Number(row['DEBITAMOUNT'] || 0),
           DEFAULTDIMENSIONDISPLAYVALUE: String(row['DEFAULTDIMENSIONDISPLAYVALUE'] || ''),
           offsetDEFAULTDIMENSIONDISPLAYVALUE: String(row['OFFSETDEFAULTDIMENSIONDISPLAYVALUE'] || ''),
-          EXCHANGERATE: Number(row['EXCHANGERATE'] || 100),
           FinTagStr: String(row['FINTAGDISPLAYVALUE'] || ''),
           ISPREPAYMENT: 'No',
           ITEMWITHHOLDINGTAXGROUP: '',
@@ -64,6 +63,8 @@ async function bootstrap() {
           TaxGroup: String(row['SALESTAXGROUP'] || ''),
           TAXITEMGROUP: '',
           transDate: '2026-01-01',
+          DocumentNum: String(row['DOCUMENT'] || ''),
+          DocumentDate: String(row['DOCUMENTDATE'] || '2026-01-01'),
           TRANSACTIONTEXT: String(row['TEXT'] || ''),
           Voucher: ''
         }

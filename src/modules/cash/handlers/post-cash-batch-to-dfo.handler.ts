@@ -426,10 +426,14 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             ? 100
             : line.ExchRate || 100,
 
-        ReportingCurrencyExchRate: line.ReportingCurrencyExchRate || 0,
-        ReportingExchangeRate: line.ReportingCurrencyExchRate || 0,
-        REPORTINGEXCHANGERATE: line.ReportingCurrencyExchRate || 0,
-        ExchRateSecond: line.ReportingCurrencyExchRate || 0,
+        ReportingCurrencyExchRate:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingExchangeRate:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        REPORTINGEXCHANGERATE:
+          (line.ReportingCurrencyExchRate || 0) * 100,
+        ExchRateSecond:
+          (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,

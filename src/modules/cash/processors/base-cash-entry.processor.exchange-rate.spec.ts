@@ -100,7 +100,7 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
 
     expect(unbalanced).toEqual(new Set());
     expect(line.ExchRate).toBe(4875);
-    expect(line.ReportingCurrencyExchRate).toBe(100);
+    expect(line.ReportingCurrencyExchRate).toBe(1);
     expect(line.TransactionDate).toBe('2026-03-20');
     expect(line.GetErrors()).not.toEqual(
       expect.arrayContaining([expect.stringContaining('ExchangeRate')]),
@@ -151,12 +151,12 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
       rateType: 'Default',
       fromCurrency: 'EGP',
       toCurrency: 'USD',
-      startDate: '2026-03-20',
+      startDate: '2026-03-01',
       endDate: '2026-03-31',
       useCache: false,
     });
     expect(line.ExchRate).toBe(100);
-    expect(line.ReportingCurrencyExchRate).toBe(2);
+    expect(line.ReportingCurrencyExchRate).toBe(0.02);
     expect(line.GetErrors()).not.toEqual(
       expect.arrayContaining([expect.stringContaining('ExchangeRate')]),
     );
