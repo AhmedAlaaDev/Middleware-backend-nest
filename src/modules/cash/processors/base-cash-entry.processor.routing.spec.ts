@@ -293,7 +293,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(formatted.Description).not.toContain(' - unmarked');
     });
 
-    it('retains MarkedInvoice when withholding reduction was applied from a withholding ledger line', () => {
+    it('PBI 2055: keeps 223304 withholding lines and does not reduce vendor amount', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -341,12 +341,92 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         },
       ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
 
-      const { lines: processedLines } = (processor as any).applyWithholdingReductions(rawLines);
-      const [formatted] = (processor as any).buildLines('2047', processedLines);
+      const { lines: processedLines, stats } = (processor as any).applyWithholdingReductions(rawLines);
 
-      expect(formatted.Invoice).toBe('INV-2026-WITHHOLDING-LINE');
-      expect(formatted.MarkedInvoice).toBe('INV-2026-WITHHOLDING-LINE');
-      expect(formatted.Description).not.toContain(' - unmarked');
+      // All 3 lines are kept (223304 line is NOT removed)
+      expect(processedLines).toHaveLength(3);
+      // Vendor line amount is NOT reduced (keeps full invoice + tax)
+      expect(processedLines[0].DEBITAMOUNT).toBe(1000);
+      // Stats still report withholding info
+      expect(stats.withholdingRemovedCount).toBe(1);
+      expect(stats.withholdingRemovedAmount).toBe(10);
+    });
+
+    it('PBI 2055: produces 2 DFO lines — vendor↔bank and vendor↔223304 — for withholding voucher group', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2055,
+          LINENUMBER: 1,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2055',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2055,
+          LINENUMBER: 2,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 50,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2055',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2055,
+          LINENUMBER: 3,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 950,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      // applyWithholdingReductions keeps all lines unchanged
+      const { lines: processedLines } = (processor as any).applyWithholdingReductions(rawLines);
+      expect(processedLines).toHaveLength(3);
+
+      // buildLines produces 2 DFO lines (1 account × 2 offsets)
+      const dfoLines = (processor as any).buildLines('2055', processedLines);
+      expect(dfoLines).toHaveLength(2);
+
+      // Line 1: Vendor (account) → Bank (offset), amount = bank credit = 950
+      const bankLine = dfoLines.find((l: any) => l.OffsetAccountType === 'Bank');
+      expect(bankLine).toBeDefined();
+      expect(bankLine.AccountType).toBe('Vend');
+      expect(bankLine.AccountDisplayValue).toBe('VEND-001');
+      expect(bankLine.OffsetAccountDisplayValue).toBe('BANK-001');
+      expect(bankLine.DebitAmount).toBe(950);
+
+      // Line 2: Vendor (account) → 223304 Ledger (offset), amount = withholding credit = 50
+      const ledgerLine = dfoLines.find((l: any) => l.OffsetAccountType === 'Ledger');
+      expect(ledgerLine).toBeDefined();
+      expect(ledgerLine.AccountType).toBe('Vend');
+      expect(ledgerLine.AccountDisplayValue).toBe('VEND-001');
+      expect(ledgerLine.OffsetAccountDisplayValue).toBe('223304-01');
+      expect(ledgerLine.DebitAmount).toBe(50);
+
+      // Both lines retain the invoice number
+      expect(bankLine.Invoice).toBe('INV-2055');
+      expect(ledgerLine.Invoice).toBe('INV-2055');
     });
   });
 });

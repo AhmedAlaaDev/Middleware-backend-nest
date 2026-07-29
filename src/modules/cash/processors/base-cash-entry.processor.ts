@@ -1596,6 +1596,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return `${number.toString().padStart(9, '0')}/${textPart.toUpperCase()}`;
   }
 
+  /**
+   * PBI 2055: Identify withholding 223304 ledger lines for stats reporting.
+   * Lines are kept unchanged — the vendor line retains its full amount
+   * (invoice + tax) and the 223304 line flows through normal multi-line
+   * processing where it becomes an offset account for the vendor line.
+   */
   protected applyWithholdingReductions(lines: CashEntryRawDataModel[]): {
     lines: CashEntryRawDataModel[];
     stats: {
@@ -1613,8 +1619,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       voucherGroups.get(voucher)!.push(line);
     }
 
-    const linesToRemove = new Set<CashEntryRawDataModel>();
-    let totalRemovedAmount = 0;
+    let withholdingLineCount = 0;
+    let totalWithholdingAmount = 0;
 
     for (const groupLines of voucherGroups.values()) {
       const withholdingLines = groupLines.filter(
@@ -1624,50 +1630,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
 
       for (const wLine of withholdingLines) {
-        const invoice = wLine.INVOICE;
-        if (!invoice) continue;
-
-        const vendorLines = groupLines.filter(
-          (l) => l.ACCOUNTTYPE === 'Vend' && l.INVOICE === invoice,
-        );
-
-        if (vendorLines.length > 0) {
-          const vLine = vendorLines[0];
-
-          if (wLine.CREDITAMOUNT > 0 && vLine.DEBITAMOUNT > 0) {
-            vLine.DEBITAMOUNT = Math.max(
-              0,
-              vLine.DEBITAMOUNT - wLine.CREDITAMOUNT,
-            );
-            (vLine as any).hasWithholdingReduction = true;
-            (vLine as any).withholdingAmount =
-              ((vLine as any).withholdingAmount || 0) + wLine.CREDITAMOUNT;
-            linesToRemove.add(wLine);
-            totalRemovedAmount += wLine.CREDITAMOUNT;
-          } else if (wLine.DEBITAMOUNT > 0 && vLine.CREDITAMOUNT > 0) {
-            vLine.CREDITAMOUNT = Math.max(
-              0,
-              vLine.CREDITAMOUNT - wLine.DEBITAMOUNT,
-            );
-            (vLine as any).hasWithholdingReduction = true;
-            (vLine as any).withholdingAmount =
-              ((vLine as any).withholdingAmount || 0) + wLine.DEBITAMOUNT;
-            linesToRemove.add(wLine);
-            totalRemovedAmount += wLine.DEBITAMOUNT;
-          }
-        }
+        withholdingLineCount++;
+        totalWithholdingAmount += wLine.CREDITAMOUNT || wLine.DEBITAMOUNT;
       }
     }
 
-    if (linesToRemove.size > 0) {
+    if (withholdingLineCount > 0) {
       this.logger.debug(
-        `[WITHHOLDING] Removed ${linesToRemove.size} withholding lines and updated corresponding vendor line amounts`,
+        `[WITHHOLDING] Found ${withholdingLineCount} withholding 223304 lines (total amount: ${totalWithholdingAmount}). Lines kept as offset accounts for vendor pairing.`,
       );
       return {
-        lines: lines.filter((l) => !linesToRemove.has(l)),
+        lines,
         stats: {
-          withholdingRemovedCount: linesToRemove.size,
-          withholdingRemovedAmount: totalRemovedAmount,
+          withholdingRemovedCount: withholdingLineCount,
+          withholdingRemovedAmount: totalWithholdingAmount,
         },
       };
     }
