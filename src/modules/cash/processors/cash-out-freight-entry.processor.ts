@@ -12,18 +12,23 @@ export class CashOutFreightEntryProcessor extends BaseCashEntryProcessor {
   readonly entryProcessorType = EntryProcessorTypes.CashOutFreight;
 
   readonly requiredDimensions: RequiredDimensionsConfig = {
-    MainAccount: true,
-    Activity: true,
-    CostCenters: true,
-    BusinessUnit: true,
-    Location: true,
-    Customer: true,
-    SubCustomer: true,
+    MainAccount: false,
+    Activity: false,
+    CostCenters: false,
+    BusinessUnit: false,
+    Location: false,
+    Customer: false,
+    SubCustomer: false,
+    Vendor: false,
+    SubVendor: false,
     ChargeType: false,
     SalesMan: false,
     CoordinatorMan: false,
-    FreightType: true,
-    Direction: true,
+    FreightType: false,
+    Direction: false,
+    TruckerType: false,
+    TruckNumber: false,
+    Worker: false,
   };
 
   constructor(

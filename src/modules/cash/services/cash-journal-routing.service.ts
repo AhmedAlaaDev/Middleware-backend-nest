@@ -18,6 +18,7 @@ export interface CashJournalRoute {
     | 'Vendor Payment'
     | 'Custody Settlement'
     | 'Custody Issue'
+    | 'Customer Collection'
     | 'Direct'
     | 'Other'
     | 'DownPayment'
@@ -77,6 +78,15 @@ export class CashJournalRoutingService {
           headerApi: 'LedgerJournalHeaders',
           lineDirection: 'out',
         };
+      case 'customercollection':
+        return {
+          kind: 'customer-payment',
+          module: 'AR',
+          safeType: 'Customer Collection',
+          journalName: 'Cust-Pay',
+          headerApi: 'CustomerPaymentJournalHeaders',
+          lineDirection: 'in',
+        };
       case 'direct':
         return {
           kind: 'ledger',
@@ -115,7 +125,7 @@ export class CashJournalRoutingService {
         };
       default:
         throw new CashJournalRoutingError(
-          `Unsupported Safe Type "${this.displayValue(input.safeType)}". Supported values are Vendor Payment, Custody Settlement, Custody Issue, Direct, Other, DownPayment, and CN.`,
+          `Unsupported Safe Type "${this.displayValue(input.safeType)}". Supported values are Vendor Payment, Custody Settlement, Custody Issue, Customer Collection, Direct, Other, DownPayment, and CN.`,
         );
     }
   }

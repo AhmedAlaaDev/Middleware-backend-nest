@@ -48,6 +48,7 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
   SafeType: EntrySafeType;
   /** Voucher type */
   VoucherType: EntryVoucherType;
+  SettlementTargetType: 'VendorInvoice' | 'CustodyLedger' | 'None';
 
   constructor(
     dimensionModel: EntryDimensionsModel,
@@ -75,5 +76,6 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
     this.MarkedInvoice = data.MarkedInvoice || '';
     this.SafeType = data.SafeType || ('' as EntrySafeType);
     this.VoucherType = data.VoucherType || ('' as EntryVoucherType);
+    this.SettlementTargetType = data.SettlementTargetType || 'None';
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
 import { capitalize } from '@/lib/utils';
@@ -15,6 +15,10 @@ import {
   CashOutExchangeRateService,
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
+import {
+  CustodySettlementTarget,
+  GeneralJournalService,
+} from '@/modules/d365fo/services/general-journal.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
@@ -25,6 +29,7 @@ import {
 } from '@/modules/entry-processor/models';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
+import { GetVendorsQuery } from '@/modules/master-data/queries';
 import {
   ProcessVendorPaymentFreightCommand,
   ProcessVendorPaymentTruckingCommand,
@@ -66,6 +71,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
   private readonly cashJournalRoutingService = new CashJournalRoutingService();
   private readonly cashOutExchangeRateService: CashOutExchangeRateService;
+  private readonly generalJournalService: GeneralJournalService;
 
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
@@ -159,6 +165,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ) {
     super({ dependencies: baseDeps });
     this.cashOutExchangeRateService = baseDeps.cashOutExchangeRateService;
+    this.generalJournalService = baseDeps.generalJournalService;
   }
 
   public async formatAndEnrichAsync(
@@ -185,6 +192,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const rawLines = this.mapToModel(data);
     this.assignMissingUniqueIds(rawLines);
     this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
+
+    if (!this.isInbound()) {
+      await this.validateCashOutSourceAsync(rawLines);
+    }
 
     const cashOutExchangeRateContext =
       await this.cashOutExchangeRateService.load(company, rawLines);
@@ -312,7 +323,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         line.AddError('UnbalancedInvoice', 'Invoice is unbalanced after FX');
       }
 
-      if (this.isTrucking()) {
+      if (this.isInbound() && this.isTrucking()) {
         this.validateDimensionsForLine(line, {
           dimensionIsRequired: {
             TruckerType: line.AccountType === 'Ledger',
@@ -366,7 +377,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           // Only AP Vendor Payment routes settle against vendor invoices.
           // GL routes and AR customer-payment routes must not inherit the
           // vendor/account ownership validation.
-          shouldValidateCashOutMarkedInvoice = route.kind === 'vendor-invoice';
+          shouldValidateCashOutMarkedInvoice =
+            route.kind === 'vendor-invoice' &&
+            line.SettlementTargetType !== 'CustodyLedger';
         } catch (error) {
           const message =
             error instanceof CashJournalRoutingError
@@ -390,7 +403,251 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
   protected mapToModel(data: EntryRawDataModel[]): CashEntryRawDataModel[] {
     const kind = this.isTrucking() ? 'Fleet' : 'Freight';
-    return data.map((d) => new CashEntryRawDataModel(d, kind));
+    return data.map(
+      (d) => new CashEntryRawDataModel(d, kind, this.isInbound()),
+    );
+  }
+
+  protected async validateCashOutSourceAsync(
+    lines: CashEntryRawDataModel[],
+  ): Promise<void> {
+    const errors: string[] = [];
+    const lineContext = (line: CashEntryRawDataModel) =>
+      `Line ${line.LINENUMBER || '?'} (UniqueId ${line.UniqueId || '?'})`;
+
+    for (const line of lines) {
+      this.collectSourceDimensionErrors(line, errors);
+
+      const hasWithholding =
+        this.isWithholdingLedgerLine(line) ||
+        String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+          'yes' ||
+        Boolean(line.ITEMWITHHOLDINGTAXGROUPCODE);
+      if (
+        hasWithholding &&
+        !line.IsVendorPayment &&
+        !line.IsCustodySettlement
+      ) {
+        errors.push(
+          `${lineContext(line)}: withholding is not supported for SafeType ${line.SafeType}.`,
+        );
+      }
+    }
+
+    for (const [sourceId, group] of this.buildUniqueIdMap(lines)) {
+      const safeTypes = new Set(group.map((line) => line.SafeType));
+      if (safeTypes.size > 1) {
+        errors.push(
+          `UniqueId ${sourceId}: all rows must use the same SafeType; found ${[...safeTypes].join(', ')}.`,
+        );
+      }
+      if (!group[0]?.IsVendorPayment) continue;
+
+      const vendors = group.filter(
+        (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
+      );
+      const paymentOffsets = group.filter(
+        (line) =>
+          Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
+      );
+      const invalidDebitLines = group.filter(
+        (line) => Number(line.DEBITAMOUNT) > 0 && !line.IsVendor,
+      );
+      if (
+        vendors.length === 0 ||
+        paymentOffsets.length !== 1 ||
+        invalidDebitLines.length > 0
+      ) {
+        errors.push(
+          `UniqueId ${sourceId}: Vendor Payment requires one credit payment offset and one or more debit Vendor lines. Found ${vendors.length} Vendor line(s), ${paymentOffsets.length} payment offset(s), and ${invalidDebitLines.length} non-Vendor debit line(s).`,
+        );
+      }
+    }
+
+    await this.collectSettlementTargetErrors(lines, errors);
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message:
+          'Cash Out pre-format validation failed. No journal request was generated.',
+        errorCount: errors.length,
+        errors,
+      });
+    }
+  }
+
+  private collectSourceDimensionErrors(
+    line: CashEntryRawDataModel,
+    errors: string[],
+  ): void {
+    const validateSide = (
+      label: 'account' | 'offset',
+      accountType: string,
+      accountDisplayValue: string,
+      defaultDimensionDisplayValue: string,
+      finTagDisplayValue: string,
+    ) => {
+      const dimensionString =
+        accountType === 'Ledger'
+          ? accountDisplayValue
+          : defaultDimensionDisplayValue;
+      if (!dimensionString?.trim()) return;
+
+      const dimensions =
+        this.utilsService.parseDimensionString(dimensionString);
+      const sourceSegments = dimensionString.split('|');
+      if (!String(sourceSegments[12] ?? '').trim()) {
+        dimensions.freightType = undefined;
+      }
+      const validationLine = new CashEntryDynDataModel(dimensions, {
+        SourceIds: [String(line.UniqueId)],
+        AccountType: accountType as any,
+        AccountDisplayValue: accountDisplayValue,
+        FinTagDisplayValue: finTagDisplayValue,
+      });
+      this.validateDimensionsForLine(validationLine);
+      for (const error of validationLine.GetErrors()) {
+        errors.push(
+          `Line ${line.LINENUMBER || '?'} (UniqueId ${line.UniqueId || '?'}) ${label}: ${error}`,
+        );
+      }
+    };
+
+    validateSide(
+      'account',
+      line.ACCOUNTTYPE,
+      line.ACCOUNTDISPLAYVALUE,
+      line.DEFAULTDIMENSIONDISPLAYVALUE,
+      line.FINTAGDISPLAYVALUE,
+    );
+    if (
+      line.OFFSETACCOUNTTYPE ||
+      line.OFFSETACCOUNTDISPLAYVALUE ||
+      line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE
+    ) {
+      validateSide(
+        'offset',
+        line.OFFSETACCOUNTTYPE,
+        line.OFFSETACCOUNTDISPLAYVALUE,
+        line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+        line.OFFSETFINTAGDISPLAYVALUE,
+      );
+    }
+  }
+
+  private async collectSettlementTargetErrors(
+    lines: CashEntryRawDataModel[],
+    errors: string[],
+  ): Promise<void> {
+    const vendorLines = lines.filter(
+      (line) => line.IsVendorPayment && line.IsVendor,
+    );
+    if (vendorLines.length === 0) return;
+
+    const custodyVendorsResult = await this.queryBus.execute(
+      new GetVendorsQuery({
+        company: this.company,
+        vendorGroupIds: ['Custody'],
+      }),
+    );
+    const custodyAccounts = new Set<string>(
+      (custodyVendorsResult?.items ?? []).map((vendor) =>
+        String(vendor.vendorAccountNumber).trim().toLowerCase(),
+      ),
+    );
+    const isCustodyVendor = (line: CashEntryRawDataModel) =>
+      custodyAccounts.has(
+        String(line.ACCOUNTDISPLAYVALUE).trim().toLowerCase(),
+      );
+    const normalVendorLines = vendorLines.filter(
+      (line) => !isCustodyVendor(line),
+    );
+    const custodyVendorLines = vendorLines.filter(isCustodyVendor);
+    for (const line of custodyVendorLines) line.IsCustodyVendor = true;
+
+    const invoices = normalVendorLines
+      .map((line) =>
+        this.sanitizeInvoiceOutbound(
+          line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
+        ),
+      )
+      .filter(Boolean);
+    const existingPairs =
+      await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
+        this.company,
+        invoices,
+      );
+    for (const line of normalVendorLines) {
+      const invoice = this.sanitizeInvoiceOutbound(
+        line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
+      );
+      const vendor = String(line.ACCOUNTDISPLAYVALUE ?? '').trim();
+      if (!invoice) {
+        errors.push(
+          `Line ${line.LINENUMBER}: Vendor Payment invoice is required for vendor ${vendor}.`,
+        );
+        continue;
+      }
+      const key = VendorInvoiceJournalService.pairKey(invoice, vendor);
+      if (!existingPairs.has(key)) {
+        errors.push(
+          `Line ${line.LINENUMBER}: vendor invoice ${invoice} was not found in D365 for vendor ${vendor}.`,
+        );
+      }
+    }
+
+    const targetsByLine = new Map<
+      CashEntryRawDataModel,
+      CustodySettlementTarget
+    >();
+    for (const line of custodyVendorLines) {
+      const target: CustodySettlementTarget = {
+        documentNumber: String(line.DOCUMENT ?? '').trim(),
+        currency: String(line.CURRENCYCODE ?? '').trim(),
+        amount: Math.max(
+          Math.abs(Number(line.DEBITAMOUNT ?? 0)),
+          Math.abs(Number(line.CREDITAMOUNT ?? 0)),
+        ),
+        operationNumber: this.firstFinancialTag(line.FINTAGDISPLAYVALUE),
+      };
+      const missing = [
+        !target.documentNumber ? 'Document Number' : '',
+        !target.currency ? 'Currency' : '',
+        !target.amount ? 'Amount' : '',
+        !target.operationNumber ? 'Operation Number' : '',
+      ].filter(Boolean);
+      if (missing.length) {
+        errors.push(
+          `Line ${line.LINENUMBER}: custody settlement target is missing ${missing.join(', ')}.`,
+        );
+      } else {
+        targetsByLine.set(line, target);
+      }
+    }
+
+    if (targetsByLine.size === 0) return;
+    if (!this.generalJournalService) {
+      throw new Error('GeneralJournalService is not configured');
+    }
+    const matches =
+      await this.generalJournalService.findCustodySettlementTargets(
+        this.company,
+        [...targetsByLine.values()],
+      );
+    for (const [line, target] of targetsByLine) {
+      const key = GeneralJournalService.custodySettlementTargetKey(target);
+      const targetMatches = matches.get(key) ?? [];
+      if (targetMatches.length !== 1) {
+        errors.push(
+          `Line ${line.LINENUMBER}: expected exactly one custody ledger transaction for document ${target.documentNumber}, currency ${target.currency}, amount ${target.amount}, operation ${target.operationNumber}; found ${targetMatches.length}.`,
+        );
+      } else if (!line.MARKEDINVOICE) {
+        const match = targetMatches[0];
+        line.MARKEDINVOICE = this.sanitizeInvoiceOutbound(
+          line.INVOICE || match.Invoice || match.Voucher || match.Document,
+        );
+      }
+    }
   }
 
   /**
@@ -599,6 +856,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
+    if (!this.isInbound()) {
+      const safeTypes = new Set(lines.map((line) => line.SafeType));
+      if (safeTypes.size === 1 && lines[0]?.IsVendorPayment) {
+        return this.buildVendorPaymentLines(
+          sourceId,
+          lines,
+          exchangeRateContext,
+        );
+      }
+
+      // Every non-Vendor-Payment SafeType keeps the original debit/credit
+      // rows. Only Vendor Payment converts a source counterpart into Offset.
+      return lines.map((line) =>
+        this.buildSourceLineOutbound(sourceId, line, exchangeRateContext),
+      );
+    }
+
     const invoiceLines: CashEntryDynDataModel[] = [];
     const invoiceLineCount = lines.length;
 
@@ -615,6 +889,68 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     return invoiceLines;
+  }
+
+  protected buildVendorPaymentLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    const withholdingLines = lines.filter((line) =>
+      this.isWithholdingLedgerLine(line),
+    );
+    const vendorLines = lines.filter(
+      (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
+    );
+    const offsetLines = lines.filter(
+      (line) =>
+        Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
+    );
+
+    if (vendorLines.length === 0 || offsetLines.length !== 1) {
+      const invalid = new CashEntryDynDataModel(new EntryDimensionsModel(), {
+        SourceIds: [sourceId],
+        SafeType: 'Vendor Payment',
+      });
+      invalid.AddError(
+        'InvalidMapping',
+        `Vendor Payment requires one payment offset and one or more debit Vendor lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s).`,
+      );
+      return [invalid];
+    }
+
+    const paymentOffset = offsetLines[0];
+    return vendorLines.map((vendorLine) =>
+      this.buildLineOutbound(
+        sourceId,
+        vendorLine,
+        paymentOffset,
+        'ACCOUNT',
+        exchangeRateContext,
+        this.findWithholdingLine(vendorLine, withholdingLines),
+      ),
+    );
+  }
+
+  private findWithholdingLine(
+    vendorLine: CashEntryRawDataModel,
+    withholdingLines: CashEntryRawDataModel[],
+  ): CashEntryRawDataModel | undefined {
+    const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
+    if (invoice) {
+      const invoiceMatch = withholdingLines.find(
+        (line) => this.sanitizeInvoiceOutbound(line.INVOICE) === invoice,
+      );
+      if (invoiceMatch) return invoiceMatch;
+    }
+
+    const operation = this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
+    return withholdingLines.find(
+      (line) =>
+        line.DOCUMENT === vendorLine.DOCUMENT &&
+        line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
+        this.firstFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+    );
   }
 
   protected caseTwoLines(
@@ -847,10 +1183,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         )
       : undefined;
 
-    const legacyRates = this.fetchExchangeRates(
-      transactionDate,
-      currencyCode,
-    );
+    const legacyRates = this.fetchExchangeRates(transactionDate, currencyCode);
 
     const exchangeRate = legacyRates.exchangeRate;
     const reportingRate = officialReportingResolution
@@ -942,6 +1275,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     offsetLine?: CashEntryRawDataModel,
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
+    withholdingLine?: CashEntryRawDataModel,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -1033,30 +1367,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const exchangeRate = officialResolution?.rate ?? legacyRates!.exchangeRate;
     const reportingRate = officialReportingResolution
       ? officialReportingResolution.rate
-      : (officialResolution ? 0 : legacyRates!.reportingRate);
-
-    const isCustodySafeType =
-      accountLine.IsCustodySettlement || accountLine.IsCustodyIssue;
-    const paymentAmount = Number(
-      amountSource === 'ACCOUNT'
-        ? accountLine.DEBITAMOUNT
-        : offsetLine.CREDITAMOUNT,
-    );
-    const invoiceAmount = Number(
-      accountLine.INVOICEAMOUNT ??
-        accountLine.ORIGINALINVOICEAMOUNT ??
-        offsetLine.INVOICEAMOUNT ??
-        offsetLine.ORIGINALINVOICEAMOUNT ??
-        0,
-    );
-
-    const withholdingAmount =
-      Number((accountLine as any).withholdingAmount || 0) +
-      Number((offsetLine as any).withholdingAmount || 0);
+      : officialResolution
+        ? 0
+        : legacyRates!.reportingRate;
 
     const isWithholding =
-      String(accountLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
-        'yes' ||
+      String(
+        accountLine.ISWITHHOLDINGCALCULATIONENABLED ?? '',
+      ).toLowerCase() === 'yes' ||
       String(offsetLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
       (!!accountLine.ITEMWITHHOLDINGTAXGROUPCODE &&
@@ -1067,25 +1385,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
       !!(accountLine as any).hasWithholdingReduction ||
       !!(offsetLine as any).hasWithholdingReduction ||
-      withholdingAmount > 0;
-
-    const totalEffectivePaymentAmount = paymentAmount + withholdingAmount;
-    const isPartialPayment = false; // Logic removed per user request
+      Boolean(withholdingLine);
 
     const rawInvoice =
       accountLine.INVOICE ||
       offsetLine.INVOICE ||
       accountLine.DOCUMENT ||
       offsetLine.DOCUMENT;
-    const sanitizedInvoice =
-      isCustodySafeType
-        ? ''
-        : this.sanitizeInvoiceOutbound(rawInvoice);
+    const sanitizedInvoice = this.sanitizeInvoiceOutbound(rawInvoice);
 
-    const descriptionSuffix =
-      isCustodySafeType || !sanitizedInvoice
-        ? ' - unmarked'
-        : '';
+    const descriptionSuffix = !sanitizedInvoice ? ' - unmarked' : '';
     const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
@@ -1146,13 +1455,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetDefaultDimensionDisplayValue: dimensionStr,
       SalesTaxGroup: isTaxable ? 'Taxable' : 'Non-Taxabl',
       ItemSalesTaxGroup: itemSalesTaxGroup,
-      ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
+      IsWithholdingCalculationEnabled: isWithholding ? 'Yes' : 'No',
+      ItemWithholdingTaxGroupCode:
+        accountLine.ITEMWITHHOLDINGTAXGROUPCODE ||
+        withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
+        offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
         '',
-      // Custody SafeTypes post as payment without settlement.
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
       dataAreaId: this.company,
@@ -1164,6 +1476,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: accountLine.SafeType,
+      SettlementTargetType: accountLine.IsCustodyVendor
+        ? 'CustodyLedger'
+        : 'VendorInvoice',
     });
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
@@ -1177,6 +1492,167 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.addCashOutExchangeRateErrors(
         dynLine,
         [accountLine, offsetLine],
+        exchangeRateContext,
+      );
+    }
+
+    return dynLine;
+  }
+
+  protected buildSourceLineOutbound(
+    sourceId: string,
+    sourceLine: CashEntryRawDataModel,
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel {
+    const dimensionString =
+      sourceLine.ACCOUNTTYPE === 'Ledger'
+        ? sourceLine.ACCOUNTDISPLAYVALUE
+        : sourceLine.DEFAULTDIMENSIONDISPLAYVALUE;
+    const segmentLength =
+      this.utilsService.getDimensionSegmentLength(dimensionString);
+
+    let dimensions = this.utilsService.parseDimensionString(dimensionString);
+    const is22420LedgerLine = this.is22420LedgerDimensionLine(
+      sourceLine,
+      undefined,
+    );
+    dimensions = this.filter22420LedgerDimensions(
+      dimensions,
+      sourceLine,
+      undefined,
+    );
+
+    if (dimensions.mainAccount === '123510') {
+      dimensions.mainAccount = '122204';
+    }
+    if (
+      dimensions.mainAccount &&
+      this.MAIN_ACCOUNTS_NP_MAP[Number(dimensions.mainAccount)]
+    ) {
+      dimensions.mainAccount =
+        this.MAIN_ACCOUNTS_NP_MAP[Number(dimensions.mainAccount)].toString();
+    }
+
+    const route = this.resolveCashOutJournalRoute(sourceLine.SafeType);
+    const transactionDate = sourceLine.TRANSDATE;
+    const currencyCode = sourceLine.CURRENCYCODE;
+    const officialResolution = exchangeRateContext
+      ? this.resolveCashOutExchangeRate(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        )
+      : undefined;
+    const officialReportingResolution = exchangeRateContext
+      ? this.cashOutExchangeRateService.resolveReporting(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        )
+      : undefined;
+    const legacyRates = officialResolution
+      ? undefined
+      : this.fetchExchangeRates(transactionDate, currencyCode);
+    const exchangeRate = officialResolution?.rate ?? legacyRates!.exchangeRate;
+    const reportingRate = officialReportingResolution
+      ? officialReportingResolution.rate
+      : officialResolution
+        ? 0
+        : legacyRates!.reportingRate;
+
+    const offsetDimensionString =
+      sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
+        ? sourceLine.OFFSETACCOUNTDISPLAYVALUE
+        : sourceLine.OFFSETDEFAULTDIMENSIONDISPLAYVALUE;
+    const offsetDimensions = this.utilsService.parseDimensionString(
+      offsetDimensionString,
+    );
+    const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
+    const isCustodySettlement = route?.safeType === 'Custody Settlement';
+    const sourceHasWithholding =
+      this.isWithholdingLedgerLine(sourceLine) ||
+      String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+        'yes' ||
+      Boolean(sourceLine.ITEMWITHHOLDINGTAXGROUPCODE);
+
+    const dynLine = new CashEntryDynDataModel(dimensions, {
+      SourceIds: [sourceId],
+      Description: description,
+      TransactionText: sourceLine.TEXT || description,
+      Company: this.company,
+      AccountType: sourceLine.ACCOUNTTYPE,
+      OffsetAccountType: sourceLine.OFFSETACCOUNTTYPE,
+      PaymentMethodName: sourceLine.PAYMENTMETHOD,
+      PaymentReference: sourceLine.PAYMENTREFERENCE,
+      OffsetTransactionText: sourceLine.OFFSETTEXT,
+      JournalName:
+        route?.journalName ?? this.getJournalName(sourceLine.SafeType),
+      TransDate: transactionDate,
+      TransactionDate: transactionDate,
+      VoucherType: sourceLine.VoucherType,
+      AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
+      OffsetAccountDisplayValue: sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+      FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
+        sourceLine.FINTAGDISPLAYVALUE,
+      ),
+      OffsetFinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
+        sourceLine.OFFSETFINTAGDISPLAYVALUE,
+      ),
+      CreditAmount: sourceLine.CREDITAMOUNT,
+      DebitAmount: sourceLine.DEBITAMOUNT,
+      CurrencyCode: currencyCode,
+      ExchRate: exchangeRate,
+      ReportingCurrencyExchRate: reportingRate,
+      DefaultDimensionDisplayValue: this.toCashDefaultDimensionDisplayValue(
+        dimensions,
+        !is22420LedgerLine,
+      ),
+      OffsetDefaultDimensionDisplayValue: offsetDimensionString
+        ? this.toCashDefaultDimensionDisplayValue(offsetDimensions, true)
+        : '',
+      SalesTaxGroup: sourceLine.SALESTAXGROUP,
+      ItemSalesTaxGroup: sourceLine.ITEMSALESTAXGROUP,
+      IsWithholdingCalculationEnabled:
+        isCustodySettlement && sourceHasWithholding ? 'Yes' : 'No',
+      ItemWithholdingTaxGroupCode: isCustodySettlement
+        ? sourceLine.ITEMWITHHOLDINGTAXGROUPCODE
+        : '',
+      OffsetCompany: this.company,
+      PostingProfile: sourceLine.POSTINGPROFILE,
+      Invoice: this.sanitizeInvoiceOutbound(
+        sourceLine.INVOICE || sourceLine.DOCUMENT,
+      ),
+      MarkedInvoice: '',
+      dataAreaId: this.company,
+      ExchRateSecond: 0,
+      Document: sourceLine.DOCUMENT,
+      DocumentDate: sourceLine.DOCUMENTDATE,
+      DueDate: sourceLine.DUEDATE,
+      PaymentId: sourceId,
+      SafeType: route?.safeType ?? sourceLine.SafeType,
+    });
+
+    if (
+      dimensionString &&
+      !this.utilsService.isValidDimensionSegmentLength(segmentLength)
+    ) {
+      dynLine.AddError(
+        'Dimensions',
+        `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
+      );
+    }
+
+    if (sourceHasWithholding && !isCustodySettlement) {
+      dynLine.AddError(
+        'Withholding',
+        `Withholding is not supported for SafeType ${route?.safeType ?? sourceLine.SafeType}.`,
+      );
+    }
+
+    if (exchangeRateContext) {
+      this.addCashOutExchangeRateErrors(
+        dynLine,
+        [sourceLine],
         exchangeRateContext,
       );
     }
@@ -1431,6 +1907,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return trimmed;
   }
 
+  protected isWithholdingLedgerLine(line: CashEntryRawDataModel): boolean {
+    return (
+      line.ACCOUNTTYPE === 'Ledger' &&
+      String(line.ACCOUNTDISPLAYVALUE ?? '')
+        .trim()
+        .startsWith('223304')
+    );
+  }
+
+  protected firstFinancialTag(value?: string): string {
+    return String(value ?? '')
+      .split('|')[0]
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+      .trim();
+  }
+
   /**
    * One batched FO lookup for all cash-out marked invoices → in-memory Set.
    * Validation is then sync from the Set (no per-line FO calls).
@@ -1448,7 +1940,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   safeType: line.SafeType,
                   targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
                   voucherType: line.VoucherType,
-                }).kind === 'vendor-invoice'
+                }).kind === 'vendor-invoice' &&
+                line.SettlementTargetType !== 'CustodyLedger'
               );
             } catch {
               // Unsupported Safe Types are reported by validateAsync.
@@ -1500,22 +1993,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
     if (!this.vendorInvoiceExistsMap.has(key)) {
-      line.MarkedInvoice = '';
-      if (!line.Description?.toLowerCase().includes('unmarked')) {
-        line.Description = line.Description
-          ? `${line.Description} - unmarked`
-          : 'unmarked';
-      }
-      if (!line.TransactionText?.toLowerCase().includes('unmarked')) {
-        line.TransactionText = line.TransactionText
-          ? `${line.TransactionText} - unmarked`
-          : 'unmarked';
-      }
-      if (!line.OffsetTransactionText?.toLowerCase().includes('unmarked')) {
-        line.OffsetTransactionText = line.OffsetTransactionText
-          ? `${line.OffsetTransactionText} - unmarked`
-          : 'unmarked';
-      }
+      line.AddError(
+        'MarkedInvoice',
+        `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
+      );
     }
   }
 
@@ -1597,10 +2078,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * PBI 2055: Identify withholding 223304 ledger lines for stats reporting.
+   * Identify withholding 223304 source lines for stats and later routing.
    * Lines are kept unchanged — the vendor line retains its full amount
-   * (invoice + tax) and the 223304 line flows through normal multi-line
-   * processing where it becomes an offset account for the vendor line.
+   * (invoice + tax). Vendor Payment absorbs the 223304 amount into its gross
+   * vendor line, while Custody Settlement keeps it as an independent line.
    */
   protected applyWithholdingReductions(lines: CashEntryRawDataModel[]): {
     lines: CashEntryRawDataModel[];
@@ -1623,10 +2104,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     let totalWithholdingAmount = 0;
 
     for (const groupLines of voucherGroups.values()) {
-      const withholdingLines = groupLines.filter(
-        (l) =>
-          l.ACCOUNTTYPE === 'Ledger' &&
-          l.ACCOUNTDISPLAYVALUE?.startsWith('223304'),
+      const withholdingLines = groupLines.filter((line) =>
+        this.isWithholdingLedgerLine(line),
       );
 
       for (const wLine of withholdingLines) {
@@ -1637,7 +2116,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     if (withholdingLineCount > 0) {
       this.logger.debug(
-        `[WITHHOLDING] Found ${withholdingLineCount} withholding 223304 lines (total amount: ${totalWithholdingAmount}). Lines kept as offset accounts for vendor pairing.`,
+        `[WITHHOLDING] Found ${withholdingLineCount} source lines on 223304 (total amount: ${totalWithholdingAmount}); treatment depends on SafeType.`,
       );
       return {
         lines,

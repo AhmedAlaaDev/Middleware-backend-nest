@@ -3,17 +3,30 @@ import { createWriteStream } from 'fs';
 import { Workbook } from 'exceljs';
 import * as Excel from 'exceljs';
 
-import { IExcelAdapter } from '@/modules/excel/interfaces/excel-adapter.interface';
+import {
+  ExcelSheetData,
+  IExcelAdapter,
+} from '@/modules/excel/interfaces/excel-adapter.interface';
 
 export class ExcelJsAdapter extends IExcelAdapter {
   public async read<T = any>(buffer: Buffer): Promise<T[]> {
+    return (await this.readSheet<T>(buffer)).rows;
+  }
+
+  public async readSheet<T = any>(buffer: Buffer): Promise<ExcelSheetData<T>> {
     const workbook = new Workbook();
     const ab = new Uint8Array(buffer).buffer;
     await workbook.xlsx.load(ab);
     const worksheet = workbook.worksheets[0];
-    if (!worksheet) return [];
+    if (!worksheet) return { headers: [], rows: [] };
     const headerRow = worksheet.getRow(1).values as any[];
-    const headers = headerRow.slice(1) as string[];
+    const headers = headerRow
+      .slice(1)
+      .map((header) =>
+        header == null || typeof header === 'object'
+          ? ''
+          : String(header).trim(),
+      );
     const rows: T[] = [];
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
@@ -25,7 +38,7 @@ export class ExcelJsAdapter extends IExcelAdapter {
       rows.push(obj as T);
     });
 
-    return rows;
+    return { headers, rows };
   }
 
   public async write<T extends object = { [key: string]: any }>(

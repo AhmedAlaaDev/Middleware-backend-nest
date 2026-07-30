@@ -285,7 +285,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       const route = this.resolveCashOutRoute(lines[0].data, targetProcessor);
       const header = this.mapRoutedHeaderFromLines(lines, company, route);
-      const mappedLines = this.mapLines(lines, company, route.lineDirection);
+      const mappedLines = this.mapLines(
+        lines,
+        company,
+        route.lineDirection,
+        route,
+      );
 
       result.push({ route, header, lines: mappedLines });
     }
@@ -337,6 +342,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
     company: string,
     cashDirection: 'in' | 'out',
+    route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
@@ -383,9 +389,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? line.MarkedInvoice
           : line.Invoice || ''
       ).trim();
+      const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
       if (
+        routeSupportsMarking &&
         !markedInvoice &&
         !transactionTextValue.toLowerCase().includes('unmarked')
       ) {
@@ -396,6 +404,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       let offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
       if (
+        routeSupportsMarking &&
         !markedInvoice &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
@@ -434,14 +443,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             ? 100
             : line.ExchRate || 100,
 
-        ReportingCurrencyExchRate:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        ReportingExchangeRate:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        REPORTINGEXCHANGERATE:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        ExchRateSecond:
-          (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingCurrencyExchRate: (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
+        REPORTINGEXCHANGERATE: (line.ReportingCurrencyExchRate || 0) * 100,
+        ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
@@ -453,7 +458,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
-          offsetAccountDisplayValue || accountDisplayValue,
+          route && route.kind !== 'vendor-invoice'
+            ? offsetAccountDisplayValue
+            : offsetAccountDisplayValue || accountDisplayValue,
         OffsetAccountTypeStr: offsetAccountTypeStr,
         OffsetCompany: line.OffsetCompany || company,
         OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
