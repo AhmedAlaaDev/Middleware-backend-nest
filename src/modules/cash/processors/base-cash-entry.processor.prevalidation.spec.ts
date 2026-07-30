@@ -151,7 +151,105 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
       (processor as any).validateCashOutSourceAsync(lines),
     ).resolves.toBeUndefined();
     expect(lines[0].IsCustodyVendor).toBe(true);
-    expect(lines[0].MARKEDINVOICE).toBe('INV-2066');
+    expect(lines[0].MARKEDINVOICE).toBe('CUSTODY-TARGET-1');
+  });
+
+  it('preserves multiple resolved custody ledger markings through formatting', async () => {
+    const targets: CustodySettlementTarget[] = [
+      {
+        documentNumber: 'DOC-CUSTODY-1',
+        currency: 'EGP',
+        amount: 60,
+        operationNumber: 'OP-CUSTODY-1',
+      },
+      {
+        documentNumber: 'DOC-CUSTODY-2',
+        currency: 'EGP',
+        amount: 40,
+        operationNumber: 'OP-CUSTODY-2',
+      },
+    ];
+    const custodyMatches = new Map([
+      [
+        GeneralJournalService.custodySettlementTargetKey(targets[0]),
+        [{ Voucher: 'CUSTODY-VCH-1', Document: 'DOC-CUSTODY-1' }],
+      ],
+      [
+        GeneralJournalService.custodySettlementTargetKey(targets[1]),
+        [{ Voucher: 'CUSTODY-VCH-2', Document: 'DOC-CUSTODY-2' }],
+      ],
+    ]);
+    const { processor } = createProcessor({
+      custodyAccounts: ['CUSTODY-1'],
+      custodyMatches,
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
+      exchangeRate: 1,
+      reportingRate: 1,
+    });
+    (processor as any).vendorNameMap = new Map();
+
+    const lines = [
+      {
+        UniqueId: 2067,
+        LINENUMBER: 1,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'CUSTODY-1',
+        DEBITAMOUNT: 60,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: 'DOC-CUSTODY-1',
+        FINTAGDISPLAYVALUE: 'OP-CUSTODY-1|TAG',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Transfer',
+      },
+      {
+        UniqueId: 2067,
+        LINENUMBER: 2,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'CUSTODY-1',
+        DEBITAMOUNT: 40,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: 'DOC-CUSTODY-2',
+        FINTAGDISPLAYVALUE: 'OP-CUSTODY-2|TAG',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Transfer',
+      },
+      {
+        UniqueId: 2067,
+        LINENUMBER: 3,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-1',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Transfer',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+
+    const formatted = (processor as any).buildLines('2067', lines);
+    expect(formatted).toHaveLength(2);
+    expect(formatted.map((line: any) => line.MarkedInvoice)).toEqual([
+      'CUSTODY-VCH-1',
+      'CUSTODY-VCH-2',
+    ]);
+    expect(
+      formatted.every(
+        (line: any) => line.SettlementTargetType === 'CustodyLedger',
+      ),
+    ).toBe(true);
   });
 
   it('blocks custody marking when the ledger lookup is ambiguous', async () => {

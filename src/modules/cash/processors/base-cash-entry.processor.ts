@@ -644,7 +644,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       } else if (!line.MARKEDINVOICE) {
         const match = targetMatches[0];
         line.MARKEDINVOICE = this.sanitizeInvoiceOutbound(
-          line.INVOICE || match.Invoice || match.Voucher || match.Document,
+          match.Invoice || match.Voucher || match.Document || line.INVOICE,
         );
       }
     }
@@ -1388,6 +1388,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Boolean(withholdingLine);
 
     const rawInvoice =
+      accountLine.MARKEDINVOICE ||
+      offsetLine.MARKEDINVOICE ||
       accountLine.INVOICE ||
       offsetLine.INVOICE ||
       accountLine.DOCUMENT ||
