@@ -201,6 +201,28 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
 
+    // Cash Out pre-format validation returns a business-friendly list of
+    // line/group errors. Preserve that list for the client instead of reducing
+    // the response to the generic Bad Request message.
+    if (this.isStringErrorListObject(raw)) {
+      developerMessage = raw.message || 'Validation failed';
+      userMessage = developerMessage;
+      errorCode = raw.errorCode ?? 'VAL_001';
+      validationErrors = this.coerceStringValidationErrors(raw.errors);
+      details = {
+        ...raw.details,
+        errorCount: raw.errorCount ?? raw.errors.length,
+      };
+      return {
+        status: rawStatus,
+        userMessage,
+        developerMessage,
+        errorCode,
+        validationErrors,
+        details,
+      };
+    }
+
     // Typical ValidationPipe response or custom objects
     if (this.isBasicErrorObject(raw)) {
       const msg = raw.message;
@@ -359,6 +381,26 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     );
   }
 
+  /** Guards business validation responses containing free-text error rows. */
+  private isStringErrorListObject(raw: unknown): raw is {
+    message?: string;
+    errors: string[];
+    errorCount?: number;
+    errorCode?: string;
+    details?: Record<string, unknown>;
+  } {
+    return (
+      !!raw &&
+      typeof raw === 'object' &&
+      'errors' in raw &&
+      Array.isArray((raw as { errors?: unknown }).errors) &&
+      (raw as { errors: unknown[] }).errors.length > 0 &&
+      (raw as { errors: unknown[] }).errors.every(
+        (error) => typeof error === 'string',
+      )
+    );
+  }
+
   /**
    * Guards an array of class-validator ValidationError objects.
    */
@@ -421,6 +463,40 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           (field) => `Missing required field: ${field}`,
         );
       }
+    });
+
+    return map;
+  }
+
+  /**
+   * Groups Cash Out business errors by their source line or UniqueId so the UI
+   * can show a concise location beside the exact validation message.
+   */
+  private coerceStringValidationErrors(errors: string[]): ValidationErrors {
+    const map: ValidationErrors = {};
+
+    errors.forEach((rawError, index) => {
+      const error = rawError.trim() || 'Invalid value';
+      const lineMatch = error.match(
+        /^Line\s+([^\s(:]+)\s+\(UniqueId\s+([^)]+)\)(?:\s+(account|offset))?:\s*(.+)$/i,
+      );
+      const uniqueIdMatch = error.match(/^UniqueId\s+([^:]+):\s*(.+)$/i);
+
+      let key = `Validation ${index + 1}`;
+      let message = error;
+
+      if (lineMatch) {
+        const side = lineMatch[3]
+          ? ` ${lineMatch[3][0].toUpperCase()}${lineMatch[3].slice(1).toLowerCase()}`
+          : '';
+        key = `Line ${lineMatch[1]} (UniqueId ${lineMatch[2]})${side}`;
+        message = lineMatch[4];
+      } else if (uniqueIdMatch) {
+        key = `UniqueId ${uniqueIdMatch[1].trim()}`;
+        message = uniqueIdMatch[2];
+      }
+
+      (map[key] ||= []).push(message);
     });
 
     return map;
