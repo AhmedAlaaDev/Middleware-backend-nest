@@ -15,6 +15,8 @@ import {
 } from '@/modules/data-batch/repositories/interfaces';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import { RawDataModel } from '@/modules/entry-processor/interfaces/entry-processor.interface';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 
 function createService(options?: {
   claimBatch?: boolean;
@@ -35,6 +37,7 @@ function createService(options?: {
     creationDate: new Date(),
   };
   const dataBatchRepo = {
+    create: jest.fn().mockResolvedValue(batch),
     claimForRevalidation: jest
       .fn()
       .mockResolvedValue(options?.claimBatch === false ? null : batch),
@@ -57,6 +60,7 @@ function createService(options?: {
     insertMany: jest.fn().mockResolvedValue(undefined),
   } as unknown as DataBatchErrorRepository;
   const sourceRepo = {
+    insertMany: jest.fn().mockResolvedValue(undefined),
     getList: jest
       .fn()
       .mockResolvedValue([
@@ -96,14 +100,71 @@ function createService(options?: {
       missingRepo,
       processorFactory,
       {} as CommandBus,
+      {
+        get: jest.fn().mockReturnValue(undefined),
+      } as unknown as TraceContextService,
     ),
     dataBatchRepo,
     enhancedRepo,
     errorRepo,
+    sourceRepo,
   };
 }
 
 describe(DataBatchService.name, () => {
+  it('stores pre-format errors by source location for the existing error page', async () => {
+    const harness = createService();
+    const errors = [
+      'Line 3 (UniqueId 466596) account: SubVendorDimensions: CostCenter: 1301 | Dimension "SubVendor" value from your file "SL-000007" was not found.',
+      'Line 3 (UniqueId 466596) offset: MainAccountDimensions: Dimension "Main Account" value "223404" was not found.',
+      'UniqueId 9001: all rows must use the same SafeType; found Direct, Other.',
+    ];
+
+    const result = await harness.service.createPreFormatValidationFailureAsync(
+      EntryProcessorTypes.CashOutFreight,
+      'Cash Out Freight',
+      'm-p',
+      'Cash-Out Freight validation failure',
+      [{ LINENUMBER: 3, UniqueId: 466596 }] as unknown as RawDataModel[],
+      errors,
+    );
+
+    expect(result.id).toBe('batch-1');
+    expect(harness.dataBatchRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCount: 3,
+        successCount: 0,
+        totalFormattedCount: 0,
+        totalUploadedCount: 1,
+        status: DataBatchStatus.PendingPosting,
+      }),
+    );
+    expect(harness.sourceRepo.insertMany).toHaveBeenCalledTimes(1);
+    expect(harness.errorRepo.insertMany).toHaveBeenCalledWith([
+      expect.objectContaining({
+        sourceRecordIds: ['Line 3 (UniqueId 466596)'],
+        enhancedRecordIds: ['3'],
+        errorMessages: expect.arrayContaining([
+          expect.stringContaining('Account - SubVendorDimensions'),
+          expect.stringContaining('Offset - MainAccountDimensions'),
+        ]),
+        enhancedData: expect.objectContaining({
+          LineNumber: 3,
+          UniqueId: '466596',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              property: 'Account - SubVendorDimensions',
+            }),
+          ]),
+        }),
+      }),
+      expect.objectContaining({
+        sourceRecordIds: ['UniqueId 9001'],
+        enhancedData: expect.objectContaining({ UniqueId: '9001' }),
+      }),
+    ]);
+  });
+
   it('keeps the active validation run when replacement processing fails', async () => {
     const harness = createService();
 

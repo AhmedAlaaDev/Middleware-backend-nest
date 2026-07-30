@@ -66,6 +66,70 @@ export class DataBatchService {
   ) {}
 
   /**
+   * Stores Cash Out source-validation failures as a regular batch so the
+   * existing batch summary and dedicated error page remain the single UI flow.
+   */
+  public async createPreFormatValidationFailureAsync<
+    TRawData extends RawDataModel = RawDataModel,
+  >(
+    entryProcessorType: EntryProcessorTypes,
+    entryProcessorName: string,
+    companyId: string,
+    description: string,
+    rawData: TRawData[],
+    errors: string[],
+  ): Promise<IDataBatch> {
+    const validationRunId = randomUUID();
+    const actor = this.traceContext.get();
+    const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
+    const dataBatch = await this.dataBatchRepo.create({
+      company: companyId,
+      entryProcessorType,
+      entryProcessorName,
+      description,
+      successCount: 0,
+      errorCount: errors.length,
+      totalFormattedCount: 0,
+      totalUploadedCount: rawData.length,
+      withholdingRemovedCount: 0,
+      withholdingRemovedAmount: 0,
+      status: DataBatchStatus.PendingPosting,
+      billingCodeId: undefined,
+      expectedGroupCount: 0,
+      activeValidationRunId: validationRunId,
+      createdByUserId: actor?.userId,
+      createdByName: actor?.userName,
+      createdByEmail: actor?.userEmail,
+      reprocessCount: 0,
+      sourceColumnHeaders:
+        sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
+    });
+
+    if (rawData.length > 0) {
+      await this.dataSourceRecordRepo.insertMany(
+        rawData.map((record) => ({
+          batchId: dataBatch.id,
+          data: record as unknown as Record<string, unknown>,
+        })),
+      );
+    }
+
+    const batchErrors = this.groupPreFormatValidationErrors(
+      dataBatch.id,
+      validationRunId,
+      errors,
+    );
+    if (batchErrors.length > 0) {
+      await this.dataBatchErrorRepo.insertMany(batchErrors);
+    }
+
+    this.logger.warn(
+      `Pre-format validation batch created: id=${dataBatch.id} raw=${rawData.length} errors=${errors.length}`,
+    );
+    return dataBatch;
+  }
+
+  /**
    * Create a new batch with source and enhanced records
    * @template TRawData - Type of raw/source data records
    * @template TEnhancedData - Type of enhanced/dynamic data records
@@ -85,7 +149,7 @@ export class DataBatchService {
     options?: {
       withholdingRemovedCount?: number;
       withholdingRemovedAmount?: number;
-    }
+    },
   ): Promise<IDataBatch> {
     this.logger.log(
       `Creating data batch: type=${entryProcessorType} name=${entryProcessorName} company=${companyId} raw=${rawData.length} dyn=${dynData.length}`,
@@ -893,9 +957,111 @@ export class DataBatchService {
    * ExcelJS inserts object keys in worksheet column order, so this preserves
    * the uploaded file's column arrangement.
    */
-  private collectSourceColumnHeaders(
-    rawData: Array<Record<string, unknown> | object>,
-  ): string[] {
+  private groupPreFormatValidationErrors(
+    batchId: string,
+    validationRunId: string,
+    errors: string[],
+  ): ICreateDataBatchError[] {
+    const grouped = new Map<
+      string,
+      {
+        sourceRecordIds: string[];
+        enhancedRecordIds: string[];
+        lineNumber?: number;
+        uniqueId?: string;
+        errors: Array<{ property: string; message: string }>;
+      }
+    >();
+
+    for (const rawError of errors) {
+      const parsed = this.parsePreFormatValidationError(rawError);
+      const existing = grouped.get(parsed.sourceKey);
+      const target = existing ?? {
+        sourceRecordIds: [parsed.sourceLabel],
+        enhancedRecordIds: parsed.lineNumber ? [String(parsed.lineNumber)] : [],
+        lineNumber: parsed.lineNumber,
+        uniqueId: parsed.uniqueId,
+        errors: [],
+      };
+      target.errors.push({
+        property: parsed.property,
+        message: parsed.message,
+      });
+      grouped.set(parsed.sourceKey, target);
+    }
+
+    return Array.from(grouped.values()).map((group) => ({
+      batchId,
+      sourceRecordIds: group.sourceRecordIds,
+      errorMessages: group.errors.map(
+        ({ property, message }) => `${property}: ${message}`,
+      ),
+      enhancedRecordIds: group.enhancedRecordIds,
+      enhancedData: {
+        errors: group.errors,
+        ...(group.lineNumber ? { LineNumber: group.lineNumber } : {}),
+        ...(group.uniqueId ? { UniqueId: group.uniqueId } : {}),
+      },
+      validationRunId,
+    }));
+  }
+
+  private parsePreFormatValidationError(error: string): {
+    sourceKey: string;
+    sourceLabel: string;
+    lineNumber?: number;
+    uniqueId?: string;
+    property: string;
+    message: string;
+  } {
+    const lineMatch = error.match(
+      /^Line\s+(\d+|\?)\s+\(UniqueId\s+([^)]+)\)(?:\s+(account|offset))?:\s*(.*)$/i,
+    );
+    if (lineMatch) {
+      const lineNumber = Number(lineMatch[1]);
+      const uniqueId = lineMatch[2].trim();
+      const side = lineMatch[3];
+      const detail = lineMatch[4].trim();
+      const propertyMatch = detail.match(/^([^:]+):\s*(.*)$/s);
+      const propertyName = propertyMatch?.[1]?.trim();
+      const message = propertyMatch?.[2]?.trim() || detail;
+      const sourceLabel = `Line ${lineMatch[1]} (UniqueId ${uniqueId})`;
+
+      return {
+        sourceKey: sourceLabel,
+        sourceLabel,
+        ...(Number.isFinite(lineNumber) ? { lineNumber } : {}),
+        uniqueId,
+        property:
+          [side && side[0].toUpperCase() + side.slice(1), propertyName]
+            .filter(Boolean)
+            .join(' - ') || 'Pre-format validation',
+        message,
+      };
+    }
+
+    const uniqueIdMatch = error.match(/^UniqueId\s+([^:]+):\s*(.*)$/is);
+    if (uniqueIdMatch) {
+      const uniqueId = uniqueIdMatch[1].trim();
+      const sourceLabel = `UniqueId ${uniqueId}`;
+      return {
+        sourceKey: sourceLabel,
+        sourceLabel,
+        uniqueId,
+        property: 'Pre-format validation',
+        message: uniqueIdMatch[2].trim(),
+      };
+    }
+
+    return {
+      sourceKey: 'File',
+      sourceLabel: 'File',
+      property: 'Pre-format validation',
+      message: error,
+    };
+  }
+
+  private collectSourceColumnHeaders(rawData: object[]): string[] {
     const headers: string[] = [];
     const seen = new Set<string>();
 
