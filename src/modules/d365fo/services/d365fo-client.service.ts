@@ -8,6 +8,7 @@ import { D365FOConfig, IConfig } from '@/config';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
 import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
+import { configureSystemCertificateAuthorities } from '@/modules/d365fo/utils/configure-system-ca';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
@@ -33,6 +34,19 @@ export class D365FOClientService {
     private readonly operationalLogs: OperationalLoggerService,
     private readonly dfoErrors: DfoErrorExtractorService,
   ) {
+    const systemCa = configureSystemCertificateAuthorities();
+    if (systemCa.configured) {
+      this.logger.log(
+        `TLS trust initialized with ${systemCa.totalCertificateCount} CA certificate(s), including ${systemCa.systemCertificateCount} from the operating system (${systemCa.addedCertificateCount} newly added)`,
+      );
+    } else {
+      this.logger.warn(
+        systemCa.supported
+          ? `Could not initialize operating-system CA trust: ${systemCa.error ?? 'unknown error'}`
+          : 'This Node.js version cannot load the operating-system CA store at runtime; use Node 22.19+ or configure NODE_EXTRA_CA_CERTS.',
+      );
+    }
+
     this.resource =
       this.configService.get<D365FOConfig>('d365fo')?.resource || '';
 
