@@ -5,6 +5,7 @@ import { EntryProcessorUtilsService } from './entry-processor-utils.service';
 
 import { CashOutExchangeRateService } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
+import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
@@ -21,5 +22,6 @@ export class EntryProcessorBaseDependencies {
     public readonly freeTextInvoiceService: FreeTextInvoiceService,
     public readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
     public readonly cashOutExchangeRateService: CashOutExchangeRateService,
+    public readonly generalJournalService: GeneralJournalService,
   ) {}
 }

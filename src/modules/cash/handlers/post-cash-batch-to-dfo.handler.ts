@@ -285,7 +285,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       const route = this.resolveCashOutRoute(lines[0].data, targetProcessor);
       const header = this.mapRoutedHeaderFromLines(lines, company, route);
-      const mappedLines = this.mapLines(lines, company, route.lineDirection);
+      const mappedLines = this.mapLines(
+        lines,
+        company,
+        route.lineDirection,
+        route,
+      );
 
       result.push({ route, header, lines: mappedLines });
     }
@@ -337,6 +342,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
     company: string,
     cashDirection: 'in' | 'out',
+    route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
@@ -383,9 +389,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? line.MarkedInvoice
           : line.Invoice || ''
       ).trim();
+      const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
       if (
+        routeSupportsMarking &&
         !markedInvoice &&
         !transactionTextValue.toLowerCase().includes('unmarked')
       ) {
@@ -393,8 +401,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? `${transactionTextValue} - unmarked`
           : 'unmarked';
       }
-      const offsetTransactionTextValue =
+      let offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
+      if (
+        routeSupportsMarking &&
+        !markedInvoice &&
+        !offsetTransactionTextValue.toLowerCase().includes('unmarked')
+      ) {
+        offsetTransactionTextValue = offsetTransactionTextValue
+          ? `${offsetTransactionTextValue} - unmarked`
+          : 'unmarked';
+      }
 
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
@@ -426,24 +443,24 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             ? 100
             : line.ExchRate || 100,
 
-        ReportingCurrencyExchRate:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        ReportingExchangeRate:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        REPORTINGEXCHANGERATE:
-          (line.ReportingCurrencyExchRate || 0) * 100,
-        ExchRateSecond:
-          (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingCurrencyExchRate: (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
+        REPORTINGEXCHANGERATE: (line.ReportingCurrencyExchRate || 0) * 100,
+        ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
+        IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
+        ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
         MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
-          offsetAccountDisplayValue || accountDisplayValue,
+          route && route.kind !== 'vendor-invoice'
+            ? offsetAccountDisplayValue
+            : offsetAccountDisplayValue || accountDisplayValue,
         OffsetAccountTypeStr: offsetAccountTypeStr,
         OffsetCompany: line.OffsetCompany || company,
         OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
@@ -689,9 +706,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
     if (!body.transDate?.trim()) {
       missingFields.push('customLineApiBody.transDate');
-    }
-    if (!body.PostingProfile?.trim()) {
-      missingFields.push('customLineApiBody.PostingProfile');
     }
     if (!this.isValidTaxGroup(body.TaxGroup)) {
       missingFields.push(

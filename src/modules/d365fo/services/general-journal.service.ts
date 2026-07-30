@@ -12,6 +12,25 @@ import {
 
 const CROSS_COMPANY = '?cross-company=true';
 
+export interface CustodySettlementTarget {
+  documentNumber: string;
+  currency: string;
+  amount: number;
+  operationNumber: string;
+}
+
+export interface CustodySettlementLedgerLine {
+  JournalBatchNumber?: string;
+  LineNumber?: number;
+  Document?: string;
+  CurrencyCode?: string;
+  DebitAmount?: number;
+  CreditAmount?: number;
+  FinTagDisplayValue?: string;
+  Invoice?: string;
+  Voucher?: string;
+}
+
 /**
  * Service for managing general journal entries in D365FO
  */
@@ -23,6 +42,101 @@ export class GeneralJournalService {
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
   ) {}
+
+  public static custodySettlementTargetKey(
+    target: CustodySettlementTarget,
+  ): string {
+    return [
+      target.documentNumber.trim().toLowerCase(),
+      target.currency.trim().toUpperCase(),
+      Number(target.amount || 0).toFixed(2),
+      GeneralJournalService.normalizeOperation(target.operationNumber),
+    ].join('|');
+  }
+
+  public async findCustodySettlementTargets(
+    company: string,
+    targets: CustodySettlementTarget[],
+  ): Promise<Map<string, CustodySettlementLedgerLine[]>> {
+    const result = new Map<string, CustodySettlementLedgerLine[]>();
+    const uniqueTargets = [
+      ...new Map(
+        targets.map((target) => [
+          GeneralJournalService.custodySettlementTargetKey(target),
+          target,
+        ]),
+      ).values(),
+    ];
+    for (const target of uniqueTargets) {
+      result.set(GeneralJournalService.custodySettlementTargetKey(target), []);
+    }
+
+    const documents = [
+      ...new Set(
+        uniqueTargets
+          .map((target) => target.documentNumber.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    for (let index = 0; index < documents.length; index += 20) {
+      const documentChunk = documents.slice(index, index + 20);
+      const filter = this.queryBuilder.and(
+        this.queryBuilder.eq('dataAreaId', company),
+        `(${this.queryBuilder.or(
+          ...documentChunk.map((document) =>
+            this.queryBuilder.eq('Document', document),
+          ),
+        )})`,
+      );
+      const query = this.queryBuilder.buildQuery('/data/LedgerJournalLines', {
+        filter,
+        top: 10000,
+        select: [
+          'JournalBatchNumber',
+          'LineNumber',
+          'Document',
+          'CurrencyCode',
+          'DebitAmount',
+          'CreditAmount',
+          'FinTagDisplayValue',
+          'Invoice',
+          'Voucher',
+        ],
+        crossCompany: true,
+      });
+      const response = await this.d365foClient.get<CustodySettlementLedgerLine>(
+        query,
+        {
+          useCache: false,
+        },
+      );
+
+      for (const line of response.value ?? []) {
+        const lineTarget: CustodySettlementTarget = {
+          documentNumber: String(line.Document ?? ''),
+          currency: String(line.CurrencyCode ?? ''),
+          amount: Math.max(
+            Math.abs(Number(line.DebitAmount ?? 0)),
+            Math.abs(Number(line.CreditAmount ?? 0)),
+          ),
+          operationNumber: String(line.FinTagDisplayValue ?? '').split('|')[0],
+        };
+        const key =
+          GeneralJournalService.custodySettlementTargetKey(lineTarget);
+        if (result.has(key)) result.get(key)!.push(line);
+      }
+    }
+
+    return result;
+  }
+
+  private static normalizeOperation(value: string): string {
+    return String(value ?? '')
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+      .trim()
+      .toLowerCase();
+  }
 
   /**
    * Create a general journal header (cross-company)

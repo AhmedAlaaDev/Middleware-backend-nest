@@ -65,6 +65,17 @@ describe('CashJournalRoutingService - task 2045', () => {
       },
     },
     {
+      safeType: 'Customer Collection',
+      expected: {
+        kind: 'customer-payment',
+        module: 'AR',
+        safeType: 'Customer Collection',
+        journalName: 'Cust-Pay',
+        headerApi: 'CustomerPaymentJournalHeaders',
+        lineDirection: 'in',
+      },
+    },
+    {
       safeType: 'Direct',
       expected: {
         kind: 'ledger',
@@ -126,6 +137,13 @@ describe('CashJournalRoutingService - task 2045', () => {
       'CustSettle',
     ],
     [' custody_issue ', undefined, 'Custody Issue', undefined, 'CashOut'],
+    [
+      ' customer_collection ',
+      undefined,
+      'Customer Collection',
+      undefined,
+      'Cust-Pay',
+    ],
     [' DOWN-PAYMENT ', undefined, 'DownPayment', undefined, 'Cust-Pay'],
     [' c_n ', undefined, 'CN', undefined, 'Cust-Pay'],
   ])(
@@ -148,6 +166,7 @@ describe('CashJournalRoutingService - task 2045', () => {
   it.each([
     ['Custody Settlement', 'CustSettle'],
     ['Custody Issue', 'CashOut'],
+    ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
     ['DownPayment', 'Cust-Pay'],
@@ -167,7 +186,7 @@ describe('CashJournalRoutingService - task 2045', () => {
     },
   );
 
-  it.each([undefined, null, '', '   ', 'Customer Collection'])(
+  it.each([undefined, null, '', '   ', 'Unsupported Type'])(
     'rejects unsupported Safe Type %p',
     (safeType) => {
       expect(() => service.resolve({ safeType })).toThrow(

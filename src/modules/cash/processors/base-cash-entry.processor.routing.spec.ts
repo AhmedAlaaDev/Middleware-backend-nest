@@ -34,6 +34,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   it.each([
     ['Custody Settlement', 'CustSettle'],
     ['Custody Issue', 'CashOut'],
+    ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
     ['DownPayment', 'Cust-Pay'],
@@ -101,7 +102,14 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted.Description).toContain('DownPayment - Freight');
   });
 
-  it.each(['DownPayment', 'CN', 'Direct', 'Other', 'Custody Settlement'])(
+  it.each([
+    'DownPayment',
+    'CN',
+    'Direct',
+    'Other',
+    'Custody Settlement',
+    'Customer Collection',
+  ])(
     'does not apply vendor-invoice validation to the %s non-AP route',
     (safeType) => {
       const processor = createProcessor();
@@ -151,7 +159,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   });
 
   describe('Bug 2046 - MarkedInvoice clearing & unmarked description rules', () => {
-    it('clears MarkedInvoice and appends " - unmarked" to description without error when invoice belongs to another vendor', () => {
+    it('adds a blocking validation error when invoice belongs to another vendor', () => {
       const processor = createProcessor();
       (processor as any).vendorInvoiceExistsMap = new Set(); // Empty map => invoice does not exist for vendor
 
@@ -165,17 +173,14 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       (processor as any).validateCashOutMarkedInvoice(line);
 
-      expect(line.MarkedInvoice).toBe('');
-      expect(line.Description).toBe(
-        'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
+      expect(line.MarkedInvoice).toBe('INV-MISMATCH');
+      expect(line.AddError).toHaveBeenCalledWith(
+        'MarkedInvoice',
+        expect.stringContaining('was not found in D365 for vendor VEND-001'),
       );
-      expect(line.TransactionText).toBe(
-        'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-      );
-      expect(line.AddError).not.toHaveBeenCalled();
     });
 
-    it('clears MarkedInvoice and appends " - unmarked" when invoice amount exceeds payment line amount [Partial Payment]', () => {
+    it('keeps MarkedInvoice for partial payments so D365 can validate the remaining balance', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -210,8 +215,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       const [formatted] = (processor as any).buildLines('2046', rawLines);
 
       expect(formatted.Invoice).toBe('INV-2026-PARTIAL');
-      expect(formatted.MarkedInvoice).toBe('');
-      expect(formatted.Description).toContain(' - unmarked');
+      expect(formatted.MarkedInvoice).toBe('INV-2026-PARTIAL');
+      expect(formatted.Description).not.toContain(' - unmarked');
     });
 
     it('retains MarkedInvoice and normal description when payment can be settled against invoice', () => {
@@ -251,6 +256,174 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(formatted.Invoice).toBe('INV-2026-FULL');
       expect(formatted.MarkedInvoice).toBe('INV-2026-FULL');
       expect(formatted.Description).not.toContain(' - unmarked');
+    });
+    it('retains MarkedInvoice and normal description when withholding tax is enabled on payment line', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2046,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 990,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+          ITEMWITHHOLDINGTAXGROUPCODE: 'TAX1',
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2046,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 990,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const [formatted] = (processor as any).buildLines('2046', rawLines);
+
+      expect(formatted.Invoice).toBe('INV-2026-WITHHOLDING');
+      expect(formatted.MarkedInvoice).toBe('INV-2026-WITHHOLDING');
+      expect(formatted.Description).not.toContain(' - unmarked');
+    });
+
+    it('PBI 2055: keeps 223304 withholding lines and does not reduce vendor amount', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2047,
+          LINENUMBER: 1,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING-LINE',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2047,
+          LINENUMBER: 2,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 10,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2026-WITHHOLDING-LINE',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2047,
+          LINENUMBER: 3,
+          VOUCHER: 'VCH-01',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 990,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const { lines: processedLines, stats } = (
+        processor as any
+      ).applyWithholdingReductions(rawLines);
+
+      // All 3 lines are kept (223304 line is NOT removed)
+      expect(processedLines).toHaveLength(3);
+      // Vendor line amount is NOT reduced (keeps full invoice + tax)
+      expect(processedLines[0].DEBITAMOUNT).toBe(1000);
+      // Stats still report withholding info
+      expect(stats.withholdingRemovedCount).toBe(1);
+      expect(stats.withholdingRemovedAmount).toBe(10);
+    });
+
+    it('PBI 2065: merges withholding into the Vendor Payment offset line', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2055,
+          LINENUMBER: 1,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2055',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2055,
+          LINENUMBER: 2,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 50,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-2055',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2055,
+          LINENUMBER: 3,
+          VOUCHER: 'VCH-WH',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 950,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      // applyWithholdingReductions keeps all lines unchanged
+      const { lines: processedLines } = (
+        processor as any
+      ).applyWithholdingReductions(rawLines);
+      expect(processedLines).toHaveLength(3);
+
+      // Vendor Payment produces one gross vendor line; 223304 is not posted separately.
+      const dfoLines = (processor as any).buildLines('2055', processedLines);
+      expect(dfoLines).toHaveLength(1);
+
+      const [bankLine] = dfoLines;
+      expect(bankLine.AccountType).toBe('Vend');
+      expect(bankLine.AccountDisplayValue).toBe('VEND-001');
+      expect(bankLine.OffsetAccountDisplayValue).toBe('BANK-001');
+      expect(bankLine.DebitAmount).toBe(1000);
+      expect(bankLine.IsWithholdingCalculationEnabled).toBe('Yes');
+      expect(bankLine.Invoice).toBe('INV-2055');
     });
   });
 });

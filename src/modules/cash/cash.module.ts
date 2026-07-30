@@ -10,6 +10,7 @@ import {
   PostCashBatchToDFOHandler,
 } from '@/modules/cash/handlers';
 import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
+import { CashOutTemplateValidationService } from '@/modules/cash/services/cash-out-template-validation.service';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
@@ -32,6 +33,10 @@ const CommandHandlers = [
     MasterDataModule,
   ],
   controllers: [CashController],
-  providers: [CashJournalRoutingService, ...CommandHandlers],
+  providers: [
+    CashJournalRoutingService,
+    CashOutTemplateValidationService,
+    ...CommandHandlers,
+  ],
 })
 export class CashModule {}

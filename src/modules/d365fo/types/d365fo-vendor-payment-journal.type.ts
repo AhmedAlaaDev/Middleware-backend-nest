@@ -58,4 +58,5 @@ export interface D365FOVendorPaymentJournalLineRequest {
   VendorName?: string;
   OffsetTransactionText?: string;
   MarkedInvoice?: string;
+  IsWithholdingTaxCalculate?: 'Yes' | 'No';
 }
