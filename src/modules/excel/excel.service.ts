@@ -4,7 +4,10 @@ import { join } from 'path';
 import { Injectable } from '@nestjs/common';
 import archiver from 'archiver';
 
-import { IExcelAdapter } from '@/modules/excel/interfaces/excel-adapter.interface';
+import {
+  ExcelSheetData,
+  IExcelAdapter,
+} from '@/modules/excel/interfaces/excel-adapter.interface';
 
 @Injectable()
 export class ExcelService {
@@ -12,6 +15,10 @@ export class ExcelService {
 
   excelToJson<T>(buffer: Buffer): Promise<T[]> {
     return this.adapter.read<T>(buffer);
+  }
+
+  excelToSheetData<T>(buffer: Buffer): Promise<ExcelSheetData<T>> {
+    return this.adapter.readSheet<T>(buffer);
   }
 
   jsonToExcel<T extends object>(data: T[]): Promise<Buffer> {

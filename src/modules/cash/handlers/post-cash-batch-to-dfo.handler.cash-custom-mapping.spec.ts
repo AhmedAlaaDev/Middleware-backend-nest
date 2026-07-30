@@ -553,6 +553,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.TRANSACTIONTEXT).toBe(
       'Vendor Payment - Freight Jan 2026 - unmarked',
     );
+    expect(body.OFFSETTRANSACTIONTEXT).toBe('unmarked');
     expect(body.PAYMENTNOTES).toBe(
       'Vendor Payment - Freight Jan 2026 - unmarked',
     );

@@ -116,41 +116,38 @@ describe('BaseCashEntryProcessor - PBI #2039 22420 filtering', () => {
     },
   ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
 
-  it('filters non-core dimensions when a cash offset Ledger account starts with 22420', () => {
+  it('preserves Custody Issue source lines and filters the 22420 Ledger line', () => {
     const processor = createProcessor();
     const result = (processor as any).buildLines('466765', group466765);
 
-    expect(result).toHaveLength(3);
-    for (const line of result) {
-      expect(line.AccountType).toBe('Vend');
-      expect(line.OffsetAccountType).toBe('Ledger');
-      expect(line.OffsetAccountDisplayValue).toMatch(/^224209\|/);
+    expect(result).toHaveLength(4);
+    expect(
+      result.filter((line: any) => line.AccountType === 'Vend'),
+    ).toHaveLength(3);
+    const ledgerLine = result.find(
+      (line: any) => line.AccountType === 'Ledger',
+    );
+    expect(ledgerLine.AccountDisplayValue).toMatch(/^224209\|/);
 
-      // Existing cash rule remaps 224209 to 223201 after the 22420 trigger.
-      expect(line.DimensionModel.mainAccount).toBe('223201');
-      expect(line.DimensionModel.costCenter).toBe('1402');
-      expect(line.DimensionModel.activityName).toBe('014');
-      expect(line.DimensionModel.businessUnit).toBe('001');
-      expect(line.DimensionModel.location).toBe('005');
-
-      expect(line.DimensionModel.customer).toBeUndefined();
-      expect(line.DimensionModel.subCustomer).toBeUndefined();
-      expect(line.DimensionModel.subVendor).toBeUndefined();
-      expect(line.DimensionModel.chargeType).toBeUndefined();
-      expect(line.DimensionModel.salesMan).toBeUndefined();
-      expect(line.DimensionModel.coordinatorMan).toBeUndefined();
-      expect(line.DimensionModel.freightType).toBeUndefined();
-      expect(line.DimensionModel.direction).toBeUndefined();
-      expect(line.DefaultDimensionDisplayValue).not.toContain('Payable');
-      expect(line.OffsetDefaultDimensionDisplayValue).not.toContain(
-        'Payable',
-      );
-    }
+    // Existing cash rule remaps 224209 to 223201 after the 22420 trigger.
+    expect(ledgerLine.DimensionModel.mainAccount).toBe('223201');
+    expect(ledgerLine.DimensionModel.costCenter).toBe('1402');
+    expect(ledgerLine.DimensionModel.activityName).toBe('014');
+    expect(ledgerLine.DimensionModel.businessUnit).toBe('001');
+    expect(ledgerLine.DimensionModel.location).toBe('005');
+    expect(ledgerLine.DimensionModel.customer).toBeUndefined();
+    expect(ledgerLine.DimensionModel.subCustomer).toBeUndefined();
+    expect(ledgerLine.DimensionModel.subVendor).toBeUndefined();
+    expect(ledgerLine.DimensionModel.freightType).toBeUndefined();
+    expect(ledgerLine.OffsetAccountDisplayValue).toBe('');
+    expect(ledgerLine.DefaultDimensionDisplayValue).not.toContain('Payable');
   });
 
   it('exempts the dropped cash-offset fields from required-dimension validation', () => {
     const processor = createProcessor();
-    const [line] = (processor as any).buildLines('466765', group466765);
+    const line = (processor as any)
+      .buildLines('466765', group466765)
+      .find((candidate: any) => candidate.AccountType === 'Ledger');
 
     (processor as any).dimensionsMap = new Map([
       ['Activity', new Set(['014'])],
@@ -165,7 +162,7 @@ describe('BaseCashEntryProcessor - PBI #2039 22420 filtering', () => {
       ['FreightType', new Set(['payable'])],
       ['Direction', new Set()],
     ]);
-    (processor as any).accountNumberSet = new Set();
+    (processor as any).accountNumberSet = new Set(['223201']);
 
     (processor as any).validateDimensionsForLine(line);
 

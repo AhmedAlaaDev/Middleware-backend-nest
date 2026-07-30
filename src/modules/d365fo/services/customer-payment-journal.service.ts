@@ -278,50 +278,13 @@ export class CustomerPaymentJournalService {
         } catch (error) {
           const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
-          if (
-            allowUnmarkedInvoiceRetry &&
-            !!body.MARKEDINVOICE &&
-            this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
-          ) {
-            this.logger.warn(
-              `[CASH-CUSTOM] D365FO cannot settle invoice ${body.MARKEDINVOICE} on cash-out line ${line.LineNumber} because the line amount exceeds the remaining invoice amount. Retrying without invoice settlement.`,
-            );
-
-            try {
-              const transactionText = this.appendUnmarkedDescription(
-                body.TRANSACTIONTEXT,
-              );
-              const paymentNotes = this.appendUnmarkedDescription(
-                body.PAYMENTNOTES || body.TRANSACTIONTEXT,
-              );
-
-              await this.postCustomCashLine(endpoint, {
-                ...body,
-                journalNum: headerKey,
-                MARKEDINVOICE: null,
-                PAYMENTNOTES: paymentNotes,
-                TRANSACTIONTEXT: transactionText,
-              });
-            } catch (retryError) {
-              const retryErrorDetails =
-                this.dfoErrorExtractor.extractMessage(retryError);
-              this.logger.error(
-                `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey} after retrying without invoice settlement: ${retryErrorDetails}`,
-                retryError instanceof Error ? retryError.stack : undefined,
-              );
-              throw new Error(
-                `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey} after retrying with MARKEDINVOICE null: ${retryErrorDetails}`,
-              );
-            }
-          } else {
-            this.logger.error(
-              `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-              error instanceof Error ? error.stack : undefined,
-            );
-            throw new Error(
-              `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-            );
-          }
+          this.logger.error(
+            `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          throw new Error(
+            `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
+          );
         }
 
         successfullyPosted.push({

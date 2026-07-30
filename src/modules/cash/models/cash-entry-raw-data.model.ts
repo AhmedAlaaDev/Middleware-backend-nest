@@ -3,7 +3,7 @@ import { EntryRawDataModel } from '@/modules/entry-processor/models';
 
 export class CashEntryRawDataModel extends EntryRawDataModel {
   // custom columns you have in the JSON
-  SafeTransaction: 'In';
+  SafeTransaction: 'In' | 'Out';
   SafeType: EntrySafeType;
   VoucherType: EntryVoucherType;
 
@@ -32,16 +32,21 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   IsDirect: boolean;
   IsOther: boolean;
   IsVendorPayment: boolean;
+  IsCustodyVendor: boolean;
 
-  constructor(data: EntryRawDataModel, type: 'Freight' | 'Fleet') {
+  constructor(
+    data: EntryRawDataModel,
+    type: 'Freight' | 'Fleet',
+    isInbound = true,
+  ) {
     super(data);
     const s = (v: unknown) => this.lookupResultAsString(v);
 
     const PAYMENTREFERENCE = this.generatePaymentReference(data, type);
     this.PAYMENTREFERENCE = PAYMENTREFERENCE;
 
-    this.SafeTransaction = 'In';
-    this.SafeType = s(data?.SafeType) as EntrySafeType;
+    this.SafeTransaction = isInbound ? 'In' : 'Out';
+    this.SafeType = this.normalizeSafeType(data?.SafeType, !isInbound);
     this.VoucherType = s(data?.VoucherType) as EntryVoucherType;
 
     this.IsCustomer = this.compare(data?.ACCOUNTTYPE, 'cust');
@@ -61,19 +66,42 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.IsVisa = this.compare(data?.VoucherType, 'visa');
 
     this.IsCustodySettlement = this.compare(
-      data?.SafeType,
+      this.SafeType,
       'Custody Settlement',
     );
     this.IsCustomerCollection = this.compare(
-      data?.SafeType,
+      this.SafeType,
       'Customer Collection',
     );
-    this.IsDownPayment = this.compare(data?.SafeType, 'DownPayment');
-    this.IsCN = this.compare(data?.SafeType, 'CN');
-    this.IsCustodyIssue = this.compare(data?.SafeType, 'Custody Issue');
-    this.IsDirect = this.compare(data?.SafeType, 'Direct');
-    this.IsOther = this.compare(data?.SafeType, 'Other');
-    this.IsVendorPayment = this.compare(data?.SafeType, 'Vendor Payment');
+    this.IsDownPayment = this.compare(this.SafeType, 'DownPayment');
+    this.IsCN = this.compare(this.SafeType, 'CN');
+    this.IsCustodyIssue = this.compare(this.SafeType, 'Custody Issue');
+    this.IsDirect = this.compare(this.SafeType, 'Direct');
+    this.IsOther = this.compare(this.SafeType, 'Other');
+    this.IsVendorPayment = this.compare(this.SafeType, 'Vendor Payment');
+    this.IsCustodyVendor = false;
+  }
+
+  private normalizeSafeType(
+    value: unknown,
+    defaultEmpty: boolean,
+  ): EntrySafeType {
+    const raw = this.lookupResultAsString(value).trim();
+    const token = raw.toLowerCase().replace(/[\s_-]+/g, '');
+
+    const normalized: Record<string, EntrySafeType> = {
+      vendorpayment: 'Vendor Payment',
+      custodysettlement: 'Custody Settlement',
+      custodyissue: 'Custody Issue',
+      customercollection: 'Customer Collection',
+      downpayment: 'DownPayment',
+      cn: 'CN',
+      direct: 'Direct',
+      other: 'Other',
+    };
+
+    if (!token && defaultEmpty) return 'Custody Settlement';
+    return normalized[token] ?? (raw as EntrySafeType);
   }
 
   private generatePaymentReference(

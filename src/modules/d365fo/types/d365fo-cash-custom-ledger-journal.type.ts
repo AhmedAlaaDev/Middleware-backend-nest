@@ -45,6 +45,8 @@ export interface TSLedgerJournalTransCustomRequestBody {
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
+  IsWithholdingTaxCalculate?: string;
+  ISWITHHOLDINGTAXCALCULATE?: string;
   MARKEDINVOICE: string | null;
 
   offsetAccountDisplayValue: string;
