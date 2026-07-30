@@ -6,9 +6,19 @@ const nestArgs = process.argv
   .slice(2)
   .filter((arg) => arg !== '--print-config');
 
+const env = { ...process.env };
+delete env.NODE_TLS_REJECT_UNAUTHORIZED;
+
+if (supportsSystemCa) {
+  const nodeOptions = env.NODE_OPTIONS?.trim() ?? '';
+  if (!nodeOptions.split(/\s+/).includes(systemCaFlag)) {
+    env.NODE_OPTIONS = `${nodeOptions} ${systemCaFlag}`.trim();
+  }
+}
+
 if (process.argv.includes('--print-config')) {
   process.stdout.write(
-    `${JSON.stringify({ supportsSystemCa, node: process.version })}\n`,
+    `${JSON.stringify({ supportsSystemCa, node: process.version, nodeOptions: env.NODE_OPTIONS ?? '' })}\n`,
   );
   process.exit(0);
 }
@@ -24,9 +34,6 @@ if (supportsSystemCa) {
 
 nodeArgs.push(require.resolve('@nestjs/cli/bin/nest.js'));
 nodeArgs.push(...(nestArgs.length > 0 ? nestArgs : ['start']));
-
-const env = { ...process.env };
-delete env.NODE_TLS_REJECT_UNAUTHORIZED;
 
 const child = spawn(process.execPath, nodeArgs, {
   env,
