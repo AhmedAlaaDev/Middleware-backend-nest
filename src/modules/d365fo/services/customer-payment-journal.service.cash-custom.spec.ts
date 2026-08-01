@@ -192,6 +192,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('accountTypeStr', 'Vendor');
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
+    expect(postedLine).toHaveProperty(
+      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'BU-001|CC-002|Dept-004',
+    );
+    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate');
@@ -277,6 +282,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           }),
         ],
         offsetAccountDisplayValue: 'BANK001',
+        OffsetAccountDisplayValue: 'BANK001',
       }),
     );
     expect(contract.Lines[1]).toEqual(
@@ -284,13 +290,21 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         journalNum: 'JN-BULK',
         accountTypeStr: 'Ledger',
         ReportingExchangeRate: 2.2,
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+        OffsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+        offsetAccountDisplayValue: '',
+        OffsetAccountDisplayValue: '',
+        OffsetAccountTypeStr: '',
+        OffsetCompany: '',
+        OFFSETFINTAGDISPLAYVALUE: '',
+        OFFSETTRANSACTIONTEXT: '',
       }),
     );
     expect(
-      Object.keys(contract.Lines[1]).filter((key) =>
-        key.toLowerCase().startsWith('offset'),
-      ),
-    ).toEqual([]);
+      Object.entries(contract.Lines[1])
+        .filter(([key]) => key.toLowerCase().startsWith('offset'))
+        .every(([, value]) => value === ''),
+    ).toBe(true);
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {

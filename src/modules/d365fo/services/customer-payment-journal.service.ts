@@ -12,6 +12,7 @@ import {
 } from '@/modules/d365fo/types';
 import {
   TSLedgerJournalTransCustomBulkLineResponseBody,
+  TSLedgerJournalTransCustomBulkLineRequestBody,
   TSLedgerJournalTransCustomBulkRequest,
   TSLedgerJournalTransCustomBulkResponseBody,
   TSLedgerJournalTransCustomRequest,
@@ -614,10 +615,11 @@ export class CustomerPaymentJournalService {
     lines: TSLedgerJournalTransCustomRequestBody[],
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
     try {
+      const bulkLines = lines.map((line) => this.toD365BulkCashLine(line));
       return await this.d365foClient.post<
         TSLedgerJournalTransCustomBulkRequest,
         TSLedgerJournalTransCustomBulkResponseBody
-      >(endpoint, { _contract: { Lines: lines } });
+      >(endpoint, { _contract: { Lines: bulkLines } });
     } catch (error: unknown) {
       const data = (error as any)?.response?.data;
       const message =
@@ -627,6 +629,28 @@ export class CustomerPaymentJournalService {
         String(error);
       throw new Error(message);
     }
+  }
+
+  private toD365BulkCashLine(
+    line: TSLedgerJournalTransCustomRequestBody,
+  ): TSLedgerJournalTransCustomBulkLineRequestBody {
+    const offsetDefaultDimension =
+      line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '';
+    const offsetAccount = line.offsetAccountDisplayValue ?? '';
+
+    // The deployed bulk X++ API uses case-sensitive Map.lookup calls and
+    // requires offset keys to exist even for a single-sided GL line.
+    return {
+      ...line,
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
+      OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
+      offsetAccountDisplayValue: offsetAccount,
+      OffsetAccountDisplayValue: offsetAccount,
+      OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
+      OffsetCompany: line.OffsetCompany ?? '',
+      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',
+      OFFSETTRANSACTIONTEXT: line.OFFSETTRANSACTIONTEXT ?? '',
+    };
   }
 
   /**

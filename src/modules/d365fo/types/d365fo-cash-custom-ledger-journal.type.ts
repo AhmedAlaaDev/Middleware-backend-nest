@@ -59,7 +59,7 @@ export interface TSLedgerJournalTransCustomRequestBody {
   VendorGroup?: string;
 
   offsetAccountDisplayValue?: string;
-  OffsetAccountTypeStr?: TSLedgerJournalCustomAccountTypeStr;
+  OffsetAccountTypeStr?: TSLedgerJournalCustomAccountTypeStr | '';
   OffsetCompany?: string;
   OFFSETFINTAGDISPLAYVALUE?: string;
   OFFSETTRANSACTIONTEXT?: string;
@@ -86,8 +86,14 @@ export interface TSLedgerJournalTransCustomRequest {
   _contract: TSLedgerJournalTransCustomRequestBody;
 }
 
+export type TSLedgerJournalTransCustomBulkLineRequestBody =
+  TSLedgerJournalTransCustomRequestBody & {
+    OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+    OffsetAccountDisplayValue: string;
+  };
+
 export interface TSLedgerJournalTransCustomBulkRequestBody {
-  Lines: TSLedgerJournalTransCustomRequestBody[];
+  Lines: TSLedgerJournalTransCustomBulkLineRequestBody[];
 }
 
 export interface TSLedgerJournalTransCustomBulkRequest {
