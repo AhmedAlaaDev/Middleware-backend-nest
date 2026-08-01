@@ -86,7 +86,37 @@ export interface TSLedgerJournalTransCustomRequest {
   _contract: TSLedgerJournalTransCustomRequestBody;
 }
 
+export interface TSLedgerJournalTransCustomBulkRequestBody {
+  Lines: TSLedgerJournalTransCustomRequestBody[];
+}
+
+export interface TSLedgerJournalTransCustomBulkRequest {
+  _contract: TSLedgerJournalTransCustomBulkRequestBody;
+}
+
 export interface TSLedgerJournalTransCustomResponseBody {
   StatusCode: string;
   Message: string;
+}
+
+export interface TSLedgerJournalTransCustomBulkLineResponseBody {
+  LineNumber?: number;
+  lineNumber?: number;
+  StatusCode?: string;
+  statusCode?: string;
+  Message?: string;
+  message?: string;
+  Success?: boolean;
+  success?: boolean;
+}
+
+export interface TSLedgerJournalTransCustomBulkResponseBody {
+  StatusCode?: string;
+  statusCode?: string;
+  Message?: string;
+  message?: string;
+  Lines?: TSLedgerJournalTransCustomBulkLineResponseBody[];
+  lines?: TSLedgerJournalTransCustomBulkLineResponseBody[];
+  Results?: TSLedgerJournalTransCustomBulkLineResponseBody[];
+  results?: TSLedgerJournalTransCustomBulkLineResponseBody[];
 }

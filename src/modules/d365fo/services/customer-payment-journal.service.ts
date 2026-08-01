@@ -11,6 +11,9 @@ import {
   D365FOCustomerPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
 import {
+  TSLedgerJournalTransCustomBulkLineResponseBody,
+  TSLedgerJournalTransCustomBulkRequest,
+  TSLedgerJournalTransCustomBulkResponseBody,
   TSLedgerJournalTransCustomRequest,
   TSLedgerJournalTransCustomRequestBody,
   TSLedgerJournalTransCustomResponseBody,
@@ -20,6 +23,18 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
 export type CashJournalExistingLinesLoader = () => Promise<
   Array<{ LineNumber: number }>
 >;
+
+interface CashBulkPendingLine {
+  lineNumber: number;
+  body: TSLedgerJournalTransCustomRequestBody;
+}
+
+interface CashBulkLineFailure {
+  requestIndex: number;
+  lineNumber?: number;
+  message: string;
+  correlated: boolean;
+}
 
 /**
  * Service for managing customer payment journals in D365FO
@@ -211,7 +226,9 @@ export class CustomerPaymentJournalService {
         : this.cashOutLineEndpoint;
 
     this.logger.log(
-      `[CASH-CUSTOM] Posting ${lines.length} cash-${cashDirection} lines for header ${headerKey} in chunks of ${chunkSize}`,
+      cashDirection === 'out'
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for one bulk request for header ${headerKey}`
+        : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
     let existingLines: Set<number> = new Set();
@@ -244,6 +261,16 @@ export class CustomerPaymentJournalService {
       headerId: string;
       lineNumber: number;
     }> = [];
+
+    if (cashDirection === 'out') {
+      return this.postCashOutBulkLinesForHeader(
+        endpoint,
+        headerKey,
+        lines,
+        existingLines,
+        allowUnmarkedInvoiceRetry,
+      );
+    }
 
     for (let i = 0; i < lines.length; i += chunkSize) {
       const chunk = lines.slice(i, i + chunkSize);
@@ -278,6 +305,24 @@ export class CustomerPaymentJournalService {
         } catch (error) {
           const errorDetails = this.dfoErrorExtractor.extractMessage(error);
 
+          if (
+            allowUnmarkedInvoiceRetry &&
+            this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
+          ) {
+            await this.postCustomCashLine(
+              endpoint,
+              this.buildUnmarkedCashLine({
+                ...body,
+                journalNum: headerKey,
+              }),
+            );
+            successfullyPosted.push({
+              headerId: headerKey,
+              lineNumber: line.LineNumber,
+            });
+            continue;
+          }
+
           this.logger.error(
             `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
             error instanceof Error ? error.stack : undefined,
@@ -298,6 +343,206 @@ export class CustomerPaymentJournalService {
     }
 
     return successfullyPosted;
+  }
+
+  private async postCashOutBulkLinesForHeader(
+    endpoint: string,
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    existingLines: Set<number>,
+    allowUnmarkedInvoiceRetry: boolean,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const pendingLines: CashBulkPendingLine[] = [];
+
+    for (const line of lines) {
+      if (existingLines.has(line.LineNumber)) continue;
+
+      const body = line.customLineApiBody;
+      if (!body) {
+        throw new Error(
+          `Missing customLineApiBody on cash-out line ${line.LineNumber}`,
+        );
+      }
+
+      const suppliedJournalNumber = String(body.journalNum ?? '').trim();
+      if (suppliedJournalNumber && suppliedJournalNumber !== headerKey) {
+        throw new Error(
+          `Cash-out line ${line.LineNumber} belongs to journal ${suppliedJournalNumber}, not ${headerKey}`,
+        );
+      }
+
+      pendingLines.push({
+        lineNumber: line.LineNumber,
+        body: { ...body, journalNum: headerKey },
+      });
+    }
+
+    if (pendingLines.length > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out lines in one bulk request for header ${headerKey}`,
+      );
+      const result = await this.postCustomCashLines(
+        endpoint,
+        pendingLines.map((line) => line.body),
+      );
+      const failures = this.extractCashBulkFailures(result, pendingLines);
+
+      if (failures.length > 0) {
+        const retryableFailures = failures.filter((failure) =>
+          this.isInvoiceAmountGreaterThanRemainingError(failure.message),
+        );
+        const canRetry =
+          allowUnmarkedInvoiceRetry &&
+          retryableFailures.length === failures.length &&
+          failures.every((failure) => failure.correlated);
+
+        if (!canRetry) {
+          throw new Error(this.formatCashBulkFailure(headerKey, failures));
+        }
+
+        const retryLines = retryableFailures.map((failure) => {
+          const pendingLine = pendingLines[failure.requestIndex];
+          return {
+            ...pendingLine,
+            body: this.buildUnmarkedCashLine(pendingLine.body),
+          };
+        });
+        const retryResult = await this.postCustomCashLines(
+          endpoint,
+          retryLines.map((line) => line.body),
+        );
+        const retryFailures = this.extractCashBulkFailures(
+          retryResult,
+          retryLines,
+        );
+        if (retryFailures.length > 0) {
+          throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+        }
+      }
+    }
+
+    return lines.map((line) => ({
+      headerId: headerKey,
+      lineNumber: line.LineNumber,
+    }));
+  }
+
+  private extractCashBulkFailures(
+    result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined,
+    pendingLines: CashBulkPendingLine[],
+  ): CashBulkLineFailure[] {
+    if (!result) {
+      return [
+        {
+          requestIndex: pendingLines.length === 1 ? 0 : -1,
+          lineNumber:
+            pendingLines.length === 1 ? pendingLines[0].lineNumber : undefined,
+          message: 'D365 returned an empty bulk response.',
+          correlated: pendingLines.length === 1,
+        },
+      ];
+    }
+
+    const responseLines =
+      result?.Lines ?? result?.lines ?? result?.Results ?? result?.results;
+    const failures: CashBulkLineFailure[] = [];
+
+    if (Array.isArray(responseLines)) {
+      responseLines.forEach((responseLine, responseIndex) => {
+        if (!this.isCashBulkLineFailure(responseLine)) return;
+
+        const explicitLineNumber = Number(
+          responseLine.LineNumber ?? responseLine.lineNumber,
+        );
+        const matchedIndex = Number.isFinite(explicitLineNumber)
+          ? pendingLines.findIndex(
+              (line) => line.lineNumber === explicitLineNumber,
+            )
+          : -1;
+        const requestIndex =
+          matchedIndex >= 0
+            ? matchedIndex
+            : responseIndex < pendingLines.length
+              ? responseIndex
+              : -1;
+        failures.push({
+          requestIndex,
+          lineNumber: pendingLines[requestIndex]?.lineNumber,
+          message: this.cashBulkResponseMessage(responseLine),
+          correlated: requestIndex >= 0,
+        });
+      });
+    }
+
+    if (failures.length > 0) return failures;
+    if (this.isSuccessfulCashStatus(result?.StatusCode ?? result?.statusCode)) {
+      return [];
+    }
+
+    const overallStatus = String(
+      result?.StatusCode ?? result?.statusCode ?? '',
+    ).trim();
+    if (!overallStatus && Array.isArray(responseLines)) return [];
+    if (!overallStatus && !result?.Message && !result?.message) return [];
+
+    const message = this.cashBulkResponseMessage(result);
+    if (pendingLines.length === 1) {
+      return [
+        {
+          requestIndex: 0,
+          lineNumber: pendingLines[0].lineNumber,
+          message,
+          correlated: true,
+        },
+      ];
+    }
+
+    return [
+      {
+        requestIndex: -1,
+        message,
+        correlated: false,
+      },
+    ];
+  }
+
+  private isCashBulkLineFailure(
+    result: TSLedgerJournalTransCustomBulkLineResponseBody,
+  ): boolean {
+    const success = result?.Success ?? result?.success;
+    if (success !== undefined) return success === false;
+
+    const status = result?.StatusCode ?? result?.statusCode;
+    return Boolean(status) && !this.isSuccessfulCashStatus(status);
+  }
+
+  private isSuccessfulCashStatus(status: string | undefined): boolean {
+    return ['success', 'succeeded', 'ok'].includes(
+      String(status ?? '')
+        .trim()
+        .toLowerCase(),
+    );
+  }
+
+  private cashBulkResponseMessage(result: {
+    Message?: string;
+    message?: string;
+  }): string {
+    return String(result?.Message ?? result?.message ?? 'Unknown D365 error');
+  }
+
+  private formatCashBulkFailure(
+    headerKey: string,
+    failures: CashBulkLineFailure[],
+  ): string {
+    const details = failures
+      .map((failure) =>
+        failure.lineNumber === undefined
+          ? failure.message
+          : `line ${failure.lineNumber}: ${failure.message}`,
+      )
+      .join('; ');
+    return `Failed to post cash-out lines for header ${headerKey}: ${details}`;
   }
 
   private isInvoiceAmountGreaterThanRemainingError(message: string): boolean {
@@ -321,6 +566,21 @@ export class CustomerPaymentJournalService {
     return `${trimmed} - unmarked`;
   }
 
+  private buildUnmarkedCashLine(
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): TSLedgerJournalTransCustomRequestBody {
+    const retryBody = { ...body };
+    if (Array.isArray(retryBody.MarkedLines)) retryBody.MarkedLines = [];
+    if ('MARKEDINVOICE' in retryBody) retryBody.MARKEDINVOICE = null;
+    retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
+      retryBody.PAYMENTNOTES,
+    );
+    retryBody.TRANSACTIONTEXT = this.appendUnmarkedDescription(
+      retryBody.TRANSACTIONTEXT,
+    );
+    return retryBody;
+  }
+
   private async postCustomCashLine(
     endpoint: string,
     body: TSLedgerJournalTransCustomRequestBody,
@@ -338,6 +598,26 @@ export class CustomerPaymentJournalService {
 
       const message = result?.Message ?? JSON.stringify(result);
       throw new Error(message);
+    } catch (error: unknown) {
+      const data = (error as any)?.response?.data;
+      const message =
+        data?.Message ??
+        data?.message ??
+        (error as any)?.message ??
+        String(error);
+      throw new Error(message);
+    }
+  }
+
+  private async postCustomCashLines(
+    endpoint: string,
+    lines: TSLedgerJournalTransCustomRequestBody[],
+  ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
+    try {
+      return await this.d365foClient.post<
+        TSLedgerJournalTransCustomBulkRequest,
+        TSLedgerJournalTransCustomBulkResponseBody
+      >(endpoint, { _contract: { Lines: lines } });
     } catch (error: unknown) {
       const data = (error as any)?.response?.data;
       const message =

@@ -123,7 +123,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('posts cash-out financial tags through the main API contract without a Vendor Line update', async () => {
+  it('posts one cash-out line through the bulk Lines contract without a Vendor Line update', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
 
@@ -185,18 +185,17 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const [endpoint, body] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransVendPaym');
-    expect(body._contract).toHaveProperty('journalNum', 'JN000123');
-    expect(body._contract).toHaveProperty('AccountNum', 'VEND001');
-    expect(body._contract).toHaveProperty('accountTypeStr', 'Vendor');
-    expect(body._contract).toHaveProperty('FinTagStr', 'TAG1');
-    expect(body._contract).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
-    expect(body._contract).toHaveProperty('DocumentNum', 'DOC-2002');
-    expect(body._contract).toHaveProperty(
-      'DocumentDate',
-      '2026-04-19T00:00:00',
-    );
-    expect(body._contract).toHaveProperty('ExchangeRate');
-    expect(body._contract).toHaveProperty('EXCHANGERATE');
+    expect(body._contract.Lines).toHaveLength(1);
+    const postedLine = body._contract.Lines[0];
+    expect(postedLine).toHaveProperty('journalNum', 'JN000123');
+    expect(postedLine).toHaveProperty('AccountNum', 'VEND001');
+    expect(postedLine).toHaveProperty('accountTypeStr', 'Vendor');
+    expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
+    expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
+    expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
+    expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
+    expect(postedLine).toHaveProperty('ExchangeRate');
+    expect(postedLine).toHaveProperty('EXCHANGERATE');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -205,6 +204,198 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
+  });
+
+  it('posts every line in a journal batch in one request and preserves line-specific fields', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN-BULK',
+    });
+
+    const lines: any[] = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'VEND001',
+          accountTypeStr: 'Vendor',
+          VendorGroup: 'Trade',
+          MarkedLines: [
+            {
+              InvoiceNumber: 'INV-1',
+              OperationNumber: 'OP-1',
+              DocumentNumber: '',
+              HasWithHoldingLine: true,
+            },
+          ],
+          ReportingExchangeRate: 2.1,
+          offsetAccountDisplayValue: 'BANK001',
+          OffsetAccountTypeStr: 'Bank',
+        },
+      },
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 2,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: '223404|BU|CC',
+          accountTypeStr: 'Ledger',
+          DEFAULTDIMENSIONDISPLAYVALUE: 'BU|CC',
+          FinTagStr: 'OP-2',
+          ReportingExchangeRate: 2.2,
+        },
+      },
+    ];
+
+    const result = await service.postCashOutLinesForHeader(
+      'JN-BULK',
+      lines,
+      1,
+      'm-p',
+    );
+
+    expect(result).toEqual([
+      { headerId: 'JN-BULK', lineNumber: 1 },
+      { headerId: 'JN-BULK', lineNumber: 2 },
+    ]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    const contract = d365foClient.post.mock.calls[0][1]._contract;
+    expect(contract.Lines).toHaveLength(2);
+    expect(contract.Lines[0]).toEqual(
+      expect.objectContaining({
+        journalNum: 'JN-BULK',
+        VendorGroup: 'Trade',
+        ReportingExchangeRate: 2.1,
+        MarkedLines: [
+          expect.objectContaining({
+            InvoiceNumber: 'INV-1',
+            HasWithHoldingLine: true,
+          }),
+        ],
+        offsetAccountDisplayValue: 'BANK001',
+      }),
+    );
+    expect(contract.Lines[1]).toEqual(
+      expect.objectContaining({
+        journalNum: 'JN-BULK',
+        accountTypeStr: 'Ledger',
+        ReportingExchangeRate: 2.2,
+      }),
+    );
+    expect(
+      Object.keys(contract.Lines[1]).filter((key) =>
+        key.toLowerCase().startsWith('offset'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('correlates a bulk API error with the returned journal line number', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message: 'One or more lines failed.',
+      Lines: [
+        { LineNumber: 10, StatusCode: 'Success', Message: 'Created' },
+        {
+          LineNumber: 20,
+          StatusCode: 'Error',
+          Message: 'Vendor account is blocked.',
+        },
+      ],
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-ERROR',
+        [
+          {
+            LineNumber: 10,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND001' },
+          } as any,
+          {
+            LineNumber: 20,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND002' },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('line 20: Vendor account is blocked.');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an empty bulk response against the submitted line', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce(undefined);
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-EMPTY',
+        [
+          {
+            LineNumber: 5,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND005' },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('line 5: D365 returned an empty bulk response.');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects invalid or cross-journal lines before sending the bulk request', async () => {
+    const { service, d365foClient } = buildService();
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-EXPECTED',
+        [
+          {
+            LineNumber: 1,
+            customLineApiBody: {
+              journalNum: 'JN-DIFFERENT',
+            },
+          } as any,
+          {
+            LineNumber: 2,
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('belongs to journal JN-DIFFERENT, not JN-EXPECTED');
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing line payload before sending any bulk request', async () => {
+    const { service, d365foClient } = buildService();
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-INVALID',
+        [
+          {
+            LineNumber: 1,
+            customLineApiBody: { journalNum: '' },
+          } as any,
+          {
+            LineNumber: 2,
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('Missing customLineApiBody on cash-out line 2');
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
   it('skips existing cash-out lines without calling the obsolete Vendor Line update API', async () => {
@@ -265,7 +456,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('retries a cash-out line with MARKEDINVOICE null when its amount exceeds the remaining invoice amount', async () => {
+  it('retries a failed bulk line without marked settlements when its amount exceeds the remaining invoice amount', async () => {
     const { service, d365foClient } = buildService();
 
     d365foClient.post
@@ -288,7 +479,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           cashDirection: 'out',
           customLineApiBody: {
             journalNum: '',
-            MARKEDINVOICE: '2025001409',
+            MarkedLines: [
+              {
+                InvoiceNumber: '2025001409',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
             PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
             TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
           },
@@ -300,22 +498,26 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     expect(result).toEqual([{ headerId: 'Mesco-000013709', lineNumber: 9 }]);
     expect(d365foClient.post).toHaveBeenCalledTimes(2);
-    expect(d365foClient.post.mock.calls[0][1]._contract).toMatchObject({
-      journalNum: 'Mesco-000013709',
-      MARKEDINVOICE: '2025001409',
-      PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-      TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-    });
-    expect(d365foClient.post.mock.calls[1][1]._contract).toMatchObject({
-      journalNum: 'Mesco-000013709',
-      MARKEDINVOICE: null,
-      PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-      TRANSACTIONTEXT:
-        'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-    });
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toMatchObject(
+      {
+        journalNum: 'Mesco-000013709',
+        MarkedLines: [expect.objectContaining({ InvoiceNumber: '2025001409' })],
+        PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+        TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+      },
+    );
+    expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
+      {
+        journalNum: 'Mesco-000013709',
+        MarkedLines: [],
+        PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
+        TRANSACTIONTEXT:
+          'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
+      },
+    );
   });
 
-  it('does not clear MARKEDINVOICE for unrelated cash-out errors', async () => {
+  it('does not clear marked settlements for unrelated cash-out errors', async () => {
     const { service, d365foClient } = buildService();
 
     d365foClient.post.mockResolvedValueOnce({
@@ -333,7 +535,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             cashDirection: 'out',
             customLineApiBody: {
               journalNum: '',
-              MARKEDINVOICE: '2025001409',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001409',
+                  OperationNumber: 'OP-1',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
             },
           } as any,
         ],
@@ -343,10 +552,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).rejects.toThrow('Vendor account is blocked for transactions.');
 
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    expect(d365foClient.post.mock.calls[0][1]._contract).toHaveProperty(
-      'MARKEDINVOICE',
-      '2025001409',
-    );
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0],
+    ).toHaveProperty('MarkedLines', [
+      expect.objectContaining({ InvoiceNumber: '2025001409' }),
+    ]);
   });
 
   it('does not apply the cash-out invoice fallback to cash-in lines', async () => {
