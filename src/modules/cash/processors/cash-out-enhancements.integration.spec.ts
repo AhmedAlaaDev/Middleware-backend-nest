@@ -1,9 +1,11 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 
+import { PostCashBatchToDFOHandler } from '@/modules/cash/handlers/post-cash-batch-to-dfo.handler';
 import { CashEntryDynDataModel } from '@/modules/cash/models';
 import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/cash-out-freight-entry.processor';
 import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/cash-out-trucking-entry.processor';
+import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { ExcelJsAdapter } from '@/modules/excel/adapters/exceljs.adapter';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
@@ -178,6 +180,31 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       expect(directLines.every((line) => !line.OffsetAccountDisplayValue)).toBe(
         true,
       );
+
+      const routing = new CashJournalRoutingService();
+      const postingHandler = new PostCashBatchToDFOHandler(
+        {} as any,
+        {} as any,
+        routing,
+      );
+      const postingValidationFailures = result.flatMap((line) => {
+        const route = routing.resolve({
+          safeType: line.SafeType,
+          targetProcessor: target,
+        });
+        const mappedLine = (postingHandler as any).mapLines(
+          [{ id: line.SourceIds[0] ?? '', data: line }],
+          'm-p',
+          route.lineDirection,
+          route,
+        )[0];
+        const errors = (postingHandler as any).validateLine(mappedLine, route);
+        return errors.length > 0
+          ? [{ sourceIds: line.SourceIds, safeType: line.SafeType, errors }]
+          : [];
+      });
+
+      expect(postingValidationFailures).toEqual([]);
     },
   );
 });

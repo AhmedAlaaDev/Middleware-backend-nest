@@ -502,7 +502,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
         PostingProfile: line.PostingProfile ?? '',
 
-        TaxGroup: line.SalesTaxGroup ?? '',
+        TaxGroup:
+          cashDirection === 'out'
+            ? this.normalizeCashOutTaxGroup(line.SalesTaxGroup)
+            : (line.SalesTaxGroup ?? ''),
         TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
 
         transDate,
@@ -521,9 +524,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         customLineApiBody.MARKEDINVOICE = markedInvoice;
       }
 
-      if (
-        this.isMainAccountOnlyLine(line, cashDirection, route, accountTypeStr)
-      ) {
+      if (this.isMainAccountOnlyLine(line, cashDirection, route)) {
         this.omitOffsetFields(customLineApiBody);
       }
 
@@ -540,12 +541,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     line: CashEntryDynDataModel,
     cashDirection: 'in' | 'out',
     route: CashJournalRoute | undefined,
-    accountTypeStr: TSLedgerJournalCustomAccountTypeStr,
   ): boolean {
     return (
       cashDirection === 'out' &&
       route?.kind === 'ledger' &&
-      accountTypeStr === 'Ledger' &&
       !this.toOptionalTrimmedString(line.OffsetAccountType) &&
       !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
     );
@@ -669,7 +668,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
 
       journal.lines.forEach((line) => {
-        const lineErrors = this.validateLine(line);
+        const lineErrors = this.validateLine(
+          line,
+          'route' in journal ? journal.route : undefined,
+        );
         if (lineErrors.length > 0) {
           validationErrors.push({
             journalIndex,
@@ -722,6 +724,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private validateLine(
     line: D365FOCustomerPaymentJournalLineRequest,
+    route?: CashJournalRoute,
   ): string[] {
     const missingFields: string[] = [];
 
@@ -755,11 +758,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    const isMainAccountOnly =
+    const isOffsetlessLedgerLine =
       line.cashDirection === 'out' &&
-      body.accountTypeStr === 'Ledger' &&
-      !Object.keys(body).some((key) => this.isOffsetFieldName(key));
-    if (!isMainAccountOnly) {
+      route?.kind === 'ledger' &&
+      !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
+      !body.offsetAccountDisplayValue?.trim() &&
+      !body.OffsetAccountTypeStr?.trim();
+    if (!isOffsetlessLedgerLine) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
           'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
@@ -790,6 +795,21 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   private isValidTaxGroup(taxGroup: string | undefined | null): boolean {
     const value = taxGroup?.trim() ?? '';
     return value === 'Taxable' || value === 'Non-Taxabl';
+  }
+
+  private normalizeCashOutTaxGroup(
+    taxGroup: string | undefined | null,
+  ): string {
+    const value = taxGroup?.trim() ?? '';
+    if (!value) return 'Non-Taxabl';
+
+    const normalized = value.toLowerCase().replace(/[\s_-]+/g, '');
+    if (normalized === 'taxable') return 'Taxable';
+    if (normalized === 'nontaxabl' || normalized === 'nontaxable') {
+      return 'Non-Taxabl';
+    }
+
+    return value;
   }
 
   private async prepareBatchForPosting(batchId: string): Promise<void> {

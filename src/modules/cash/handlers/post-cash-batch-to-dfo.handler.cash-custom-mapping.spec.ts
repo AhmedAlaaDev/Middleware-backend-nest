@@ -419,7 +419,88 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(
       Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
     ).toEqual([]);
-    expect((handler as any).validateLine(result[0])).toEqual([]);
+    expect((handler as any).validateLine(result[0], route)).toEqual([]);
+  });
+
+  it.each([
+    ['Vend', 'Vendor'],
+    ['Petty cash', 'RCash'],
+    ['Bank', 'Bank'],
+    ['Cust', 'Cust'],
+  ])(
+    'treats an offsetless GL %s line as single-sided and defaults its blank tax group',
+    (sourceAccountType, expectedAccountType) => {
+      const handler = buildHandler();
+      const route = new CashJournalRoutingService().resolve({
+        safeType: 'Custody Issue',
+      });
+
+      const result = (handler as any).mapLines(
+        [
+          {
+            data: {
+              AccountType: sourceAccountType,
+              AccountDisplayValue: 'ACCOUNT-001',
+              DefaultDimensionDisplayValue: 'BU|CC',
+              TransactionDate: '2026-01-01T00:00:00.000Z',
+              CreditAmount: 0,
+              DebitAmount: 100,
+              CurrencyCode: 'EGP',
+              SafeType: 'Custody Issue',
+              SalesTaxGroup: '',
+              TransactionText: 'Single-sided GL line',
+            },
+          },
+        ],
+        'm-p',
+        'out',
+        route,
+      );
+
+      const body = result[0].customLineApiBody;
+      expect(body.accountTypeStr).toBe(expectedAccountType);
+      expect(body.TaxGroup).toBe('Non-Taxabl');
+      expect(
+        Object.keys(body).filter((key) =>
+          key.toLowerCase().startsWith('offset'),
+        ),
+      ).toEqual([]);
+      expect((handler as any).validateLine(result[0], route)).toEqual([]);
+    },
+  );
+
+  it('keeps offset fields mandatory for an AP vendor-payment route', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'VEND001',
+            DefaultDimensionDisplayValue: 'BU|CC',
+            TransactionDate: '2026-01-01T00:00:00.000Z',
+            CreditAmount: 0,
+            DebitAmount: 100,
+            CurrencyCode: 'EGP',
+            SafeType: 'Vendor Payment',
+            SalesTaxGroup: '',
+            TransactionText: 'Invalid offsetless AP line',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect((handler as any).validateLine(result[0], route)).toEqual([
+      'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'customLineApiBody.OffsetAccountTypeStr',
+    ]);
   });
 
   it('keeps offset fields for a standard Cash Out ledger line', () => {
