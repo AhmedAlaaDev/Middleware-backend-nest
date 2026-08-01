@@ -20,6 +20,7 @@ import {
   GeneralJournalService,
 } from '@/modules/d365fo/services/general-journal.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
+import { VendorService } from '@/modules/d365fo/services/vendor.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
 import {
@@ -72,6 +73,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   private readonly cashJournalRoutingService = new CashJournalRoutingService();
   private readonly cashOutExchangeRateService: CashOutExchangeRateService;
   private readonly generalJournalService: GeneralJournalService;
+  private readonly d365VendorService?: VendorService;
 
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
@@ -166,6 +168,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     super({ dependencies: baseDeps });
     this.cashOutExchangeRateService = baseDeps.cashOutExchangeRateService;
     this.generalJournalService = baseDeps.generalJournalService;
+    this.d365VendorService = baseDeps.d365VendorService;
   }
 
   public async formatAndEnrichAsync(
@@ -544,26 +547,85 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     if (vendorLines.length === 0) return;
 
-    const custodyVendorsResult = await this.queryBus.execute(
+    const vendorAccounts = [
+      ...new Set(
+        vendorLines
+          .map((line) => String(line.ACCOUNTDISPLAYVALUE ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    const vendorResult = await this.queryBus.execute(
       new GetVendorsQuery({
         company: this.company,
-        vendorGroupIds: ['Custody'],
+        accountNumbers: vendorAccounts,
       }),
     );
-    const custodyAccounts = new Set<string>(
-      (custodyVendorsResult?.items ?? []).map((vendor) =>
+    const vendorItems = [...(vendorResult?.items ?? [])];
+    const vendorGroupByAccount = new Map<string, string>(
+      vendorItems.map((vendor) => [
         String(vendor.vendorAccountNumber).trim().toLowerCase(),
+        String(vendor.vendorGroupId ?? '').trim(),
+      ]),
+    );
+    const cachedAccounts = new Set(
+      vendorItems.map((vendor) =>
+        String(vendor.vendorAccountNumber ?? '')
+          .trim()
+          .toLowerCase(),
       ),
     );
-    const isCustodyVendor = (line: CashEntryRawDataModel) =>
-      custodyAccounts.has(
-        String(line.ACCOUNTDISPLAYVALUE).trim().toLowerCase(),
+    const missingAccounts = vendorAccounts.filter(
+      (account) => !cachedAccounts.has(account.toLowerCase()),
+    );
+
+    if (missingAccounts.length > 0 && this.d365VendorService) {
+      this.logger.warn(
+        `Vendor master data is missing ${missingAccounts.length} account(s); loading vendor groups directly from D365FO`,
       );
+      const missingAccountSet = new Set(
+        missingAccounts.map((account) => account.toLowerCase()),
+      );
+      const liveVendors = await this.d365VendorService.getAllVendors(
+        this.company,
+        {
+          useCache: true,
+          select: ['VendorAccountNumber', 'VendorGroupId'],
+        },
+      );
+      for (const vendor of liveVendors) {
+        const account = String(vendor.VendorAccountNumber ?? '')
+          .trim()
+          .toLowerCase();
+        if (!missingAccountSet.has(account)) continue;
+        vendorGroupByAccount.set(
+          account,
+          String(vendor.VendorGroupId ?? '').trim(),
+        );
+      }
+    }
+    const getVendorGroup = (line: CashEntryRawDataModel) =>
+      vendorGroupByAccount.get(
+        String(line.ACCOUNTDISPLAYVALUE).trim().toLowerCase(),
+      ) ?? '';
+    const isCustodyVendor = (line: CashEntryRawDataModel) =>
+      getVendorGroup(line).toLowerCase() === 'custody';
+    for (const line of vendorLines) {
+      line.VendorGroup = getVendorGroup(line);
+    }
+    for (const vendorAccount of vendorAccounts) {
+      if (!vendorGroupByAccount.get(vendorAccount.toLowerCase())) {
+        errors.push(
+          `Vendor ${vendorAccount}: vendor group could not be determined from D365FO. Sync vendor master data and retry.`,
+        );
+      }
+    }
     const normalVendorLines = vendorLines.filter(
       (line) => !isCustodyVendor(line),
     );
     const custodyVendorLines = vendorLines.filter(isCustodyVendor);
-    for (const line of custodyVendorLines) line.IsCustodyVendor = true;
+    for (const line of custodyVendorLines) {
+      line.IsCustodyVendor = true;
+    }
 
     const invoices = normalVendorLines
       .map((line) =>
@@ -920,14 +982,36 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     const paymentOffset = offsetLines[0];
-    return vendorLines.map((vendorLine) =>
+    const vendorGroups = new Map<string, CashEntryRawDataModel[]>();
+    for (const vendorLine of vendorLines) {
+      const key = [
+        String(vendorLine.ACCOUNTDISPLAYVALUE ?? '')
+          .trim()
+          .toLowerCase(),
+        String(vendorLine.VendorGroup ?? '')
+          .trim()
+          .toLowerCase(),
+      ].join('|');
+      if (!vendorGroups.has(key)) {
+        vendorGroups.set(key, []);
+      }
+      vendorGroups.get(key)!.push(vendorLine);
+    }
+
+    return [...vendorGroups.values()].map((groupLines) =>
       this.buildLineOutbound(
         sourceId,
-        vendorLine,
+        groupLines[0],
         paymentOffset,
         'ACCOUNT',
         exchangeRateContext,
-        this.findWithholdingLine(vendorLine, withholdingLines),
+        groupLines.map((vendorLine) => ({
+          vendorLine,
+          withholdingLine: this.findWithholdingLine(
+            vendorLine,
+            withholdingLines,
+          ),
+        })),
       ),
     );
   }
@@ -1275,7 +1359,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     offsetLine?: CashEntryRawDataModel,
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
-    withholdingLine?: CashEntryRawDataModel,
+    settlements?: Array<{
+      vendorLine: CashEntryRawDataModel;
+      withholdingLine?: CashEntryRawDataModel;
+    }>,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -1371,28 +1458,40 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         ? 0
         : legacyRates!.reportingRate;
 
+    const normalizedSettlements =
+      settlements && settlements.length > 0
+        ? settlements
+        : [{ vendorLine: accountLine }];
+    const markedLines = normalizedSettlements.map(
+      ({ vendorLine, withholdingLine }) =>
+        this.buildMarkedLine(vendorLine, withholdingLine),
+    );
+    const primarySettlement = normalizedSettlements[0];
     const isWithholding =
-      String(
-        accountLine.ISWITHHOLDINGCALCULATIONENABLED ?? '',
-      ).toLowerCase() === 'yes' ||
+      normalizedSettlements.some(
+        ({ vendorLine, withholdingLine }) =>
+          String(
+            vendorLine.ISWITHHOLDINGCALCULATIONENABLED ?? '',
+          ).toLowerCase() === 'yes' ||
+          (!!vendorLine.ITEMWITHHOLDINGTAXGROUPCODE &&
+            String(vendorLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+            String(vendorLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
+          Boolean(withholdingLine),
+      ) ||
       String(offsetLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
-      (!!accountLine.ITEMWITHHOLDINGTAXGROUPCODE &&
-        String(accountLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
-        String(accountLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
       (!!offsetLine.ITEMWITHHOLDINGTAXGROUPCODE &&
         String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
         String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
       !!(accountLine as any).hasWithholdingReduction ||
-      !!(offsetLine as any).hasWithholdingReduction ||
-      Boolean(withholdingLine);
+      !!(offsetLine as any).hasWithholdingReduction;
 
     const rawInvoice =
-      accountLine.MARKEDINVOICE ||
+      primarySettlement.vendorLine.MARKEDINVOICE ||
       offsetLine.MARKEDINVOICE ||
-      accountLine.INVOICE ||
+      primarySettlement.vendorLine.INVOICE ||
       offsetLine.INVOICE ||
-      accountLine.DOCUMENT ||
+      primarySettlement.vendorLine.DOCUMENT ||
       offsetLine.DOCUMENT;
     const sanitizedInvoice = this.sanitizeInvoiceOutbound(rawInvoice);
 
@@ -1448,7 +1547,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CreditAmount: 0,
       DebitAmount:
         amountSource === 'ACCOUNT'
-          ? accountLine.DEBITAMOUNT
+          ? normalizedSettlements.reduce(
+              (sum, { vendorLine }) =>
+                sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+              0,
+            )
           : offsetLine.CREDITAMOUNT,
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
@@ -1459,8 +1562,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: itemSalesTaxGroup,
       IsWithholdingCalculationEnabled: isWithholding ? 'Yes' : 'No',
       ItemWithholdingTaxGroupCode:
-        accountLine.ITEMWITHHOLDINGTAXGROUPCODE ||
-        withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
+        primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
+        primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
         offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile:
@@ -1469,6 +1572,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         '',
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
+      MarkedLines: markedLines,
+      VendorGroup: accountLine.VendorGroup ?? '',
       dataAreaId: this.company,
       // Excel exchange-rate fields (including secondary/reporting variants)
       // are intentionally ignored for Cash-Out.
@@ -1942,15 +2047,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   safeType: line.SafeType,
                   targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
                   voucherType: line.VoucherType,
-                }).kind === 'vendor-invoice' &&
-                line.SettlementTargetType !== 'CustodyLedger'
+                }).kind === 'vendor-invoice'
               );
             } catch {
               // Unsupported Safe Types are reported by validateAsync.
               return false;
             }
           })
-          .map((line) => (line.MarkedInvoice || line.Invoice || '').trim())
+          .flatMap((line) =>
+            (line.MarkedLines?.length
+              ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
+              : [line.MarkedInvoice || line.Invoice || '']
+            ).map((invoice) => String(invoice).trim()),
+          )
           .filter((invoice) => Boolean(invoice)),
       ),
     ];
@@ -1975,9 +2084,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Empty MarkedInvoice = payment without settle (allowed).
    */
   protected validateCashOutMarkedInvoice(line: CashEntryDynDataModel): void {
-    const invoice = (line.MarkedInvoice || '').trim();
-    if (!invoice) return;
-
     if (!this.vendorInvoiceExistsMap) {
       throw new Error(
         'fetchVendorInvoiceExistsMap must be called before validateCashOutMarkedInvoice',
@@ -1988,18 +2094,52 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     if (!vendorAccount) {
       line.AddError(
         'MarkedInvoice',
-        `Vendor account is missing for invoice settlement (${invoice})`,
+        'Vendor account is missing for invoice settlement.',
       );
       return;
     }
 
-    const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
-    if (!this.vendorInvoiceExistsMap.has(key)) {
-      line.AddError(
-        'MarkedInvoice',
-        `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
-      );
+    const invoices = line.MarkedLines?.length
+      ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
+      : [line.MarkedInvoice || ''];
+    for (const invoiceValue of invoices) {
+      const invoice = String(invoiceValue ?? '').trim();
+      if (!invoice) continue;
+
+      const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
+      if (!this.vendorInvoiceExistsMap.has(key)) {
+        line.AddError(
+          'MarkedInvoice',
+          `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
+        );
+      }
     }
+  }
+
+  protected buildMarkedLine(
+    vendorLine: CashEntryRawDataModel,
+    withholdingLine?: CashEntryRawDataModel,
+  ): {
+    InvoiceNumber: string;
+    OperationNumber: string;
+    DocumentNumber: string;
+    HasWithHoldingLine: boolean;
+  } {
+    const vendorGroup = String(vendorLine.VendorGroup ?? '').trim();
+    const isCustody = vendorGroup.toLowerCase() === 'custody';
+
+    return {
+      InvoiceNumber: isCustody
+        ? ''
+        : this.sanitizeInvoiceOutbound(
+            vendorLine.MARKEDINVOICE ||
+              vendorLine.INVOICE ||
+              vendorLine.DOCUMENT,
+          ),
+      OperationNumber: this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
+      DocumentNumber: isCustody ? String(vendorLine.DOCUMENT ?? '').trim() : '',
+      HasWithHoldingLine: Boolean(withholdingLine),
+    };
   }
 
   protected formatInvoiceInbound(invoice?: string): string {

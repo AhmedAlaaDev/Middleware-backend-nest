@@ -15,6 +15,13 @@ export type TSLedgerJournalCustomAccountTypeStr =
   | 'Ledger'
   | 'RCash';
 
+export interface TSLedgerJournalMarkedLine {
+  InvoiceNumber: string;
+  OperationNumber: string;
+  DocumentNumber: string;
+  HasWithHoldingLine: boolean;
+}
+
 export interface TSLedgerJournalTransCustomRequestBody {
   journalNum: string;
 
@@ -47,7 +54,9 @@ export interface TSLedgerJournalTransCustomRequestBody {
   ITEMWITHHOLDINGTAXGROUP: string;
   IsWithholdingTaxCalculate?: string;
   ISWITHHOLDINGTAXCALCULATE?: string;
-  MARKEDINVOICE: string | null;
+  MARKEDINVOICE?: string | null;
+  MarkedLines?: TSLedgerJournalMarkedLine[];
+  VendorGroup?: string;
 
   offsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr;

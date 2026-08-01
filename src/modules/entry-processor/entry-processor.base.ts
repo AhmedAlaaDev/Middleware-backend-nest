@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
 
+import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
+import { DimensionService } from '@/modules/d365fo/services/dimension.service';
 import { FreeTextInvoiceService } from '@/modules/d365fo/services/free-text-invoice.service';
 import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import {
@@ -161,6 +163,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly taxGroupService: TaxGroupService;
   protected readonly freeTextInvoiceService: FreeTextInvoiceService;
   protected readonly vendorInvoiceJournalService: VendorInvoiceJournalService;
+  protected readonly d365DimensionService?: DimensionService;
+  protected readonly chartOfAccountsService?: ChartOfAccountsService;
 
   private _company: string;
 
@@ -176,6 +180,8 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     this.freeTextInvoiceService = options.dependencies.freeTextInvoiceService;
     this.vendorInvoiceJournalService =
       options.dependencies.vendorInvoiceJournalService;
+    this.d365DimensionService = options.dependencies.d365DimensionService;
+    this.chartOfAccountsService = options.dependencies.chartOfAccountsService;
   }
 
   protected set company(company: string) {
@@ -385,9 +391,18 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
     const fetchKeyToValues = new Map<string, IFinancialDimensionValue[]>();
     for (const fetchKey of uniqueFetchKeys) {
-      const values = await this.queryBus.execute(
+      let values = await this.queryBus.execute(
         new GetFinancialDimensionValueQuery(fetchKey),
       );
+      if (
+        (!Array.isArray(values) || values.length === 0) &&
+        this.d365DimensionService
+      ) {
+        this.baseLogger.warn(
+          `[${this.constructor.name}] No cached values found for ${fetchKey}; loading them directly from D365FO`,
+        );
+        values = await this.fetchD365DimensionValues(fetchKey);
+      }
       fetchKeyToValues.set(fetchKey, values ?? []);
     }
     this.financialDimensionValuesMap = fetchKeyToValues;
@@ -421,6 +436,29 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
       }
     }
 
+    if (allItems.length === 0 && this.chartOfAccountsService) {
+      this.baseLogger.warn(
+        `[${this.constructor.name}] No cached main accounts found for ${chartNumber}; loading them directly from D365FO`,
+      );
+      const liveAccounts = await this.chartOfAccountsService.getAllMainAccounts(
+        chartNumber,
+        { useCache: true },
+      );
+      allItems.push(
+        ...liveAccounts
+          .filter((account) => Boolean(account.MainAccountId))
+          .map((account) => ({
+            id: String(account.MainAccountRecId ?? account.MainAccountId),
+            chartNumber: account.ChartOfAccounts || chartNumber,
+            accountNumber: account.MainAccountId,
+            accountName: account.Name || account.MainAccountId,
+            mainAccountType: account.MainAccountType,
+            isSuspended: account.IsSuspended,
+            doNotAllowManualEntry: account.DoNotAllowManualEntry,
+          })),
+      );
+    }
+
     this.mainAccountMap = new Map(
       allItems
         .filter((a) => a.accountNumber)
@@ -432,6 +470,58 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         .map((a) => a.accountNumber?.toLowerCase().trim())
         .filter(Boolean),
     );
+  }
+
+  private async fetchD365DimensionValues(
+    financialKey: string,
+  ): Promise<IFinancialDimensionValue[]> {
+    if (!this.d365DimensionService) return [];
+
+    const pageSize = 10000;
+    const result: IFinancialDimensionValue[] = [];
+    let skipCount = 0;
+
+    while (true) {
+      const response = await this.d365DimensionService.getDimensionValueList(
+        financialKey,
+        this.company,
+        {
+          skipCount,
+          maxCount: pageSize,
+          useCache: true,
+        },
+      );
+      const page = Array.isArray(response?.value) ? response.value : [];
+
+      for (const item of page) {
+        const value = String(item.DimensionValue ?? item.Value ?? '').trim();
+        if (!value) continue;
+        result.push({
+          id: String(item.RecId ?? `${financialKey}:${value}`),
+          financialDimensionKey: financialKey,
+          value,
+          description: item.Description ?? item.Name,
+          isSuspended:
+            item.IsSuspended === 'Yes' || item.IsSuspended === 'No'
+              ? item.IsSuspended
+              : undefined,
+          isBlockedForManualEntry:
+            item.IsBlockedForManualEntry === 'Yes' ||
+            item.IsBlockedForManualEntry === 'No'
+              ? item.IsBlockedForManualEntry
+              : undefined,
+          isTotal:
+            item.IsTotal === 'Yes' || item.IsTotal === 'No'
+              ? item.IsTotal
+              : undefined,
+        });
+      }
+
+      if (page.length < pageSize) break;
+      skipCount += pageSize;
+    }
+
+    return result;
   }
 
   protected async fetchCustomerNames(

@@ -33,6 +33,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   IsOther: boolean;
   IsVendorPayment: boolean;
   IsCustodyVendor: boolean;
+  VendorGroup: string;
 
   constructor(
     data: EntryRawDataModel,
@@ -80,6 +81,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.IsOther = this.compare(this.SafeType, 'Other');
     this.IsVendorPayment = this.compare(this.SafeType, 'Vendor Payment');
     this.IsCustodyVendor = false;
+    this.VendorGroup = s((data as any)?.VendorGroup);
   }
 
   private normalizeSafeType(

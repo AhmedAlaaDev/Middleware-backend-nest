@@ -36,6 +36,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     existingPairs?: Set<string>;
     custodyMatches?: Map<string, any[]>;
   }) => {
+    const custodyAccounts = new Set(options?.custodyAccounts ?? []);
     const vendorInvoiceJournalService = {
       findExistingInvoiceVendorPairs: jest
         .fn()
@@ -50,11 +51,18 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
       { execute: jest.fn() } as any,
       {
         queryBus: {
-          execute: jest.fn().mockResolvedValue({
-            items: (options?.custodyAccounts ?? []).map(
-              (vendorAccountNumber) => ({ vendorAccountNumber }),
-            ),
-          }),
+          execute: jest.fn().mockImplementation((query) =>
+            Promise.resolve({
+              items: (query?.filter?.accountNumbers ?? []).map(
+                (vendorAccountNumber: string) => ({
+                  vendorAccountNumber,
+                  vendorGroupId: custodyAccounts.has(vendorAccountNumber)
+                    ? 'Custody'
+                    : 'Trade',
+                }),
+              ),
+            }),
+          ),
         },
         exchangeRateService: {},
         utilsService: new EntryProcessorUtilsService(),
@@ -126,6 +134,54 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     await expect(
       (processor as any).validateCashOutSourceAsync(vendorPaymentLines()),
     ).resolves.toBeUndefined();
+  });
+
+  it('loads the vendor group from D365 when the local vendor cache is empty', async () => {
+    const pair = VendorInvoiceJournalService.pairKey('INV-2066', 'V-001');
+    const d365VendorService = {
+      getAllVendors: jest.fn().mockResolvedValue([
+        {
+          VendorAccountNumber: 'V-001',
+          VendorGroupId: 'Trade',
+        },
+      ]),
+    };
+    const processor = new CashOutFreightEntryProcessor(
+      { execute: jest.fn() } as any,
+      {
+        queryBus: {
+          execute: jest.fn().mockResolvedValue({ items: [] }),
+        },
+        exchangeRateService: {},
+        utilsService: new EntryProcessorUtilsService(),
+        dimensionService: new DimensionValidationService(),
+        taxGroupService: {},
+        freeTextInvoiceService: {},
+        vendorInvoiceJournalService: {
+          findExistingInvoiceVendorPairs: jest
+            .fn()
+            .mockResolvedValue(new Set([pair])),
+        },
+        cashOutExchangeRateService: {},
+        generalJournalService: {},
+        d365VendorService,
+      } as any,
+    );
+    (processor as any).company = 'm-p';
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const lines = vendorPaymentLines();
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+
+    expect(lines[0].VendorGroup).toBe('Trade');
+    expect(d365VendorService.getAllVendors).toHaveBeenCalledWith('m-p', {
+      useCache: true,
+      select: ['VendorAccountNumber', 'VendorGroupId'],
+    });
   });
 
   it('validates a custody vendor against exactly one ledger target', async () => {
@@ -240,16 +296,23 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     ).resolves.toBeUndefined();
 
     const formatted = (processor as any).buildLines('2067', lines);
-    expect(formatted).toHaveLength(2);
-    expect(formatted.map((line: any) => line.MarkedInvoice)).toEqual([
-      'CUSTODY-VCH-1',
-      'CUSTODY-VCH-2',
+    expect(formatted).toHaveLength(1);
+    expect(formatted[0].MarkedInvoice).toBe('CUSTODY-VCH-1');
+    expect(formatted[0].MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'OP-CUSTODY-1',
+        DocumentNumber: 'DOC-CUSTODY-1',
+        HasWithHoldingLine: false,
+      },
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'OP-CUSTODY-2',
+        DocumentNumber: 'DOC-CUSTODY-2',
+        HasWithHoldingLine: false,
+      },
     ]);
-    expect(
-      formatted.every(
-        (line: any) => line.SettlementTargetType === 'CustodyLedger',
-      ),
-    ).toBe(true);
+    expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
   });
 
   it('blocks custody marking when the ledger lookup is ambiguous', async () => {
@@ -311,5 +374,70 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     await expect(
       (processor as any).validateCashOutSourceAsync([valid]),
     ).resolves.toBeUndefined();
+  });
+
+  it('falls back to live D365 dimensions and main accounts when the cache is empty', async () => {
+    const queryBus = {
+      execute: jest.fn().mockImplementation((query) => {
+        if (query?.financialKey) return Promise.resolve([]);
+        if (query?.filter?.chartNumber) {
+          return Promise.resolve({ items: [] });
+        }
+        return Promise.resolve({ items: [] });
+      }),
+    };
+    const d365DimensionService = {
+      getDimensionValueList: jest.fn().mockResolvedValue({
+        value: [{ DimensionValue: '012', RecId: 12 }],
+      }),
+    };
+    const chartOfAccountsService = {
+      getAllMainAccounts: jest.fn().mockResolvedValue([
+        {
+          ChartOfAccounts: 'Chart of Accounts',
+          MainAccountId: '223201',
+          MainAccountRecId: 223201,
+          MainAccountType: 'BalanceSheet',
+          Name: 'Cash clearing',
+        },
+      ]),
+    };
+    const processor = new CashOutFreightEntryProcessor(
+      { execute: jest.fn() } as any,
+      {
+        queryBus,
+        exchangeRateService: {},
+        utilsService: new EntryProcessorUtilsService(),
+        dimensionService: new DimensionValidationService(),
+        taxGroupService: {},
+        freeTextInvoiceService: {},
+        vendorInvoiceJournalService: {},
+        cashOutExchangeRateService: {},
+        generalJournalService: {},
+        d365DimensionService,
+        chartOfAccountsService,
+        d365VendorService: {},
+      } as any,
+    );
+    (processor as any).company = 'm-p';
+
+    const dimensions = await (processor as any).fetchDimensionValues({
+      Activity: false,
+    });
+    const mainAccounts = await (processor as any).fetchMainAccounts(
+      'Chart of Accounts',
+    );
+
+    expect(dimensions.get('Activity')).toEqual(new Set(['012']));
+    expect(mainAccounts).toEqual(new Set(['223201']));
+    expect(d365DimensionService.getDimensionValueList).toHaveBeenCalledWith(
+      'Activity',
+      'm-p',
+      expect.objectContaining({ useCache: true }),
+    );
+    expect(chartOfAccountsService.getAllMainAccounts).toHaveBeenCalledWith(
+      'Chart of Accounts',
+      { useCache: true },
+    );
   });
 });

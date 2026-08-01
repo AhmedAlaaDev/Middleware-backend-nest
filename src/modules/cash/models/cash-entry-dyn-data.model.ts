@@ -4,6 +4,13 @@ import {
   EntryDynDataModel,
 } from '@/modules/entry-processor/models';
 
+export interface CashEntryMarkedLine {
+  InvoiceNumber: string;
+  OperationNumber: string;
+  DocumentNumber: string;
+  HasWithHoldingLine: boolean;
+}
+
 export class CashEntryDynDataModel extends EntryDynDataModel {
   /** Customer name */
   CustomerName: string;
@@ -43,6 +50,8 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
 
   /** Marked invoice */
   MarkedInvoice: string;
+  MarkedLines: CashEntryMarkedLine[];
+  VendorGroup: string;
 
   /** Safe type */
   SafeType: EntrySafeType;
@@ -74,6 +83,8 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
     this.DefaultDimensionsForOffsetAccountDisplayValue =
       data.DefaultDimensionsForOffsetAccountDisplayValue || '';
     this.MarkedInvoice = data.MarkedInvoice || '';
+    this.MarkedLines = data.MarkedLines || [];
+    this.VendorGroup = data.VendorGroup || '';
     this.SafeType = data.SafeType || ('' as EntrySafeType);
     this.VoucherType = data.VoucherType || ('' as EntryVoucherType);
     this.SettlementTargetType = data.SettlementTargetType || 'None';

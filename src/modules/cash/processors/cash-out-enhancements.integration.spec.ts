@@ -101,7 +101,7 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
   it.each(['Freight', 'Fleet'] as const)(
     'formats OUT-JAN by SafeType and merges Vendor Payment withholding for %s',
     async (target) => {
-      const rows = (await loadRows('OUT-JAN.xlsx')) as any[];
+      const rows = await loadRows('OUT-JAN.xlsx');
       const result = (await createProcessor(target).formatAndEnrichAsync(
         rows,
         'm-p',
@@ -123,8 +123,8 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       );
 
       expect(rows).toHaveLength(4134);
-      expect(vendorPayments).toHaveLength(sourceVendorDebitLines.length);
-      expect(result).toHaveLength(
+      expect(vendorPayments.length).toBeLessThan(sourceVendorDebitLines.length);
+      expect(result.length).toBeLessThan(
         sourceNonVendorPayments.length + sourceVendorDebitLines.length,
       );
       expect(vendorPayments.every((line) => line.AccountType === 'Vend')).toBe(
@@ -156,10 +156,20 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       const multiMarkingGroup = vendorPayments.filter(
         (line) => line.SourceIds[0] === '467706',
       );
-      expect(multiMarkingGroup.length).toBeGreaterThan(1);
+      expect(multiMarkingGroup).toHaveLength(1);
+      expect(multiMarkingGroup[0].MarkedLines.length).toBeGreaterThan(1);
       expect(
-        new Set(multiMarkingGroup.map((line) => line.MarkedInvoice)).size,
+        new Set(
+          multiMarkingGroup[0].MarkedLines.map(
+            (markedLine) => markedLine.InvoiceNumber,
+          ),
+        ).size,
       ).toBeGreaterThan(1);
+      expect(
+        multiMarkingGroup[0].MarkedLines.every(
+          (markedLine) => markedLine.HasWithHoldingLine === true,
+        ),
+      ).toBe(true);
 
       const directLines = result.filter((line) => line.SafeType === 'Direct');
       expect(directLines).toHaveLength(

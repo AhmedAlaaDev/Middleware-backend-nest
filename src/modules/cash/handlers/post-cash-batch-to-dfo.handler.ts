@@ -389,11 +389,37 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? line.MarkedInvoice
           : line.Invoice || ''
       ).trim();
+      const vendorGroup = String(line.VendorGroup ?? '').trim();
+      const markedLines =
+        line.MarkedLines && line.MarkedLines.length > 0
+          ? line.MarkedLines.map((markedLine) => ({
+              InvoiceNumber: String(markedLine.InvoiceNumber ?? '').trim(),
+              OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
+              DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+              HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+            }))
+          : markedInvoice
+            ? [
+                {
+                  InvoiceNumber:
+                    vendorGroup.toLowerCase() === 'custody'
+                      ? ''
+                      : markedInvoice,
+                  OperationNumber: '',
+                  DocumentNumber:
+                    vendorGroup.toLowerCase() === 'custody'
+                      ? String(line.Document ?? '').trim()
+                      : '',
+                  HasWithHoldingLine: false,
+                },
+              ]
+            : [];
       const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
       if (
         routeSupportsMarking &&
+        markedLines.length === 0 &&
         !markedInvoice &&
         !transactionTextValue.toLowerCase().includes('unmarked')
       ) {
@@ -405,6 +431,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         line.OffsetTransactionText || line.PaymentReference || '';
       if (
         routeSupportsMarking &&
+        markedLines.length === 0 &&
         !markedInvoice &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
@@ -455,7 +482,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
         IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
         ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
-        MARKEDINVOICE: markedInvoice,
 
         offsetAccountDisplayValue:
           route && route.kind !== 'vendor-invoice'
@@ -487,6 +513,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         TRANSACTIONTEXT: transactionTextValue,
         Voucher: '',
       };
+
+      if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
+        customLineApiBody.VendorGroup = vendorGroup;
+        customLineApiBody.MarkedLines = markedLines;
+      } else {
+        customLineApiBody.MARKEDINVOICE = markedInvoice;
+      }
 
       return {
         dataAreaId: company,

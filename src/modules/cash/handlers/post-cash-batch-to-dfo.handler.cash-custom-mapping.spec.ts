@@ -155,7 +155,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('AccountNum', 'VEND001');
     expect(body).toHaveProperty('accountTypeStr', 'Vendor');
     expect(body).toHaveProperty('PostingProfile', 'V-PP');
-    expect(body).toHaveProperty('MARKEDINVOICE', 'INV-0002');
+    expect(body).toHaveProperty('MarkedLines', [
+      {
+        InvoiceNumber: 'INV-0002',
+        OperationNumber: '',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
     expect(body).toHaveProperty('TaxGroup', 'Non-Taxabl');
     expect(body).toHaveProperty('debitAmount', 1000);
     expect(body).toHaveProperty('creditAmount', 0);
@@ -211,7 +218,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('OffsetAccountTypeStr', 'RCash');
     expect(body).toHaveProperty('offsetAccountDisplayValue', 'PSD EG');
     expect(body).toHaveProperty('PAYMENTMETHODNAME', '51');
-    expect(body).toHaveProperty('MARKEDINVOICE', 'INV-0003');
+    expect(body).toHaveProperty('MarkedLines', [
+      {
+        InvoiceNumber: 'INV-0003',
+        OperationNumber: '',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
   });
 
   it('keeps PAYMENTMETHODNAME empty for Petty cash when Excel has no payment method', () => {
@@ -444,7 +458,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result).toHaveLength(2);
     expect(
-      result.map((line: any) => line.customLineApiBody.MARKEDINVOICE),
+      result.map(
+        (line: any) => line.customLineApiBody.MarkedLines?.[0]?.InvoiceNumber,
+      ),
     ).toEqual(['2025001410', '2025011319']);
     expect(
       result.map((line: any) => line.customLineApiBody.debitAmount),
@@ -510,7 +526,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const body = result[0].customLineApiBody;
     expect(body).toHaveProperty('AccountNum', '5019');
     expect(body).toHaveProperty('debitAmount', 5000);
-    expect(body).toHaveProperty('MARKEDINVOICE', '');
+    expect(body).toHaveProperty('MarkedLines', []);
     expect(body).toHaveProperty('FinTagStr', finTag);
     expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
     expect(body).toHaveProperty('DocumentNum', '15925');
@@ -549,7 +565,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result).toHaveLength(1);
     const body = result[0].customLineApiBody;
-    expect(body.MARKEDINVOICE).toBe('');
+    expect(body.MarkedLines).toEqual([]);
     expect(body.TRANSACTIONTEXT).toBe(
       'Vendor Payment - Freight Jan 2026 - unmarked',
     );
