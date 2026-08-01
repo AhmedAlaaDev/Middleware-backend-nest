@@ -47,7 +47,7 @@ export interface TSLedgerJournalTransCustomRequestBody {
   ExchRateSecond?: number;
 
   DEFAULTDIMENSIONDISPLAYVALUE: string;
-  offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  offsetDEFAULTDIMENSIONDISPLAYVALUE?: string;
 
   FinTagStr: string;
   ISPREPAYMENT: string;
@@ -58,11 +58,11 @@ export interface TSLedgerJournalTransCustomRequestBody {
   MarkedLines?: TSLedgerJournalMarkedLine[];
   VendorGroup?: string;
 
-  offsetAccountDisplayValue: string;
-  OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr;
-  OffsetCompany: string;
-  OFFSETFINTAGDISPLAYVALUE: string;
-  OFFSETTRANSACTIONTEXT: string;
+  offsetAccountDisplayValue?: string;
+  OffsetAccountTypeStr?: TSLedgerJournalCustomAccountTypeStr;
+  OffsetCompany?: string;
+  OFFSETFINTAGDISPLAYVALUE?: string;
+  OFFSETTRANSACTIONTEXT?: string;
 
   PAYMENTID: string;
   PAYMENTMETHODNAME: string;

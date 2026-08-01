@@ -8,6 +8,7 @@ export interface CircuitBreakerOptions {
   timeout?: number;
   errorThresholdPercentage?: number;
   resetTimeout?: number;
+  failureThreshold?: number;
   enabled?: boolean;
 }
 
@@ -28,21 +29,28 @@ export class CircuitBreakerService {
       return this.breakers.get(name)!;
     }
 
-    const { timeout, errorThresholdPercentage, resetTimeout, enabled } =
-      this.circuitBreakerConfig;
+    const {
+      timeout,
+      errorThresholdPercentage,
+      resetTimeout,
+      failureThreshold,
+      enabled,
+    } = this.circuitBreakerConfig;
 
     const defaultOptions: CircuitBreakerOptions = {
-      timeout: options?.timeout || timeout,
+      timeout: options?.timeout ?? timeout,
       errorThresholdPercentage:
-        options?.errorThresholdPercentage || errorThresholdPercentage,
-      resetTimeout: options?.resetTimeout || resetTimeout,
-      enabled: options?.enabled !== false || enabled,
+        options?.errorThresholdPercentage ?? errorThresholdPercentage,
+      resetTimeout: options?.resetTimeout ?? resetTimeout,
+      failureThreshold: options?.failureThreshold ?? failureThreshold,
+      enabled: options?.enabled ?? enabled ?? true,
     };
 
     const breaker = new CircuitBreaker(fn, {
       timeout: defaultOptions.timeout,
       errorThresholdPercentage: defaultOptions.errorThresholdPercentage,
       resetTimeout: defaultOptions.resetTimeout,
+      volumeThreshold: defaultOptions.failureThreshold,
       enabled: defaultOptions.enabled,
     });
 
@@ -93,6 +101,7 @@ export class CircuitBreakerService {
       errorThresholdPercentage:
         config?.circuitBreaker?.errorThresholdPercentage,
       resetTimeout: config?.circuitBreaker?.resetTimeout,
+      failureThreshold: config?.circuitBreaker?.failureThreshold,
       enabled: config?.circuitBreaker?.enabled,
     };
   }

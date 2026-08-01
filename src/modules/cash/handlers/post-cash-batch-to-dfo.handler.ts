@@ -521,6 +521,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         customLineApiBody.MARKEDINVOICE = markedInvoice;
       }
 
+      if (
+        this.isMainAccountOnlyLine(line, cashDirection, route, accountTypeStr)
+      ) {
+        this.omitOffsetFields(customLineApiBody);
+      }
+
       return {
         dataAreaId: company,
         LineNumber: lineNumber,
@@ -528,6 +534,32 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         customLineApiBody,
       };
     });
+  }
+
+  private isMainAccountOnlyLine(
+    line: CashEntryDynDataModel,
+    cashDirection: 'in' | 'out',
+    route: CashJournalRoute | undefined,
+    accountTypeStr: TSLedgerJournalCustomAccountTypeStr,
+  ): boolean {
+    return (
+      cashDirection === 'out' &&
+      route?.kind === 'ledger' &&
+      accountTypeStr === 'Ledger' &&
+      !this.toOptionalTrimmedString(line.OffsetAccountType) &&
+      !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
+    );
+  }
+
+  private omitOffsetFields(body: TSLedgerJournalTransCustomRequestBody): void {
+    const payload = body as unknown as Record<string, unknown>;
+    for (const key of Object.keys(payload)) {
+      if (this.isOffsetFieldName(key)) delete payload[key];
+    }
+  }
+
+  private isOffsetFieldName(fieldName: string): boolean {
+    return fieldName.toLowerCase().startsWith('offset');
   }
 
   private normalizeTransDateForCustomApi(dateIsoString: string): string {
@@ -723,19 +755,25 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
-      missingFields.push(
-        'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
-      );
-    }
-    if (!body.offsetAccountDisplayValue?.trim()) {
-      missingFields.push('customLineApiBody.offsetAccountDisplayValue');
-    }
-    if (!body.OffsetAccountTypeStr?.trim()) {
-      missingFields.push('customLineApiBody.OffsetAccountTypeStr');
-    }
-    if (!body.OffsetCompany?.trim()) {
-      missingFields.push('customLineApiBody.OffsetCompany');
+    const isMainAccountOnly =
+      line.cashDirection === 'out' &&
+      body.accountTypeStr === 'Ledger' &&
+      !Object.keys(body).some((key) => this.isOffsetFieldName(key));
+    if (!isMainAccountOnly) {
+      if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
+        missingFields.push(
+          'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
+        );
+      }
+      if (!body.offsetAccountDisplayValue?.trim()) {
+        missingFields.push('customLineApiBody.offsetAccountDisplayValue');
+      }
+      if (!body.OffsetAccountTypeStr?.trim()) {
+        missingFields.push('customLineApiBody.OffsetAccountTypeStr');
+      }
+      if (!body.OffsetCompany?.trim()) {
+        missingFields.push('customLineApiBody.OffsetCompany');
+      }
     }
     if (!body.transDate?.trim()) {
       missingFields.push('customLineApiBody.transDate');

@@ -382,6 +382,92 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
   });
 
+  it('omits every offset field for a Cash Out main-account-only ledger line', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Direct',
+    });
+    const ledgerDisplayValue =
+      '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Ledger',
+            AccountDisplayValue: ledgerDisplayValue,
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            CreditAmount: 0,
+            DebitAmount: 1000,
+            CurrencyCode: 'EGP',
+            SafeType: 'Direct',
+            SalesTaxGroup: 'Non-Taxabl',
+            TransactionText: 'Main account only',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.AccountNum).toBe(ledgerDisplayValue);
+    expect(body.DEFAULTDIMENSIONDISPLAYVALUE).toBe(
+      '|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+    );
+    expect(
+      Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
+    ).toEqual([]);
+    expect((handler as any).validateLine(result[0])).toEqual([]);
+  });
+
+  it('keeps offset fields for a standard Cash Out ledger line', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Direct',
+    });
+    const ledgerDisplayValue =
+      '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Ledger',
+            AccountDisplayValue: ledgerDisplayValue,
+            OffsetAccountType: 'Bank',
+            OffsetAccountDisplayValue: 'AAIB-EG-CA',
+            OffsetCompany: 'm-p',
+            OffsetDefaultDimensionDisplayValue: 'AAIB-EG-CA',
+            OffsetFinTagDisplayValue: 'OP-2078',
+            OffsetTransactionText: 'Bank offset',
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            CreditAmount: 0,
+            DebitAmount: 1000,
+            CurrencyCode: 'EGP',
+            SafeType: 'Direct',
+            SalesTaxGroup: 'Non-Taxabl',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result[0].customLineApiBody).toEqual(
+      expect.objectContaining({
+        OffsetAccountTypeStr: 'Bank',
+        OffsetCompany: 'm-p',
+        offsetAccountDisplayValue: 'AAIB-EG-CA',
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: 'AAIB-EG-CA',
+        OFFSETFINTAGDISPLAYVALUE: 'OP-2078',
+        OFFSETTRANSACTIONTEXT: 'Bank offset',
+      }),
+    );
+  });
+
   it('maps real Safe Out group 466698 with tags and without exchange rates', () => {
     const handler = buildHandler();
     const finTag =
