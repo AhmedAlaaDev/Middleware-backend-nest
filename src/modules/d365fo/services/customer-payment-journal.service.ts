@@ -525,11 +525,66 @@ export class CustomerPaymentJournalService {
     );
   }
 
-  private cashBulkResponseMessage(result: {
-    Message?: string;
-    message?: string;
-  }): string {
-    return String(result?.Message ?? result?.message ?? 'Unknown D365 error');
+  private cashBulkResponseMessage(result: unknown): string {
+    const messages = this.collectCashBulkResponseMessages(result);
+    const detailedMessage = messages.find(
+      (message) => !this.isGenericCashBulkMessage(message),
+    );
+
+    return detailedMessage ?? messages[0] ?? 'Unknown D365 error';
+  }
+
+  private collectCashBulkResponseMessages(
+    value: unknown,
+    depth: number = 0,
+  ): string[] {
+    if (depth > 4 || value === null || value === undefined) return [];
+    if (typeof value === 'string') {
+      const message = value.trim();
+      return message ? [message] : [];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item) =>
+        this.collectCashBulkResponseMessages(item, depth + 1),
+      );
+    }
+    if (typeof value !== 'object') return [];
+
+    const record = value as Record<string, unknown>;
+    const messageKeys = [
+      'ExceptionMessage',
+      'exceptionMessage',
+      'ErrorMessage',
+      'errorMessage',
+      'Details',
+      'details',
+      'Message',
+      'message',
+    ];
+    const nestedKeys = [
+      'Error',
+      'error',
+      'InnerException',
+      'innerException',
+      'innererror',
+      'innerError',
+      'internalexception',
+      'internalException',
+    ];
+
+    return [...messageKeys, ...nestedKeys].flatMap((key) =>
+      this.collectCashBulkResponseMessages(record[key], depth + 1),
+    );
+  }
+
+  private isGenericCashBulkMessage(message: string): boolean {
+    const normalized = message.trim().toLowerCase();
+    return (
+      normalized === 'an unexpected x++ error occurred.' ||
+      normalized === 'an unexpected x++ error occurred' ||
+      normalized === 'an error has occurred.' ||
+      normalized === 'an error has occurred'
+    );
   }
 
   private formatCashBulkFailure(
@@ -621,13 +676,7 @@ export class CustomerPaymentJournalService {
         TSLedgerJournalTransCustomBulkResponseBody
       >(endpoint, { _contract: { Lines: bulkLines } });
     } catch (error: unknown) {
-      const data = (error as any)?.response?.data;
-      const message =
-        data?.Message ??
-        data?.message ??
-        (error as any)?.message ??
-        String(error);
-      throw new Error(message);
+      throw new Error(this.dfoErrorExtractor.extractMessage(error));
     }
   }
 
@@ -636,20 +685,13 @@ export class CustomerPaymentJournalService {
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
     const offsetDefaultDimension =
       line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '';
-    const offsetAccount = line.offsetAccountDisplayValue ?? '';
 
-    // The deployed bulk X++ API uses case-sensitive Map.lookup calls and
-    // requires offset keys to exist even for a single-sided GL line.
+    // The deployed X++ contract probes this case-sensitive key before it
+    // determines whether the line has an offset. Keep all other offset fields
+    // absent on single-sided lines so they are not treated as real offsets.
     return {
       ...line,
-      offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
       OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
-      offsetAccountDisplayValue: offsetAccount,
-      OffsetAccountDisplayValue: offsetAccount,
-      OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
-      OffsetCompany: line.OffsetCompany ?? '',
-      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',
-      OFFSETTRANSACTIONTEXT: line.OFFSETTRANSACTIONTEXT ?? '',
     };
   }
 

@@ -196,7 +196,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
       'BU-001|CC-002|Dept-004',
     );
-    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate');
@@ -282,7 +283,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           }),
         ],
         offsetAccountDisplayValue: 'BANK001',
-        OffsetAccountDisplayValue: 'BANK001',
+        OffsetDEFAULTDIMENSIONDISPLAYVALUE: '',
       }),
     );
     expect(contract.Lines[1]).toEqual(
@@ -290,21 +291,18 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         journalNum: 'JN-BULK',
         accountTypeStr: 'Ledger',
         ReportingExchangeRate: 2.2,
-        offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
         OffsetDEFAULTDIMENSIONDISPLAYVALUE: '',
-        offsetAccountDisplayValue: '',
-        OffsetAccountDisplayValue: '',
-        OffsetAccountTypeStr: '',
-        OffsetCompany: '',
-        OFFSETFINTAGDISPLAYVALUE: '',
-        OFFSETTRANSACTIONTEXT: '',
       }),
     );
-    expect(
-      Object.entries(contract.Lines[1])
-        .filter(([key]) => key.toLowerCase().startsWith('offset'))
-        .every(([, value]) => value === ''),
-    ).toBe(true);
+    expect(contract.Lines[1]).not.toHaveProperty(
+      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
+    );
+    expect(contract.Lines[1]).not.toHaveProperty('offsetAccountDisplayValue');
+    expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountDisplayValue');
+    expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountTypeStr');
+    expect(contract.Lines[1]).not.toHaveProperty('OffsetCompany');
+    expect(contract.Lines[1]).not.toHaveProperty('OFFSETFINTAGDISPLAYVALUE');
+    expect(contract.Lines[1]).not.toHaveProperty('OFFSETTRANSACTIONTEXT');
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {
@@ -341,6 +339,35 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).rejects.toThrow('line 20: Vendor account is blocked.');
 
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the detailed X++ response instead of the generic wrapper message', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message: 'An unexpected X++ error occurred.',
+      error: {
+        innererror: {
+          message: 'Offset account PSD EG is invalid for this journal line.',
+        },
+      },
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-XPP',
+        [
+          {
+            LineNumber: 7,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND007' },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'line 7: Offset account PSD EG is invalid for this journal line.',
+    );
   });
 
   it('reports an empty bulk response against the submitted line', async () => {

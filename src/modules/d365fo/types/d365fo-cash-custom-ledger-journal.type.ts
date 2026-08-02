@@ -89,7 +89,6 @@ export interface TSLedgerJournalTransCustomRequest {
 export type TSLedgerJournalTransCustomBulkLineRequestBody =
   TSLedgerJournalTransCustomRequestBody & {
     OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
-    OffsetAccountDisplayValue: string;
   };
 
 export interface TSLedgerJournalTransCustomBulkRequestBody {
@@ -114,6 +113,14 @@ export interface TSLedgerJournalTransCustomBulkLineResponseBody {
   message?: string;
   Success?: boolean;
   success?: boolean;
+  ErrorMessage?: string;
+  errorMessage?: string;
+  ExceptionMessage?: string;
+  exceptionMessage?: string;
+  Details?: unknown;
+  details?: unknown;
+  Error?: unknown;
+  error?: unknown;
 }
 
 export interface TSLedgerJournalTransCustomBulkResponseBody {
@@ -125,4 +132,12 @@ export interface TSLedgerJournalTransCustomBulkResponseBody {
   lines?: TSLedgerJournalTransCustomBulkLineResponseBody[];
   Results?: TSLedgerJournalTransCustomBulkLineResponseBody[];
   results?: TSLedgerJournalTransCustomBulkLineResponseBody[];
+  ErrorMessage?: string;
+  errorMessage?: string;
+  ExceptionMessage?: string;
+  exceptionMessage?: string;
+  Details?: unknown;
+  details?: unknown;
+  Error?: unknown;
+  error?: unknown;
 }
