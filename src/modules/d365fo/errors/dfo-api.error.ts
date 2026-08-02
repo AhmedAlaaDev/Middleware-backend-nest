@@ -6,6 +6,7 @@ export interface DfoApiErrorOptions {
   endpoint?: string;
   isConcurrencyConflict?: boolean;
   isDependentLinesError?: boolean;
+  isResourceNotFound?: boolean;
   isValidationError?: boolean;
   responseData?: unknown;
 }
@@ -22,6 +23,7 @@ export class DfoApiError extends Error {
   public readonly endpoint?: string;
   public readonly isConcurrencyConflict: boolean;
   public readonly isDependentLinesError: boolean;
+  public readonly isResourceNotFound: boolean;
   public readonly isValidationError: boolean;
   public readonly response?: DfoErrorResponse;
 
@@ -34,6 +36,7 @@ export class DfoApiError extends Error {
     this.endpoint = options.endpoint;
     this.isConcurrencyConflict = options.isConcurrencyConflict ?? false;
     this.isDependentLinesError = options.isDependentLinesError ?? false;
+    this.isResourceNotFound = options.isResourceNotFound ?? false;
     this.isValidationError = options.isValidationError ?? false;
     this.response =
       options.status === undefined && options.responseData === undefined
@@ -48,4 +51,8 @@ export function dfoErrorMessage(error: unknown): string {
 
 export function isDfoDependentLinesError(error: unknown): boolean {
   return error instanceof DfoApiError && error.isDependentLinesError;
+}
+
+export function isDfoResourceNotFoundError(error: unknown): boolean {
+  return error instanceof DfoApiError && error.isResourceNotFound;
 }

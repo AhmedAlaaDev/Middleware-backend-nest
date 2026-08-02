@@ -1,3 +1,5 @@
+import { isDfoResourceNotFoundError } from '../errors/dfo-api.error';
+
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 
 describe('DfoErrorExtractorService', () => {
@@ -68,5 +70,29 @@ describe('DfoErrorExtractorService', () => {
 
     expect(normalized.message).toBe('[BadRequest] Vendor account is blocked.');
     expect(normalized.code).toBe('BadRequest');
+  });
+
+  it('classifies an already-deleted D365 resource as not found', () => {
+    const wrapped = service.toError(
+      {
+        response: {
+          status: 400,
+          data: {
+            error: {
+              message: 'An error has occurred.',
+              innererror: {
+                message: 'No resources were found when selecting for update.',
+              },
+            },
+          },
+        },
+      },
+      { method: 'DELETE', endpoint: '/journal-header' },
+    );
+
+    expect(wrapped.message).toContain(
+      'No resources were found when selecting for update.',
+    );
+    expect(isDfoResourceNotFoundError(wrapped)).toBe(true);
   });
 });

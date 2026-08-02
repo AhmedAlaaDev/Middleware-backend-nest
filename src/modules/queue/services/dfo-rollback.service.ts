@@ -7,6 +7,7 @@ import { PostingErrorCollector } from './posting-error-collector.service';
 import {
   dfoErrorMessage,
   isDfoDependentLinesError,
+  isDfoResourceNotFoundError,
 } from '@/modules/d365fo/errors/dfo-api.error';
 
 /**
@@ -86,6 +87,13 @@ export class DfoRollbackService {
           successfullyDeleted.push(headerId);
         } catch (error) {
           const errorMessage = dfoErrorMessage(error);
+          if (isDfoResourceNotFoundError(error)) {
+            successfullyDeleted.push(headerId);
+            this.logger.log(
+              `[ROLLBACK] Header ${headerId} is already absent; treating deletion as successful`,
+            );
+            return;
+          }
           this.logger.error(
             `[ROLLBACK] Failed to delete header ${headerId}: ${errorMessage}`,
           );
@@ -389,7 +397,13 @@ export class DfoRollbackService {
             const errorMessage = dfoErrorMessage(error);
             const isDependentLinesError = isDfoDependentLinesError(error);
 
-            if (isDependentLinesError && retryCount < maxRetries) {
+            if (isDfoResourceNotFoundError(error)) {
+              result.successfullyDeletedHeaders.push(header.headerKey);
+              headerDeleted = true;
+              this.logger.log(
+                `[ROLLBACK] Header ${header.headerKey} is already absent; treating deletion as successful`,
+              );
+            } else if (isDependentLinesError && retryCount < maxRetries) {
               retryCount++;
               this.logger.warn(
                 `[ROLLBACK] Header deletion failed due to dependent lines (attempt ${retryCount}/${maxRetries}). Querying and deleting remaining lines for header ${header.headerKey}`,

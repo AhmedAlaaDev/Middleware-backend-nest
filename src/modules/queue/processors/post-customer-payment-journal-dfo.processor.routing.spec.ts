@@ -277,6 +277,37 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
   });
 
+  it('clears a persisted header after rollback confirms it is already absent', async () => {
+    const group = makeGroup(glRoute);
+    const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
+      group,
+    ]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'Mesco-000013757',
+        payload: group,
+      },
+    ]);
+    cashStrategy.postLinesForHeader.mockRejectedValue(
+      new Error('Journal Mesco-000013757 was not found.'),
+    );
+    rollback.rollbackAll.mockResolvedValue({
+      failedToDeleteHeaders: [],
+    });
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'Journal Mesco-000013757 was not found.',
+    );
+
+    expect(jobs.resetAfterRollback).toHaveBeenCalledWith(
+      'job-2045',
+      ['Mesco-000013757'],
+      [],
+    );
+  });
+
   it('rolls back a header completed by an earlier attempt if a later route fails', async () => {
     const completedAp = makeGroup(apRoute, 1);
     const pendingGl = makeGroup(glRoute, 1);

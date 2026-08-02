@@ -11,6 +11,7 @@ export type DfoErrorShape = {
   code?: string;
   isConcurrencyConflict?: boolean;
   isDependentLinesError?: boolean;
+  isResourceNotFound?: boolean;
   isValidationError?: boolean;
 };
 
@@ -24,6 +25,11 @@ const CONCURRENCY_KEYWORDS = [
 const DEPENDENT_LINES_KEYWORDS = [
   'dependent journal lines exist',
   'ledger journal table cannot be deleted',
+];
+
+const RESOURCE_NOT_FOUND_KEYWORDS = [
+  'no resources were found when selecting for update',
+  'no resource was found when selecting for update',
 ];
 
 @Injectable()
@@ -150,6 +156,7 @@ export class DfoErrorExtractorService {
         code: error.code,
         isConcurrencyConflict: error.isConcurrencyConflict,
         isDependentLinesError: error.isDependentLinesError,
+        isResourceNotFound: error.isResourceNotFound,
         isValidationError: error.isValidationError,
       };
     }
@@ -224,6 +231,10 @@ export class DfoErrorExtractorService {
       fullText.includes(k),
     );
 
+    const isResourceNotFound =
+      status === 404 ||
+      RESOURCE_NOT_FOUND_KEYWORDS.some((k) => fullText.includes(k));
+
     const isValidationError =
       status === 400 &&
       (fullText.includes('validation') || fullText.includes('invalid'));
@@ -234,6 +245,7 @@ export class DfoErrorExtractorService {
       code,
       isConcurrencyConflict,
       isDependentLinesError,
+      isResourceNotFound,
       isValidationError,
     };
   }
