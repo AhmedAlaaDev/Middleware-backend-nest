@@ -271,6 +271,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
     const contract = d365foClient.post.mock.calls[0][1]._contract;
     expect(contract.Lines).toHaveLength(2);
+    expect(
+      contract.Lines.every((line: Record<string, unknown>) =>
+        Object.prototype.hasOwnProperty.call(
+          line,
+          'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+        ),
+      ),
+    ).toBe(true);
     expect(contract.Lines[0]).toEqual(
       expect.objectContaining({
         journalNum: 'JN-BULK',
@@ -297,8 +305,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'offsetDEFAULTDIMENSIONDISPLAYVALUE',
     );
     expect(contract.Lines[1]).not.toHaveProperty('offsetAccountDisplayValue');
-    expect(contract.Lines[1]).not.toHaveProperty(
+    expect(contract.Lines[1]).toHaveProperty(
       'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+      '',
     );
     expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountTypeStr');

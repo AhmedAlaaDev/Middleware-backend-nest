@@ -91,7 +91,7 @@ export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
   'accountTypeStr'
 > & {
   accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr>;
-  OffsetDEFAULTDIMENSIONDISPLAYVALUE?: string;
+  OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
 };
 
 export interface TSLedgerJournalTransCustomBulkRequestBody {
