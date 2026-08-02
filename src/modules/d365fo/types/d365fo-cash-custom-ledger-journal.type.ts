@@ -88,10 +88,23 @@ export interface TSLedgerJournalTransCustomRequest {
 
 export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
   TSLedgerJournalTransCustomRequestBody,
-  'accountTypeStr'
+  | 'accountTypeStr'
+  | 'offsetDEFAULTDIMENSIONDISPLAYVALUE'
+  | 'offsetAccountDisplayValue'
+  | 'OffsetAccountTypeStr'
+  | 'OffsetCompany'
+  | 'OFFSETFINTAGDISPLAYVALUE'
+  | 'OFFSETTRANSACTIONTEXT'
 > & {
   accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr>;
+  offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
   OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  offsetAccountDisplayValue: string;
+  OffsetAccountDisplayValue: string;
+  OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
+  OffsetCompany: string;
+  OFFSETFINTAGDISPLAYVALUE: string;
+  OFFSETTRANSACTIONTEXT: string;
 };
 
 export interface TSLedgerJournalTransCustomBulkRequestBody {

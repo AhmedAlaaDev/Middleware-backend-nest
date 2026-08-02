@@ -683,16 +683,26 @@ export class CustomerPaymentJournalService {
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
+    const offsetDefaultDimension =
+      line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '';
+    const offsetAccountDisplayValue = line.offsetAccountDisplayValue ?? '';
+
     // AB#2079 documents lowercase account types for the bulk Map contract.
-    // The live X++ implementation unconditionally probes the Pascal-case key
-    // on every line, so single-sided lines must provide it as an empty string.
+    // Live X++ uses case-sensitive Map.lookup calls for every offset key. Keep
+    // all keys present but empty for a main-account-only (offsetless) line.
     return {
       ...line,
       accountTypeStr: String(line.accountTypeStr ?? '')
         .trim()
         .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
-      OffsetDEFAULTDIMENSIONDISPLAYVALUE:
-        line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
+      OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
+      offsetAccountDisplayValue,
+      OffsetAccountDisplayValue: offsetAccountDisplayValue,
+      OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
+      OffsetCompany: line.OffsetCompany ?? '',
+      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',
+      OFFSETTRANSACTIONTEXT: line.OFFSETTRANSACTIONTEXT ?? '',
     };
   }
 
