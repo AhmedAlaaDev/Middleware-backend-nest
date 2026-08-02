@@ -684,13 +684,21 @@ export class CustomerPaymentJournalService {
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
     // AB#2079 documents lowercase account types for the bulk Map contract.
-    // Preserve every other key exactly as mapped, including offset omission.
-    return {
+    // The live X++ implementation also probes the Pascal-case dimension key,
+    // but only add it when this is a real offset line.
+    const bulkLine: TSLedgerJournalTransCustomBulkLineRequestBody = {
       ...line,
       accountTypeStr: String(line.accountTypeStr ?? '')
         .trim()
         .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
     };
+
+    if (line.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
+      bulkLine.OffsetDEFAULTDIMENSIONDISPLAYVALUE =
+        line.offsetDEFAULTDIMENSIONDISPLAYVALUE;
+    }
+
+    return bulkLine;
   }
 
   /**

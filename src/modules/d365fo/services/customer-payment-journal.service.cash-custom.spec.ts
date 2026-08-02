@@ -193,7 +193,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
     expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
-    expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
+    expect(postedLine).toHaveProperty(
+      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'BU-001|CC-002|Dept-004',
+    );
     expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
@@ -304,7 +307,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(contract.Lines[1]).not.toHaveProperty('OFFSETTRANSACTIONTEXT');
   });
 
-  it('posts the documented AB#2079 body without undocumented aliases', async () => {
+  it('adds the live X++ map alias without changing the documented AB#2079 fields', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -370,6 +373,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             ...documentedLine,
             journalNum: 'Mesco-000013758',
             accountTypeStr: 'vendor',
+            OffsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
           },
         ],
       },
