@@ -277,7 +277,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
   });
 
-  it('clears a persisted header after rollback confirms it is already absent', async () => {
+  it('recreates a missing persisted header within the same attempt', async () => {
     const group = makeGroup(glRoute);
     const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
       group,
@@ -290,22 +290,29 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
         payload: group,
       },
     ]);
-    cashStrategy.postLinesForHeader.mockRejectedValue(
-      new Error('Journal Mesco-000013757 was not found.'),
-    );
-    rollback.rollbackAll.mockResolvedValue({
-      failedToDeleteHeaders: [],
-    });
+    cashStrategy.postLinesForHeader
+      .mockRejectedValueOnce(
+        new Error('Journal Mesco-000013757 was not found.'),
+      )
+      .mockResolvedValueOnce([]);
 
-    await expect(processor.process(job as any)).rejects.toThrow(
-      'Journal Mesco-000013757 was not found.',
-    );
+    await processor.process(job as any);
 
-    expect(jobs.resetAfterRollback).toHaveBeenCalledWith(
+    expect(cashStrategy.postHeadersInBatches).toHaveBeenCalledWith(
+      [group.header],
+      1,
+    );
+    expect(jobs.setCreatedHeader).toHaveBeenCalledWith(
       'job-2045',
-      ['Mesco-000013757'],
-      [],
+      0,
+      'D365-RET-001',
     );
+    expect(cashStrategy.postLinesForHeader.mock.calls).toEqual([
+      ['Mesco-000013757', group.lines, 'm-p', 20],
+      ['D365-RET-001', group.lines, 'm-p', 20],
+    ]);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
   });
 
   it('rolls back a header completed by an earlier attempt if a later route fails', async () => {

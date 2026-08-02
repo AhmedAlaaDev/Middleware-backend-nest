@@ -139,24 +139,18 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           job.data.cashDirection ?? 'in',
         );
 
-        let headerId = record.createdHeaderId;
+        const persistedHeaderId = record.createdHeaderId;
+        let headerId = persistedHeaderId;
         if (!headerId) {
-          const result = await postingStrategy.postHeadersInBatches(
-            [record.payload.header],
-            1,
+          headerId = await this.createAndTrackHeader(
+            postingStrategy,
+            record.payload.header,
+            created,
+            jobId,
+            record.index,
+            job.data.company,
+            routedGroup?.route,
           );
-          if (result.headerIds.length !== 1 || !result.headerIds[0]?.trim()) {
-            throw new Error('D365FO did not return one payment header ID');
-          }
-          headerId = result.headerIds[0];
-          // Track the D365 header before persisting its ID. If the Mongo write
-          // fails, the catch block can still roll the external header back.
-          created.push({
-            headerKey: headerId,
-            dataAreaId: job.data.company,
-            route: routedGroup?.route,
-          });
-          await this.jobs.setCreatedHeader(jobId, record.index, headerId);
         } else {
           created.push({
             headerKey: headerId,
@@ -164,12 +158,42 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             route: routedGroup?.route,
           });
         }
-        await postingStrategy.postLinesForHeader(
-          headerId,
-          record.payload.lines,
-          job.data.company,
-          LINE_CHUNK_SIZE,
-        );
+        try {
+          await postingStrategy.postLinesForHeader(
+            headerId,
+            record.payload.lines,
+            job.data.company,
+            LINE_CHUNK_SIZE,
+          );
+        } catch (error) {
+          if (
+            !persistedHeaderId ||
+            !this.isMissingPersistedHeaderError(error, persistedHeaderId)
+          ) {
+            throw error;
+          }
+
+          const staleHeaderIndex = created.findIndex(
+            (header) => header.headerKey === persistedHeaderId,
+          );
+          if (staleHeaderIndex >= 0) created.splice(staleHeaderIndex, 1);
+
+          headerId = await this.createAndTrackHeader(
+            postingStrategy,
+            record.payload.header,
+            created,
+            jobId,
+            record.index,
+            job.data.company,
+            routedGroup?.route,
+          );
+          await postingStrategy.postLinesForHeader(
+            headerId,
+            record.payload.lines,
+            job.data.company,
+            LINE_CHUNK_SIZE,
+          );
+        }
         await this.jobs.completeGroup(jobId, record.index);
         await job.updateProgress({
           completedGroups: record.index + 1,
@@ -202,6 +226,40 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       }
       throw error;
     }
+  }
+
+  private async createAndTrackHeader(
+    strategy: IDfoPostingStrategy,
+    headerRequest: unknown,
+    created: RoutedCreatedHeader[],
+    jobId: string,
+    groupIndex: number,
+    dataAreaId: string,
+    route?: CashJournalRoute,
+  ): Promise<string> {
+    const result = await strategy.postHeadersInBatches([headerRequest], 1);
+    if (result.headerIds.length !== 1 || !result.headerIds[0]?.trim()) {
+      throw new Error('D365FO did not return one payment header ID');
+    }
+
+    const headerId = result.headerIds[0];
+    // Track the D365 header before persisting its ID so a Mongo failure can
+    // still roll the external header back.
+    created.push({ headerKey: headerId, dataAreaId, route });
+    await this.jobs.setCreatedHeader(jobId, groupIndex, headerId);
+    return headerId;
+  }
+
+  private isMissingPersistedHeaderError(
+    error: unknown,
+    headerId: string,
+  ): boolean {
+    const message = dfoErrorMessage(error).toLowerCase();
+    return (
+      message.includes('journal') &&
+      message.includes(headerId.toLowerCase()) &&
+      (message.includes('was not found') || message.includes('does not exist'))
+    );
   }
 
   private asRoutedGroup(
