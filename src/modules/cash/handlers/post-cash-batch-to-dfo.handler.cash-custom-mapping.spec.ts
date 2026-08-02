@@ -499,8 +499,34 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect((handler as any).validateLine(result[0], route)).toEqual([
       'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'customLineApiBody.OffsetAccountTypeStr',
     ]);
+  });
+
+  it('accepts the documented blank offset account type for Cash Out only', () => {
+    const handler = buildHandler();
+    const line = {
+      dataAreaId: 'm-p',
+      LineNumber: 1,
+      cashDirection: 'out',
+      customLineApiBody: {
+        AccountNum: '5019',
+        accountTypeStr: 'Vendor',
+        company: 'm-p',
+        currency: 'EGP',
+        DEFAULTDIMENSIONDISPLAYVALUE: 'account-dimensions',
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
+        offsetAccountDisplayValue: 'PSD EG',
+        OffsetAccountTypeStr: '',
+        OffsetCompany: 'm-p',
+        transDate: '2026-01-01T00:00:00',
+        TaxGroup: 'Non-Taxabl',
+      },
+    };
+
+    expect((handler as any).validateLine(line)).toEqual([]);
+    expect(
+      (handler as any).validateLine({ ...line, cashDirection: 'in' }),
+    ).toContain('customLineApiBody.OffsetAccountTypeStr');
   });
 
   it('keeps offset fields for a standard Cash Out ledger line', () => {

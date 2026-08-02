@@ -189,14 +189,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const postedLine = body._contract.Lines[0];
     expect(postedLine).toHaveProperty('journalNum', 'JN000123');
     expect(postedLine).toHaveProperty('AccountNum', 'VEND001');
-    expect(postedLine).toHaveProperty('accountTypeStr', 'Vendor');
+    expect(postedLine).toHaveProperty('accountTypeStr', 'vendor');
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
-    expect(postedLine).toHaveProperty(
-      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'BU-001|CC-002|Dept-004',
-    );
     expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
     expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
@@ -274,6 +271,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(contract.Lines[0]).toEqual(
       expect.objectContaining({
         journalNum: 'JN-BULK',
+        accountTypeStr: 'vendor',
         VendorGroup: 'Trade',
         ReportingExchangeRate: 2.1,
         MarkedLines: [
@@ -283,26 +281,99 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           }),
         ],
         offsetAccountDisplayValue: 'BANK001',
-        OffsetDEFAULTDIMENSIONDISPLAYVALUE: '',
       }),
     );
     expect(contract.Lines[1]).toEqual(
       expect.objectContaining({
         journalNum: 'JN-BULK',
-        accountTypeStr: 'Ledger',
+        accountTypeStr: 'ledger',
         ReportingExchangeRate: 2.2,
-        OffsetDEFAULTDIMENSIONDISPLAYVALUE: '',
       }),
     );
     expect(contract.Lines[1]).not.toHaveProperty(
       'offsetDEFAULTDIMENSIONDISPLAYVALUE',
     );
     expect(contract.Lines[1]).not.toHaveProperty('offsetAccountDisplayValue');
+    expect(contract.Lines[1]).not.toHaveProperty(
+      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+    );
     expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(contract.Lines[1]).not.toHaveProperty('OffsetAccountTypeStr');
     expect(contract.Lines[1]).not.toHaveProperty('OffsetCompany');
     expect(contract.Lines[1]).not.toHaveProperty('OFFSETFINTAGDISPLAYVALUE');
     expect(contract.Lines[1]).not.toHaveProperty('OFFSETTRANSACTIONTEXT');
+  });
+
+  it('posts the documented AB#2079 body without undocumented aliases', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! Mesco-000013758',
+    });
+
+    const documentedLine = {
+      journalNum: '',
+      AccountNum: '5019',
+      accountTypeStr: 'Vendor',
+      BANKTRANSACTIONTYPE: 'Cash',
+      CENTRALBANKPURPOSECODE: '',
+      CENTRALBANKPURPOSETEXT: '',
+      company: 'm-p',
+      creditAmount: 0,
+      currency: 'EGP',
+      debitAmount: 5000,
+      DEFAULTDIMENSIONDISPLAYVALUE: 'account-dimensions',
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
+      ExchangeRate: 100,
+      FinTagStr: 'financial-tags',
+      ISPREPAYMENT: 'No',
+      ITEMWITHHOLDINGTAXGROUP: '',
+      offsetAccountDisplayValue: 'PSD EG',
+      OffsetAccountTypeStr: '',
+      OffsetCompany: 'm-p',
+      OFFSETFINTAGDISPLAYVALUE: 'offset-financial-tags',
+      OFFSETTRANSACTIONTEXT: 'CashOut - DMT EG-1',
+      PAYMENTID: '221872',
+      PAYMENTMETHODNAME: '',
+      PAYMENTNOTES: 'Direct - Fleet January 2026 (Cash)',
+      PAYMENTREFERENCE: 'CashOut - DMT EG-1 - Fleet',
+      PAYMENTSPECIFICATION: '',
+      PostingProfile: 'V-PP',
+      TaxGroup: 'Non-Taxabl',
+      TAXITEMGROUP: '',
+      transDate: '2026-01-01T00:00:00',
+      TRANSACTIONTEXT: 'Direct - Fleet January 2026 (Cash)',
+      DocumentNum: '15925',
+      DocumentDate: '2026-01-01T00:00:00',
+      ReportingExchangeRate: 2.09863588667366,
+      VendorGroup: 'Custody',
+    };
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000013758',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: documentedLine,
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post.mock.calls[0][1]).toEqual({
+      _contract: {
+        Lines: [
+          {
+            ...documentedLine,
+            journalNum: 'Mesco-000013758',
+            accountTypeStr: 'vendor',
+          },
+        ],
+      },
+    });
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {

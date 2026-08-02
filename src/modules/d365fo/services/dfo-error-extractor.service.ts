@@ -28,6 +28,88 @@ const DEPENDENT_LINES_KEYWORDS = [
 
 @Injectable()
 export class DfoErrorExtractorService {
+  private collectResponseMessages(value: unknown, depth: number = 0): string[] {
+    if (depth > 5 || value === null || value === undefined) return [];
+
+    if (typeof value === 'string') {
+      const message = value.trim();
+      if (!message) return [];
+
+      if (
+        (message.startsWith('{') && message.endsWith('}')) ||
+        (message.startsWith('[') && message.endsWith(']'))
+      ) {
+        try {
+          return this.collectResponseMessages(JSON.parse(message), depth + 1);
+        } catch {
+          // The response is plain text that only resembles JSON.
+        }
+      }
+
+      return [message];
+    }
+
+    if (Array.isArray(value)) {
+      return value.flatMap((item) =>
+        this.collectResponseMessages(item, depth + 1),
+      );
+    }
+
+    if (typeof value !== 'object') return [];
+
+    const record = value as Record<string, unknown>;
+    const messageKeys = [
+      'ExceptionMessage',
+      'exceptionMessage',
+      'ErrorMessage',
+      'errorMessage',
+      'Details',
+      'details',
+      'Message',
+      'message',
+      'error_description',
+      'value',
+    ];
+    const nestedKeys = [
+      'Error',
+      'error',
+      'InnerException',
+      'innerException',
+      'innererror',
+      'innerError',
+      'internalexception',
+      'internalException',
+    ];
+
+    return [...messageKeys, ...nestedKeys].flatMap((key) =>
+      this.collectResponseMessages(record[key], depth + 1),
+    );
+  }
+
+  private isGenericMessage(message: string): boolean {
+    const normalized = message.trim().toLowerCase();
+    return (
+      normalized.startsWith('request failed with status code') ||
+      normalized === 'an unexpected x++ error occurred.' ||
+      normalized === 'an unexpected x++ error occurred' ||
+      normalized === 'an error has occurred.' ||
+      normalized === 'an error has occurred' ||
+      normalized ===
+        'exception has been thrown by the target of an invocation.' ||
+      normalized ===
+        'exception has been thrown by the target of an invocation' ||
+      normalized === 'internal server error'
+    );
+  }
+
+  private getResponseMessage(value: unknown): string {
+    const messages = this.collectResponseMessages(value);
+    const detailedMessage = [...messages]
+      .reverse()
+      .find((message) => !this.isGenericMessage(message));
+    return detailedMessage ?? messages[0] ?? '';
+  }
+
   /**
    * Extracts message from internalexception (or internalException) in the D365FO/OData error tree.
    * Walks innererror chain to find the first non-empty internalexception message.
@@ -61,8 +143,9 @@ export class DfoErrorExtractorService {
    */
   normalize(error: unknown): DfoErrorShape {
     if (error instanceof DfoApiError) {
+      const responseMessage = this.getResponseMessage(error.response?.data);
       return {
-        message: error.message,
+        message: responseMessage || error.message,
         status: error.status,
         code: error.code,
         isConcurrencyConflict: error.isConcurrencyConflict,
@@ -78,8 +161,9 @@ export class DfoErrorExtractorService {
 
     let message = '';
     let code: string | undefined;
+    const responseData = (error as any)?.response?.data;
 
-    const d365foError = (error as any)?.response?.data?.error;
+    const d365foError = responseData?.error;
     if (d365foError) {
       if (typeof d365foError === 'object') {
         const innerMessage = d365foError.innererror?.message;
@@ -105,11 +189,16 @@ export class DfoErrorExtractorService {
       }
     }
 
-    if (!message && (error as any)?.response?.data?.error_description) {
-      message = (error as any).response.data.error_description;
+    const responseMessage = this.getResponseMessage(responseData);
+    if (responseMessage && (!message || this.isGenericMessage(message))) {
+      message = responseMessage;
     }
-    if (!message && (error as any)?.response?.data?.message) {
-      message = (error as any).response.data.message;
+
+    if (!message && responseData?.error_description) {
+      message = responseData.error_description;
+    }
+    if (!message && responseData?.message) {
+      message = responseData.message;
     }
     if (!message && error instanceof Error) {
       message = error.message;

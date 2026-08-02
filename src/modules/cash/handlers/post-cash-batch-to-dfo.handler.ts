@@ -773,7 +773,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (!body.offsetAccountDisplayValue?.trim()) {
         missingFields.push('customLineApiBody.offsetAccountDisplayValue');
       }
-      if (!body.OffsetAccountTypeStr?.trim()) {
+      if (line.cashDirection !== 'out' && !body.OffsetAccountTypeStr?.trim()) {
         missingFields.push('customLineApiBody.OffsetAccountTypeStr');
       }
       if (!body.OffsetCompany?.trim()) {

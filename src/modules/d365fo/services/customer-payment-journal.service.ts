@@ -683,15 +683,13 @@ export class CustomerPaymentJournalService {
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
-    const offsetDefaultDimension =
-      line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '';
-
-    // The deployed X++ contract probes this case-sensitive key before it
-    // determines whether the line has an offset. Keep all other offset fields
-    // absent on single-sided lines so they are not treated as real offsets.
+    // AB#2079 documents lowercase account types for the bulk Map contract.
+    // Preserve every other key exactly as mapped, including offset omission.
     return {
       ...line,
-      OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
+      accountTypeStr: String(line.accountTypeStr ?? '')
+        .trim()
+        .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
     };
   }
 

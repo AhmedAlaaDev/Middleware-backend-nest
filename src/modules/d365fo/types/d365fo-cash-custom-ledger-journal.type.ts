@@ -86,10 +86,12 @@ export interface TSLedgerJournalTransCustomRequest {
   _contract: TSLedgerJournalTransCustomRequestBody;
 }
 
-export type TSLedgerJournalTransCustomBulkLineRequestBody =
-  TSLedgerJournalTransCustomRequestBody & {
-    OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
-  };
+export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
+  TSLedgerJournalTransCustomRequestBody,
+  'accountTypeStr'
+> & {
+  accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr>;
+};
 
 export interface TSLedgerJournalTransCustomBulkRequestBody {
   Lines: TSLedgerJournalTransCustomBulkLineRequestBody[];
