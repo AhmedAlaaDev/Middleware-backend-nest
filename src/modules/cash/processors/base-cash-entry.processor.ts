@@ -542,14 +542,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     errors: string[],
   ): Promise<void> {
-    const vendorLines = lines.filter(
-      (line) => line.IsVendorPayment && line.IsVendor,
-    );
-    if (vendorLines.length === 0) return;
+    // VendorGroup drives MarkedLines (custody vs trade) for every cash-out
+    // vendor line — Custody Settlement / Direct / Other included, not only
+    // Vendor Payment. Settlement-target FO lookups below stay Vendor Payment.
+    const allVendorLines = lines.filter((line) => line.IsVendor);
+    if (allVendorLines.length === 0) return;
 
     const vendorAccounts = [
       ...new Set(
-        vendorLines
+        allVendorLines
           .map((line) => String(line.ACCOUNTDISPLAYVALUE ?? '').trim())
           .filter(Boolean),
       ),
@@ -609,8 +610,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ) ?? '';
     const isCustodyVendor = (line: CashEntryRawDataModel) =>
       getVendorGroup(line).toLowerCase() === 'custody';
-    for (const line of vendorLines) {
+    for (const line of allVendorLines) {
       line.VendorGroup = getVendorGroup(line);
+      if (isCustodyVendor(line)) {
+        line.IsCustodyVendor = true;
+      }
     }
     for (const vendorAccount of vendorAccounts) {
       if (!vendorGroupByAccount.get(vendorAccount.toLowerCase())) {
@@ -619,13 +623,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
       }
     }
+
+    const vendorLines = allVendorLines.filter((line) => line.IsVendorPayment);
+    if (vendorLines.length === 0) return;
+
     const normalVendorLines = vendorLines.filter(
       (line) => !isCustodyVendor(line),
     );
     const custodyVendorLines = vendorLines.filter(isCustodyVendor);
-    for (const line of custodyVendorLines) {
-      line.IsCustodyVendor = true;
-    }
 
     const invoices = normalVendorLines
       .map((line) =>
@@ -1697,9 +1702,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    const markedLine = sourceLine.IsVendor
-      ? this.buildMarkedLine(sourceLine, withholdingLine)
-      : undefined;
+    // Custody Settlement counterparts (e.g. shipline) historically had empty
+    // MarkedInvoice; do not invent invoice settlements for them.
+    const markedLine =
+      sourceLine.IsVendor && (isCustodyVendor || !isCustodySettlement)
+        ? this.buildMarkedLine(sourceLine, withholdingLine)
+        : undefined;
     const hasSettlementTarget = Boolean(
       markedLine &&
         (markedLine.InvoiceNumber ||
@@ -2169,7 +2177,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     HasWithHoldingLine: boolean;
   } {
     const vendorGroup = String(vendorLine.VendorGroup ?? '').trim();
-    const isCustody = vendorGroup.toLowerCase() === 'custody';
+    const isCustody =
+      vendorLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
 
     return {
       InvoiceNumber: isCustody

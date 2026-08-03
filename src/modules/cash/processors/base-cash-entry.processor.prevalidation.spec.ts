@@ -315,6 +315,78 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
   });
 
+  it('hydrates VendorGroup for Custody Settlement and marks DocumentNumber not InvoiceNumber', async () => {
+    const { processor } = createProcessor({
+      custodyAccounts: ['3071'],
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
+      exchangeRate: 1,
+      reportingRate: 1,
+    });
+    (processor as any).vendorNameMap = new Map();
+
+    const lines = [
+      {
+        UniqueId: 466593,
+        LINENUMBER: 1,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3071',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 14688.9,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '15895',
+        INVOICE: 'TMT13',
+        FINTAGDISPLAYVALUE: 'O25-IMP-OC-12140|TAG',
+        TEXT: 'Evergreen',
+        SafeType: 'Custody Settlement',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 466593,
+        LINENUMBER: 2,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Sl-000007',
+        DEBITAMOUNT: 14688.9,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '15895',
+        INVOICE: 'TMT13',
+        FINTAGDISPLAYVALUE: 'O25-IMP-OC-12140|TAG',
+        TEXT: 'Evergreen',
+        SafeType: 'Custody Settlement',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+
+    expect(lines[0].VendorGroup).toBe('Custody');
+    expect(lines[0].IsCustodyVendor).toBe(true);
+    expect(lines[1].VendorGroup).toBe('Trade');
+
+    const formatted = (processor as any).buildLines('466593', lines);
+    expect(formatted).toHaveLength(2);
+    expect(formatted[0].VendorGroup).toBe('Custody');
+    expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
+    expect(formatted[0].MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '15895',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    // Non-custody counterpart on Custody Settlement stays unmarked.
+    expect(formatted[1].MarkedLines).toEqual([]);
+  });
+
   it('blocks custody marking when the ledger lookup is ambiguous', async () => {
     const target: CustodySettlementTarget = {
       documentNumber: 'DOC-2066',
