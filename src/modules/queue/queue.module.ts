@@ -23,6 +23,7 @@ import {
   QueueJob,
   QueueJobSchema,
 } from '@/modules/queue/schemas/queue-job.schema';
+import { BatchPostingControlService } from '@/modules/queue/services/batch-posting-control.service';
 import { DfoRollbackService } from '@/modules/queue/services/dfo-rollback.service';
 import { QueueEventsMonitorService } from '@/modules/queue/services/queue-events-monitor.service';
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
@@ -52,6 +53,7 @@ const strategies = [
   CashJournalPostingStrategy,
 ];
 const queueServices = [
+  BatchPostingControlService,
   DfoRollbackService,
   QueueService,
   QueueJobStoreService,
@@ -100,6 +102,6 @@ const queueServices = [
   ],
   providers: [...processors, ...strategies, ...queueServices],
   controllers: [AdminQueuesController],
-  exports: [QueueService, QueueJobStoreService],
+  exports: [QueueService, QueueJobStoreService, BatchPostingControlService],
 })
 export class QueueModule {}

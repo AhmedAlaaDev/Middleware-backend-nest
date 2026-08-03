@@ -16,6 +16,31 @@ import {
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
+
+export interface QueuePauseState {
+  queueName: QueueName;
+  paused: boolean;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
+
+/** A durable posting job as it is stored in Mongo, before payload narrowing. */
+export interface StoredDurableJob {
+  jobId: string;
+  queueName: string;
+  jobName: string;
+  batchId: string;
+  company: string;
+  correlationId: string;
+  sourceModule: string;
+  payloadVersion: number;
+  journalKind?: string;
+  cashDirection?: string;
+}
+
 export interface DurableJobSubmission {
   job: Job;
   jobId: string;
@@ -147,13 +172,7 @@ export class QueueService {
       journalKind: metadata.journalKind,
       cashDirection: metadata.cashDirection,
     };
-    const job = await queue.add(jobName, payload, {
-      jobId,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5_000 },
-      removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1000 },
-      removeOnFail: { age: 30 * 24 * 60 * 60, count: 5000 },
-    });
+    const job = await queue.add(jobName, payload, this.durableJobOptions(jobId));
 
     const submissionStatus = existingJob ? 'requeued' : 'queued';
     await this.operationalLogs.emit({
@@ -237,6 +256,55 @@ export class QueueService {
       .map((job) => String(job.id));
   }
 
+  /**
+   * Jobs BullMQ is currently executing for a batch. Waiting/paused jobs are
+   * excluded: those can be removed safely when the batch is deleted.
+   */
+  public async findRunningJobsForBatch(batchId: string): Promise<string[]> {
+    const queues = Object.values(QUEUES).map((queueName) =>
+      this.getQueue(queueName),
+    );
+    const jobs = (
+      await Promise.all(queues.map((queue) => queue.getJobs(['active'])))
+    ).flat();
+    return jobs
+      .filter((job) => job.data?.batchId === batchId)
+      .map((job) => String(job.id));
+  }
+
+  /**
+   * Drop every BullMQ job still held for a batch (waiting, delayed, paused, or
+   * leftover active). Missing jobs are ignored so delete stays idempotent.
+   */
+  public async removeJobsForBatch(batchId: string): Promise<string[]> {
+    const queues = Object.values(QUEUES).map((queueName) =>
+      this.getQueue(queueName),
+    );
+    const jobs = (
+      await Promise.all(
+        queues.map((queue) =>
+          queue.getJobs(['waiting', 'active', 'delayed', 'paused']),
+        ),
+      )
+    ).flat();
+
+    const removed: string[] = [];
+    for (const job of jobs) {
+      if (job.data?.batchId !== batchId) continue;
+      try {
+        await job.remove();
+        removed.push(String(job.id));
+      } catch (error) {
+        this.logger.warn(
+          `Could not remove queue job ${String(job.id)} for batch ${batchId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    return removed;
+  }
+
   private emitDuplicateSubmission(
     batchId: string,
     jobId: string,
@@ -296,15 +364,94 @@ export class QueueService {
         journalKind: job.journalKind,
         cashDirection: job.cashDirection,
       } satisfies DurablePostingJobPayload,
-      {
-        jobId: job.jobId,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5_000 },
-        removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1000 },
-        removeOnFail: { age: 30 * 24 * 60 * 60, count: 5000 },
-      },
+      this.durableJobOptions(job.jobId),
     );
     return true;
+  }
+
+  /**
+   * Put a durable posting job back on its queue, reusing the same job ID so the
+   * worker picks the stored groups up where it stopped. Used when a paused
+   * batch is resumed: the previous Redis job has already finished (the worker
+   * returned when it saw the pause), so it is removed first.
+   */
+  public async requeueDurableJob(
+    job: StoredDurableJob,
+  ): Promise<'requeued' | 'already-running'> {
+    const queueName = job.queueName as QueueName;
+    if (job.payloadVersion !== 1 && job.payloadVersion !== 2) {
+      throw new Error(
+        `Unsupported durable posting payload version ${job.payloadVersion}`,
+      );
+    }
+    const existingJob = await this.getJob(queueName, job.jobId);
+
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (['active', 'waiting', 'delayed', 'paused'].includes(state)) {
+        return 'already-running';
+      }
+      await existingJob.remove();
+    }
+
+    await this.getQueue(queueName).add(
+      job.jobName,
+      {
+        batchId: job.batchId,
+        company: job.company,
+        correlationId: job.correlationId,
+        sourceModule: job.sourceModule as DurablePostingJobPayload['sourceModule'],
+        payloadVersion: job.payloadVersion,
+        journalKind: job.journalKind as DurablePostingJobPayload['journalKind'],
+        cashDirection:
+          job.cashDirection as DurablePostingJobPayload['cashDirection'],
+      } satisfies DurablePostingJobPayload,
+      this.durableJobOptions(job.jobId),
+    );
+    return 'requeued';
+  }
+
+  private durableJobOptions(jobId: string): JobsOptions {
+    return {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1000 },
+      removeOnFail: { age: 30 * 24 * 60 * 60, count: 5000 },
+    };
+  }
+
+  /**
+   * Whether a queue is currently accepting work, with the counts a caller needs
+   * to explain what pausing it holds back. Pausing stops the queue from handing
+   * new jobs to a worker; a job that is already running finishes.
+   */
+  public async getPauseState(queueName: QueueName): Promise<QueuePauseState> {
+    const queue = this.getQueue(queueName);
+    const [stats, paused] = await Promise.all([
+      this.getStats(queueName),
+      queue.isPaused(),
+    ]);
+
+    return { queueName, paused, ...stats };
+  }
+
+  public async setPaused(
+    queueName: QueueName,
+    paused: boolean,
+  ): Promise<QueuePauseState> {
+    const queue = this.getQueue(queueName);
+    if (paused) {
+      await queue.pause();
+    } else {
+      await queue.resume();
+    }
+
+    const state = await this.getPauseState(queueName);
+    this.logger.log(
+      `[QUEUE] ${paused ? 'Paused' : 'Resumed'} queue ${queueName} (waiting ${state.waiting}, active ${state.active})`,
+    );
+    return state;
   }
 
   /** 📊 Queue Stats */
@@ -339,16 +486,101 @@ export class QueueService {
     return job.retry();
   }
 
-  /** ❌ Remove Job */
-  public async removeJob(queueName: QueueName, jobId: string) {
+  /**
+   * Remove a BullMQ job when it still exists in Redis. Missing jobs are
+   * ignored so durable-record cleanup can stay idempotent.
+   */
+  public async removeJob(
+    queueName: QueueName,
+    jobId: string,
+  ): Promise<'removed' | 'missing'> {
     const job = await this.getJob(queueName, jobId);
-    if (!job) throw new Error(`Job ${jobId} not found`);
+    if (!job) return 'missing';
 
-    return job.remove();
+    try {
+      await job.remove();
+      return 'removed';
+    } catch (error) {
+      this.logger.warn(
+        `Could not remove queue job ${jobId} from ${queueName}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      // Active workers can refuse remove(); still allow durable purge.
+      return 'missing';
+    }
   }
 
   /** 🗑️ Clean Old Jobs */
   public cleanOldJobs(queueName: QueueName, grace: number = 1000 * 60 * 60) {
     return this.getQueue(queueName).clean(grace, 1000, 'completed');
+  }
+
+  /**
+   * Permanently remove BullMQ jobs in the given states (grace=0).
+   * Loops until each state is empty so large failed piles clear in one call.
+   */
+  public async cleanJobs(
+    queueName: QueueName,
+    types: Array<'completed' | 'wait' | 'active' | 'delayed' | 'failed' | 'paused'>,
+  ): Promise<Record<string, number>> {
+    const queue = this.getQueue(queueName);
+    const removed: Record<string, number> = {};
+
+    for (const type of types) {
+      let total = 0;
+      let batch: string[] = [];
+      do {
+        batch = await queue.clean(0, 1000, type);
+        total += batch.length;
+      } while (batch.length > 0);
+      removed[type] = total;
+    }
+
+    return removed;
+  }
+
+  /**
+   * Force-drop active jobs that `clean('active')` could not remove because a
+   * worker still holds the lock. Moves them to failed, then removes them.
+   */
+  public async forceRemoveActiveJobs(queueName: QueueName): Promise<number> {
+    const queue = this.getQueue(queueName);
+    const active = await queue.getJobs(['active']);
+    let removed = 0;
+
+    for (const job of active) {
+      const jobId = String(job.id);
+      try {
+        await job.moveToFailed(
+          new Error('Force-deleted by admin'),
+          // Token is unknown outside the worker; BullMQ accepts this for admin force paths.
+          '0',
+          true,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not move active job ${jobId} to failed on ${queueName}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      try {
+        const current = await queue.getJob(jobId);
+        if (current) {
+          await current.remove();
+        }
+        removed += 1;
+      } catch (error) {
+        this.logger.warn(
+          `Could not remove active job ${jobId} from ${queueName}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    return removed;
   }
 }

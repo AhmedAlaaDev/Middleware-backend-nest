@@ -14,6 +14,7 @@ import {
   PostLedgerJournalDFOJobPayload,
 } from '@/modules/queue/contracts/post-ledger-journal-dfo-job.contract';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
+import { BatchPostingControlService } from '@/modules/queue/services/batch-posting-control.service';
 import {
   CreatedHeader,
   DfoRollbackService,
@@ -24,6 +25,9 @@ import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-
 
 const LINE_CHUNK_SIZE = 20;
 const ROLLBACK_CHUNK_SIZE = 20;
+
+/** Why the worker stopped walking the journals of a batch. */
+type PostGroupsOutcome = 'completed' | 'paused';
 
 @Processor(QUEUES.DFO_LEDGER_JOURNAL, { concurrency: 1 })
 export class PostLedgerJournalDFOProcessor extends WorkerHost {
@@ -36,6 +40,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     private readonly jobStore: QueueJobStoreService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly traceContext: TraceContextService,
+    private readonly pauseControl: BatchPostingControlService,
   ) {
     super();
   }
@@ -77,7 +82,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     await this.emitLifecycle('queue.job.active', 'active', jobId);
 
     try {
-      await this.executePosting(job, errorCollector);
+      if ((await this.executePosting(job, errorCollector)) === 'paused') return;
       await this.jobStore.markCompleted(jobId);
       await this.emitLifecycle('queue.job.completed', 'completed', jobId);
     } catch (error) {
@@ -104,7 +109,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
   private async executePosting(
     job: Job<PostLedgerJournalDFOJobPayload>,
     errorCollector: PostingErrorCollector,
-  ): Promise<void> {
+  ): Promise<PostGroupsOutcome> {
     const { batchId, company } = job.data;
     const jobId = String(job.id);
     const groups =
@@ -112,9 +117,24 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
     if (!groups.length) throw new Error('No durable journal groups found');
 
     const createdHeaders: CreatedHeader[] = [];
+    let completedGroups = groups.filter(
+      (record) => record.status === QueueJobGroupStatus.COMPLETED,
+    ).length;
     try {
       for (const record of groups) {
         if (record.status === QueueJobGroupStatus.COMPLETED) continue;
+        // Checked between journals, never inside one: a half-written journal
+        // cannot be left behind, and stopping here needs no rollback.
+        if (await this.pauseControl.isPaused(batchId)) {
+          await this.pauseControl.recordWorkerStopped({
+            batchId,
+            jobId,
+            queueName: QUEUES.DFO_LEDGER_JOURNAL,
+            completedGroups,
+            totalGroups: groups.length,
+          });
+          return 'paused';
+        }
         await this.jobStore.markGroupActive(jobId, record.index);
 
         let headerKey = record.createdHeaderId;
@@ -147,6 +167,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
           LINE_CHUNK_SIZE,
         );
         await this.jobStore.completeGroup(jobId, record.index);
+        completedGroups += 1;
         await job.updateProgress({
           completedGroups: record.index + 1,
           totalGroups: groups.length,
@@ -160,6 +181,7 @@ export class PostLedgerJournalDFOProcessor extends WorkerHost {
           .filter((id): id is string => Boolean(id))
           .concat(createdHeaders.map((header) => header.headerKey)),
       );
+      return 'completed';
     } catch (error) {
       if (createdHeaders.length) {
         const rollback = await this.dfoRollbackService.rollbackAll(

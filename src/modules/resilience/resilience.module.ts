@@ -7,7 +7,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CacheableMemory } from 'cacheable';
 import { Keyv } from 'keyv';
 
-import { IConfig, RedisConfig } from '@/config';
+import { IConfig, RedisConfig, ResilienceConfig } from '@/config';
 import { CacheEntryMongoRepository } from '@/modules/resilience/repositories/cache-entry.mongo.repository';
 import { CacheEntryRepository } from '@/modules/resilience/repositories/interfaces/cache-entry.repository';
 import {
@@ -66,10 +66,17 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
         };
       },
     }),
-    HttpModule.register({
+    HttpModule.registerAsync({
       global: true,
-      timeout: 120000, // 120 seconds default, configurable via HTTP_TIMEOUT env var
-      maxRedirects: 5, // 5 redirects
+      inject: [ConfigService],
+      useFactory: (cfg: ConfigService<IConfig>) => {
+        const timeout =
+          cfg.get<ResilienceConfig>('resilience')?.httpTimeout ?? 120_000;
+        return {
+          timeout,
+          maxRedirects: 5,
+        };
+      },
     }),
   ],
   providers: [

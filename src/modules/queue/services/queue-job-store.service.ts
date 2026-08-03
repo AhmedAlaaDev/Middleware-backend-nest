@@ -216,6 +216,109 @@ export class QueueJobStoreService {
     );
   }
 
+  /**
+   * Record that the worker stopped on a paused batch. Kept apart from failure
+   * so the batch is not rolled back and boot recovery leaves it alone.
+   */
+  async markPaused(jobId: string): Promise<void> {
+    await this.jobs.updateOne(
+      { jobId },
+      {
+        $set: {
+          status: DurableQueueJobStatus.PAUSED,
+          pausedAt: new Date(),
+          heartbeatAt: new Date(),
+        },
+        $unset: { error: 1 },
+      },
+    );
+  }
+
+  /** Put a paused job back in the queued state when posting resumes. */
+  async markQueued(jobId: string): Promise<void> {
+    await this.jobs.updateOne(
+      { jobId },
+      {
+        $set: {
+          status: DurableQueueJobStatus.QUEUED,
+          heartbeatAt: new Date(),
+        },
+        $unset: { pausedAt: 1, error: 1 },
+      },
+    );
+  }
+
+  /** Durable jobs in any of the given statuses, most recent first. */
+  async listByStatuses(statuses: DurableQueueJobStatus[], limit = 50) {
+    return this.jobs
+      .find({ status: { $in: statuses } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
+  }
+
+  /** Most recent durable job recorded for a batch, in any status. */
+  async findLatestForBatch(batchId: string) {
+    return this.jobs
+      .findOne({ batchId })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+  }
+
+  /**
+   * Open posting jobs for a batch: still queued, running, retrying, or stopped
+   * on a pause. Used when deleting a batch so its queue work is discarded first.
+   */
+  async listOpenForBatch(batchId: string) {
+    return this.jobs
+      .find({
+        batchId,
+        status: {
+          $in: [
+            DurableQueueJobStatus.QUEUED,
+            DurableQueueJobStatus.ACTIVE,
+            DurableQueueJobStatus.RETRYING,
+            DurableQueueJobStatus.PAUSED,
+          ],
+        },
+      })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+  }
+
+  /** Drop the durable job and its journal groups after a batch is deleted. */
+  async purgeJob(jobId: string): Promise<void> {
+    await Promise.all([
+      this.groups.deleteMany({ jobId }),
+      this.jobs.deleteOne({ jobId }),
+    ]);
+  }
+
+  /**
+   * Permanently delete durable jobs (and their journal groups) for a queue,
+   * optionally limited to specific statuses.
+   */
+  async purgeByQueue(
+    queueName: string,
+    statuses?: DurableQueueJobStatus[],
+  ): Promise<number> {
+    const query: Record<string, unknown> = { queueName };
+    if (statuses?.length) {
+      query.status = { $in: statuses };
+    }
+
+    const docs = await this.jobs.find(query).select({ jobId: 1 }).lean().exec();
+    const jobIds = docs.map((doc) => doc.jobId);
+    if (jobIds.length === 0) return 0;
+
+    await this.groups.deleteMany({ jobId: { $in: jobIds } });
+    const result = await this.jobs.deleteMany(query);
+    return result.deletedCount ?? 0;
+  }
+
   async markCompleted(jobId: string): Promise<void> {
     await this.jobs.updateOne(
       { jobId },

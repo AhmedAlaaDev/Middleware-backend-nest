@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -133,6 +137,70 @@ export class ApplicationLogQueryService {
     return doc;
   }
 
+  async delete(eventId: string) {
+    const result = await this.model.deleteOne({ eventId }).exec();
+    if (result.deletedCount === 0) {
+      throw new NotFoundException(`Log event ${eventId} not found`);
+    }
+    return { status: 'deleted' as const, eventId, deletedCount: 1 };
+  }
+
+  /**
+   * Delete logs matching the live-feed filters. Empty filters require
+   * confirmAll=true so a mistyped request cannot wipe the collection.
+   */
+  async deleteMatchingLive(
+    filters: ApplicationLogFilters,
+    confirmAll?: string,
+  ) {
+    const query = this.buildQuery({
+      ...filters,
+      before: undefined,
+      limit: undefined,
+    });
+    return this.deleteByQuery(query, confirmAll);
+  }
+
+  /**
+   * Delete logs matching the explorer filters. Empty filters require
+   * confirmAll=true so a mistyped request cannot wipe the collection.
+   */
+  async deleteMatchingExplorer(
+    filters: ApplicationLogFiltersDto,
+    confirmAll?: string,
+  ) {
+    const query = this.buildOffsetQuery(filters);
+    return this.deleteByQuery(query, confirmAll);
+  }
+
+  private async deleteByQuery(
+    query: Record<string, any>,
+    confirmAll?: string,
+  ) {
+    if (Object.keys(query).length === 0 && confirmAll !== 'true') {
+      throw new BadRequestException(
+        'Pass confirmAll=true to delete all application logs',
+      );
+    }
+    const result = await this.model.deleteMany(query).exec();
+    return {
+      status: 'deleted' as const,
+      deletedCount: result.deletedCount ?? 0,
+    };
+  }
+
+  /**
+   * Most recent event of a given type, used to inspect the last captured
+   * request/response bodies for an integration.
+   */
+  async getLatestByEventType(eventType: string) {
+    return this.model
+      .findOne({ eventType })
+      .sort({ timestamp: -1, _id: -1 })
+      .lean()
+      .exec();
+  }
+
   private buildQuery(filters: ApplicationLogFilters): Record<string, any> {
     const query: Record<string, any> = {};
     for (const key of [
@@ -223,6 +291,18 @@ export class ApplicationLogQueryService {
 
     if (filters.requestId) {
       query.requestId = filters.requestId;
+    }
+
+    if (filters.eventType) {
+      query.eventType = filters.eventType;
+    }
+
+    if (filters.context) {
+      query.context = filters.context;
+    }
+
+    if (filters.hasPayload === 'true') {
+      query.payload = { $exists: true, $ne: null };
     }
 
     return query;

@@ -15,6 +15,10 @@ services:
     dns:
       - 8.8.8.8
       - 1.1.1.1
+    # Windows hosts maps onebox -> 127.0.0.1; from the container that must be the Docker host.
+    extra_hosts:
+      - 'usnconeboxax1aos.cloud.onebox.dynamics.com:host-gateway'
+      - 'host.docker.internal:host-gateway'
     environment:
       NODE_ENV: development
       NODE_OPTIONS: '--dns-result-order=ipv4first'
@@ -37,6 +41,27 @@ services:
       cache-redis:
         condition: service_healthy
     command: sh -c "cd /app && pnpm start:dev:docker"
+
+  client:
+    build:
+      context: ../D365FOMiddleware_Client
+      dockerfile: Dockerfile
+    container_name: d365fo-middleware-client
+    restart: unless-stopped
+    ports:
+      - '5173:5173'
+    volumes:
+      - ../D365FOMiddleware_Client/src:/app/src
+      - ../D365FOMiddleware_Client/public:/app/public
+      - ../D365FOMiddleware_Client/package.json:/app/package.json
+      - ../D365FOMiddleware_Client/vite.config.js:/app/vite.config.js
+      - ../D365FOMiddleware_Client/.env:/app/.env
+      - client-node_modules-dev:/app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    networks:
+      - mongodb_network
+      - redis_network
 
   mongodb:
     image: mongodb/mongodb-community-server:8.0.4-ubi8
@@ -130,6 +155,8 @@ volumes:
   cache-redis-data-dev:
     driver: local
   node_modules-dev:
+    driver: local
+  client-node_modules-dev:
     driver: local
 
 networks:

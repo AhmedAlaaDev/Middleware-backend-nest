@@ -1,11 +1,19 @@
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
-import { QueueService } from '@/modules/queue/services/queue.service';
+import {
+  BatchPostingControlError,
+  BatchPostingControlService,
+} from '@/modules/queue/services/batch-posting-control.service';
 
 @CommandHandler(DeleteBatchCommand)
 export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
@@ -13,7 +21,7 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
 
   constructor(
     private readonly dataBatchService: DataBatchService,
-    private readonly queues: QueueService,
+    private readonly postingControl: BatchPostingControlService,
     private readonly logs: OperationalLoggerService,
   ) {}
 
@@ -31,16 +39,27 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
       );
     }
 
-    const activeJobIds = await this.queues.findActiveJobsForBatch(batchId);
-    if (activeJobIds.length) {
-      throw new ConflictException(
-        'This batch cannot be deleted while a related job is queued or running.',
+    // Drain queue work first, including an in-flight posting job. The journal
+    // the worker is writing may still finish in D365FO; further journals stop.
+    let discarded: { removedJobIds: string[]; purgedDurableJobIds: string[] } =
+      { removedJobIds: [], purgedDurableJobIds: [] };
+    try {
+      discarded = await this.postingControl.discardPostingForDelete(
+        batchId,
+        actor,
       );
+    } catch (error) {
+      if (error instanceof BatchPostingControlError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
     }
 
     await this.dataBatchService.deleteAsync(batchId);
 
-    this.logger.log(`Deleted batch ${batchId} and all related records`);
+    this.logger.log(
+      `Deleted batch ${batchId} and all related records (discarded ${discarded.purgedDurableJobIds.length} durable job(s))`,
+    );
     await this.logs.emit({
       level: 'info',
       message: `Batch ${batchId} hard-deleted`,
@@ -53,6 +72,8 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
         actorName: actor.name,
         actorEmail: actor.email,
         deletionMode: 'hard-delete',
+        removedJobIds: discarded.removedJobIds,
+        purgedDurableJobIds: discarded.purgedDurableJobIds,
       },
     });
   }

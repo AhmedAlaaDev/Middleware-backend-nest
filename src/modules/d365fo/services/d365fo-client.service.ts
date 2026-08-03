@@ -9,6 +9,7 @@ import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service
 import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOODataResponse } from '@/modules/d365fo/types/d365fo-odata.type';
 import { configureSystemCertificateAuthorities } from '@/modules/d365fo/utils/configure-system-ca';
+import { LogPayloadService } from '@/modules/observability/services/log-payload.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { CacheService } from '@/modules/resilience/services/cache.service';
 import { CircuitBreakerService } from '@/modules/resilience/services/circuit-breaker.service';
@@ -32,6 +33,7 @@ export class D365FOClientService {
     private readonly retryService: RetryService,
     private readonly configService: ConfigService<IConfig>,
     private readonly operationalLogs: OperationalLoggerService,
+    private readonly logPayloads: LogPayloadService,
     private readonly dfoErrors: DfoErrorExtractorService,
   ) {
     const systemCa = configureSystemCertificateAuthorities();
@@ -171,25 +173,40 @@ export class D365FOClientService {
     data: TRequest,
     options?: {
       headers?: Record<string, string>;
+      /** Per-request Axios timeout in ms (overrides HttpModule default). */
+      timeout?: number;
+      /**
+       * Override executeWithRetry attempts. Use `0` for bulk mutations where a
+       * client timeout must not re-submit (FO may still be committing).
+       */
+      retries?: number;
     },
   ): Promise<TResponse> {
     const fullUrl = `${this.resource}${endpoint}`;
-    const { headers = {} } = options || {};
+    const { headers = {}, timeout, retries } = options || {};
 
-    return this.traceMutation('POST', endpoint, () =>
-      this.retryService.executeWithRetry(async () => {
-        const token = await this.authService.getAuthorizationHeader();
-        const response = await firstValueFrom(
-          this.httpService.post<TResponse>(fullUrl, data, {
-            headers: {
-              Authorization: token,
-              'Content-Type': 'application/json',
-              ...headers,
-            },
-          }),
-        );
-        return response.data;
-      }),
+    return this.traceMutation(
+      'POST',
+      endpoint,
+      () =>
+        this.retryService.executeWithRetry(
+          async () => {
+            const token = await this.authService.getAuthorizationHeader();
+            const response = await firstValueFrom(
+              this.httpService.post<TResponse>(fullUrl, data, {
+                ...(timeout !== undefined ? { timeout } : {}),
+                headers: {
+                  Authorization: token,
+                  'Content-Type': 'application/json',
+                  ...headers,
+                },
+              }),
+            );
+            return response.data;
+          },
+          retries !== undefined ? { retries } : undefined,
+        ),
+      data,
     );
   }
 
@@ -206,21 +223,25 @@ export class D365FOClientService {
     const fullUrl = `${this.resource}${endpoint}`;
     const { headers = {} } = options || {};
 
-    return this.traceMutation('PATCH', endpoint, () =>
-      this.retryService.executeWithRetry(async () => {
-        const token = await this.authService.getAuthorizationHeader();
-        const response = await firstValueFrom(
-          this.httpService.patch<TResponse>(fullUrl, data, {
-            headers: {
-              Authorization: token,
-              'Content-Type': 'application/json',
-              ...headers,
-            },
-          }),
-        );
+    return this.traceMutation(
+      'PATCH',
+      endpoint,
+      () =>
+        this.retryService.executeWithRetry(async () => {
+          const token = await this.authService.getAuthorizationHeader();
+          const response = await firstValueFrom(
+            this.httpService.patch<TResponse>(fullUrl, data, {
+              headers: {
+                Authorization: token,
+                'Content-Type': 'application/json',
+                ...headers,
+              },
+            }),
+          );
 
-        return response.data;
-      }),
+          return response.data;
+        }),
+      data,
     );
   }
 
@@ -253,12 +274,23 @@ export class D365FOClientService {
     );
   }
 
+  /**
+   * Wrap a mutating call so the complete request body, the response body, and
+   * the outcome land on a single operational log event.
+   */
   private async traceMutation<T>(
     method: string,
     endpoint: string,
     request: () => Promise<T>,
+    requestBody?: unknown,
   ): Promise<T> {
     const startedAt = Date.now();
+    const metadata = {
+      method,
+      endpoint,
+      url: `${this.resource}${endpoint}`,
+    };
+
     try {
       const response = await request();
       await this.operationalLogs.emit({
@@ -268,11 +300,13 @@ export class D365FOClientService {
         eventType: 'd365fo.request.completed',
         status: 'completed',
         durationMs: Date.now() - startedAt,
-        metadata: { method, endpoint },
+        metadata,
+        payload: this.logPayloads.captureExchange(requestBody, response),
       });
       return response;
     } catch (error) {
       const dfoError = this.dfoErrors.toError(error, { method, endpoint });
+      const httpStatus = (error as AxiosError)?.response?.status;
       await this.operationalLogs.emit({
         level: 'error',
         message: `${method} ${endpoint} failed`,
@@ -285,7 +319,14 @@ export class D365FOClientService {
           message: dfoError.message,
           stack: dfoError.stack,
         },
-        metadata: { method, endpoint },
+        metadata: {
+          ...metadata,
+          ...(httpStatus ? { httpStatus } : {}),
+        },
+        payload: this.logPayloads.captureExchange(
+          requestBody,
+          (error as AxiosError)?.response?.data,
+        ),
       });
       throw dfoError;
     }

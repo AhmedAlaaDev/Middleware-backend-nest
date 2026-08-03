@@ -135,6 +135,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         `Batch status is ${batch.status} and cannot be posted to D365FO.`,
       );
     }
+    if (batch.postingPaused) {
+      throw new BadRequestException(
+        'Posting is paused for this batch. Resume posting before sending it to D365FO.',
+      );
+    }
     if ((batch.errorCount ?? 0) > 0) {
       throw new BadRequestException(
         `Batch contains ${batch.errorCount} validation error(s) and cannot be posted to D365FO. Correct the source data and upload or reprocess the batch before posting.`,
@@ -517,8 +522,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         Voucher: '',
       };
 
+      // FO JournalLineContract::constructFromJsonObject always does
+      // jsonMap.lookup("VendorGroup") (no exists check). Ledger / non-vendor
+      // lines must still send an empty string or FO throws
+      // `The value "VendorGroup" is not found in the map.`
+      customLineApiBody.VendorGroup =
+        cashDirection === 'out' && accountTypeStr === 'Vendor'
+          ? vendorGroup
+          : '';
+
       if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
-        customLineApiBody.VendorGroup = vendorGroup;
         customLineApiBody.MarkedLines = markedLines;
       } else {
         customLineApiBody.MARKEDINVOICE = markedInvoice;

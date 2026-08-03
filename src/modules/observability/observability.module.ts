@@ -15,6 +15,7 @@ import {
 } from '@/modules/observability/schemas/application-log.schema';
 import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
 import { LogArchiveService } from '@/modules/observability/services/log-archive.service';
+import { LogPayloadService } from '@/modules/observability/services/log-payload.service';
 import { LogStreamService } from '@/modules/observability/services/log-stream.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
@@ -59,6 +60,7 @@ import { TraceContextService } from '@/modules/observability/services/trace-cont
     TraceContextService,
     TraceContextMiddleware,
     LogStreamService,
+    LogPayloadService,
     OperationalLoggerService,
     LogArchiveService,
     ApplicationLogQueryService,
@@ -74,6 +76,7 @@ import { TraceContextService } from '@/modules/observability/services/trace-cont
   exports: [
     TraceContextService,
     LogStreamService,
+    LogPayloadService,
     OperationalLoggerService,
     ApplicationLogQueryService,
   ],

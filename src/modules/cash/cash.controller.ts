@@ -1,9 +1,23 @@
-import { Body, Controller, Post, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseInterceptors,
+} from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+} from '@nestjs/swagger';
 
 import { ExcelFile } from '@/common/decorators';
+import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import {
   ProcessCashInFreightCommand,
   ProcessCashInTruckingCommand,
@@ -18,6 +32,16 @@ import {
   CashOutTruckingDocDto,
   PostToDFODto,
 } from '@/modules/cash/dtos';
+import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
+import { QUEUES } from '@/modules/queue/constants/queues';
+import {
+  QueuePauseState,
+  QueueService,
+} from '@/modules/queue/services/queue.service';
+import { UserRole } from '@/modules/user/schemas/user.schema';
+
+/** Every cash batch, in or out, is posted through this queue. */
+const CASH_POSTING_QUEUE = QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL;
 
 /**
  * Data Migration - Cash (single controller for Cash-In and Cash-Out)
@@ -25,7 +49,11 @@ import {
 @ApiBearerAuth()
 @Controller('DataMigration/Cash')
 export class CashController {
-  constructor(private readonly commandBus: CommandBus) {}
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly logs: ApplicationLogQueryService,
+    private readonly queues: QueueService,
+  ) {}
 
   /**
    * Cash-Out Freight Document
@@ -112,5 +140,67 @@ export class CashController {
   })
   public async postToDFO(@Body() body: PostToDFODto) {
     return this.commandBus.execute(new PostCashBatchToDFOCommand(body.batchId));
+  }
+
+  /**
+   * State of the queue that carries cash batches to D365FO. Readable by anyone
+   * who can post a batch, so the Cash pages can show that uploads are held.
+   */
+  @Get('posting-queue')
+  @ApiOperation({ summary: 'Get the state of the cash posting queue' })
+  public getPostingQueue(): Promise<QueuePauseState> {
+    return this.queues.getPauseState(CASH_POSTING_QUEUE);
+  }
+
+  /**
+   * Stop handing cash posting jobs to the worker. Batches submitted while the
+   * queue is paused wait in it; a batch that is already being posted finishes
+   * its current journal and is only stopped by pausing that batch.
+   */
+  @Post('posting-queue/pause')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Pause the cash posting queue' })
+  public pausePostingQueue(): Promise<QueuePauseState> {
+    return this.queues.setPaused(CASH_POSTING_QUEUE, true);
+  }
+
+  @Post('posting-queue/resume')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Resume the cash posting queue' })
+  public resumePostingQueue(): Promise<QueuePauseState> {
+    return this.queues.setPaused(CASH_POSTING_QUEUE, false);
+  }
+
+  /**
+   * Most recent JSON body sent to the DFO cash-out bulk endpoint, read back
+   * from the observability log store.
+   */
+  @Post('debug/latest-dfo-payload')
+  public async getLatestDfoPayload() {
+    const log = await this.logs.getLatestByEventType(
+      'd365fo.cash-out.bulk-request',
+    );
+
+    if (!log) {
+      return {
+        message: 'No payload captured yet. Please trigger an upload.',
+      };
+    }
+
+    const payload = log.payload as
+      | { request?: { body?: unknown; truncated?: boolean } }
+      | undefined;
+
+    return {
+      eventId: log.eventId,
+      timestamp: log.timestamp,
+      journalNum: log.metadata?.journalNum,
+      lineCount: log.metadata?.lineCount,
+      lineNumbers: log.metadata?.lineNumbers,
+      truncated: payload?.request?.truncated ?? false,
+      body: payload?.request?.body ?? null,
+    };
   }
 }

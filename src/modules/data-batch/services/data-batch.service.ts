@@ -436,6 +436,31 @@ export class DataBatchService {
     return this.dataBatchRepo.recordReprocessQueued(batchId, audit);
   }
 
+  /**
+   * Read the posting pause flag on its own. The posting workers call this
+   * between journals, so it must not pull the whole batch document.
+   */
+  public isPostingPausedAsync(batchId: string): Promise<boolean> {
+    return this.dataBatchRepo.isPostingPaused(batchId);
+  }
+
+  public listPostingPausedIdsAsync(batchIds: string[]): Promise<string[]> {
+    return this.dataBatchRepo.listPostingPausedIds(batchIds);
+  }
+
+  public setPostingPauseAsync(
+    batchId: string,
+    paused: boolean,
+    audit: {
+      at: Date;
+      userId: string;
+      userName: string;
+      userEmail: string;
+    },
+  ): Promise<IDataBatch | null> {
+    return this.dataBatchRepo.setPostingPause(batchId, paused, audit);
+  }
+
   public updateReprocessStatus(
     batchId: string,
     status: 'active' | 'completed' | 'failed',

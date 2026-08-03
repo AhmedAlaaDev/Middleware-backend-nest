@@ -84,7 +84,7 @@ describe('CashOutExchangeRateService', () => {
       toCurrency: 'EGP',
       startDate: '2026-01-01',
       endDate: '2026-02-28',
-      useCache: false,
+      useCache: true,
     });
     expect(
       d365ExchangeRateService.getExchangeRatesForCurrencyRange,
@@ -94,7 +94,7 @@ describe('CashOutExchangeRateService', () => {
       toCurrency: 'EGP',
       startDate: '2026-01-01',
       endDate: '2026-02-28',
-      useCache: false,
+      useCache: true,
     });
     expect(
       d365ExchangeRateService.getExchangeRatesForCurrencyRange,
@@ -104,7 +104,7 @@ describe('CashOutExchangeRateService', () => {
       toCurrency: 'USD',
       startDate: '2026-01-01',
       endDate: '2026-02-28',
-      useCache: false,
+      useCache: true,
     });
 
     // The official D365 rate wins over the deliberately poisoned Excel value,

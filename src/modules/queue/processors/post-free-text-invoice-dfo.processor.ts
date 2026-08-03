@@ -19,6 +19,7 @@ import {
   type FreeTextInvoiceLinePostingMeta,
 } from '@/modules/queue/contracts/post-free-text-invoice-dfo-job.contract';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
+import { BatchPostingControlService } from '@/modules/queue/services/batch-posting-control.service';
 import {
   CreatedHeader,
   DfoRollbackService,
@@ -29,6 +30,9 @@ import { FreeTextInvoicePostingStrategy } from '@/modules/queue/strategies/free-
 
 const LINE_CHUNK_SIZE = 20;
 const ROLLBACK_CHUNK_SIZE = 20;
+
+/** Why the worker stopped walking the invoices of a batch. */
+type PostGroupsOutcome = 'completed' | 'paused';
 
 @Processor(QUEUES.DFO_FREE_TEXT_INVOICE, { concurrency: 1 })
 export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
@@ -42,6 +46,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     private readonly jobStore: QueueJobStoreService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly traceContext: TraceContextService,
+    private readonly pauseControl: BatchPostingControlService,
   ) {
     super();
   }
@@ -83,7 +88,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
     await this.jobStore.markActive(jobId, job.attemptsMade);
     await this.emitLifecycle('queue.job.active', 'active', jobId);
     try {
-      await this.executePosting(job, errorCollector);
+      if ((await this.executePosting(job, errorCollector)) === 'paused') return;
       await this.jobStore.markCompleted(jobId);
       await this.emitLifecycle('queue.job.completed', 'completed', jobId);
       this.logger.log(`Job ${job.id} completed successfully`);
@@ -116,19 +121,34 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
   private async executePosting(
     job: Job<PostFreeTextInvoiceDFOJobPayload>,
     errorCollector: PostingErrorCollector,
-  ): Promise<void> {
+  ): Promise<PostGroupsOutcome> {
     const { batchId, company } = job.data;
     const jobId = String(job.id);
     const groups =
       await this.jobStore.listGroups<FreeTextInvoicePostingGroup>(jobId);
     if (!groups.length) throw new Error('No durable invoice groups found');
     const createdHeaders: CreatedHeader[] = [];
+    let completedGroups = groups.filter(
+      (record) => record.status === QueueJobGroupStatus.COMPLETED,
+    ).length;
     this.logger.log(
       `[POST] Starting sequential posting: ${groups.length} headers for batch ${batchId}`,
     );
     try {
       for (const record of groups) {
         if (record.status === QueueJobGroupStatus.COMPLETED) continue;
+        // Checked between invoices, never inside one: a half-written invoice
+        // cannot be left behind, and stopping here needs no rollback.
+        if (await this.pauseControl.isPaused(batchId)) {
+          await this.pauseControl.recordWorkerStopped({
+            batchId,
+            jobId,
+            queueName: QUEUES.DFO_FREE_TEXT_INVOICE,
+            completedGroups,
+            totalGroups: groups.length,
+          });
+          return 'paused';
+        }
         await this.jobStore.markGroupActive(jobId, record.index);
         await this.postOneGroup(
           record.payload,
@@ -141,6 +161,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
           record.createdHeaderId,
         );
         await this.jobStore.completeGroup(jobId, record.index);
+        completedGroups += 1;
         await job.updateProgress({
           completedGroups: record.index + 1,
           totalGroups: groups.length,
@@ -153,6 +174,7 @@ export class PostFreeTextInvoiceDFOProcessor extends WorkerHost {
         ...createdHeaders.map((h) => h.headerKey),
       ];
       await this.handlePostingSuccess(batchId, headerKeys);
+      return 'completed';
     } catch (error) {
       const msg = dfoErrorMessage(error);
       this.logger.error(

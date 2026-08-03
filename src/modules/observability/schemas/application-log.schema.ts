@@ -56,6 +56,13 @@ export class ApplicationLog {
 
   @Prop({ type: Object })
   metadata?: Record<string, unknown>;
+
+  /**
+   * Full request/response bodies captured for the event, already redacted and
+   * size-bounded by LogPayloadService.
+   */
+  @Prop({ type: Object })
+  payload?: Record<string, unknown>;
 }
 
 export const ApplicationLogSchema =

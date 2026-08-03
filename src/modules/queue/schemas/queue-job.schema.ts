@@ -7,6 +7,12 @@ export enum DurableQueueJobStatus {
   QUEUED = 'queued',
   ACTIVE = 'active',
   RETRYING = 'retrying',
+  /**
+   * The worker stopped between journals because the batch was paused. The
+   * completed groups stay completed, so resuming continues where it stopped.
+   * Excluded from crash recovery on boot: only an explicit resume restarts it.
+   */
+  PAUSED = 'paused',
   COMPLETED = 'completed',
   FAILED = 'failed',
 }
@@ -66,6 +72,9 @@ export class QueueJob {
 
   @Prop()
   heartbeatAt?: Date;
+
+  @Prop()
+  pausedAt?: Date;
 
   @Prop()
   completedAt?: Date;

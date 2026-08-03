@@ -69,9 +69,27 @@ export class ApplicationLogFiltersDto {
 
   @IsOptional()
   @IsString()
+  eventType?: string;
+
+  @IsOptional()
+  @IsString()
+  context?: string;
+
+  /** When 'true', only events that carry a captured request/response body. */
+  @IsOptional()
+  @IsString()
+  hasPayload?: string;
+
+  @IsOptional()
+  @IsString()
   sortBy?: string = 'timestamp';
 
   @IsOptional()
   @IsEnum(['asc', 'desc'])
   sortDirection?: 'asc' | 'desc' = 'desc';
+
+  /** Required as 'true' when deleting with no other filters (wipe all). */
+  @IsOptional()
+  @IsString()
+  confirmAll?: string;
 }

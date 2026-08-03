@@ -86,6 +86,16 @@ export interface TSLedgerJournalTransCustomRequest {
   _contract: TSLedgerJournalTransCustomRequestBody;
 }
 
+/**
+ * One entry of the Cash Out `_contract.Lines` collection
+ * (`addLedgerJournalTransVendPaym` / JournalLineWrapper).
+ *
+ * FO builds each line through `JournalLineContract::constructFromJsonObject`,
+ * which does case-sensitive map lookups and throws when a key is absent
+ * (`The value "…" is not found in the map.`). Offset keys and `VendorGroup`
+ * therefore stay present (empty when unused). Lowercase `offset*` aliases are
+ * omitted so they cannot collide with the PascalCase keys FO looks up.
+ */
 export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
   TSLedgerJournalTransCustomRequestBody,
   | 'accountTypeStr'
@@ -95,11 +105,11 @@ export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
   | 'OffsetCompany'
   | 'OFFSETFINTAGDISPLAYVALUE'
   | 'OFFSETTRANSACTIONTEXT'
+  | 'VendorGroup'
 > & {
-  accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr>;
-  offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
+  VendorGroup: string;
   OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
-  offsetAccountDisplayValue: string;
   OffsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
   OffsetCompany: string;
@@ -107,6 +117,7 @@ export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
   OFFSETTRANSACTIONTEXT: string;
 };
 
+/** Bulk request body: every journal line of the batch (or chunk) in `Lines`. */
 export interface TSLedgerJournalTransCustomBulkRequestBody {
   Lines: TSLedgerJournalTransCustomBulkLineRequestBody[];
 }
@@ -120,6 +131,11 @@ export interface TSLedgerJournalTransCustomResponseBody {
   Message: string;
 }
 
+/**
+ * Optional per-line result. Live `TSAddLedgerJournalResponse` only returns
+ * overall StatusCode/Message (one TTS for the whole Lines array); these fields
+ * are kept for defensive parsing if FO adds line results later.
+ */
 export interface TSLedgerJournalTransCustomBulkLineResponseBody {
   LineNumber?: number;
   lineNumber?: number;
@@ -139,6 +155,10 @@ export interface TSLedgerJournalTransCustomBulkLineResponseBody {
   error?: unknown;
 }
 
+/**
+ * Bulk response. Primary contract is overall StatusCode + Message (all lines
+ * commit or roll back together). Optional line arrays are defensive only.
+ */
 export interface TSLedgerJournalTransCustomBulkResponseBody {
   StatusCode?: string;
   statusCode?: string;

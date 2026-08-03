@@ -30,15 +30,43 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
     };
 
+    const operationalLogs = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const logPayloads = {
+      captureExchange: jest.fn((request: unknown, response?: unknown) => ({
+        ...(request === undefined
+          ? {}
+          : { request: { body: request, sizeBytes: 0, truncated: false } }),
+        ...(response === undefined
+          ? {}
+          : { response: { body: response, sizeBytes: 0, truncated: false } }),
+      })),
+    };
+
+    const configService = {
+      get: jest.fn().mockReturnValue({ bulkHttpTimeout: 600_000 }),
+    };
+
     const service = new CustomerPaymentJournalService(
       d365foClient as any,
       queryBuilder as any,
       retryService as any,
       dfoErrorExtractor as any,
       vendorPaymentJournalService as any,
+      operationalLogs as any,
+      logPayloads as any,
+      configService as any,
     );
 
-    return { service, d365foClient, vendorPaymentJournalService };
+    return {
+      service,
+      d365foClient,
+      vendorPaymentJournalService,
+      operationalLogs,
+      logPayloads,
+    };
   }
 
   it('posts cash-in via addLedgerJournalTransCustPaym with journalNum (key casing)', async () => {
@@ -123,6 +151,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
+  // Scenario 2: a single journal line still goes out inside Lines.
   it('posts one cash-out line through the bulk Lines contract without a Vendor Line update', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
@@ -182,9 +211,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     await service.postCashOutLinesForHeader('JN000123', lines, 20, 'USMF');
 
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    const [endpoint, body] = d365foClient.post.mock.calls[0];
+    const [endpoint, body, options] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransVendPaym');
+    expect(options).toEqual({ timeout: 600_000, retries: 0 });
     expect(body._contract.Lines).toHaveLength(1);
     const postedLine = body._contract.Lines[0];
     expect(postedLine).toHaveProperty('journalNum', 'JN000123');
@@ -192,16 +222,18 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('accountTypeStr', 'vendor');
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
-    expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
     expect(postedLine).toHaveProperty(
       'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
       'BU-001|CC-002|Dept-004',
     );
-    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
-    expect(postedLine).toHaveProperty('ExchangeRate');
-    expect(postedLine).toHaveProperty('EXCHANGERATE');
+    expect(postedLine).toHaveProperty('ExchangeRate', 100);
+    // The offset keys are not repeated in the lowercase spelling, which would
+    // collide with the PascalCase one the endpoint looks up.
+    expect(postedLine).not.toHaveProperty('offsetAccountDisplayValue');
+    expect(postedLine).not.toHaveProperty('offsetDEFAULTDIMENSIONDISPLAYVALUE');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -212,6 +244,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
+  // Scenario 1 + 3 + 4: all lines of the journal in one Lines array, with
+  // per-line fields preserved and main-account-only offset keys empty.
   it('posts every line in a journal batch in one request and preserves line-specific fields', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
@@ -271,23 +305,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
     const contract = d365foClient.post.mock.calls[0][1]._contract;
     expect(contract.Lines).toHaveLength(2);
-    const requiredOffsetMapKeys = [
-      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'offsetAccountDisplayValue',
-      'OffsetAccountDisplayValue',
-      'OffsetAccountTypeStr',
-      'OffsetCompany',
-      'OFFSETFINTAGDISPLAYVALUE',
-      'OFFSETTRANSACTIONTEXT',
-    ];
-    expect(
-      contract.Lines.every((line: Record<string, unknown>) =>
-        requiredOffsetMapKeys.every((key) =>
-          Object.prototype.hasOwnProperty.call(line, key),
-        ),
-      ),
-    ).toBe(true);
     expect(contract.Lines[0]).toEqual(
       expect.objectContaining({
         journalNum: 'JN-BULK',
@@ -300,34 +317,193 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             HasWithHoldingLine: true,
           }),
         ],
-        offsetAccountDisplayValue: 'BANK001',
         OffsetAccountDisplayValue: 'BANK001',
+        OffsetAccountTypeStr: 'Bank',
       }),
     );
     expect(contract.Lines[1]).toEqual(
       expect.objectContaining({
         journalNum: 'JN-BULK',
         accountTypeStr: 'ledger',
+        // FO looks up VendorGroup on every line — empty for ledger.
+        VendorGroup: '',
         ReportingExchangeRate: 2.2,
       }),
     );
-    expect(contract.Lines[1]).toHaveProperty(
-      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
-      '',
-    );
-    expect(contract.Lines[1]).toHaveProperty('offsetAccountDisplayValue', '');
-    expect(contract.Lines[1]).toHaveProperty(
+    // Scenario 4: a main account-only line carries no offset account, while the
+    // vendor line in the same request keeps its own. The keys stay on the line
+    // because the endpoint looks each one up and throws when it is missing.
+    for (const offsetKey of [
       'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
-      '',
-    );
-    expect(contract.Lines[1]).toHaveProperty('OffsetAccountDisplayValue', '');
-    expect(contract.Lines[1]).toHaveProperty('OffsetAccountTypeStr', '');
-    expect(contract.Lines[1]).toHaveProperty('OffsetCompany', '');
-    expect(contract.Lines[1]).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', '');
-    expect(contract.Lines[1]).toHaveProperty('OFFSETTRANSACTIONTEXT', '');
+      'OffsetAccountDisplayValue',
+      'OffsetAccountTypeStr',
+      'OffsetCompany',
+      'OFFSETFINTAGDISPLAYVALUE',
+      'OFFSETTRANSACTIONTEXT',
+    ]) {
+      expect(contract.Lines[1]).toHaveProperty(offsetKey, '');
+    }
   });
 
-  it('hydrates live X++ map aliases without changing AB#2079 values', async () => {
+  // Scenario 5 (large journals): submit through the cash-out endpoint in
+  // requests of at most 100 Lines each.
+  it('splits a journal batch into requests of at most 100 lines', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success! JN-250',
+    });
+
+    const lines: any[] = Array.from({ length: 250 }, (_, index) => ({
+      dataAreaId: 'm-p',
+      LineNumber: index + 1,
+      cashDirection: 'out',
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: `VEND${index + 1}`,
+        accountTypeStr: 'Vendor',
+        debitAmount: 100,
+      },
+    }));
+
+    const result = await service.postCashOutLinesForHeader(
+      'JN-250',
+      lines,
+      20,
+      'm-p',
+    );
+
+    expect(result).toHaveLength(250);
+    expect(d365foClient.post).toHaveBeenCalledTimes(3);
+    const lineCounts = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) => body._contract.Lines.length,
+    );
+    expect(lineCounts).toEqual([100, 100, 50]);
+    // Every line is sent exactly once, in order, and stays on its journal.
+    const sentAccounts = d365foClient.post.mock.calls.flatMap(
+      ([, body]: [string, any]) =>
+        body._contract.Lines.map((line: any) => line.AccountNum),
+    );
+    expect(sentAccounts).toEqual(
+      lines.map((line) => line.customLineApiBody.AccountNum),
+    );
+  });
+
+  it('logs the complete bulk request body before sending it', async () => {
+    const { service, d365foClient, operationalLogs } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN-LOG',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'JN-LOG',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 4,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '5019',
+            accountTypeStr: 'Vendor',
+            debitAmount: 5000,
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 7,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '223404|BU|CC',
+            accountTypeStr: 'Ledger',
+            creditAmount: 5000,
+          },
+        },
+      ] as any[],
+      20,
+      'm-p',
+    );
+
+    const requestLog = operationalLogs.emit.mock.calls
+      .map(([event]: [any]) => event)
+      .find((event: any) => event.eventType === 'd365fo.cash-out.bulk-request');
+
+    expect(requestLog.metadata).toEqual(
+      expect.objectContaining({
+        journalNum: 'JN-LOG',
+        attempt: 'initial',
+        lineCount: 2,
+        lineNumbers: [4, 7],
+      }),
+    );
+    // The logged body is exactly what was posted, with every line included.
+    expect(requestLog.payload.request.body).toEqual(
+      d365foClient.post.mock.calls[0][1],
+    );
+    expect(requestLog.payload.request.body._contract.Lines).toHaveLength(2);
+  });
+
+  it('logs the bulk response with the per-line error correlation', async () => {
+    const { service, d365foClient, operationalLogs } = buildService();
+    const response = {
+      StatusCode: 'Error',
+      Lines: [
+        { LineNumber: 4, Success: true },
+        { LineNumber: 7, Success: false, Message: 'Dimension is not valid' },
+      ],
+    };
+    d365foClient.post.mockResolvedValueOnce(response);
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-LOG',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 4,
+            cashDirection: 'out',
+            customLineApiBody: { journalNum: '', AccountNum: '5019' },
+          },
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 7,
+            cashDirection: 'out',
+            customLineApiBody: { journalNum: '', AccountNum: '5020' },
+          },
+        ] as any[],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('line 7: Dimension is not valid');
+
+    const responseLog = operationalLogs.emit.mock.calls
+      .map(([event]: [any]) => event)
+      .find(
+        (event: any) => event.eventType === 'd365fo.cash-out.bulk-response',
+      );
+
+    expect(responseLog.level).toBe('error');
+    expect(responseLog.metadata).toEqual(
+      expect.objectContaining({
+        journalNum: 'JN-LOG',
+        lineNumbers: [4, 7],
+        failedLineNumbers: [7],
+        uncorrelatedFailureCount: 0,
+        failures: [
+          expect.objectContaining({
+            lineNumber: 7,
+            correlated: true,
+            message: 'Dimension is not valid',
+          }),
+        ],
+      }),
+    );
+    expect(responseLog.payload.response.body).toEqual(response);
+  });
+
+  it('sends each line exactly as the documented Lines contract', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -386,15 +562,27 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
     );
 
+    // Same values as the documented body: journalNum is filled in,
+    // accountTypeStr is lowercased, the two offset display values move to the
+    // PascalCase spelling the endpoint looks up, and VendorGroup stays present
+    // (FO jsonMap.lookup("VendorGroup") has no exists() guard).
+    const {
+      offsetDEFAULTDIMENSIONDISPLAYVALUE,
+      offsetAccountDisplayValue,
+      ...documentedRest
+    } = documentedLine;
+
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
           {
-            ...documentedLine,
+            ...documentedRest,
             journalNum: 'Mesco-000013758',
             accountTypeStr: 'vendor',
-            OffsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
-            OffsetAccountDisplayValue: 'PSD EG',
+            VendorGroup: 'Custody',
+            OffsetDEFAULTDIMENSIONDISPLAYVALUE:
+              offsetDEFAULTDIMENSIONDISPLAYVALUE,
+            OffsetAccountDisplayValue: offsetAccountDisplayValue,
           },
         ],
       },
@@ -652,6 +840,111 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
       },
     );
+  });
+
+  it('retries every line unmarked when an all-or-nothing FO response reports remaining invoice amount', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Error',
+        Message:
+          'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: '2 line(s) processed successfully.',
+      });
+
+    await service.postCashOutLinesForHeader(
+      'JN-TTS',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND1',
+            MarkedLines: [
+              {
+                InvoiceNumber: '2025001409',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Pay 1',
+            TRANSACTIONTEXT: 'Pay 1',
+          },
+        } as any,
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND2',
+            MarkedLines: [
+              {
+                InvoiceNumber: '2025001410',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Pay 2',
+            TRANSACTIONTEXT: 'Pay 2',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(2);
+    expect(d365foClient.post.mock.calls[1][1]._contract.Lines).toEqual([
+      expect.objectContaining({
+        AccountNum: 'VEND1',
+        MarkedLines: [],
+        PAYMENTNOTES: 'Pay 1 - unmarked',
+      }),
+      expect.objectContaining({
+        AccountNum: 'VEND2',
+        MarkedLines: [],
+        PAYMENTNOTES: 'Pay 2 - unmarked',
+      }),
+    ]);
+  });
+
+  it('fails the whole Lines chunk when FO returns a non-Success StatusCode', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message: 'Dimension combination is not valid.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-FAIL',
+        [
+          {
+            LineNumber: 1,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND1' },
+          } as any,
+          {
+            LineNumber: 2,
+            customLineApiBody: { journalNum: '', AccountNum: 'VEND2' },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('Dimension combination is not valid.');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
   });
 
   it('does not clear marked settlements for unrelated cash-out errors', async () => {

@@ -39,6 +39,7 @@ import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/command
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
 import { ReprocessBatchCommand } from '@/modules/data-batch/commands/reprocess-batch.command';
+import { SetBatchPostingPauseCommand } from '@/modules/data-batch/commands/set-batch-posting-pause.command';
 import { RequireBatchOwnerOrAdmin } from '@/modules/data-batch/decorators/batch-owner-action.decorator';
 import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
@@ -53,6 +54,7 @@ import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-bat
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
 import { DataBatchReprocessSubmission } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
+import { BatchPostingPauseState } from '@/modules/queue/services/batch-posting-control.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
 
 /**
@@ -376,6 +378,42 @@ export class DataBatchController {
   ): Promise<DataBatchReprocessSubmission> {
     return this.commandBus.execute(
       new ReprocessBatchCommand(batchId, this.actorFrom(user)),
+    );
+  }
+
+  /**
+   * Hold the batch back from being posted to D365FO. A worker that is already
+   * posting it stops after the journal it is currently writing.
+   */
+  @Post(':batchId/posting/pause')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Pause posting a data batch to D365FO' })
+  @UseGuards(BatchOwnerOrAdminGuard)
+  @RequireBatchOwnerOrAdmin('pause posting for')
+  public async pausePostingAsync(
+    @Param('batchId') batchId: string,
+    @Auth() user: Omit<IUser, 'passwordHash'>,
+  ): Promise<BatchPostingPauseState> {
+    return this.commandBus.execute(
+      new SetBatchPostingPauseCommand(batchId, true, this.actorFrom(user)),
+    );
+  }
+
+  /**
+   * Let a paused batch continue. Journals that were already posted are kept and
+   * only the pending ones are sent.
+   */
+  @Post(':batchId/posting/resume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resume posting a data batch to D365FO' })
+  @UseGuards(BatchOwnerOrAdminGuard)
+  @RequireBatchOwnerOrAdmin('resume posting for')
+  public async resumePostingAsync(
+    @Param('batchId') batchId: string,
+    @Auth() user: Omit<IUser, 'passwordHash'>,
+  ): Promise<BatchPostingPauseState> {
+    return this.commandBus.execute(
+      new SetBatchPostingPauseCommand(batchId, false, this.actorFrom(user)),
     );
   }
 

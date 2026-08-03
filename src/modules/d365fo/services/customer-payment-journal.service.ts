@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
+import { IConfig, ResilienceConfig } from '@/config';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalHeaderResponse,
@@ -19,6 +21,8 @@ import {
   TSLedgerJournalTransCustomRequestBody,
   TSLedgerJournalTransCustomResponseBody,
 } from '@/modules/d365fo/types/d365fo-cash-custom-ledger-journal.type';
+import { LogPayloadService } from '@/modules/observability/services/log-payload.service';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 export type CashJournalExistingLinesLoader = () => Promise<
@@ -35,6 +39,14 @@ interface CashBulkLineFailure {
   lineNumber?: number;
   message: string;
   correlated: boolean;
+}
+
+type CashBulkAttempt = 'initial' | 'unmarked-retry';
+
+/** Position of one request within the journal batch it belongs to. */
+interface CashBulkBatch {
+  number: number;
+  total: number;
 }
 
 /**
@@ -54,13 +66,30 @@ export class CustomerPaymentJournalService {
   private readonly cashOutLineEndpoint =
     '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym';
 
+  /**
+   * Journal lines sent per cash-out request. All lines of a journal batch go
+   * out through the `Lines` collection, split into requests of this size so a
+   * large journal stays inside the endpoint's request size and timeout limits.
+   */
+  private readonly cashOutBulkBatchSize = 100;
+
+  /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
+  private readonly cashOutBulkHttpTimeout: number;
+
   constructor(
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
-  ) {}
+    private readonly operationalLogs: OperationalLoggerService,
+    private readonly logPayloads: LogPayloadService,
+    configService: ConfigService<IConfig>,
+  ) {
+    this.cashOutBulkHttpTimeout =
+      configService.get<ResilienceConfig>('resilience')?.bulkHttpTimeout ??
+      600_000;
+  }
 
   /**
    * Post customer payment journal header to D365FO (single header)
@@ -228,7 +257,7 @@ export class CustomerPaymentJournalService {
 
     this.logger.log(
       cashDirection === 'out'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for one bulk request for header ${headerKey}`
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} lines`
         : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
@@ -378,48 +407,17 @@ export class CustomerPaymentJournalService {
       });
     }
 
-    if (pendingLines.length > 0) {
-      this.logger.log(
-        `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out lines in one bulk request for header ${headerKey}`,
-      );
-      const result = await this.postCustomCashLines(
+    const batchSize = this.cashOutBulkBatchSize;
+    const totalBatches = Math.ceil(pendingLines.length / batchSize);
+
+    for (let index = 0; index < pendingLines.length; index += batchSize) {
+      await this.postCashOutBulkBatch(
         endpoint,
-        pendingLines.map((line) => line.body),
+        headerKey,
+        pendingLines.slice(index, index + batchSize),
+        allowUnmarkedInvoiceRetry,
+        { number: Math.floor(index / batchSize) + 1, total: totalBatches },
       );
-      const failures = this.extractCashBulkFailures(result, pendingLines);
-
-      if (failures.length > 0) {
-        const retryableFailures = failures.filter((failure) =>
-          this.isInvoiceAmountGreaterThanRemainingError(failure.message),
-        );
-        const canRetry =
-          allowUnmarkedInvoiceRetry &&
-          retryableFailures.length === failures.length &&
-          failures.every((failure) => failure.correlated);
-
-        if (!canRetry) {
-          throw new Error(this.formatCashBulkFailure(headerKey, failures));
-        }
-
-        const retryLines = retryableFailures.map((failure) => {
-          const pendingLine = pendingLines[failure.requestIndex];
-          return {
-            ...pendingLine,
-            body: this.buildUnmarkedCashLine(pendingLine.body),
-          };
-        });
-        const retryResult = await this.postCustomCashLines(
-          endpoint,
-          retryLines.map((line) => line.body),
-        );
-        const retryFailures = this.extractCashBulkFailures(
-          retryResult,
-          retryLines,
-        );
-        if (retryFailures.length > 0) {
-          throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
-        }
-      }
     }
 
     return lines.map((line) => ({
@@ -428,6 +426,92 @@ export class CustomerPaymentJournalService {
     }));
   }
 
+  /**
+   * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
+   * journal batch, and retry the lines the endpoint rejected because a marked
+   * invoice no longer covers the paid amount.
+   */
+  private async postCashOutBulkBatch(
+    endpoint: string,
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+    allowUnmarkedInvoiceRetry: boolean,
+    batch: CashBulkBatch,
+  ): Promise<void> {
+    if (pendingLines.length === 0) return;
+
+    this.logger.log(
+      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
+    );
+
+    const result = await this.postCustomCashLines(
+      endpoint,
+      pendingLines.map((line) => line.body),
+      { headerKey, pendingLines, attempt: 'initial', batch },
+    );
+    const failures = this.extractCashBulkFailures(result, pendingLines);
+    await this.logCashBulkOutcome({
+      headerKey,
+      pendingLines,
+      attempt: 'initial',
+      batch,
+      result,
+      failures,
+    });
+
+    if (failures.length === 0) return;
+
+    const retryableFailures = failures.filter((failure) =>
+      this.isInvoiceAmountGreaterThanRemainingError(failure.message),
+    );
+    const canRetry =
+      allowUnmarkedInvoiceRetry &&
+      retryableFailures.length === failures.length &&
+      failures.every((failure) => failure.correlated);
+
+    if (!canRetry) {
+      throw new Error(this.formatCashBulkFailure(headerKey, failures));
+    }
+
+    const retryLines = retryableFailures.map((failure) => {
+      const pendingLine = pendingLines[failure.requestIndex];
+      return {
+        ...pendingLine,
+        body: this.buildUnmarkedCashLine(pendingLine.body),
+      };
+    });
+    const retryResult = await this.postCustomCashLines(
+      endpoint,
+      retryLines.map((line) => line.body),
+      {
+        headerKey,
+        pendingLines: retryLines,
+        attempt: 'unmarked-retry',
+        batch,
+      },
+    );
+    const retryFailures = this.extractCashBulkFailures(retryResult, retryLines);
+    await this.logCashBulkOutcome({
+      headerKey,
+      pendingLines: retryLines,
+      attempt: 'unmarked-retry',
+      batch,
+      result: retryResult,
+      failures: retryFailures,
+    });
+    if (retryFailures.length > 0) {
+      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+    }
+  }
+
+  /**
+   * Map a FO bulk response onto the lines we submitted.
+   *
+   * Live `TSAddLedgerJournalResponse` is all-or-nothing (one TTS): only overall
+   * StatusCode/Message are set. A remaining-invoice-amount error is attributed
+   * to every submitted line so the unmarked retry can clear settlements for the
+   * whole chunk. Optional per-line arrays are parsed only when FO returns them.
+   */
   private extractCashBulkFailures(
     result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined,
     pendingLines: CashBulkPendingLine[],
@@ -446,9 +530,11 @@ export class CustomerPaymentJournalService {
 
     const responseLines =
       result?.Lines ?? result?.lines ?? result?.Results ?? result?.results;
-    const failures: CashBulkLineFailure[] = [];
+    const hasLineResults =
+      Array.isArray(responseLines) && responseLines.length > 0;
 
-    if (Array.isArray(responseLines)) {
+    if (hasLineResults) {
+      const failures: CashBulkLineFailure[] = [];
       responseLines.forEach((responseLine, responseIndex) => {
         if (!this.isCashBulkLineFailure(responseLine)) return;
 
@@ -473,9 +559,15 @@ export class CustomerPaymentJournalService {
           correlated: requestIndex >= 0,
         });
       });
+
+      if (failures.length > 0) return failures;
+      if (
+        this.isSuccessfulCashStatus(result?.StatusCode ?? result?.statusCode)
+      ) {
+        return [];
+      }
     }
 
-    if (failures.length > 0) return failures;
     if (this.isSuccessfulCashStatus(result?.StatusCode ?? result?.statusCode)) {
       return [];
     }
@@ -483,10 +575,32 @@ export class CustomerPaymentJournalService {
     const overallStatus = String(
       result?.StatusCode ?? result?.statusCode ?? '',
     ).trim();
-    if (!overallStatus && Array.isArray(responseLines)) return [];
-    if (!overallStatus && !result?.Message && !result?.message) return [];
+    if (!overallStatus && !result?.Message && !result?.message) {
+      if (hasLineResults) return [];
+      return [
+        {
+          requestIndex: pendingLines.length === 1 ? 0 : -1,
+          lineNumber:
+            pendingLines.length === 1 ? pendingLines[0].lineNumber : undefined,
+          message: 'D365 returned an empty bulk response.',
+          correlated: pendingLines.length === 1,
+        },
+      ];
+    }
 
     const message = this.cashBulkResponseMessage(result);
+
+    // All-or-nothing TTS rolled the chunk back; attribute a remaining-amount
+    // error to every line so unmarked retry can clear settlements for all.
+    if (this.isInvoiceAmountGreaterThanRemainingError(message)) {
+      return pendingLines.map((line, requestIndex) => ({
+        requestIndex,
+        lineNumber: line.lineNumber,
+        message,
+        correlated: true,
+      }));
+    }
+
     if (pendingLines.length === 1) {
       return [
         {
@@ -668,37 +782,155 @@ export class CustomerPaymentJournalService {
   private async postCustomCashLines(
     endpoint: string,
     lines: TSLedgerJournalTransCustomRequestBody[],
+    context: {
+      headerKey: string;
+      pendingLines: CashBulkPendingLine[];
+      attempt: CashBulkAttempt;
+      batch: CashBulkBatch;
+    },
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
+    const requestBody: TSLedgerJournalTransCustomBulkRequest = {
+      _contract: {
+        Lines: lines.map((line) => this.toD365BulkCashLine(line)),
+      },
+    };
+
+    // Logged before the call so the exact submitted body is available even if
+    // the request never returns.
+    await this.logCashBulkRequest(endpoint, requestBody, context);
+
     try {
-      const bulkLines = lines.map((line) => this.toD365BulkCashLine(line));
+      // Long timeout + no client retries: FO may still be inside TTS after a
+      // client abort; re-POSTing the same Lines risks duplicates.
       return await this.d365foClient.post<
         TSLedgerJournalTransCustomBulkRequest,
         TSLedgerJournalTransCustomBulkResponseBody
-      >(endpoint, { _contract: { Lines: bulkLines } });
+      >(endpoint, requestBody, {
+        timeout: this.cashOutBulkHttpTimeout,
+        retries: 0,
+      });
     } catch (error: unknown) {
       throw new Error(this.dfoErrorExtractor.extractMessage(error));
     }
   }
 
+  /**
+   * Record the complete `{ _contract: { Lines: [...] } }` body together with
+   * the request-index-to-line-number map used to correlate response errors.
+   */
+  private async logCashBulkRequest(
+    endpoint: string,
+    requestBody: TSLedgerJournalTransCustomBulkRequest,
+    context: {
+      headerKey: string;
+      pendingLines: CashBulkPendingLine[];
+      attempt: CashBulkAttempt;
+      batch: CashBulkBatch;
+    },
+  ): Promise<void> {
+    const lineCount = requestBody._contract.Lines.length;
+
+    await this.operationalLogs.emit({
+      level: 'info',
+      message: `Cash-out bulk request ${context.batch.number}/${context.batch.total} for journal ${context.headerKey} with ${lineCount} line(s)`,
+      context: CustomerPaymentJournalService.name,
+      eventType: 'd365fo.cash-out.bulk-request',
+      status: 'submitted',
+      metadata: {
+        endpoint,
+        journalNum: context.headerKey,
+        attempt: context.attempt,
+        requestNumber: context.batch.number,
+        requestCount: context.batch.total,
+        maxLinesPerRequest: this.cashOutBulkBatchSize,
+        lineCount,
+        lineNumbers: context.pendingLines.map((line) => line.lineNumber),
+      },
+      payload: this.logPayloads.captureExchange(requestBody),
+    });
+  }
+
+  /**
+   * Record the bulk response and the per-line error correlation so a failed
+   * journal line can be traced back to the line it was built from.
+   */
+  private async logCashBulkOutcome(args: {
+    headerKey: string;
+    pendingLines: CashBulkPendingLine[];
+    attempt: CashBulkAttempt;
+    batch: CashBulkBatch;
+    result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined;
+    failures: CashBulkLineFailure[];
+  }): Promise<void> {
+    const { headerKey, pendingLines, attempt, batch, result, failures } = args;
+    const succeeded = failures.length === 0;
+
+    await this.operationalLogs.emit({
+      level: succeeded ? 'info' : 'error',
+      message: succeeded
+        ? `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} accepted ${pendingLines.length} line(s)`
+        : `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} failed for ${failures.length} line(s)`,
+      context: CustomerPaymentJournalService.name,
+      eventType: 'd365fo.cash-out.bulk-response',
+      status: succeeded ? 'accepted' : 'rejected',
+      metadata: {
+        journalNum: headerKey,
+        attempt,
+        requestNumber: batch.number,
+        requestCount: batch.total,
+        lineCount: pendingLines.length,
+        lineNumbers: pendingLines.map((line) => line.lineNumber),
+        failedLineNumbers: failures
+          .map((failure) => failure.lineNumber)
+          .filter(
+            (lineNumber): lineNumber is number => lineNumber !== undefined,
+          ),
+        uncorrelatedFailureCount: failures.filter(
+          (failure) => !failure.correlated,
+        ).length,
+        failures: failures.map((failure) => ({
+          lineNumber: failure.lineNumber ?? null,
+          requestIndex: failure.requestIndex,
+          correlated: failure.correlated,
+          message: failure.message,
+        })),
+      },
+      payload: this.logPayloads.captureExchange(undefined, result ?? null),
+    });
+  }
+
+  /**
+   * Project an internal cash line onto a `_contract.Lines` entry.
+   *
+   * Scenario 4 (main account-only): offset account *data* is omitted by sending
+   * empty Offset* values. The keys themselves stay on every line because FO's
+   * `constructFromJsonObject` calls `jsonMap.lookup(...)` without `exists()`
+   * for most members (including VendorGroup / Offset*) and throws
+   * `The value "…" is not found in the map.` when a key is absent.
+   * Lowercase `offset*` aliases are stripped so they cannot collide with the
+   * PascalCase keys FO actually reads.
+   */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
-    const offsetDefaultDimension =
-      line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '';
-    const offsetAccountDisplayValue = line.offsetAccountDisplayValue ?? '';
+    const {
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: _omitOffsetDimAlias,
+      offsetAccountDisplayValue: _omitOffsetAccountAlias,
+      accountTypeStr,
+      VendorGroup,
+      ...rest
+    } = line;
 
-    // AB#2079 documents lowercase account types for the bulk Map contract.
-    // Live X++ uses case-sensitive Map.lookup calls for every offset key. Keep
-    // all keys present but empty for a main-account-only (offsetless) line.
     return {
-      ...line,
-      accountTypeStr: String(line.accountTypeStr ?? '')
+      ...rest,
+      accountTypeStr: String(accountTypeStr ?? '')
         .trim()
         .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
-      offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
-      OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimension,
-      offsetAccountDisplayValue,
-      OffsetAccountDisplayValue: offsetAccountDisplayValue,
+      // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
+      VendorGroup: VendorGroup ?? '',
+      OffsetDEFAULTDIMENSIONDISPLAYVALUE:
+        line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
+      OffsetAccountDisplayValue: line.offsetAccountDisplayValue ?? '',
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: line.OffsetCompany ?? '',
       OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',

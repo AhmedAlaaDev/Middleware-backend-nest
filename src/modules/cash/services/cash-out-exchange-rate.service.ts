@@ -122,7 +122,7 @@ export class CashOutExchangeRateService {
                   toCurrency: CashOutExchangeRateService.BASE_CURRENCY,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
-                  useCache: false,
+                  useCache: true,
                 },
               );
 
@@ -141,7 +141,7 @@ export class CashOutExchangeRateService {
                   toCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
-                  useCache: false,
+                  useCache: true,
                 },
               );
 
@@ -160,7 +160,7 @@ export class CashOutExchangeRateService {
                   toCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
-                  useCache: false,
+                  useCache: true,
                 },
               );
 
@@ -179,7 +179,7 @@ export class CashOutExchangeRateService {
                   toCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
-                  useCache: false,
+                  useCache: true,
                 },
               );
 

@@ -88,6 +88,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     const trace = {
       run: jest.fn((_context, callback) => callback()),
     };
+    const pauseControl = {
+      isPaused: jest.fn().mockResolvedValue(false),
+      recordWorkerStopped: jest.fn().mockResolvedValue(undefined),
+    };
     const processor = new PostCustomerPaymentJournalDFOProcessor(
       legacyStrategy as any,
       cashStrategy as any,
@@ -96,6 +100,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       jobs as any,
       logs as any,
       trace as any,
+      pauseControl as any,
     );
     const job = {
       id: 'job-2045',
@@ -121,6 +126,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       batches,
       rollback,
       jobs,
+      pauseControl,
     };
   };
 
@@ -356,5 +362,46 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       headerKey: 'D365-COMPLETED-AP',
       route: apRoute,
     });
+  });
+
+  it('posts nothing when the batch is paused before the first journal', async () => {
+    const { processor, job, cashStrategy, batches, jobs, rollback, pauseControl } =
+      buildProcessor([makeGroup(apRoute)]);
+    pauseControl.isPaused.mockResolvedValue(true);
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(pauseControl.recordWorkerStopped).toHaveBeenCalledWith({
+      batchId: 'batch-2045',
+      jobId: 'job-2045',
+      queueName: 'dfo-customer-payment-journal-queue',
+      completedGroups: 0,
+      totalGroups: 1,
+    });
+    // A pause is not a failure: nothing is rolled back and the batch keeps its
+    // Posting status so it can be resumed.
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.markCompleted).not.toHaveBeenCalled();
+    expect(jobs.markFailed).not.toHaveBeenCalled();
+    expect(batches.updateStatusAsync).not.toHaveBeenCalled();
+  });
+
+  it('keeps the journals it already posted when paused part way through', async () => {
+    const groups = [makeGroup(apRoute, 1), makeGroup(glRoute, 2)];
+    const { processor, job, cashStrategy, batches, jobs, pauseControl } =
+      buildProcessor(groups);
+    pauseControl.isPaused
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(1);
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
+    expect(pauseControl.recordWorkerStopped).toHaveBeenCalledWith(
+      expect.objectContaining({ completedGroups: 1, totalGroups: 2 }),
+    );
+    expect(batches.updateStatusAsync).not.toHaveBeenCalled();
   });
 });

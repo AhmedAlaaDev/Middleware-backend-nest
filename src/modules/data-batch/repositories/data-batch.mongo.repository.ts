@@ -41,6 +41,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
+      postingPaused: doc.postingPaused ?? false,
       reprocessCount: doc.reprocessCount,
       sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
@@ -77,6 +78,12 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
+      postingPaused: doc.postingPaused ?? false,
+      postingPausedAt: doc.postingPausedAt,
+      postingPausedByUserId: doc.postingPausedByUserId,
+      postingPausedByName: doc.postingPausedByName,
+      postingPausedByEmail: doc.postingPausedByEmail,
+      postingResumedAt: doc.postingResumedAt,
       lastReprocessedAt: doc.lastReprocessedAt,
       lastReprocessedByUserId: doc.lastReprocessedByUserId,
       lastReprocessedByName: doc.lastReprocessedByName,
@@ -107,6 +114,58 @@ export class DataBatchMongoRepository extends DataBatchRepository {
           status: DataBatchStatus.PendingPosting,
         },
         { $set: { status: DataBatchStatus.Revalidating } },
+        { new: true },
+      )
+      .lean();
+
+    return doc ? this.mapDocument(doc) : null;
+  }
+
+  public async isPostingPaused(batchId: string): Promise<boolean> {
+    const doc = await this.model
+      .findOne({ _id: batchId })
+      .select({ postingPaused: 1 })
+      .lean();
+
+    return Boolean(doc?.postingPaused);
+  }
+
+  public async listPostingPausedIds(batchIds: string[]): Promise<string[]> {
+    if (!batchIds.length) return [];
+    const docs = await this.model
+      .find({ _id: { $in: batchIds }, postingPaused: true })
+      .select({ _id: 1 })
+      .lean();
+
+    return docs.map((doc) => doc._id.toString());
+  }
+
+  public async setPostingPause(
+    batchId: string,
+    paused: boolean,
+    audit: {
+      at: Date;
+      userId: string;
+      userName: string;
+      userEmail: string;
+    },
+  ): Promise<IDataBatch | null> {
+    const doc = await this.model
+      .findOneAndUpdate(
+        { _id: batchId },
+        paused
+          ? {
+              $set: {
+                postingPaused: true,
+                postingPausedAt: audit.at,
+                postingPausedByUserId: audit.userId,
+                postingPausedByName: audit.userName,
+                postingPausedByEmail: audit.userEmail,
+              },
+            }
+          : {
+              $set: { postingPaused: false, postingResumedAt: audit.at },
+            },
         { new: true },
       )
       .lean();
@@ -185,6 +244,12 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
+      postingPaused: doc.postingPaused ?? false,
+      postingPausedAt: doc.postingPausedAt,
+      postingPausedByUserId: doc.postingPausedByUserId,
+      postingPausedByName: doc.postingPausedByName,
+      postingPausedByEmail: doc.postingPausedByEmail,
+      postingResumedAt: doc.postingResumedAt,
       lastReprocessedAt: doc.lastReprocessedAt,
       lastReprocessedByUserId: doc.lastReprocessedByUserId,
       lastReprocessedByName: doc.lastReprocessedByName,
@@ -235,6 +300,12 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
+      postingPaused: doc.postingPaused ?? false,
+      postingPausedAt: doc.postingPausedAt,
+      postingPausedByUserId: doc.postingPausedByUserId,
+      postingPausedByName: doc.postingPausedByName,
+      postingPausedByEmail: doc.postingPausedByEmail,
+      postingResumedAt: doc.postingResumedAt,
       lastReprocessedAt: doc.lastReprocessedAt,
       lastReprocessedByUserId: doc.lastReprocessedByUserId,
       lastReprocessedByName: doc.lastReprocessedByName,

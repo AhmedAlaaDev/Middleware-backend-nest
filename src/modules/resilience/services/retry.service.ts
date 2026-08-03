@@ -82,7 +82,7 @@ export class RetryService {
     fn: () => Promise<T>,
     options?: RetryOptions,
   ): Promise<T> {
-    const maxRetries = options?.retries || 3;
+    const maxRetries = options?.retries ?? 3;
     const baseDelay = options?.retryDelay || 1000;
     const useExponentialBackoff = options?.exponentialBackoff !== false;
 

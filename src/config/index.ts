@@ -62,6 +62,8 @@ export const ConfigSchema = Joi.object<IConfig>({
   }),
 
   resilience: Joi.object<ResilienceConfig>({
+    httpTimeout: Joi.number().default(120000),
+    bulkHttpTimeout: Joi.number().default(600000),
     circuitBreaker: Joi.object({
       timeout: Joi.number().default(30000),
       resetTimeout: Joi.number().default(30000),
@@ -90,6 +92,17 @@ export const ConfigSchema = Joi.object<IConfig>({
     deadLetterStreamKey: Joi.string().default('app:logs:dead-letter:v1'),
     streamMaxLength: Joi.number().integer().min(1000).default(200000),
     consumerGroup: Joi.string().default('mongo-log-writers'),
+    capturePayloads: Joi.boolean().default(true),
+    payloadMaxBytes: Joi.number()
+      .integer()
+      .min(1024)
+      .max(8 * 1024 * 1024)
+      .default(1024 * 1024),
+    payloadMaxStringLength: Joi.number()
+      .integer()
+      .min(256)
+      .default(32 * 1024),
+    payloadMaxDepth: Joi.number().integer().min(2).max(50).default(12),
   }),
   entra: Joi.object<EntraConfig>({
     tenantId: Joi.string().guid().required(),

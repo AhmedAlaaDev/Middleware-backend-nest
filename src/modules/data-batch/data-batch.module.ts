@@ -10,6 +10,7 @@ import {
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,
   ReprocessBatchHandler,
+  SetBatchPostingPauseHandler,
 } from '@/modules/data-batch/commands/handlers';
 import { DataBatchController } from '@/modules/data-batch/data-batch.controller';
 import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-or-admin.guard';
@@ -58,6 +59,7 @@ const CommandHandlers = [
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,
   ReprocessBatchHandler,
+  SetBatchPostingPauseHandler,
 ];
 
 const QueryHandlers = [

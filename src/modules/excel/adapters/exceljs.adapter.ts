@@ -1,5 +1,6 @@
 import { createWriteStream } from 'fs';
 
+import { BadRequestException } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import * as Excel from 'exceljs';
 
@@ -14,9 +15,27 @@ export class ExcelJsAdapter extends IExcelAdapter {
   }
 
   public async readSheet<T = any>(buffer: Buffer): Promise<ExcelSheetData<T>> {
+    if (!buffer?.length) {
+      throw new BadRequestException('Excel file is empty or missing.');
+    }
+
     const workbook = new Workbook();
-    const ab = new Uint8Array(buffer).buffer;
-    await workbook.xlsx.load(ab);
+    // Pass a copied Node Buffer. Using `new Uint8Array(buffer).buffer` can hand
+    // ExcelJS a pooled ArrayBuffer larger than the file, which then fails inside
+    // XLSX.load with "Cannot read properties of undefined (reading 'sheets')".
+    try {
+      await workbook.xlsx.load(
+        Buffer.from(buffer) as unknown as Parameters<
+          typeof workbook.xlsx.load
+        >[0],
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(
+        'The uploaded file is not a valid readable Excel workbook (.xlsx).',
+      );
+    }
+
     const worksheet = workbook.worksheets[0];
     if (!worksheet) return { headers: [], rows: [] };
     const headerRow = worksheet.getRow(1).values as any[];

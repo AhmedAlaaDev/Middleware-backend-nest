@@ -5,3 +5,4 @@ export * from './download-batch-enhanced-record.handler';
 export * from './download-batch-error.handler';
 export * from './download-batch-source-record.handler';
 export * from './reprocess-batch.handler';
+export * from './set-batch-posting-pause.handler';

@@ -14,6 +14,7 @@ import {
   RoutedCashJournalPostingGroup,
 } from '@/modules/queue/contracts/post-customer-payment-journal-dfo-job.contract';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
+import { BatchPostingControlService } from '@/modules/queue/services/batch-posting-control.service';
 import {
   CreatedHeader,
   DfoRollbackService,
@@ -31,6 +32,9 @@ interface RoutedCreatedHeader extends CreatedHeader {
   route?: CashJournalRoute;
 }
 
+/** Why the worker stopped walking the journals of a batch. */
+type PostGroupsOutcome = 'completed' | 'paused';
+
 @Processor(QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL, { concurrency: 1 })
 export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
   constructor(
@@ -41,6 +45,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     private readonly jobs: QueueJobStoreService,
     private readonly logs: OperationalLoggerService,
     private readonly trace: TraceContextService,
+    private readonly pauseControl: BatchPostingControlService,
   ) {
     super();
   }
@@ -81,7 +86,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     await this.jobs.markActive(jobId, job.attemptsMade);
     await this.emit('queue.job.active', 'active');
     try {
-      await this.postGroups(job, collector);
+      if ((await this.postGroups(job, collector)) === 'paused') return;
       await this.jobs.markCompleted(jobId);
       await this.emit('queue.job.completed', 'completed');
     } catch (error) {
@@ -106,7 +111,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
   private async postGroups(
     job: Job<PostCustomerPaymentJournalDFOJobPayload>,
     collector: PostingErrorCollector,
-  ): Promise<void> {
+  ): Promise<PostGroupsOutcome> {
     const jobId = String(job.id);
     const groups = await this.jobs.listGroups<CashJournalPostingGroup>(jobId);
     if (!groups.length) throw new Error('No durable customer payment groups');
@@ -123,10 +128,25 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         dataAreaId: job.data.company,
         route: this.asRoutedGroup(record.payload)?.route,
       }));
+    let completedGroups = groups.filter(
+      (record) => record.status === QueueJobGroupStatus.COMPLETED,
+    ).length;
 
     try {
       for (const record of groups) {
         if (record.status === QueueJobGroupStatus.COMPLETED) continue;
+        // Checked between journals, never inside one: a half-written journal
+        // cannot be left behind, and stopping here needs no rollback.
+        if (await this.pauseControl.isPaused(job.data.batchId)) {
+          await this.pauseControl.recordWorkerStopped({
+            batchId: job.data.batchId,
+            jobId,
+            queueName: QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL,
+            completedGroups,
+            totalGroups: groups.length,
+          });
+          return 'paused';
+        }
         await this.jobs.markGroupActive(jobId, record.index);
         const routedGroup = this.asRoutedGroup(record.payload);
         if (job.data.payloadVersion === 2 && !routedGroup) {
@@ -195,6 +215,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           );
         }
         await this.jobs.completeGroup(jobId, record.index);
+        completedGroups += 1;
         await job.updateProgress({
           completedGroups: record.index + 1,
           totalGroups: groups.length,
@@ -206,6 +227,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           .filter((id): id is string => Boolean(id)),
         ...created.map((header) => header.headerKey),
       ]);
+      return 'completed';
     } catch (error) {
       if (created.length) {
         const failedToDeleteHeaders = await this.rollbackCreatedHeaders(

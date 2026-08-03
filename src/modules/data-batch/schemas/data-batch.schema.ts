@@ -70,6 +70,29 @@ export class DataBatch {
   @Prop()
   createdByEmail?: string;
 
+  /**
+   * Holds the batch back from being posted to D365FO. A worker that is already
+   * posting the batch stops after the journal it is currently writing, so the
+   * flag is honoured both before and during posting.
+   */
+  @Prop({ default: false })
+  postingPaused: boolean;
+
+  @Prop()
+  postingPausedAt?: Date;
+
+  @Prop()
+  postingPausedByUserId?: string;
+
+  @Prop()
+  postingPausedByName?: string;
+
+  @Prop()
+  postingPausedByEmail?: string;
+
+  @Prop()
+  postingResumedAt?: Date;
+
   @Prop()
   lastReprocessedAt?: Date;
 
@@ -101,4 +124,5 @@ export class DataBatch {
 export const DataBatchSchema = SchemaFactory.createForClass(DataBatch);
 DataBatchSchema.index({ company: 1, entryProcessorType: 1 });
 DataBatchSchema.index({ status: 1, createdAt: -1 });
+DataBatchSchema.index({ postingPaused: 1, status: 1 });
 DataBatchSchema.index({ createdAt: -1 });

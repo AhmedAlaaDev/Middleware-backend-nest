@@ -18,6 +18,7 @@ dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   app.useLogger(app.get(Logger));
   const isProduction = process.env.NODE_ENV === 'production';
   const isSwaggerEnabled = !isProduction;

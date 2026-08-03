@@ -74,7 +74,6 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             TransactionText: 'Customer payment',
             MarkedInvoice: 'INV-0001',
             Voucher: '',
-            OffsetTransactionText: 'Offset text',
           },
         },
       ],

@@ -1,6 +1,13 @@
 import { registerAs } from '@nestjs/config';
 
 export interface ResilienceConfig {
+  /** Default Axios timeout for outbound HTTP (including D365FO). */
+  httpTimeout: number;
+  /**
+   * Axios timeout for large D365FO custom-service mutations (cash-out bulk).
+   * Onebox/sandbox TTS for ~100 journal lines routinely exceeds 2 minutes.
+   */
+  bulkHttpTimeout: number;
   circuitBreaker: {
     timeout: number;
     resetTimeout: number;
@@ -18,6 +25,13 @@ export interface ResilienceConfig {
 export const resilienceConfig = registerAs(
   'resilience',
   (): ResilienceConfig => ({
+    httpTimeout: parseInt(process.env.HTTP_TIMEOUT ?? '120000', 10),
+    bulkHttpTimeout: parseInt(
+      process.env.D365FO_BULK_HTTP_TIMEOUT ??
+        process.env.HTTP_TIMEOUT ??
+        '600000',
+      10,
+    ),
     circuitBreaker: {
       timeout: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT ?? '60000', 10),
       resetTimeout: parseInt(

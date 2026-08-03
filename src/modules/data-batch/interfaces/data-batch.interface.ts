@@ -23,6 +23,12 @@ export interface ICreateDataBatch {
   createdByUserId?: string;
   createdByName?: string;
   createdByEmail?: string;
+  postingPaused?: boolean;
+  postingPausedAt?: Date;
+  postingPausedByUserId?: string;
+  postingPausedByName?: string;
+  postingPausedByEmail?: string;
+  postingResumedAt?: Date;
   lastReprocessedAt?: Date;
   lastReprocessedByUserId?: string;
   lastReprocessedByName?: string;
@@ -58,6 +64,13 @@ export class IDataBatch {
   createdByUserId?: string;
   createdByName?: string;
   createdByEmail?: string;
+  /** True while the batch is held back from being posted to D365FO. */
+  postingPaused: boolean;
+  postingPausedAt?: Date;
+  postingPausedByUserId?: string;
+  postingPausedByName?: string;
+  postingPausedByEmail?: string;
+  postingResumedAt?: Date;
   lastReprocessedAt?: Date;
   lastReprocessedByUserId?: string;
   lastReprocessedByName?: string;

@@ -12,7 +12,10 @@ const ALLOWED_TYPES = [
 
 @Injectable()
 export class ExcelFilePipe implements PipeTransform {
-  transform(value: Express.Multer.File, _: ArgumentMetadata): Express.Multer.File {
+  transform(
+    value: Express.Multer.File,
+    _: ArgumentMetadata,
+  ): Express.Multer.File {
     if (!value) {
       throw new BadRequestException('File is required');
     }
@@ -24,6 +27,10 @@ export class ExcelFilePipe implements PipeTransform {
     // "value" is an object containing the file's attributes and metadata
     if (!ALLOWED_TYPES.includes(value.mimetype)) {
       throw new BadRequestException('File type not allowed');
+    }
+
+    if (!value.buffer?.length) {
+      throw new BadRequestException('Excel file is empty or missing.');
     }
 
     return value;

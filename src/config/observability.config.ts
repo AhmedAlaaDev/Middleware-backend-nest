@@ -7,6 +7,10 @@ export interface ObservabilityConfig {
   deadLetterStreamKey: string;
   streamMaxLength: number;
   consumerGroup: string;
+  capturePayloads: boolean;
+  payloadMaxBytes: number;
+  payloadMaxStringLength: number;
+  payloadMaxDepth: number;
 }
 
 export const observabilityConfig = registerAs(
@@ -22,5 +26,18 @@ export const observabilityConfig = registerAs(
       10,
     ),
     consumerGroup: process.env.LOG_REDIS_CONSUMER_GROUP ?? 'mongo-log-writers',
+    capturePayloads: process.env.LOG_CAPTURE_PAYLOADS !== 'false',
+    payloadMaxBytes: Number.parseInt(
+      process.env.LOG_PAYLOAD_MAX_BYTES ?? '1048576',
+      10,
+    ),
+    payloadMaxStringLength: Number.parseInt(
+      process.env.LOG_PAYLOAD_MAX_STRING_LENGTH ?? '32768',
+      10,
+    ),
+    payloadMaxDepth: Number.parseInt(
+      process.env.LOG_PAYLOAD_MAX_DEPTH ?? '12',
+      10,
+    ),
   }),
 );
