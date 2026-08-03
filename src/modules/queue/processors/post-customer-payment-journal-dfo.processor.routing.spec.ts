@@ -96,7 +96,6 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       legacyStrategy as any,
       cashStrategy as any,
       batches as any,
-      rollback as any,
       jobs as any,
       logs as any,
       trace as any,
@@ -171,7 +170,9 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
 
   it('does not post lines when D365 returns no journal number', async () => {
     const group = makeGroup(apRoute);
-    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
+      group,
+    ]);
     cashStrategy.postHeadersInBatches.mockReset().mockResolvedValue({
       headerIds: [],
       responses: [],
@@ -182,15 +183,15 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
 
     expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
-    expect(jobs.resetAfterRollback).toHaveBeenCalledWith('job-2045', []);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
     expect(jobs.markFailed).toHaveBeenCalled();
   });
 
-  it('rolls back a newly created header when persisting its ID fails', async () => {
+  it('keeps a newly created header when persisting its ID fails so finance can clean up', async () => {
     const group = makeGroup(apRoute);
-    const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
-      group,
-    ]);
+    const { processor, job, cashStrategy, jobs, rollback, batches } =
+      buildProcessor([group]);
     jobs.setCreatedHeader.mockRejectedValue(
       new Error('Mongo header persistence failed'),
     );
@@ -200,17 +201,11 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
 
     expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
-    expect(rollback.rollbackAll).toHaveBeenCalledWith(
-      cashStrategy,
-      [
-        expect.objectContaining({
-          headerKey: 'D365-RET-001',
-          route: apRoute,
-        }),
-      ],
-      20,
-      expect.anything(),
-    );
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
+    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
+      'D365-RET-001',
+    ]);
   });
 
   it('rejects a version-2 group that has no task-2045 route metadata', async () => {
@@ -235,9 +230,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(legacyStrategy.postHeadersInBatches).not.toHaveBeenCalled();
   });
 
-  it('restores each route context in reverse order during rollback', async () => {
+  it('keeps earlier journals when a later route fails so retry can resume', async () => {
     const groups = [makeGroup(apRoute, 1), makeGroup(glRoute, 2)];
-    const { processor, job, cashStrategy, rollback } = buildProcessor(groups);
+    const { processor, job, cashStrategy, rollback, jobs, batches } =
+      buildProcessor(groups);
     cashStrategy.postLinesForHeader
       .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error('second route failed'));
@@ -248,16 +244,14 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
 
     expect(
       cashStrategy.setRouteContext.mock.calls.map((call) => call[0]),
-    ).toEqual([apRoute, glRoute, glRoute, apRoute]);
-    expect(rollback.rollbackAll).toHaveBeenCalledTimes(2);
-    expect(rollback.rollbackAll.mock.calls[0][1][0]).toMatchObject({
-      headerKey: 'D365-RET-002',
-      route: glRoute,
-    });
-    expect(rollback.rollbackAll.mock.calls[1][1][0]).toMatchObject({
-      headerKey: 'D365-RET-001',
-      route: apRoute,
-    });
+    ).toEqual([apRoute, glRoute]);
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
+    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
+      'D365-RET-001',
+      'D365-RET-002',
+    ]);
   });
 
   it('reuses a persisted header on recovery without creating a second header', async () => {
@@ -321,13 +315,11 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
   });
 
-  it('rolls back a header completed by an earlier attempt if a later route fails', async () => {
+  it('leaves a header completed by an earlier attempt intact when a later route fails', async () => {
     const completedAp = makeGroup(apRoute, 1);
     const pendingGl = makeGroup(glRoute, 1);
-    const { processor, job, cashStrategy, rollback, jobs } = buildProcessor([
-      completedAp,
-      pendingGl,
-    ]);
+    const { processor, job, cashStrategy, rollback, jobs, batches } =
+      buildProcessor([completedAp, pendingGl]);
     jobs.listGroups.mockResolvedValue([
       {
         index: 0,
@@ -353,15 +345,49 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       'GL line failed',
     );
 
-    expect(rollback.rollbackAll).toHaveBeenCalledTimes(2);
-    expect(rollback.rollbackAll.mock.calls[0][1][0]).toMatchObject({
-      headerKey: 'D365-NEW-GL',
-      route: glRoute,
-    });
-    expect(rollback.rollbackAll.mock.calls[1][1][0]).toMatchObject({
-      headerKey: 'D365-COMPLETED-AP',
-      route: apRoute,
-    });
+    expect(cashStrategy.postHeadersInBatches).toHaveBeenCalledTimes(1);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
+    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
+      'D365-NEW-GL',
+    ]);
+  });
+
+  it('reuses the persisted header on retry without clearing completed journals', async () => {
+    const completedAp = makeGroup(apRoute, 1);
+    const pendingGl = makeGroup(glRoute, 2);
+    const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
+      completedAp,
+      pendingGl,
+    ]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.COMPLETED,
+        createdHeaderId: 'D365-COMPLETED-AP',
+        payload: completedAp,
+      },
+      {
+        index: 1,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'D365-PERSISTED-GL',
+        payload: pendingGl,
+      },
+    ]);
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(1);
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledWith(
+      'D365-PERSISTED-GL',
+      pendingGl.lines,
+      'm-p',
+      20,
+    );
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 1);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
   });
 
   it('posts nothing when the batch is paused before the first journal', async () => {

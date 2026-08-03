@@ -947,6 +947,57 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
   });
 
+  it('resumes cash-out from the first failed patch and skips already-posted FO lines', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    Object.defineProperty(service, 'cashOutBulkBatchSize', { value: 2 });
+
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValue([
+      { LineNumber: 1 },
+      { LineNumber: 2 },
+    ]);
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: '2 line(s) processed successfully.',
+    });
+
+    const result = await service.postCashOutLinesForHeader(
+      'JN-RESUME',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: { journalNum: '', AccountNum: 'VEND1' },
+        } as any,
+        {
+          LineNumber: 2,
+          customLineApiBody: { journalNum: '', AccountNum: 'VEND2' },
+        } as any,
+        {
+          LineNumber: 3,
+          customLineApiBody: { journalNum: '', AccountNum: 'VEND3' },
+        } as any,
+        {
+          LineNumber: 4,
+          customLineApiBody: { journalNum: '', AccountNum: 'VEND4' },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(result).toEqual([
+      { headerId: 'JN-RESUME', lineNumber: 1 },
+      { headerId: 'JN-RESUME', lineNumber: 2 },
+      { headerId: 'JN-RESUME', lineNumber: 3 },
+      { headerId: 'JN-RESUME', lineNumber: 4 },
+    ]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toEqual([
+      expect.objectContaining({ AccountNum: 'VEND3', journalNum: 'JN-RESUME' }),
+      expect.objectContaining({ AccountNum: 'VEND4', journalNum: 'JN-RESUME' }),
+    ]);
+  });
+
   it('does not clear marked settlements for unrelated cash-out errors', async () => {
     const { service, d365foClient } = buildService();
 

@@ -382,11 +382,9 @@ export class CustomerPaymentJournalService {
     existingLines: Set<number>,
     allowUnmarkedInvoiceRetry: boolean,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
-    const pendingLines: CashBulkPendingLine[] = [];
+    const preparedLines: CashBulkPendingLine[] = [];
 
     for (const line of lines) {
-      if (existingLines.has(line.LineNumber)) continue;
-
       const body = line.customLineApiBody;
       if (!body) {
         throw new Error(
@@ -401,22 +399,59 @@ export class CustomerPaymentJournalService {
         );
       }
 
-      pendingLines.push({
+      preparedLines.push({
         lineNumber: line.LineNumber,
         body: { ...body, journalNum: headerKey },
       });
     }
 
     const batchSize = this.cashOutBulkBatchSize;
-    const totalBatches = Math.ceil(pendingLines.length / batchSize);
+    const totalBatches = Math.ceil(preparedLines.length / batchSize) || 0;
+    const alreadyPostedCount = preparedLines.filter((line) =>
+      existingLines.has(line.lineNumber),
+    ).length;
 
-    for (let index = 0; index < pendingLines.length; index += batchSize) {
+    if (alreadyPostedCount > 0) {
+      const firstPendingIndex = preparedLines.findIndex(
+        (line) => !existingLines.has(line.lineNumber),
+      );
+      const resumePatch =
+        firstPendingIndex >= 0
+          ? Math.floor(firstPendingIndex / batchSize) + 1
+          : totalBatches + 1;
+      this.logger.log(
+        `[CASH-CUSTOM] Resuming cash-out for header ${headerKey}: ${alreadyPostedCount}/${preparedLines.length} line(s) already posted in FO; starting from patch ${Math.min(resumePatch, Math.max(totalBatches, 1))}/${Math.max(totalBatches, 1)}`,
+      );
+    }
+
+    // Walk original patch windows so already-posted FO patches stay skipped and
+    // retry continues at the first window that still has pending lines.
+    for (let index = 0; index < preparedLines.length; index += batchSize) {
+      const patchNumber = Math.floor(index / batchSize) + 1;
+      const patchLines = preparedLines.slice(index, index + batchSize);
+      const pendingLines = patchLines.filter(
+        (line) => !existingLines.has(line.lineNumber),
+      );
+
+      if (pendingLines.length === 0) {
+        this.logger.log(
+          `[CASH-CUSTOM] Skipping cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) already posted`,
+        );
+        continue;
+      }
+
+      if (pendingLines.length !== patchLines.length) {
+        this.logger.log(
+          `[CASH-CUSTOM] Cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: posting ${pendingLines.length}/${patchLines.length} remaining line(s)`,
+        );
+      }
+
       await this.postCashOutBulkBatch(
         endpoint,
         headerKey,
-        pendingLines.slice(index, index + batchSize),
+        pendingLines,
         allowUnmarkedInvoiceRetry,
-        { number: Math.floor(index / batchSize) + 1, total: totalBatches },
+        { number: patchNumber, total: totalBatches },
       );
     }
 
