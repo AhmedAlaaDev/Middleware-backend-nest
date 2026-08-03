@@ -937,40 +937,85 @@ export class CustomerPaymentJournalService {
   /**
    * Project an internal cash line onto a `_contract.Lines` entry.
    *
-   * Scenario 4 (main account-only): offset account *data* is omitted by sending
-   * empty Offset* values. The keys themselves stay on every line because FO's
-   * `constructFromJsonObject` calls `jsonMap.lookup(...)` without `exists()`
-   * for most members (including VendorGroup / Offset*) and throws
-   * `The value "…" is not found in the map.` when a key is absent.
-   * Lowercase `offset*` aliases are stripped so they cannot collide with the
-   * PascalCase keys FO actually reads.
+   * Emits the documented Cash Out bulk shape only — one ExchangeRate, one
+   * ReportingExchangeRate, documented offset keys, and MarkedLines only when
+   * the line actually settles invoices. Scenario 4 (main account-only) keeps
+   * the offset keys present with empty values so FO lookups do not throw.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
-    const {
-      offsetDEFAULTDIMENSIONDISPLAYVALUE: _omitOffsetDimAlias,
-      offsetAccountDisplayValue: _omitOffsetAccountAlias,
-      accountTypeStr,
-      VendorGroup,
-      ...rest
-    } = line;
+    const exchangeRate = Number(
+      line.ExchangeRate ?? line.EXCHANGERATE ?? line.ExchRate ?? 100,
+    );
+    const reportingExchangeRate = Number(
+      line.ReportingExchangeRate ??
+        line.REPORTINGEXCHANGERATE ??
+        line.ReportingCurrencyExchRate ??
+        line.ExchRateSecond ??
+        0,
+    );
+    const markedLines = Array.isArray(line.MarkedLines)
+      ? line.MarkedLines.filter(
+          (marked) =>
+            Boolean(String(marked?.InvoiceNumber ?? '').trim()) ||
+            Boolean(String(marked?.DocumentNumber ?? '').trim()) ||
+            Boolean(String(marked?.OperationNumber ?? '').trim()),
+        )
+      : [];
 
-    return {
-      ...rest,
-      accountTypeStr: String(accountTypeStr ?? '')
+    const body: TSLedgerJournalTransCustomBulkLineRequestBody = {
+      journalNum: String(line.journalNum ?? '').trim(),
+      AccountNum: String(line.AccountNum ?? ''),
+      accountTypeStr: String(line.accountTypeStr ?? '')
         .trim()
         .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
-      // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
-      VendorGroup: VendorGroup ?? '',
-      OffsetDEFAULTDIMENSIONDISPLAYVALUE:
+      BANKTRANSACTIONTYPE: String(line.BANKTRANSACTIONTYPE ?? ''),
+      CENTRALBANKPURPOSECODE: String(line.CENTRALBANKPURPOSECODE ?? ''),
+      CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
+      company: String(line.company ?? ''),
+      creditAmount: Number(line.creditAmount ?? 0),
+      currency: String(line.currency ?? ''),
+      debitAmount: Number(line.debitAmount ?? 0),
+      DEFAULTDIMENSIONDISPLAYVALUE: String(
+        line.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
+      ),
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: String(
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
-      OffsetAccountDisplayValue: line.offsetAccountDisplayValue ?? '',
+      ),
+      ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 100,
+      FinTagStr: String(line.FinTagStr ?? ''),
+      ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
+      ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),
+      offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
-      OffsetCompany: line.OffsetCompany ?? '',
-      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',
-      OFFSETTRANSACTIONTEXT: line.OFFSETTRANSACTIONTEXT ?? '',
+      OffsetCompany: String(line.OffsetCompany ?? ''),
+      OFFSETFINTAGDISPLAYVALUE: String(line.OFFSETFINTAGDISPLAYVALUE ?? ''),
+      OFFSETTRANSACTIONTEXT: String(line.OFFSETTRANSACTIONTEXT ?? ''),
+      PAYMENTID: String(line.PAYMENTID ?? ''),
+      PAYMENTMETHODNAME: String(line.PAYMENTMETHODNAME ?? ''),
+      PAYMENTNOTES: String(line.PAYMENTNOTES ?? ''),
+      PAYMENTREFERENCE: String(line.PAYMENTREFERENCE ?? ''),
+      PAYMENTSPECIFICATION: String(line.PAYMENTSPECIFICATION ?? ''),
+      PostingProfile: String(line.PostingProfile ?? ''),
+      TaxGroup: String(line.TaxGroup ?? ''),
+      TAXITEMGROUP: String(line.TAXITEMGROUP ?? ''),
+      transDate: String(line.transDate ?? ''),
+      TRANSACTIONTEXT: String(line.TRANSACTIONTEXT ?? ''),
+      DocumentNum: String(line.DocumentNum ?? ''),
+      DocumentDate: String(line.DocumentDate ?? ''),
+      ReportingExchangeRate: Number.isFinite(reportingExchangeRate)
+        ? reportingExchangeRate
+        : 0,
+      // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
+      VendorGroup: String(line.VendorGroup ?? ''),
     };
+
+    if (markedLines.length > 0) {
+      body.MarkedLines = markedLines;
+    }
+
+    return body;
   }
 
   /**

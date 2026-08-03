@@ -90,32 +90,50 @@ export interface TSLedgerJournalTransCustomRequest {
  * One entry of the Cash Out `_contract.Lines` collection
  * (`addLedgerJournalTransVendPaym` / JournalLineWrapper).
  *
- * FO builds each line through `JournalLineContract::constructFromJsonObject`,
- * which does case-sensitive map lookups and throws when a key is absent
- * (`The value "…" is not found in the map.`). Offset keys and `VendorGroup`
- * therefore stay present (empty when unused). Lowercase `offset*` aliases are
- * omitted so they cannot collide with the PascalCase keys FO looks up.
+ * Matches the FO Cash Out bulk contract: one clean field set per line (no
+ * duplicate ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
+ * Offset display values use the documented lowercase keys; other Offset*
+ * members and VendorGroup stay present (empty when unused) because FO's
+ * `constructFromJsonObject` looks them up without `exists()`.
  */
-export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
-  TSLedgerJournalTransCustomRequestBody,
-  | 'accountTypeStr'
-  | 'offsetDEFAULTDIMENSIONDISPLAYVALUE'
-  | 'offsetAccountDisplayValue'
-  | 'OffsetAccountTypeStr'
-  | 'OffsetCompany'
-  | 'OFFSETFINTAGDISPLAYVALUE'
-  | 'OFFSETTRANSACTIONTEXT'
-  | 'VendorGroup'
-> & {
+export interface TSLedgerJournalTransCustomBulkLineRequestBody {
+  journalNum: string;
+  AccountNum: string;
   accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
-  VendorGroup: string;
-  OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
-  OffsetAccountDisplayValue: string;
+  BANKTRANSACTIONTYPE: string;
+  CENTRALBANKPURPOSECODE: string;
+  CENTRALBANKPURPOSETEXT: string;
+  company: string;
+  creditAmount: number;
+  currency: string;
+  debitAmount: number;
+  DEFAULTDIMENSIONDISPLAYVALUE: string;
+  offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  ExchangeRate: number;
+  FinTagStr: string;
+  ISPREPAYMENT: string;
+  ITEMWITHHOLDINGTAXGROUP: string;
+  MarkedLines?: TSLedgerJournalMarkedLine[];
+  offsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
   OffsetCompany: string;
   OFFSETFINTAGDISPLAYVALUE: string;
   OFFSETTRANSACTIONTEXT: string;
-};
+  PAYMENTID: string;
+  PAYMENTMETHODNAME: string;
+  PAYMENTNOTES: string;
+  PAYMENTREFERENCE: string;
+  PAYMENTSPECIFICATION: string;
+  PostingProfile: string;
+  TaxGroup: string;
+  TAXITEMGROUP: string;
+  transDate: string;
+  TRANSACTIONTEXT: string;
+  DocumentNum: string;
+  DocumentDate: string;
+  ReportingExchangeRate: number;
+  VendorGroup: string;
+}
 
 /** Bulk request body: every journal line of the batch (or chunk) in `Lines`. */
 export interface TSLedgerJournalTransCustomBulkRequestBody {

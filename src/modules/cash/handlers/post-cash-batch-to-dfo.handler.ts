@@ -395,26 +395,32 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : line.Invoice || ''
       ).trim();
       const vendorGroup = String(line.VendorGroup ?? '').trim();
+      const isCustodyVendor = vendorGroup.toLowerCase() === 'custody';
+      const operationNumber = String(line.FinTagDisplayValue ?? '')
+        .split('|')[0]
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+        .trim();
+      const documentNumber = String(line.Document ?? '').trim();
       const markedLines =
         line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines.map((markedLine) => ({
-              InvoiceNumber: String(markedLine.InvoiceNumber ?? '').trim(),
-              OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
-              DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+              InvoiceNumber: isCustodyVendor
+                ? ''
+                : String(markedLine.InvoiceNumber ?? '').trim(),
+              OperationNumber: String(
+                markedLine.OperationNumber ?? operationNumber,
+              ).trim(),
+              DocumentNumber: isCustodyVendor
+                ? String(markedLine.DocumentNumber ?? documentNumber).trim()
+                : '',
               HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
             }))
-          : markedInvoice
+          : markedInvoice || (isCustodyVendor && documentNumber)
             ? [
                 {
-                  InvoiceNumber:
-                    vendorGroup.toLowerCase() === 'custody'
-                      ? ''
-                      : markedInvoice,
-                  OperationNumber: '',
-                  DocumentNumber:
-                    vendorGroup.toLowerCase() === 'custody'
-                      ? String(line.Document ?? '').trim()
-                      : '',
+                  InvoiceNumber: isCustodyVendor ? '' : markedInvoice,
+                  OperationNumber: operationNumber,
+                  DocumentNumber: isCustodyVendor ? documentNumber : '',
                   HasWithHoldingLine: false,
                 },
               ]

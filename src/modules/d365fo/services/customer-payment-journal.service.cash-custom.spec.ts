@@ -222,18 +222,25 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('accountTypeStr', 'vendor');
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
-    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
     expect(postedLine).toHaveProperty(
-      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
       'BU-001|CC-002|Dept-004',
     );
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate', 100);
-    // The offset keys are not repeated in the lowercase spelling, which would
-    // collide with the PascalCase one the endpoint looks up.
-    expect(postedLine).not.toHaveProperty('offsetAccountDisplayValue');
-    expect(postedLine).not.toHaveProperty('offsetDEFAULTDIMENSIONDISPLAYVALUE');
+    // Bulk contract carries one exchange-rate field and one reporting-rate field.
+    expect(postedLine).not.toHaveProperty('ExchRate');
+    expect(postedLine).not.toHaveProperty('EXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
+    expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ExchRateSecond');
+    expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
+    expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
+    expect(postedLine).not.toHaveProperty('Voucher');
+    expect(postedLine).not.toHaveProperty('IsWithholdingTaxCalculate');
+    expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -317,7 +324,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             HasWithHoldingLine: true,
           }),
         ],
-        OffsetAccountDisplayValue: 'BANK001',
+        offsetAccountDisplayValue: 'BANK001',
         OffsetAccountTypeStr: 'Bank',
       }),
     );
@@ -330,12 +337,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         ReportingExchangeRate: 2.2,
       }),
     );
+    expect(contract.Lines[1]).not.toHaveProperty('MarkedLines');
     // Scenario 4: a main account-only line carries no offset account, while the
     // vendor line in the same request keeps its own. The keys stay on the line
     // because the endpoint looks each one up and throws when it is missing.
     for (const offsetKey of [
-      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'OffsetAccountDisplayValue',
+      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'offsetAccountDisplayValue',
       'OffsetAccountTypeStr',
       'OffsetCompany',
       'OFFSETFINTAGDISPLAYVALUE',
@@ -563,30 +571,87 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
 
     // Same values as the documented body: journalNum is filled in,
-    // accountTypeStr is lowercased, the two offset display values move to the
-    // PascalCase spelling the endpoint looks up, and VendorGroup stays present
-    // (FO jsonMap.lookup("VendorGroup") has no exists() guard).
-    const {
-      offsetDEFAULTDIMENSIONDISPLAYVALUE,
-      offsetAccountDisplayValue,
-      ...documentedRest
-    } = documentedLine;
-
+    // accountTypeStr is lowercased, and only the documented rate / offset keys
+    // are sent (no ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
           {
-            ...documentedRest,
+            ...documentedLine,
             journalNum: 'Mesco-000013758',
             accountTypeStr: 'vendor',
             VendorGroup: 'Custody',
-            OffsetDEFAULTDIMENSIONDISPLAYVALUE:
-              offsetDEFAULTDIMENSIONDISPLAYVALUE,
-            OffsetAccountDisplayValue: offsetAccountDisplayValue,
           },
         ],
       },
     });
+  });
+
+  it('omits empty MarkedLines and duplicate exchange-rate aliases from the bulk body', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN-CLEAN',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'JN-CLEAN',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'RP-000007',
+            accountTypeStr: 'Vendor',
+            company: 'm-p',
+            creditAmount: 0,
+            currency: 'USD',
+            debitAmount: 778,
+            ExchRate: 4765,
+            EXCHANGERATE: 4765,
+            ExchangeRate: 4765,
+            ReportingCurrencyExchRate: 100,
+            ReportingExchangeRate: 100,
+            REPORTINGEXCHANGERATE: 100,
+            ExchRateSecond: 100,
+            DEFAULTDIMENSIONDISPLAYVALUE: 'dims',
+            FinTagStr: 'tags',
+            ISPREPAYMENT: 'No',
+            ITEMWITHHOLDINGTAXGROUP: '',
+            IsWithholdingTaxCalculate: 'No',
+            ISWITHHOLDINGTAXCALCULATE: 'No',
+            MarkedLines: [],
+            Voucher: '',
+            VendorGroup: '',
+            PAYMENTNOTES: 'MSC',
+            TRANSACTIONTEXT: 'MSC',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    const postedLine = d365foClient.post.mock.calls[0][1]._contract.Lines[0];
+    expect(postedLine).toMatchObject({
+      journalNum: 'JN-CLEAN',
+      AccountNum: 'RP-000007',
+      accountTypeStr: 'vendor',
+      ExchangeRate: 4765,
+      ReportingExchangeRate: 100,
+      VendorGroup: '',
+      offsetAccountDisplayValue: '',
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+    });
+    expect(postedLine).not.toHaveProperty('MarkedLines');
+    expect(postedLine).not.toHaveProperty('ExchRate');
+    expect(postedLine).not.toHaveProperty('EXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
+    expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ExchRateSecond');
+    expect(postedLine).not.toHaveProperty('Voucher');
+    expect(postedLine).not.toHaveProperty('IsWithholdingTaxCalculate');
+    expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {
@@ -834,12 +899,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
       {
         journalNum: 'Mesco-000013709',
-        MarkedLines: [],
         PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
         TRANSACTIONTEXT:
           'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
       },
     );
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
+    ).not.toHaveProperty('MarkedLines');
   });
 
   it('retries every line unmarked when an all-or-nothing FO response reports remaining invoice amount', async () => {
@@ -907,15 +974,19 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post.mock.calls[1][1]._contract.Lines).toEqual([
       expect.objectContaining({
         AccountNum: 'VEND1',
-        MarkedLines: [],
         PAYMENTNOTES: 'Pay 1 - unmarked',
       }),
       expect.objectContaining({
         AccountNum: 'VEND2',
-        MarkedLines: [],
         PAYMENTNOTES: 'Pay 2 - unmarked',
       }),
     ]);
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
+    ).not.toHaveProperty('MarkedLines');
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[1],
+    ).not.toHaveProperty('MarkedLines');
   });
 
   it('fails the whole Lines chunk when FO returns a non-Success StatusCode', async () => {

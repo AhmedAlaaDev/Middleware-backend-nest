@@ -930,8 +930,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       // Every non-Vendor-Payment SafeType keeps the original debit/credit
       // rows. Only Vendor Payment converts a source counterpart into Offset.
+      // Associate 223304 withholding rows so vendor MarkedLines can set
+      // HasWithHoldingLine when the related settlement line is present.
+      const withholdingLines = lines.filter((line) =>
+        this.isWithholdingLedgerLine(line),
+      );
       return lines.map((line) =>
-        this.buildSourceLineOutbound(sourceId, line, exchangeRateContext),
+        this.buildSourceLineOutbound(
+          sourceId,
+          line,
+          exchangeRateContext,
+          line.IsVendor
+            ? this.findWithholdingLine(line, withholdingLines)
+            : undefined,
+        ),
       );
     }
 
@@ -1610,6 +1622,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceId: string,
     sourceLine: CashEntryRawDataModel,
     exchangeRateContext?: CashOutExchangeRateContext,
+    withholdingLine?: CashEntryRawDataModel,
   ): CashEntryDynDataModel {
     const dimensionString =
       sourceLine.ACCOUNTTYPE === 'Ledger'
@@ -1681,6 +1694,29 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
       Boolean(sourceLine.ITEMWITHHOLDINGTAXGROUPCODE);
+    const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
+    const isCustodyVendor =
+      sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
+    const markedLine = sourceLine.IsVendor
+      ? this.buildMarkedLine(sourceLine, withholdingLine)
+      : undefined;
+    const hasSettlementTarget = Boolean(
+      markedLine &&
+        (markedLine.InvoiceNumber ||
+          markedLine.DocumentNumber ||
+          markedLine.OperationNumber),
+    );
+    const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
+    // Custody settlements mark DocumentNumber in MarkedLines; never send the
+    // deprecated MarkedInvoice field for those rows.
+    const markedInvoice =
+      sourceLine.IsVendor && !isCustodyVendor && !isCustodySettlement
+        ? this.sanitizeInvoiceOutbound(
+            sourceLine.MARKEDINVOICE ||
+              sourceLine.INVOICE ||
+              sourceLine.DOCUMENT,
+          )
+        : '';
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
@@ -1729,7 +1765,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Invoice: this.sanitizeInvoiceOutbound(
         sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
-      MarkedInvoice: '',
+      MarkedInvoice: markedInvoice,
+      MarkedLines: markedLines,
+      VendorGroup: sourceLine.IsVendor ? vendorGroup : '',
       dataAreaId: this.company,
       ExchRateSecond: 0,
       Document: sourceLine.DOCUMENT,
@@ -1737,6 +1775,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: sourceLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: route?.safeType ?? sourceLine.SafeType,
+      SettlementTargetType: sourceLine.IsVendor
+        ? isCustodyVendor
+          ? 'CustodyLedger'
+          : 'VendorInvoice'
+        : undefined,
     });
 
     if (

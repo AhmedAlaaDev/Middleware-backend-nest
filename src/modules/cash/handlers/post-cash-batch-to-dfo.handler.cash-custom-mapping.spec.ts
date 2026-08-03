@@ -157,7 +157,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('MarkedLines', [
       {
         InvoiceNumber: 'INV-0002',
-        OperationNumber: '',
+        OperationNumber: 'TAG1',
         DocumentNumber: '',
         HasWithHoldingLine: false,
       },
@@ -669,7 +669,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     }
   });
 
-  it('maps successfully posted Custody Issue group 466672 without invoice settlement', () => {
+  it('maps custody vendor settlements into MarkedLines with DocumentNumber and OperationNumber', () => {
     const handler = buildHandler();
     const finTag =
       'O25-IMP-OC-11585||Sl-000009|Ag-000010|261633796|||||EGY CROWN|CNSHA Shanghai|EGPSD Port Said West|||30/12/2025||02/12/2025|31/12/2025|';
@@ -699,13 +699,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CurrencyCode: 'EGP',
             VoucherType: 'Cash',
             SafeType: 'Custody Issue',
+            VendorGroup: 'Custody',
             FinTagDisplayValue: finTag,
             OffsetFinTagDisplayValue: finTag,
             SalesTaxGroup: 'Non-Taxabl',
             PostingProfile: 'V-PP',
             PaymentId: '1',
             PaymentReference: 'PSD EG-1 - Freight',
-            TransactionText: 'Vendor Payment - Freight January 2026 (Cash)',
+            TransactionText: 'Direct - Fleet January 2026 (Cash)',
             MarkedInvoice: '',
           },
         },
@@ -718,7 +719,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const body = result[0].customLineApiBody;
     expect(body).toHaveProperty('AccountNum', '5019');
     expect(body).toHaveProperty('debitAmount', 5000);
-    expect(body).toHaveProperty('MarkedLines', []);
+    expect(body).toHaveProperty('VendorGroup', 'Custody');
+    expect(body).toHaveProperty('MarkedLines', [
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O25-IMP-OC-11585',
+        DocumentNumber: '15925',
+        HasWithHoldingLine: false,
+      },
+    ]);
     expect(body).toHaveProperty('FinTagStr', finTag);
     expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
     expect(body).toHaveProperty('DocumentNum', '15925');
