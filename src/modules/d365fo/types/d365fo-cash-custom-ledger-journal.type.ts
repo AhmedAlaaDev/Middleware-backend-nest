@@ -109,7 +109,6 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   debitAmount: number;
   DEFAULTDIMENSIONDISPLAYVALUE: string;
   offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
-  ExchangeRate: number;
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;

@@ -400,10 +400,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         String(line.FinTagDisplayValue ?? '').split('|')[0],
       ).trim();
       const documentNumber = String(line.Document ?? '').trim();
-      // Settlement (marking) is Vendor Payment only (AP vendor-invoice route).
-      // Never synthesize MarkedLines for Custody Settlement / Custody Issue /
-      // Direct / Other / AR routes from Document or SettlementTargetType.
-      const routeSupportsMarking = route?.kind === 'vendor-invoice';
+      // Settlement (marking) is Vendor Payment only. Custody Settlement /
+      // Custody Issue also post to AP headers but must not synthesize MarkedLines.
+      const routeSupportsMarking = route?.safeType === 'Vendor Payment';
       const markedLines = routeSupportsMarking
         ? line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines.map((markedLine) => ({
@@ -454,17 +453,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : 'unmarked';
       }
 
-      const currencyCode = (line.CurrencyCode ?? '').trim().toUpperCase();
-      const accountingExchangeRate =
-        currencyCode === 'EGP'
-          ? 100
-          : Number(line.ExchRate || line.ExchangeRate || 100) || 100;
       const documentDate = this.normalizeTransDateForCustomApi(
         this.formatDate(line.DocumentDate || transactionDate),
       );
+      const reportingExchangeRate =
+        (line.ReportingCurrencyExchRate || 0) * 100;
 
       // Dates before currency/rates: if FO assigns fields in JSON order,
       // TransDate must be present before CurrencyCode triggers rate lookup.
+      // ExchangeRate / EXCHANGERATE / ExchRate are intentionally omitted from
+      // every custom cash body per cash-out journal routing contract.
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
         journalNum: '',
@@ -486,14 +484,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
-        ExchRate: accountingExchangeRate,
-        EXCHANGERATE: accountingExchangeRate,
-        ExchangeRate: accountingExchangeRate,
-
-        ReportingCurrencyExchRate: (line.ReportingCurrencyExchRate || 0) * 100,
-        ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
-        REPORTINGEXCHANGERATE: (line.ReportingCurrencyExchRate || 0) * 100,
-        ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
+        ReportingCurrencyExchRate: reportingExchangeRate,
+        ReportingExchangeRate: reportingExchangeRate,
+        REPORTINGEXCHANGERATE: reportingExchangeRate,
+        ExchRateSecond: reportingExchangeRate,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
@@ -522,7 +516,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         // TODO: mapping is unknown; keeping empty until confirmed.
         PAYMENTSPECIFICATION: '',
 
-        PostingProfile: line.PostingProfile ?? '',
+        PostingProfile: this.resolvePostingProfile(line.PostingProfile, route),
 
         TaxGroup:
           cashDirection === 'out'
@@ -588,6 +582,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private isOffsetFieldName(fieldName: string): boolean {
     return fieldName.toLowerCase().startsWith('offset');
+  }
+
+  private resolvePostingProfile(
+    sourceProfile: string | undefined,
+    route: CashJournalRoute | undefined,
+  ): string {
+    const fromSource = String(sourceProfile ?? '').trim();
+    if (fromSource) return fromSource;
+    if (!route) return '';
+    return route.module === 'AR' ? 'Cust-PP' : 'V-PP';
   }
 
   private normalizeTransDateForCustomApi(dateIsoString: string): string {

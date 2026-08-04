@@ -377,11 +377,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
             voucherType: line.VoucherType,
           });
-          // Only AP Vendor Payment routes settle against vendor invoices.
-          // GL routes and AR customer-payment routes must not inherit the
-          // vendor/account ownership validation.
+          // Only Vendor Payment settles against vendor invoices.
+          // Custody Settlement / Custody Issue use AP headers but do not mark.
           shouldValidateCashOutMarkedInvoice =
-            route.kind === 'vendor-invoice' &&
+            route.safeType === 'Vendor Payment' &&
             line.SettlementTargetType !== 'CustodyLedger';
         } catch (error) {
           const message =
@@ -1428,7 +1427,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
-        '',
+        (this.resolveCashOutJournalRoute(accountLine.SafeType)?.module === 'AR'
+          ? 'Cust-PP'
+          : 'V-PP'),
       Invoice: markedInvoice,
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
@@ -1678,7 +1679,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
-        '',
+        (this.resolveCashOutJournalRoute(accountLine.SafeType)?.module === 'AR'
+          ? 'Cust-PP'
+          : 'V-PP'),
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
       MarkedLines: markedLines,
@@ -1875,7 +1878,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             ''
           : '',
       OffsetCompany: this.company,
-      PostingProfile: sourceLine.POSTINGPROFILE,
+      PostingProfile:
+        sourceLine.POSTINGPROFILE?.trim() ||
+        (route?.module === 'AR' ? 'Cust-PP' : 'V-PP'),
       Invoice: this.sanitizeInvoiceOutbound(
         sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
@@ -2239,7 +2244,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   safeType: line.SafeType,
                   targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
                   voucherType: line.VoucherType,
-                }).kind === 'vendor-invoice'
+                }).safeType === 'Vendor Payment'
               );
             } catch {
               // Unsupported Safe Types are reported by validateAsync.

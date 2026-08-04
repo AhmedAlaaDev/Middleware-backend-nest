@@ -159,8 +159,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'DocumentDate',
       '2026-04-20T00:00:00',
     );
-    expect(body._contract).toHaveProperty('ExchangeRate');
-    expect(body._contract).toHaveProperty('EXCHANGERATE');
+    expect(body._contract).not.toHaveProperty('ExchangeRate');
+    expect(body._contract).not.toHaveProperty('EXCHANGERATE');
+    expect(body._contract).not.toHaveProperty('ExchRate');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
@@ -245,7 +246,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(postedLine).toHaveProperty('transDate', '2026-04-21T00:00:00');
-    expect(postedLine).toHaveProperty('ExchangeRate', 100);
+    expect(postedLine).not.toHaveProperty('ExchangeRate');
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
@@ -769,7 +770,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       debitAmount: 5000,
       DEFAULTDIMENSIONDISPLAYVALUE: 'account-dimensions',
       offsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
-      ExchangeRate: 100,
       FinTagStr: 'financial-tags',
       ISPREPAYMENT: 'No',
       ITEMWITHHOLDINGTAXGROUP: '',
@@ -810,8 +810,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     // Same values as the documented body: journalNum is filled in,
     // accountTypeStr is lowercased, dates stay `yyyy-MM-ddT00:00:00` for FO
-    // FormJsonSerializer, and only the documented rate / offset keys are sent
-    // (no ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
+    // FormJsonSerializer, and ExchangeRate / ExchRate / EXCHANGERATE are omitted.
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
@@ -824,6 +823,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         ],
       },
     });
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0],
+    ).not.toHaveProperty('ExchangeRate');
   });
 
   it('omits empty MarkedLines and unsupported exchange-rate aliases from the bulk body', async () => {
@@ -876,13 +878,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       journalNum: 'JN-CLEAN',
       AccountNum: 'RP-000007',
       accountTypeStr: 'vendor',
-      ExchangeRate: 4765,
       ReportingExchangeRate: 100,
       VendorGroup: '',
       offsetAccountDisplayValue: '',
       offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
     });
     expect(postedLine).not.toHaveProperty('MarkedLines');
+    expect(postedLine).not.toHaveProperty('ExchangeRate');
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
@@ -1379,7 +1381,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
       'Mesco-000014128',
     );
-    // Custody Settlement is ledger-only; do not DELETE VendorPaymentJournalHeaders.
+    // Blocker resolved on LedgerJournalHeaders; skip VendorPaymentJournalHeaders delete.
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
     expect(d365foClient.post).toHaveBeenCalledTimes(2);
     expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject({

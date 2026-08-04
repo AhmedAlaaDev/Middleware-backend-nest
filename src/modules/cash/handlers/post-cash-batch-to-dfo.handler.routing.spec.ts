@@ -125,8 +125,15 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
         JournalBatchNumber: 'Mesco-000000001',
       });
       expect(groups[0].lines[0].cashDirection).toBe('out');
-      expect(groups[0].lines[0].customLineApiBody).toHaveProperty(
+      expect(groups[0].lines[0].customLineApiBody).not.toHaveProperty(
         'ExchangeRate',
+      );
+      expect(groups[0].lines[0].customLineApiBody).not.toHaveProperty(
+        'EXCHANGERATE',
+      );
+      expect(groups[0].lines[0].customLineApiBody).toHaveProperty(
+        'PostingProfile',
+        'V-PP',
       );
     },
   );
@@ -186,10 +193,42 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(groups.map((group: any) => group.lines[0].LineNumber)).toEqual([
       1, 1, 1,
     ]);
-    expect(groups[2].lines[0].cashDirection).toBe('in');
+    // Cash-out uploads keep cashDirection 'out' for custom-line semantics;
+    // the AR header route still selects CustomerPaymentJournalHeaders.
+    expect(groups[2].lines[0].cashDirection).toBe('out');
+    expect(groups[2].route.lineDirection).toBe('in');
   });
 
-  it('keeps legacy Custody Issue rows postable through the GL CashOut route', async () => {
+  it('routes Custody Settlement through GL CustSettle / LedgerJournalHeaders', async () => {
+    const { handler, queueService } = buildHandler(
+      EntryProcessorTypes.CashOutFreight,
+      [
+        makeLine({
+          SafeType: 'Custody Settlement',
+          AccountType: 'Ledger',
+          MarkedInvoice: '',
+          Invoice: '',
+        }),
+      ],
+    );
+
+    await handler.execute({ batchId: 'batch-2045' } as any);
+
+    const groups = queueService.addDurableJob.mock.calls[0][3];
+    expect(groups).toHaveLength(1);
+    expect(groups[0].route).toMatchObject({
+      kind: 'ledger',
+      module: 'GL',
+      safeType: 'Custody Settlement',
+      journalName: 'CustSettle',
+      headerApi: 'LedgerJournalHeaders',
+    });
+    expect(groups[0].header).toMatchObject({
+      JournalName: 'CustSettle',
+    });
+  });
+
+  it('routes Custody Issue through GL CashOut / LedgerJournalHeaders', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,
       [

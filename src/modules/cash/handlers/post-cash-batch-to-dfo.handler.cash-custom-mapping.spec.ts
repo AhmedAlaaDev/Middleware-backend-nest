@@ -92,8 +92,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
-    expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchRate');
     expect(body.ReportingCurrencyExchRate).toBe(100);
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.REPORTINGEXCHANGERATE).toBe(100);
@@ -173,10 +174,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
-    expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchRate');
     expect(body).toHaveProperty('ReportingExchangeRate');
     expect(body).toHaveProperty('ReportingCurrencyExchRate');
+    expect(body).toHaveProperty('PostingProfile', 'V-PP');
   });
 
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
@@ -439,11 +442,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ['Bank', 'Bank'],
     ['Cust', 'Cust'],
   ])(
-    'treats an offsetless GL %s line as single-sided and defaults its blank tax group',
+    'treats an offsetless Custody Issue %s line as single-sided and defaults its blank tax group',
     (sourceAccountType, expectedAccountType) => {
       const handler = buildHandler();
       const route = new CashJournalRoutingService().resolve({
         safeType: 'Custody Issue',
+        targetProcessor: 'Freight',
       });
 
       const result = (handler as any).mapLines(
@@ -726,8 +730,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
       expect(body).toHaveProperty('DocumentNum', '15936');
       expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
-      expect(body).toHaveProperty('ExchangeRate');
-      expect(body).toHaveProperty('EXCHANGERATE');
+      expect(body).not.toHaveProperty('ExchangeRate');
+      expect(body).not.toHaveProperty('EXCHANGERATE');
+      expect(body).not.toHaveProperty('ExchRate');
     }
   });
 
@@ -845,7 +850,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
-  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps USD ExchangeRate without inventing custody marks', () => {
+  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and omits ExchangeRate without inventing custody marks', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -886,7 +891,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const body = result[0].customLineApiBody;
     expect(body.transDate).toBe('2026-01-25T00:00:00');
     expect(body.DocumentDate).toBe('2026-01-14T00:00:00');
-    expect(body.ExchangeRate).toBe(4765);
+    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.VendorGroup).toBe('Custody');
     expect(body.FinTagStr).toBe('O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|');

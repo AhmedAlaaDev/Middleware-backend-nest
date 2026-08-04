@@ -1086,8 +1086,9 @@ export class CustomerPaymentJournalService {
 
   /**
    * Delete a blocking journal only when it still exists in FO.
-   * Custody Settlement lives on LedgerJournalHeaders; Vendor Payment on
-   * VendorPaymentJournalHeaders. Blind DELETE on the wrong entity (or a ghost
+   * AP cash-out routes (Vendor Payment / Custody Settlement / Custody Issue)
+   * live on VendorPaymentJournalHeaders; GL routes on LedgerJournalHeaders.
+   * Blind DELETE on the wrong entity (or a ghost
    * SpecTrans journal) returns OData "No resources were found when selecting
    * for update" and pollutes admin logs even when caught.
    */
@@ -1405,6 +1406,18 @@ export class CustomerPaymentJournalService {
     );
   }
 
+  private omitAccountingExchangeRateFields(
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): TSLedgerJournalTransCustomRequestBody {
+    const {
+      ExchangeRate: _exchangeRate,
+      EXCHANGERATE: _exchangerate,
+      ExchRate: _exchRate,
+      ...rest
+    } = body;
+    return rest;
+  }
+
   private async postCustomCashLine(
     endpoint: string,
     body: TSLedgerJournalTransCustomRequestBody,
@@ -1413,7 +1426,9 @@ export class CustomerPaymentJournalService {
       const result = await this.d365foClient.post<
         TSLedgerJournalTransCustomRequest,
         TSLedgerJournalTransCustomResponseBody
-      >(endpoint, { _contract: body });
+      >(endpoint, {
+        _contract: this.omitAccountingExchangeRateFields(body),
+      });
 
       const statusCode = result?.StatusCode;
       if (statusCode === 'Success') {
@@ -1568,9 +1583,6 @@ export class CustomerPaymentJournalService {
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
-    const exchangeRate = Number(
-      line.ExchangeRate ?? line.EXCHANGERATE ?? line.ExchRate ?? 100,
-    );
     const reportingExchangeRate = Number(
       line.ReportingExchangeRate ??
         line.REPORTINGEXCHANGERATE ??
@@ -1611,7 +1623,6 @@ export class CustomerPaymentJournalService {
       offsetDEFAULTDIMENSIONDISPLAYVALUE: String(
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
       ),
-      ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 100,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
       ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),

@@ -4,7 +4,7 @@ import {
   CashJournalRoutingService,
 } from './cash-journal-routing.service';
 
-describe('CashJournalRoutingService - task 2045', () => {
+describe('CashJournalRoutingService - acceptance criteria matrix', () => {
   let service: CashJournalRoutingService;
 
   beforeEach(() => {

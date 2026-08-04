@@ -97,7 +97,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted[0]).toMatchObject({
       AccountType: 'Cust',
       JournalName: 'Cust-Pay',
-      PostingProfile: '',
+      PostingProfile: 'Cust-PP',
       SafeType: 'DownPayment',
       DebitAmount: 100,
       CreditAmount: 0,
