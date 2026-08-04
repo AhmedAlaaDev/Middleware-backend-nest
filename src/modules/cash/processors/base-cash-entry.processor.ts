@@ -446,9 +446,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
       if (!group[0]?.IsVendorPayment) continue;
 
+      // Ledger-only UniqueIds are main-account-only Cash Out lines (no vendor
+      // debit, no payment offset). The custom API posts each Ledger row as a
+      // single-sided journal line with offset fields omitted.
+      if (this.isMainAccountOnlyLedgerGroup(group)) {
+        continue;
+      }
+
       const vendors = group.filter(
         (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
       );
+      // Credit Bank/Cash/Ledger payment rows. Withholding (223304) is not an
+      // offset — it rides on the vendor MarkedLines. Zero offsets means the
+      // Cash Out API will create main-account-only (single-sided) vendor lines.
       const paymentOffsets = group.filter(
         (line) =>
           Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
@@ -456,13 +466,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const invalidDebitLines = group.filter(
         (line) => Number(line.DEBITAMOUNT) > 0 && !line.IsVendor,
       );
-      if (
-        vendors.length === 0 ||
-        paymentOffsets.length !== 1 ||
-        invalidDebitLines.length > 0
-      ) {
+      const hasValidOffsetShape =
+        vendors.length > 0 &&
+        (paymentOffsets.length === 0 || paymentOffsets.length === 1) &&
+        invalidDebitLines.length === 0;
+      if (!hasValidOffsetShape) {
+        const accountTypes = [
+          ...new Set(
+            group.map(
+              (line) => String(line.ACCOUNTTYPE ?? '').trim() || '(blank)',
+            ),
+          ),
+        ].join(', ');
         errors.push(
-          `UniqueId ${sourceId}: Vendor Payment requires one credit payment offset and one or more debit Vendor lines. Found ${vendors.length} Vendor line(s), ${paymentOffsets.length} payment offset(s), and ${invalidDebitLines.length} non-Vendor debit line(s).`,
+          `UniqueId ${sourceId}: Vendor Payment requires (a) one or more debit Vendor lines with either one credit payment offset or none, or (b) Ledger-only main-account-only lines with no offset account. Found ${vendors.length} Vendor line(s), ${paymentOffsets.length} payment offset(s), and ${invalidDebitLines.length} non-Vendor debit line(s). Account types in group: ${accountTypes}.`,
         );
       }
     }
@@ -975,6 +992,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
+    // SafeType Vendor Payment + Ledger-only rows → single-sided main-account
+    // lines (offset fields omitted later by the Cash Out mapper).
+    if (this.isMainAccountOnlyLedgerGroup(lines)) {
+      return lines.map((line) =>
+        this.buildSourceLineOutbound(sourceId, line, exchangeRateContext),
+      );
+    }
+
     const withholdingLines = lines.filter((line) =>
       this.isWithholdingLedgerLine(line),
     );
@@ -986,16 +1011,30 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
     );
 
-    if (vendorLines.length === 0 || offsetLines.length !== 1) {
+    if (vendorLines.length === 0 || offsetLines.length > 1) {
       const invalid = new CashEntryDynDataModel(new EntryDimensionsModel(), {
         SourceIds: [sourceId],
         SafeType: 'Vendor Payment',
       });
       invalid.AddError(
         'InvalidMapping',
-        `Vendor Payment requires one payment offset and one or more debit Vendor lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s).`,
+        `Vendor Payment requires (a) one or more debit Vendor lines with either one credit payment offset or none, or (b) Ledger-only main-account-only lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s).`,
       );
       return [invalid];
+    }
+
+    // No payment offset: post each vendor debit as a single-sided
+    // (main-account-only) journal line. Withholding rows stay on MarkedLines
+    // and are not posted separately — same as the offset-merge path.
+    if (offsetLines.length === 0) {
+      return vendorLines.map((vendorLine) =>
+        this.buildSourceLineOutbound(
+          sourceId,
+          vendorLine,
+          exchangeRateContext,
+          this.findWithholdingLine(vendorLine, withholdingLines),
+        ),
+      );
     }
 
     const paymentOffset = offsetLines[0];
@@ -1694,6 +1733,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
     const isCustodySettlement = route?.safeType === 'Custody Settlement';
+    const isVendorPayment = route?.safeType === 'Vendor Payment';
     const sourceHasWithholding =
       this.isWithholdingLedgerLine(sourceLine) ||
       String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
@@ -1764,10 +1804,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       SalesTaxGroup: sourceLine.SALESTAXGROUP,
       ItemSalesTaxGroup: sourceLine.ITEMSALESTAXGROUP,
       IsWithholdingCalculationEnabled:
-        isCustodySettlement && sourceHasWithholding ? 'Yes' : 'No',
-      ItemWithholdingTaxGroupCode: isCustodySettlement
-        ? sourceLine.ITEMWITHHOLDINGTAXGROUPCODE
-        : '',
+        (isCustodySettlement || isVendorPayment) && sourceHasWithholding
+          ? 'Yes'
+          : 'No',
+      ItemWithholdingTaxGroupCode:
+        isCustodySettlement || isVendorPayment
+          ? sourceLine.ITEMWITHHOLDINGTAXGROUPCODE ||
+            withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
+            ''
+          : '',
       OffsetCompany: this.company,
       PostingProfile: sourceLine.POSTINGPROFILE,
       Invoice: this.sanitizeInvoiceOutbound(
@@ -1800,7 +1845,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
-    if (sourceHasWithholding && !isCustodySettlement) {
+    if (sourceHasWithholding && !isCustodySettlement && !isVendorPayment) {
       dynLine.AddError(
         'Withholding',
         `Withholding is not supported for SafeType ${route?.safeType ?? sourceLine.SafeType}.`,
@@ -2071,6 +2116,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       String(line.ACCOUNTDISPLAYVALUE ?? '')
         .trim()
         .startsWith('223304')
+    );
+  }
+
+  /**
+   * Vendor Payment UniqueId that is only Ledger rows with no offset account
+   * on the source → main-account-only Cash Out API lines.
+   */
+  protected isMainAccountOnlyLedgerGroup(
+    lines: CashEntryRawDataModel[],
+  ): boolean {
+    if (lines.length === 0) return false;
+    return lines.every(
+      (line) =>
+        line.IsLedger &&
+        !String(line.OFFSETACCOUNTTYPE ?? '').trim() &&
+        !String(line.OFFSETACCOUNTDISPLAYVALUE ?? '').trim(),
     );
   }
 

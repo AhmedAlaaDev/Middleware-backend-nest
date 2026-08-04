@@ -321,7 +321,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         offsetAccountDisplayValue: 'BANK001',
         OffsetAccountTypeStr: 'Bank',
         OffsetCompany: 'USMF',
-        transDate: '2026-04-21T00:00:00',
+        transDate: '2026-04-21',
         PostingProfile: 'V-PP',
         TaxGroup: 'TG1',
       },
@@ -468,7 +468,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     },
   );
 
-  it('keeps offset fields mandatory for an AP vendor-payment route', () => {
+  it('omits offset fields for an AP Vendor Payment main-account-only line', () => {
     const handler = buildHandler();
     const route = new CashJournalRoutingService().resolve({
       safeType: 'Vendor Payment',
@@ -487,7 +487,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CurrencyCode: 'EGP',
             SafeType: 'Vendor Payment',
             SalesTaxGroup: '',
-            TransactionText: 'Invalid offsetless AP line',
+            TransactionText: 'Main-account-only AP line',
           },
         },
       ],
@@ -496,9 +496,52 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       route,
     );
 
-    expect((handler as any).validateLine(result[0], route)).toEqual([
-      'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
-    ]);
+    const body = result[0].customLineApiBody;
+    expect(body.AccountNum).toBe('VEND001');
+    expect(
+      Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
+    ).toEqual([]);
+    expect((handler as any).validateLine(result[0], route)).toEqual([]);
+  });
+
+  it('omits every offset field for Vendor Payment Ledger main-account-only lines', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
+    const ledgerDisplayValue =
+      '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Ledger',
+            AccountDisplayValue: ledgerDisplayValue,
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            CreditAmount: 0,
+            DebitAmount: 1000,
+            CurrencyCode: 'EGP',
+            SafeType: 'Vendor Payment',
+            SalesTaxGroup: 'Non-Taxabl',
+            TransactionText: 'Main account only ledger under Vendor Payment',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.accountTypeStr).toBe('Ledger');
+    expect(body.AccountNum).toBe(ledgerDisplayValue);
+    expect(body.VendorGroup).toBe('');
+    expect(
+      Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
+    ).toEqual([]);
+    expect((handler as any).validateLine(result[0], route)).toEqual([]);
   });
 
   it('accepts the documented blank offset account type for Cash Out only', () => {
@@ -517,7 +560,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         offsetAccountDisplayValue: 'PSD EG',
         OffsetAccountTypeStr: '',
         OffsetCompany: 'm-p',
-        transDate: '2026-01-01T00:00:00',
+        transDate: '2026-01-01',
         TaxGroup: 'Non-Taxabl',
       },
     };
@@ -734,6 +777,57 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
     expect(body).toHaveProperty('EXCHANGERATE');
+  });
+
+  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps USD ExchangeRate for custody ledger targets', () => {
+    const handler = buildHandler();
+    const finTag =
+      'O26-IMP-OC-1|\u200FME_Q-20251239129-IMP-FCL\u200E|\u200FSl-000010\u200E|';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: '3071',
+            TransactionDate: '2026-01-25T00:00:00.000Z',
+            Document: '16383',
+            DocumentDate: '2026-01-14T00:00:00.000Z',
+            ExchRate: 4765,
+            CreditAmount: 29,
+            DebitAmount: 0,
+            CurrencyCode: 'USD',
+            SettlementTargetType: 'CustodyLedger',
+            FinTagDisplayValue: finTag,
+            OffsetFinTagDisplayValue: finTag,
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: 'V-PP',
+            ReportingCurrencyExchRate: 1,
+          },
+        },
+      ],
+      'm-p',
+      'out',
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.transDate).toBe('2026-01-25T00:00:00');
+    expect(body.DocumentDate).toBe('2026-01-14T00:00:00');
+    expect(body.ExchangeRate).toBe(4765);
+    expect(body.ReportingExchangeRate).toBe(100);
+    expect(body.VendorGroup).toBe('Custody');
+    expect(body.FinTagStr).toBe('O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|');
+    expect(body.OFFSETFINTAGDISPLAYVALUE).toBe(
+      'O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|',
+    );
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O26-IMP-OC-1',
+        DocumentNumber: '16383',
+        HasWithHoldingLine: false,
+      },
+    ]);
   });
 
   it('preserves empty MARKEDINVOICE and appends " - unmarked" to TRANSACTIONTEXT/PAYMENTNOTES when MarkedInvoice was cleared by business rules', () => {

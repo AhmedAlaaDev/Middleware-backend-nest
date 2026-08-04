@@ -158,6 +158,73 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(vendorValidation).toHaveBeenCalledWith(line);
   });
 
+  it('builds main-account-only Vendor Payment lines when the UniqueId has no payment offset', () => {
+    const processor = createProcessor();
+    jest
+      .spyOn(processor as any, 'fetchExchangeRates')
+      .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+    const rawLines = [
+      {
+        UniqueId: 475288,
+        LINENUMBER: 1,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'VEND-001',
+        DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+        DEBITAMOUNT: 125,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'INV-475288',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+    const [formatted] = (processor as any).buildLines('475288', rawLines);
+
+    expect(formatted.AccountDisplayValue).toBe('VEND-001');
+    expect(formatted.DebitAmount).toBe(125);
+    expect(formatted.CreditAmount).toBe(0);
+    expect(formatted.OffsetAccountDisplayValue).toBeFalsy();
+    expect(formatted.OffsetAccountType).toBeFalsy();
+    expect(formatted.SafeType).toBe('Vendor Payment');
+    expect(formatted.GetErrors?.() ?? []).toEqual([]);
+  });
+
+  it('builds Ledger-only Vendor Payment UniqueIds as main-account-only lines', () => {
+    const processor = createProcessor();
+    jest
+      .spyOn(processor as any, 'fetchExchangeRates')
+      .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+    const ledgerDisplayValue =
+      '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
+    const rawLines = [
+      {
+        UniqueId: 475358,
+        LINENUMBER: 1,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: ledgerDisplayValue,
+        DEBITAMOUNT: 1000,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+    const [formatted] = (processor as any).buildLines('475358', rawLines);
+
+    expect(formatted.AccountType).toBe('Ledger');
+    expect(formatted.AccountDisplayValue).toBe(ledgerDisplayValue);
+    expect(formatted.DebitAmount).toBe(1000);
+    expect(formatted.OffsetAccountDisplayValue).toBeFalsy();
+    expect(formatted.OffsetAccountType).toBeFalsy();
+    expect(formatted.SafeType).toBe('Vendor Payment');
+  });
+
   describe('Bug 2046 - MarkedInvoice clearing & unmarked description rules', () => {
     it('adds a blocking validation error when invoice belongs to another vendor', () => {
       const processor = createProcessor();

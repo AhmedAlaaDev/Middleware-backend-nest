@@ -50,12 +50,17 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.SafeType = this.normalizeSafeType(data?.SafeType, !isInbound);
     this.VoucherType = s(data?.VoucherType) as EntryVoucherType;
 
-    this.IsCustomer = this.compare(data?.ACCOUNTTYPE, 'cust');
+    this.IsCustomer =
+      this.compare(data?.ACCOUNTTYPE, 'cust') ||
+      this.compare(data?.ACCOUNTTYPE, 'customer');
     this.IsPettyCash =
       this.compare(data?.ACCOUNTTYPE, 'petty cash') ||
       this.compare(data?.ACCOUNTTYPE, 'rcash');
     this.IsLedger = this.compare(data?.ACCOUNTTYPE, 'ledger');
-    this.IsVendor = this.compare(data?.ACCOUNTTYPE, 'vend');
+    // Excel/templates often write "Vendor"; FO and the Cash Out API use "Vend".
+    this.IsVendor =
+      this.compare(data?.ACCOUNTTYPE, 'vend') ||
+      this.compare(data?.ACCOUNTTYPE, 'vendor');
     this.IsBank = this.compare(data?.ACCOUNTTYPE, 'bank');
 
     this.IsCash = this.compare(data?.VoucherType, 'cash');

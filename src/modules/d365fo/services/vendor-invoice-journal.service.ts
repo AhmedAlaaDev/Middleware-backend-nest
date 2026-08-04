@@ -14,6 +14,10 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /** Max invoices per OR filter chunk (FO does not support OData `in`). */
 const VENDOR_INVOICE_LOOKUP_CHUNK_SIZE = 20;
+/** Onebox throttles parallel VendInvoiceJournalLines lookups quickly. */
+const VENDOR_INVOICE_LOOKUP_CONCURRENCY = 1;
+/** Extra chunk-level attempts after axios retries for FO throttle/overload. */
+const VENDOR_INVOICE_LOOKUP_CHUNK_RETRIES = 5;
 
 export type VendorInvoiceVendorPairKey = string;
 
@@ -67,11 +71,14 @@ export class VendorInvoiceJournalService {
       40,
       Math.max(1, options?.chunkSize ?? VENDOR_INVOICE_LOOKUP_CHUNK_SIZE),
     );
-    const concurrency = Math.min(5, Math.max(1, options?.concurrency ?? 3));
+    const concurrency = Math.min(
+      5,
+      Math.max(1, options?.concurrency ?? VENDOR_INVOICE_LOOKUP_CONCURRENCY),
+    );
     const chunks = this.chunkArray(uniqueInvoices, chunkSize);
     const totalChunks = chunks.length;
 
-    this.logger.debug(
+    this.logger.log(
       `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against VendInvoiceJournalLines for company '${company}' in ${totalChunks} chunk(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
     );
 
@@ -135,34 +142,57 @@ export class VendorInvoiceJournalService {
       AccountDisplayValue?: string;
     };
 
-    let pages = 0;
-
     try {
-      while (true) {
-        pages += 1;
-        const response = await this.d365foClient.get<RawLine>(endpoint, {
-          useCache: false,
-        });
+      return await this.retryService.executeWithRetry(
+        async () => {
+          let pageEndpoint = endpoint;
+          let pages = 0;
+          const pagePairs = new Set<VendorInvoiceVendorPairKey>();
 
-        for (const row of response.value ?? []) {
-          const invoice = row.Invoice?.trim();
-          const vendorAccount = row.AccountDisplayValue?.trim();
-          if (!invoice || !vendorAccount) continue;
-          pairs.add(
-            VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
+          while (true) {
+            pages += 1;
+            const response = await this.d365foClient.get<RawLine>(
+              pageEndpoint,
+              {
+                useCache: false,
+              },
+            );
+
+            for (const row of response.value ?? []) {
+              const invoice = row.Invoice?.trim();
+              const vendorAccount = row.AccountDisplayValue?.trim();
+              if (!invoice || !vendorAccount) continue;
+              pagePairs.add(
+                VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
+              );
+            }
+
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            pageEndpoint = this.getEndpointFromNextLink(nextLink);
+          }
+
+          this.logger.debug(
+            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pagePairs.size} pair(s) in ${pages} page(s)`,
           );
-        }
 
-        const nextLink = response['@odata.nextLink'];
-        if (!nextLink) break;
-        endpoint = this.getEndpointFromNextLink(nextLink);
-      }
-
-      this.logger.debug(
-        `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pairs.size} pair(s) in ${pages} page(s)`,
+          return pagePairs;
+        },
+        {
+          retries: VENDOR_INVOICE_LOOKUP_CHUNK_RETRIES,
+          retryDelay: 2 * 60 * 1000,
+          exponentialBackoff: false,
+          retryCondition: (error: unknown) => {
+            const status = (error as { response?: { status?: number } })
+              ?.response?.status;
+            if (status === 429 || (status !== undefined && status >= 500)) {
+              return true;
+            }
+            // Wrapped FO errors often lose HTTP status; match on message.
+            return this.retryService.isFoThrottleError(error);
+          },
+        },
       );
-
-      return pairs;
     } catch (error) {
       const errorDetails = this.dfoErrorExtractor.extractMessage(error);
       this.logger.error(

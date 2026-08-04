@@ -395,11 +395,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : line.Invoice || ''
       ).trim();
       const vendorGroup = String(line.VendorGroup ?? '').trim();
-      const isCustodyVendor = vendorGroup.toLowerCase() === 'custody';
-      const operationNumber = String(line.FinTagDisplayValue ?? '')
-        .split('|')[0]
-        .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-        .trim();
+      const isCustodyVendor =
+        vendorGroup.toLowerCase() === 'custody' ||
+        line.SettlementTargetType === 'CustodyLedger';
+      const operationNumber = this.stripBidiMarks(
+        String(line.FinTagDisplayValue ?? '').split('|')[0],
+      ).trim();
       const documentNumber = String(line.Document ?? '').trim();
       const markedLines =
         line.MarkedLines && line.MarkedLines.length > 0
@@ -407,8 +408,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
               InvoiceNumber: isCustodyVendor
                 ? ''
                 : String(markedLine.InvoiceNumber ?? '').trim(),
-              OperationNumber: String(
-                markedLine.OperationNumber ?? operationNumber,
+              OperationNumber: this.stripBidiMarks(
+                String(markedLine.OperationNumber ?? operationNumber),
               ).trim(),
               DocumentNumber: isCustodyVendor
                 ? String(markedLine.DocumentNumber ?? documentNumber).trim()
@@ -451,6 +452,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : 'unmarked';
       }
 
+      const currencyCode = (line.CurrencyCode ?? '').trim().toUpperCase();
+      const accountingExchangeRate =
+        currencyCode === 'EGP'
+          ? 100
+          : Number(line.ExchRate || line.ExchangeRate || 100) || 100;
+      const documentDate = this.normalizeTransDateForCustomApi(
+        this.formatDate(line.DocumentDate || transactionDate),
+      );
+
+      // Dates before currency/rates: if FO assigns fields in JSON order,
+      // TransDate must be present before CurrencyCode triggers rate lookup.
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
         journalNum: '',
@@ -464,22 +476,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         CENTRALBANKPURPOSETEXT: '',
 
         company,
+        transDate,
+        DocumentNum: line.Document ?? '',
+        DocumentDate: documentDate,
+
         creditAmount: credit,
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
-        ExchRate:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
-        EXCHANGERATE:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
-        ExchangeRate:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
+        ExchRate: accountingExchangeRate,
+        EXCHANGERATE: accountingExchangeRate,
+        ExchangeRate: accountingExchangeRate,
 
         ReportingCurrencyExchRate: (line.ReportingCurrencyExchRate || 0) * 100,
         ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
@@ -488,19 +495,21 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
-        FinTagStr: line.FinTagDisplayValue ?? '',
+        FinTagStr: this.stripBidiMarks(line.FinTagDisplayValue ?? ''),
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
         IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
         ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
 
-        offsetAccountDisplayValue:
-          route && route.kind !== 'vendor-invoice'
-            ? offsetAccountDisplayValue
-            : offsetAccountDisplayValue || accountDisplayValue,
+        // Main-account-only Cash Out lines keep offset blank. For classic AP
+        // Vendor Payment (with an offset), FO still accepts an empty
+        // OffsetAccountTypeStr while the offset account/dimensions are set.
+        offsetAccountDisplayValue: offsetAccountDisplayValue,
         OffsetAccountTypeStr: offsetAccountTypeStr,
         OffsetCompany: line.OffsetCompany || company,
-        OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
+        OFFSETFINTAGDISPLAYVALUE: this.stripBidiMarks(
+          line.OffsetFinTagDisplayValue ?? '',
+        ),
         OFFSETTRANSACTIONTEXT: offsetTransactionTextValue,
 
         PAYMENTID: line.PaymentId ?? '',
@@ -519,11 +528,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             : (line.SalesTaxGroup ?? ''),
         TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
 
-        transDate,
-        DocumentNum: line.Document ?? '',
-        DocumentDate: this.normalizeTransDateForCustomApi(
-          this.formatDate(line.DocumentDate || transactionDate),
-        ),
         TRANSACTIONTEXT: transactionTextValue,
         Voucher: '',
       };
@@ -534,7 +538,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // `The value "VendorGroup" is not found in the map.`
       customLineApiBody.VendorGroup =
         cashDirection === 'out' && accountTypeStr === 'Vendor'
-          ? vendorGroup
+          ? vendorGroup || (isCustodyVendor ? 'Custody' : '')
           : '';
 
       if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
@@ -561,9 +565,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route: CashJournalRoute | undefined,
   ): boolean {
+    // Cash Out custom API accepts primary-account-only lines (GL and AP).
+    // Detect that shape from blank offset fields; do not invent an offset.
     return (
       cashDirection === 'out' &&
-      route?.kind === 'ledger' &&
+      Boolean(route) &&
       !this.toOptionalTrimmedString(line.OffsetAccountType) &&
       !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
     );
@@ -583,8 +589,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   private normalizeTransDateForCustomApi(dateIsoString: string): string {
     const v = dateIsoString?.trim() ?? '';
     if (!v) return '';
-    // Sample payload uses: 2026-04-21T00:00:00 (no milliseconds / no Z)
-    return v.replace(/\.\d{3}Z$/, '').replace(/Z$/, '');
+    // FO FormJsonSerializer / JournalLineContract expects
+    // `yyyy-MM-ddT00:00:00` (no Z / millis). Date-only `yyyy-MM-dd` can
+    // deserialize to dateNull on some X++ paths and surfaces as:
+    // "exchange rate ... between currencies USD and EGP on exchange date ."
+    const iso = v.replace(/\.\d{3}Z$/, '').replace(/Z$/, '');
+    const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? `${match[1]}T00:00:00` : iso;
+  }
+
+  private stripBidiMarks(value: string): string {
+    return value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
   }
 
   private toDefaultDimensionDisplayValue(
@@ -777,13 +792,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    const isOffsetlessLedgerLine =
+    const isMainAccountOnlyCashOut =
       line.cashDirection === 'out' &&
-      route?.kind === 'ledger' &&
       !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
       !body.offsetAccountDisplayValue?.trim() &&
       !body.OffsetAccountTypeStr?.trim();
-    if (!isOffsetlessLedgerLine) {
+    if (!isMainAccountOnlyCashOut) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
           'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
+import { GeneralJournalService } from './general-journal.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
@@ -41,12 +42,31 @@ interface CashBulkLineFailure {
   correlated: boolean;
 }
 
-type CashBulkAttempt = 'initial' | 'unmarked-retry';
+type CashBulkAttempt =
+  | 'initial'
+  | 'marked-retry-after-clear'
+  | 'unmarked-retry';
+
+interface MarkedSettlementBlocker {
+  journalBatchNumber: string;
+  company: string;
+}
 
 /** Position of one request within the journal batch it belongs to. */
 interface CashBulkBatch {
   number: number;
   total: number;
+}
+
+/** A ledger line whose sales tax groups are applied after the line exists. */
+interface DeferredLedgerTax {
+  company: string;
+  paymentId: string;
+  currency: string;
+  debitAmount: number;
+  creditAmount: number;
+  taxGroup: string;
+  taxItemGroup: string;
 }
 
 /**
@@ -82,6 +102,7 @@ export class CustomerPaymentJournalService {
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
+    private readonly generalJournalService: GeneralJournalService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly logPayloads: LogPayloadService,
     configService: ConfigService<IConfig>,
@@ -337,6 +358,51 @@ export class CustomerPaymentJournalService {
 
           if (
             allowUnmarkedInvoiceRetry &&
+            this.isAlreadyMarkedForSettlementError(errorDetails)
+          ) {
+            const syntheticFailures: CashBulkLineFailure[] = [
+              {
+                requestIndex: 0,
+                lineNumber: line.LineNumber,
+                message: errorDetails,
+                correlated: true,
+              },
+            ];
+            const remaining = await this.recoverAlreadyMarkedCashOutBulk({
+              endpoint,
+              headerKey,
+              pendingLines: [
+                {
+                  lineNumber: line.LineNumber,
+                  body: { ...body, journalNum: headerKey },
+                },
+              ],
+              batch: { number: 1, total: 1 },
+              failures: syntheticFailures,
+            });
+            if (remaining.length === 0) {
+              successfullyPosted.push({
+                headerId: headerKey,
+                lineNumber: line.LineNumber,
+              });
+              continue;
+            }
+            await this.postCustomCashLine(
+              endpoint,
+              this.buildUnmarkedCashLine({
+                ...body,
+                journalNum: headerKey,
+              }),
+            );
+            successfullyPosted.push({
+              headerId: headerKey,
+              lineNumber: line.LineNumber,
+            });
+            continue;
+          }
+
+          if (
+            allowUnmarkedInvoiceRetry &&
             this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
           ) {
             await this.postCustomCashLine(
@@ -463,8 +529,9 @@ export class CustomerPaymentJournalService {
 
   /**
    * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
-   * journal batch, and retry the lines the endpoint rejected because a marked
-   * invoice no longer covers the paid amount.
+   * journal batch. Retries when FO rejects because (a) a prior journal still
+   * holds SpecTrans marks, or (b) a marked invoice no longer covers the paid
+   * amount.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -484,7 +551,7 @@ export class CustomerPaymentJournalService {
       pendingLines.map((line) => line.body),
       { headerKey, pendingLines, attempt: 'initial', batch },
     );
-    const failures = this.extractCashBulkFailures(result, pendingLines);
+    let failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
       headerKey,
       pendingLines,
@@ -494,49 +561,69 @@ export class CustomerPaymentJournalService {
       failures,
     });
 
-    if (failures.length === 0) return;
+    if (failures.length === 0) {
+      return this.applyDeferredLedgerTax(headerKey, pendingLines);
+    }
+
+    let activeLines = pendingLines;
+
+    if (
+      allowUnmarkedInvoiceRetry &&
+      this.areAllFailuresAlreadyMarkedForSettlement(failures)
+    ) {
+      failures = await this.recoverAlreadyMarkedCashOutBulk({
+        endpoint,
+        headerKey,
+        pendingLines: activeLines,
+        batch,
+        failures,
+      });
+      if (failures.length === 0) {
+        return this.applyDeferredLedgerTax(headerKey, activeLines);
+      }
+    }
 
     const retryableFailures = failures.filter((failure) =>
-      this.isInvoiceAmountGreaterThanRemainingError(failure.message),
+      this.isCashOutSettlementRetryableError(failure.message),
     );
-    const canRetry =
+    const canUnmarkedRetry =
       allowUnmarkedInvoiceRetry &&
       retryableFailures.length === failures.length &&
       failures.every((failure) => failure.correlated);
 
-    if (!canRetry) {
-      throw new Error(this.formatCashBulkFailure(headerKey, failures));
-    }
-
-    const retryLines = retryableFailures.map((failure) => {
-      const pendingLine = pendingLines[failure.requestIndex];
-      return {
-        ...pendingLine,
-        body: this.buildUnmarkedCashLine(pendingLine.body),
-      };
-    });
-    const retryResult = await this.postCustomCashLines(
-      endpoint,
-      retryLines.map((line) => line.body),
-      {
+    if (canUnmarkedRetry) {
+      activeLines = retryableFailures.map((failure) => {
+        const pendingLine = activeLines[failure.requestIndex];
+        return {
+          ...pendingLine,
+          body: this.buildUnmarkedCashLine(pendingLine.body),
+        };
+      });
+      const retryResult = await this.postCustomCashLines(
+        endpoint,
+        activeLines.map((line) => line.body),
+        {
+          headerKey,
+          pendingLines: activeLines,
+          attempt: 'unmarked-retry',
+          batch,
+        },
+      );
+      failures = this.extractCashBulkFailures(retryResult, activeLines);
+      await this.logCashBulkOutcome({
         headerKey,
-        pendingLines: retryLines,
+        pendingLines: activeLines,
         attempt: 'unmarked-retry',
         batch,
-      },
-    );
-    const retryFailures = this.extractCashBulkFailures(retryResult, retryLines);
-    await this.logCashBulkOutcome({
-      headerKey,
-      pendingLines: retryLines,
-      attempt: 'unmarked-retry',
-      batch,
-      result: retryResult,
-      failures: retryFailures,
-    });
-    if (retryFailures.length > 0) {
-      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+        result: retryResult,
+        failures,
+      });
+      if (failures.length === 0) {
+        return this.applyDeferredLedgerTax(headerKey, activeLines);
+      }
     }
+
+    throw new Error(this.formatCashBulkFailure(headerKey, failures));
   }
 
   /**
@@ -625,9 +712,9 @@ export class CustomerPaymentJournalService {
 
     const message = this.cashBulkResponseMessage(result);
 
-    // All-or-nothing TTS rolled the chunk back; attribute a remaining-amount
-    // error to every line so unmarked retry can clear settlements for all.
-    if (this.isInvoiceAmountGreaterThanRemainingError(message)) {
+    // All-or-nothing TTS rolled the chunk back; attribute settlement-retryable
+    // errors to every line so retries can recover the chunk.
+    if (this.isCashOutSettlementRetryableError(message)) {
       return pendingLines.map((line, requestIndex) => ({
         requestIndex,
         lineNumber: line.lineNumber,
@@ -764,6 +851,322 @@ export class CustomerPaymentJournalService {
     );
   }
 
+  private isAlreadyMarkedForSettlementError(message: string): boolean {
+    const normalized = String(message ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+    return normalized.includes('has been marked for settlement');
+  }
+
+  private isCashOutSettlementRetryableError(message: string): boolean {
+    return (
+      this.isInvoiceAmountGreaterThanRemainingError(message) ||
+      this.isAlreadyMarkedForSettlementError(message)
+    );
+  }
+
+  /** FO journal JSON date: `yyyy-MM-ddT00:00:00` (no Z / millis). */
+  private normalizeFoJsonDate(value: string): string {
+    const iso = String(value ?? '')
+      .trim()
+      .replace(/\.\d{3}Z$/, '')
+      .replace(/Z$/, '');
+    if (!iso) return '';
+    const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? `${match[1]}T00:00:00` : iso;
+  }
+
+  private ensureCashOutBulkLineDates(
+    lines: TSLedgerJournalTransCustomRequestBody[],
+  ): void {
+    const fallback =
+      lines
+        .map(
+          (line) =>
+            this.normalizeFoJsonDate(String(line.transDate ?? '')) ||
+            this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
+        )
+        .find((date) => Boolean(date)) ||
+      `${new Date().toISOString().slice(0, 10)}T00:00:00`;
+
+    for (const line of lines) {
+      const transDate =
+        this.normalizeFoJsonDate(String(line.transDate ?? '')) ||
+        this.normalizeFoJsonDate(String(line.DocumentDate ?? '')) ||
+        fallback;
+      const documentDate =
+        this.normalizeFoJsonDate(String(line.DocumentDate ?? '')) || transDate;
+      line.transDate = transDate;
+      line.DocumentDate = documentDate;
+    }
+  }
+
+  private areAllFailuresAlreadyMarkedForSettlement(
+    failures: CashBulkLineFailure[],
+  ): boolean {
+    return (
+      failures.length > 0 &&
+      failures.every(
+        (failure) =>
+          failure.correlated &&
+          this.isAlreadyMarkedForSettlementError(failure.message),
+      )
+    );
+  }
+
+  /**
+   * FO error shape:
+   * "This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p."
+   */
+  private parseMarkedSettlementBlocker(
+    message: string,
+  ): MarkedSettlementBlocker | null {
+    const match = String(message ?? '').match(
+      /marked for settlement by .+?\s+([A-Za-z0-9_-]+)\s+in company\s+([A-Za-z0-9_-]+)/i,
+    );
+    if (!match) return null;
+    return {
+      journalBatchNumber: match[1],
+      company: match[2],
+    };
+  }
+
+  /**
+   * Clear FO SpecTrans marks left by prior cash-out attempts, then rematch.
+   *
+   * Where the marks come from: earlier `MarkedLines` posts to
+   * `addLedgerJournalTransVendPaym` write SpecTrans rows that cite a Custody
+   * Settlement journal. Failed/partial TTS often leaves those rows behind.
+   *
+   * Recovery:
+   * 1. Delete every *other* journal FO cites (if it still exists), rematch
+   *    with MarkedLines.
+   * 2. If marks cite *this* journal, do **not** delete/recreate (that loops
+   *    after the processor already recreated the header). Return failures so
+   *    the caller posts unmarked on the existing journal.
+   * 3. Caller falls back to unmarked (no MarkedLines / DocumentNum) when
+   *    SpecTrans is orphaned.
+   *
+   * @returns remaining failures after rematch (empty = recovered).
+   */
+  private async recoverAlreadyMarkedCashOutBulk(args: {
+    endpoint: string;
+    headerKey: string;
+    pendingLines: CashBulkPendingLine[];
+    batch: CashBulkBatch;
+    failures: CashBulkLineFailure[];
+  }): Promise<CashBulkLineFailure[]> {
+    const { endpoint, headerKey, pendingLines, batch, failures } = args;
+    const headerKeyNorm = headerKey.trim().toLowerCase();
+    const blockers = this.collectMarkedSettlementBlockers(failures);
+    const otherBlockers = blockers.filter(
+      (blocker) =>
+        blocker.journalBatchNumber.trim().toLowerCase() !== headerKeyNorm,
+    );
+    const selfCited = blockers.some(
+      (blocker) =>
+        blocker.journalBatchNumber.trim().toLowerCase() === headerKeyNorm,
+    );
+
+    for (const blocker of otherBlockers) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Clearing SpecTrans held by journal ${blocker.journalBatchNumber} in ${blocker.company} (from prior MarkedLines post)`,
+      );
+      await this.tryDeleteBlockingJournalHeader(
+        blocker.company,
+        blocker.journalBatchNumber,
+      );
+    }
+
+    if (otherBlockers.length > 0 && !selfCited) {
+      const rematchResult = await this.postCustomCashLines(
+        endpoint,
+        pendingLines.map((line) => line.body),
+        {
+          headerKey,
+          pendingLines,
+          attempt: 'marked-retry-after-clear',
+          batch,
+        },
+      );
+      const rematchFailures = this.extractCashBulkFailures(
+        rematchResult,
+        pendingLines,
+      );
+      await this.logCashBulkOutcome({
+        headerKey,
+        pendingLines,
+        attempt: 'marked-retry-after-clear',
+        batch,
+        result: rematchResult,
+        failures: rematchFailures,
+      });
+      if (rematchFailures.length === 0) return [];
+      if (!this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
+        return rematchFailures;
+      }
+    }
+
+    if (selfCited) {
+      this.logger.warn(
+        `[CASH-CUSTOM] SpecTrans cites the journal being posted (${headerKey}); keeping the header and falling back to unmarked lines (no delete/recreate loop)`,
+      );
+    }
+
+    return failures;
+  }
+
+  private collectMarkedSettlementBlockers(
+    failures: CashBulkLineFailure[],
+  ): MarkedSettlementBlocker[] {
+    const blockers = new Map<string, MarkedSettlementBlocker>();
+    for (const failure of failures) {
+      const blocker = this.parseMarkedSettlementBlocker(failure.message);
+      if (!blocker) continue;
+      blockers.set(
+        `${blocker.company}|${blocker.journalBatchNumber}`,
+        blocker,
+      );
+    }
+    return [...blockers.values()];
+  }
+
+  /**
+   * Delete a blocking journal only when it still exists in FO.
+   * Custody Settlement lives on LedgerJournalHeaders; Vendor Payment on
+   * VendorPaymentJournalHeaders. Blind DELETE on the wrong entity (or a ghost
+   * SpecTrans journal) returns OData "No resources were found when selecting
+   * for update" and pollutes admin logs even when caught.
+   */
+  private async tryDeleteBlockingJournalHeader(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    if (await this.ledgerJournalHeaderExists(company, journalBatchNumber)) {
+      try {
+        await this.generalJournalService.deleteJournalHeader(
+          company,
+          journalBatchNumber,
+        );
+        this.logger.log(
+          `[CASH-CUSTOM] Deleted ledger journal ${journalBatchNumber} in ${company}`,
+        );
+        return true;
+      } catch (error) {
+        if (this.isODataResourceMissingError(error)) {
+          this.logger.debug(
+            `[CASH-CUSTOM] Ledger journal ${journalBatchNumber} in ${company} already gone`,
+          );
+          return false;
+        }
+        this.logger.warn(
+          `[CASH-CUSTOM] Ledger journal ${journalBatchNumber} in ${company} not deleted: ${this.dfoErrorExtractor.extractMessage(error)}`,
+        );
+        return false;
+      }
+    }
+
+    if (
+      await this.vendorPaymentJournalHeaderExists(company, journalBatchNumber)
+    ) {
+      try {
+        await this.vendorPaymentJournalService.deleteHeader(
+          journalBatchNumber,
+          company,
+        );
+        this.logger.log(
+          `[CASH-CUSTOM] Deleted vendor payment journal ${journalBatchNumber} in ${company}`,
+        );
+        return true;
+      } catch (error) {
+        if (this.isODataResourceMissingError(error)) {
+          this.logger.debug(
+            `[CASH-CUSTOM] Vendor payment journal ${journalBatchNumber} in ${company} already gone`,
+          );
+          return false;
+        }
+        this.logger.warn(
+          `[CASH-CUSTOM] Vendor payment journal ${journalBatchNumber} in ${company} not deleted: ${this.dfoErrorExtractor.extractMessage(error)}`,
+        );
+        return false;
+      }
+    }
+
+    this.logger.debug(
+      `[CASH-CUSTOM] No FO journal header ${journalBatchNumber} in ${company} to delete (SpecTrans ghost)`,
+    );
+    return false;
+  }
+
+  private isODataResourceMissingError(error: unknown): boolean {
+    const message = this.dfoErrorExtractor
+      .extractMessage(error)
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    return (
+      message.includes('no resources were found') ||
+      message.includes('resource not found') ||
+      message.includes('was not found') ||
+      message.includes('does not exist') ||
+      message.includes('not find entity')
+    );
+  }
+
+  private async ledgerJournalHeaderExists(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    try {
+      const headers = await this.generalJournalService.getJournalHeaders(
+        company,
+        {
+          maxCount: 1,
+          filters: this.queryBuilder.eq(
+            'JournalBatchNumber',
+            journalBatchNumber,
+          ),
+          select: ['JournalBatchNumber'],
+        },
+      );
+      return Array.isArray(headers) && headers.length > 0;
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not probe ledger journal ${journalBatchNumber} in ${company}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private async vendorPaymentJournalHeaderExists(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    try {
+      const query = this.queryBuilder.buildQuery(
+        '/data/VendorPaymentJournalHeaders',
+        {
+          filter: this.queryBuilder.and(
+            this.queryBuilder.eq('dataAreaId', company),
+            this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
+          ),
+          top: 1,
+          select: ['JournalBatchNumber'],
+          crossCompany: true,
+        },
+      );
+      const response = await this.d365foClient.get<{ value?: unknown[] }>(
+        query,
+      );
+      return Array.isArray(response?.value) && response.value.length > 0;
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not probe vendor payment journal ${journalBatchNumber} in ${company}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+      return false;
+    }
+  }
+
   private appendUnmarkedDescription(description: string): string {
     const trimmed = String(description ?? '').trim();
     if (!trimmed) return 'unmarked';
@@ -775,8 +1178,11 @@ export class CustomerPaymentJournalService {
     body: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomRequestBody {
     const retryBody = { ...body };
-    if (Array.isArray(retryBody.MarkedLines)) retryBody.MarkedLines = [];
+    delete retryBody.MarkedLines;
     if ('MARKEDINVOICE' in retryBody) retryBody.MARKEDINVOICE = null;
+    // Custody SpecTrans is often keyed by document; clear so FO cannot rematch
+    // the same open transaction when MarkedLines are already omitted.
+    retryBody.DocumentNum = '';
     retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
       retryBody.PAYMENTNOTES,
     );
@@ -784,6 +1190,167 @@ export class CustomerPaymentJournalService {
       retryBody.TRANSACTIONTEXT,
     );
     return retryBody;
+  }
+
+  /**
+   * A ledger line that carries a sales tax group cannot be inserted through
+   * `addLedgerJournalTransVendPaym`: FO converts the taxable amount into the
+   * accounting currency with an unset date and rejects the whole request with
+   * "An exchange rate cannot be found ... on exchange date ." The same line is
+   * accepted without the tax groups, and the groups can be set afterwards over
+   * OData, so tax is applied in a second phase.
+   */
+  private isDeferredLedgerTaxLine(line: {
+    accountTypeStr?: string;
+    TAXITEMGROUP?: string;
+  }): boolean {
+    return (
+      String(line.accountTypeStr ?? '').toLowerCase() === 'ledger' &&
+      Boolean(String(line.TAXITEMGROUP ?? '').trim())
+    );
+  }
+
+  private withoutDeferredLedgerTax(
+    line: TSLedgerJournalTransCustomBulkLineRequestBody,
+  ): TSLedgerJournalTransCustomBulkLineRequestBody {
+    if (!this.isDeferredLedgerTaxLine(line)) return line;
+    return { ...line, TaxGroup: '', TAXITEMGROUP: '' };
+  }
+
+  /**
+   * Second phase of {@link isDeferredLedgerTaxLine}: put the sales tax groups
+   * back on the ledger lines FO just created.
+   *
+   * A failure here leaves posted lines without their tax groups, so it is
+   * logged rather than thrown: throwing would send the caller into header
+   * recreate/repost and duplicate the lines that did succeed.
+   */
+  private async applyDeferredLedgerTax(
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+  ): Promise<void> {
+    const deferred: DeferredLedgerTax[] = pendingLines
+      .map((pendingLine) => pendingLine.body)
+      .filter((body) => this.isDeferredLedgerTaxLine(body))
+      .map((body) => ({
+        company: String(body.company ?? ''),
+        paymentId: String(body.PAYMENTID ?? ''),
+        currency: String(body.currency ?? ''),
+        debitAmount: Number(body.debitAmount ?? 0),
+        creditAmount: Number(body.creditAmount ?? 0),
+        taxGroup: String(body.TaxGroup ?? ''),
+        taxItemGroup: String(body.TAXITEMGROUP ?? ''),
+      }));
+
+    if (deferred.length === 0) return;
+
+    const dataAreaId = deferred[0].company;
+    if (!dataAreaId) {
+      this.logger.error(
+        `[CASH-CUSTOM] Cannot apply sales tax groups on ${deferred.length} ledger line(s) of journal ${headerKey}: the lines carry no company`,
+      );
+      return;
+    }
+
+    try {
+      const untaxed = await this.listUntaxedLedgerLines(headerKey, dataAreaId);
+      const claimed = new Set<number>();
+
+      for (const entry of deferred) {
+        const match = untaxed.find(
+          (row) =>
+            !claimed.has(row.LineNumber) &&
+            String(row.PaymentId ?? '') === entry.paymentId &&
+            String(row.CurrencyCode ?? '') === entry.currency &&
+            Number(row.DebitAmount ?? 0) === entry.debitAmount &&
+            Number(row.CreditAmount ?? 0) === entry.creditAmount,
+        );
+
+        if (!match) {
+          this.logger.error(
+            `[CASH-CUSTOM] No untaxed ledger line of journal ${headerKey} matches payment ${entry.paymentId} (${entry.currency} ${entry.debitAmount}/${entry.creditAmount}); sales tax group ${entry.taxItemGroup} was not applied`,
+          );
+          continue;
+        }
+
+        claimed.add(match.LineNumber);
+        await this.patchLedgerLineTax(headerKey, dataAreaId, match.LineNumber, {
+          SalesTaxGroup: entry.taxGroup,
+          ItemSalesTaxGroup: entry.taxItemGroup,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `[CASH-CUSTOM] Could not apply sales tax groups on ${deferred.length} ledger line(s) of journal ${headerKey}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+    }
+  }
+
+  private async listUntaxedLedgerLines(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<
+    Array<{
+      LineNumber: number;
+      PaymentId?: string;
+      CurrencyCode?: string;
+      DebitAmount?: number;
+      CreditAmount?: number;
+    }>
+  > {
+    // AccountType is an enum FO refuses to compare in $filter (it silently
+    // returns no rows), so the journal is fetched whole and narrowed here.
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+
+    const query = this.queryBuilder.buildQuery('/data/LedgerJournalLines', {
+      filter,
+      select: [
+        'LineNumber',
+        'AccountType',
+        'ItemSalesTaxGroup',
+        'PaymentId',
+        'CurrencyCode',
+        'DebitAmount',
+        'CreditAmount',
+      ],
+      crossCompany: true,
+    });
+
+    const response = await this.d365foClient.get<{
+      LineNumber: number;
+      AccountType?: string;
+      ItemSalesTaxGroup?: string;
+      PaymentId?: string;
+      CurrencyCode?: string;
+      DebitAmount?: number;
+      CreditAmount?: number;
+    }>(query, { useCache: false });
+
+    return (response.value || []).filter(
+      (row) =>
+        String(row.AccountType ?? '') === 'Ledger' &&
+        !String(row.ItemSalesTaxGroup ?? '').trim(),
+    );
+  }
+
+  private async patchLedgerLineTax(
+    headerKey: string,
+    dataAreaId: string,
+    lineNumber: number,
+    body: { SalesTaxGroup: string; ItemSalesTaxGroup: string },
+  ): Promise<void> {
+    const endpoint = `/data/LedgerJournalLines(dataAreaId='${dataAreaId}',JournalBatchNumber='${headerKey}',LineNumber=${lineNumber})?cross-company=true`;
+
+    await this.d365foClient.patch<typeof body, unknown>(endpoint, body, {
+      headers: { 'If-Match': '*' },
+    });
+
+    this.logger.log(
+      `[CASH-CUSTOM] Applied sales tax group ${body.ItemSalesTaxGroup} on ledger line ${lineNumber} of journal ${headerKey}`,
+    );
   }
 
   private async postCustomCashLine(
@@ -824,9 +1391,12 @@ export class CustomerPaymentJournalService {
       batch: CashBulkBatch;
     },
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
+    this.ensureCashOutBulkLineDates(lines);
     const requestBody: TSLedgerJournalTransCustomBulkRequest = {
       _contract: {
-        Lines: lines.map((line) => this.toD365BulkCashLine(line)),
+        Lines: lines.map((line) =>
+          this.withoutDeferredLedgerTax(this.toD365BulkCashLine(line)),
+        ),
       },
     };
 
@@ -937,10 +1507,10 @@ export class CustomerPaymentJournalService {
   /**
    * Project an internal cash line onto a `_contract.Lines` entry.
    *
-   * Emits the documented Cash Out bulk shape only — one ExchangeRate, one
-   * ReportingExchangeRate, documented offset keys, and MarkedLines only when
-   * the line actually settles invoices. Scenario 4 (main account-only) keeps
-   * the offset keys present with empty values so FO lookups do not throw.
+   * Emits the Cash Out bulk shape, including both rate keys required across
+   * deployed contract versions. MarkedLines is included only when the line
+   * actually settles invoices. Scenario 4 (main account-only) keeps the offset
+   * keys present with empty values so FO lookups do not throw.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
@@ -963,6 +1533,8 @@ export class CustomerPaymentJournalService {
             Boolean(String(marked?.OperationNumber ?? '').trim()),
         )
       : [];
+    const stripBidi = (value: string) =>
+      value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
 
     const body: TSLedgerJournalTransCustomBulkLineRequestBody = {
       journalNum: String(line.journalNum ?? '').trim(),
@@ -974,6 +1546,9 @@ export class CustomerPaymentJournalService {
       CENTRALBANKPURPOSECODE: String(line.CENTRALBANKPURPOSECODE ?? ''),
       CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
       company: String(line.company ?? ''),
+      transDate: this.normalizeFoJsonDate(String(line.transDate ?? '')),
+      DocumentNum: String(line.DocumentNum ?? ''),
+      DocumentDate: this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
       creditAmount: Number(line.creditAmount ?? 0),
       currency: String(line.currency ?? ''),
       debitAmount: Number(line.debitAmount ?? 0),
@@ -984,13 +1559,15 @@ export class CustomerPaymentJournalService {
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
       ),
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 100,
-      FinTagStr: String(line.FinTagStr ?? ''),
+      FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
       ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),
       offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
-      OFFSETFINTAGDISPLAYVALUE: String(line.OFFSETFINTAGDISPLAYVALUE ?? ''),
+      OFFSETFINTAGDISPLAYVALUE: stripBidi(
+        String(line.OFFSETFINTAGDISPLAYVALUE ?? ''),
+      ),
       OFFSETTRANSACTIONTEXT: String(line.OFFSETTRANSACTIONTEXT ?? ''),
       PAYMENTID: String(line.PAYMENTID ?? ''),
       PAYMENTMETHODNAME: String(line.PAYMENTMETHODNAME ?? ''),
@@ -1000,10 +1577,7 @@ export class CustomerPaymentJournalService {
       PostingProfile: String(line.PostingProfile ?? ''),
       TaxGroup: String(line.TaxGroup ?? ''),
       TAXITEMGROUP: String(line.TAXITEMGROUP ?? ''),
-      transDate: String(line.transDate ?? ''),
       TRANSACTIONTEXT: String(line.TRANSACTIONTEXT ?? ''),
-      DocumentNum: String(line.DocumentNum ?? ''),
-      DocumentDate: String(line.DocumentDate ?? ''),
       ReportingExchangeRate: Number.isFinite(reportingExchangeRate)
         ? reportingExchangeRate
         : 0,
@@ -1012,7 +1586,10 @@ export class CustomerPaymentJournalService {
     };
 
     if (markedLines.length > 0) {
-      body.MarkedLines = markedLines;
+      body.MarkedLines = markedLines.map((marked) => ({
+        ...marked,
+        OperationNumber: stripBidi(String(marked.OperationNumber ?? '')),
+      }));
     }
 
     return body;

@@ -10,9 +10,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     };
 
     const queryBuilder = {
-      and: jest.fn(),
-      eq: jest.fn(),
-      buildQuery: jest.fn(),
+      and: jest.fn((...parts: string[]) => parts.filter(Boolean).join(' and ')),
+      eq: jest.fn(
+        (field: string, value: string) => `${field} eq '${value}'`,
+      ),
+      buildQuery: jest.fn(
+        (path: string) => `${path}?$filter=probed`,
+      ),
+      buildFilterExpression: jest.fn((filters: string[]) => filters.join(' and ')),
     };
 
     const retryService = {
@@ -28,6 +33,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const vendorPaymentJournalService = {
       listLinesForHeader: jest.fn().mockResolvedValue([]),
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
+      deleteHeader: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const generalJournalService = {
+      deleteJournalHeader: jest.fn().mockResolvedValue(undefined),
+      getJournalHeaders: jest
+        .fn()
+        .mockResolvedValue([{ JournalBatchNumber: 'EXISTS' }]),
     };
 
     const operationalLogs = {
@@ -55,6 +68,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       retryService as any,
       dfoErrorExtractor as any,
       vendorPaymentJournalService as any,
+      generalJournalService as any,
       operationalLogs as any,
       logPayloads as any,
       configService as any,
@@ -64,6 +78,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       service,
       d365foClient,
       vendorPaymentJournalService,
+      generalJournalService,
       operationalLogs,
       logPayloads,
     };
@@ -229,10 +244,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
+    expect(postedLine).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate', 100);
-    // Bulk contract carries one exchange-rate field and one reporting-rate field.
-    expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
     expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
@@ -249,6 +264,147 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
+  });
+
+  // FO rejects a ledger line that carries a sales tax group with
+  // "An exchange rate cannot be found ... on exchange date .", so the groups
+  // are stripped on insert and patched back onto the created line.
+  it('posts ledger tax lines without their tax groups and patches the groups back', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN000123',
+    });
+    // FO returns every line of the journal: the lookup cannot filter on
+    // AccountType server side, so vendor and already taxed rows come back too.
+    d365foClient.get.mockResolvedValueOnce({
+      value: [
+        {
+          LineNumber: 6,
+          AccountType: 'Vend',
+          ItemSalesTaxGroup: '',
+          PaymentId: 'PAY789',
+          CurrencyCode: 'USD',
+          DebitAmount: 298.68,
+          CreditAmount: 0,
+        },
+        {
+          LineNumber: 7,
+          AccountType: 'Ledger',
+          ItemSalesTaxGroup: '',
+          PaymentId: 'PAY789',
+          CurrencyCode: 'USD',
+          DebitAmount: 0,
+          CreditAmount: 7.86,
+        },
+        {
+          LineNumber: 8,
+          AccountType: 'Ledger',
+          ItemSalesTaxGroup: 'VAT-14%',
+          PaymentId: 'PAY789',
+          CurrencyCode: 'USD',
+          DebitAmount: 0,
+          CreditAmount: 7.86,
+        },
+      ],
+    });
+    d365foClient.patch.mockResolvedValueOnce(undefined);
+
+    const lines: any[] = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000036',
+          accountTypeStr: 'Vendor',
+          company: 'm-p',
+          currency: 'USD',
+          creditAmount: 0,
+          debitAmount: 298.68,
+          PAYMENTID: 'PAY789',
+          PostingProfile: 'V-PP',
+          TaxGroup: 'Non-Taxabl',
+          TAXITEMGROUP: '',
+          ExchangeRate: 4765,
+        },
+      },
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 2,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: '223304|1301|013',
+          accountTypeStr: 'ledger',
+          company: 'm-p',
+          currency: 'USD',
+          creditAmount: 7.86,
+          debitAmount: 0,
+          PAYMENTID: 'PAY789',
+          PostingProfile: '',
+          TaxGroup: 'Taxable',
+          TAXITEMGROUP: 'VAT-14%',
+          ExchangeRate: 4765,
+        },
+      },
+    ];
+
+    await service.postCashOutLinesForHeader('JN000123', lines, 20, 'm-p');
+
+    const [, body] = d365foClient.post.mock.calls[0];
+    const [vendorLine, ledgerLine] = body._contract.Lines;
+    expect(vendorLine).toHaveProperty('TaxGroup', 'Non-Taxabl');
+    expect(ledgerLine).toHaveProperty('TaxGroup', '');
+    expect(ledgerLine).toHaveProperty('TAXITEMGROUP', '');
+
+    expect(d365foClient.patch).toHaveBeenCalledTimes(1);
+    const [patchEndpoint, patchBody] = d365foClient.patch.mock.calls[0];
+    expect(patchEndpoint).toContain(
+      "/data/LedgerJournalLines(dataAreaId='m-p',JournalBatchNumber='JN000123',LineNumber=7)",
+    );
+    expect(patchBody).toEqual({
+      SalesTaxGroup: 'Taxable',
+      ItemSalesTaxGroup: 'VAT-14%',
+    });
+  });
+
+  it('leaves lines untouched when no ledger line carries a tax group', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN000123',
+    });
+
+    const lines: any[] = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000036',
+          accountTypeStr: 'Vendor',
+          company: 'm-p',
+          currency: 'USD',
+          creditAmount: 0,
+          debitAmount: 100,
+          PAYMENTID: 'PAY790',
+          TaxGroup: 'Taxable',
+          TAXITEMGROUP: 'VAT-14%',
+          ExchangeRate: 4765,
+        },
+      },
+    ];
+
+    await service.postCashOutLinesForHeader('JN000123', lines, 20, 'm-p');
+
+    const [, body] = d365foClient.post.mock.calls[0];
+    expect(body._contract.Lines[0]).toHaveProperty('TAXITEMGROUP', 'VAT-14%');
+    expect(d365foClient.patch).not.toHaveBeenCalled();
   });
 
   // Scenario 1 + 3 + 4: all lines of the journal in one Lines array, with
@@ -571,8 +727,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
 
     // Same values as the documented body: journalNum is filled in,
-    // accountTypeStr is lowercased, and only the documented rate / offset keys
-    // are sent (no ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
+    // accountTypeStr is lowercased, dates stay `yyyy-MM-ddT00:00:00` for FO
+    // FormJsonSerializer, and only the documented rate / offset keys are sent
+    // (no ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
@@ -587,7 +744,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     });
   });
 
-  it('omits empty MarkedLines and duplicate exchange-rate aliases from the bulk body', async () => {
+  it('omits empty MarkedLines and unsupported exchange-rate aliases from the bulk body', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -644,8 +801,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
     });
     expect(postedLine).not.toHaveProperty('MarkedLines');
-    expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
+    expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
     expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
@@ -1067,6 +1224,247 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       expect.objectContaining({ AccountNum: 'VEND3', journalNum: 'JN-RESUME' }),
       expect.objectContaining({ AccountNum: 'VEND4', journalNum: 'JN-RESUME' }),
     ]);
+  });
+
+  it('clears the blocking journal then rematches when FO reports already marked for settlement', async () => {
+    const { service, d365foClient, generalJournalService, vendorPaymentJournalService } =
+      buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014129',
+      });
+
+    const result = await service.postCashOutLinesForHeader(
+      'Mesco-000014129',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'OP-1',
+                DocumentNumber: 'DOC-1',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Custody Settlement',
+            TRANSACTIONTEXT: 'Custody Settlement',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(result).toEqual([{ headerId: 'Mesco-000014129', lineNumber: 1 }]);
+    expect(generalJournalService.getJournalHeaders).toHaveBeenCalled();
+    expect(generalJournalService.deleteJournalHeader).toHaveBeenCalledWith(
+      'm-p',
+      'Mesco-000014128',
+    );
+    // Custody Settlement is ledger-only; do not DELETE VendorPaymentJournalHeaders.
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject({
+      journalNum: 'Mesco-000014129',
+      MarkedLines: [expect.objectContaining({ DocumentNumber: 'DOC-1' })],
+      PAYMENTNOTES: 'Custody Settlement',
+    });
+  });
+
+  it('keeps the current journal and posts unmarked when SpecTrans cites it', async () => {
+    const { service, d365foClient, generalJournalService, vendorPaymentJournalService } =
+      buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014130 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014130',
+      });
+
+    const result = await service.postCashOutLinesForHeader(
+      'Mesco-000014130',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            company: 'm-p',
+            DocumentNum: 'DOC-1',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'OP-1',
+                DocumentNumber: 'DOC-1',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Custody Settlement',
+            TRANSACTIONTEXT: 'Custody Settlement',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(result).toEqual([{ headerId: 'Mesco-000014130', lineNumber: 1 }]);
+    expect(generalJournalService.deleteJournalHeader).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
+      {
+        journalNum: 'Mesco-000014130',
+        DocumentNum: '',
+        PAYMENTNOTES: 'Custody Settlement - unmarked',
+      },
+    );
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
+    ).not.toHaveProperty('MarkedLines');
+  });
+
+  it('skips DELETE when the SpecTrans journal no longer exists in FO', async () => {
+    const { service, d365foClient, generalJournalService, vendorPaymentJournalService } =
+      buildService();
+
+    generalJournalService.getJournalHeaders.mockResolvedValue([]);
+    d365foClient.get.mockResolvedValue({ value: [] });
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014129',
+      });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000014129',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            DocumentNum: 'DOC-1',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'OP-1',
+                DocumentNumber: 'DOC-1',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Custody Settlement',
+            TRANSACTIONTEXT: 'Custody Settlement',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(generalJournalService.deleteJournalHeader).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+    expect(
+      d365foClient.post.mock.calls[2][1]._contract.Lines[0],
+    ).toMatchObject({
+      DocumentNum: '',
+      PAYMENTNOTES: 'Custody Settlement - unmarked',
+    });
+  });
+
+  it('falls back to unmarked retry when settlement marks remain after clearing the cited journal', async () => {
+    const { service, d365foClient, generalJournalService } = buildService();
+
+    // Probe says journal exists, but DELETE is a no-op race (already removed).
+    generalJournalService.deleteJournalHeader.mockRejectedValueOnce(
+      new Error('No resources were found when selecting for update.'),
+    );
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Custody Settlement Mesco-000014128 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014129',
+      });
+
+    const result = await service.postCashOutLinesForHeader(
+      'Mesco-000014129',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            DocumentNum: 'DOC-1',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'OP-1',
+                DocumentNumber: 'DOC-1',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Custody Settlement',
+            TRANSACTIONTEXT: 'Custody Settlement',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(result).toEqual([{ headerId: 'Mesco-000014129', lineNumber: 1 }]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(3);
+    expect(
+      d365foClient.post.mock.calls[2][1]._contract.Lines[0],
+    ).toMatchObject({
+      journalNum: 'Mesco-000014129',
+      DocumentNum: '',
+      PAYMENTNOTES: 'Custody Settlement - unmarked',
+    });
+    expect(
+      d365foClient.post.mock.calls[2][1]._contract.Lines[0],
+    ).not.toHaveProperty('MarkedLines');
   });
 
   it('does not clear marked settlements for unrelated cash-out errors', async () => {

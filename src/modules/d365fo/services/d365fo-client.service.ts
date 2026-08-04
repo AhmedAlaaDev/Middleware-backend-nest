@@ -52,9 +52,9 @@ export class D365FOClientService {
     this.resource =
       this.configService.get<D365FOConfig>('d365fo')?.resource || '';
 
-    // Configure retry for HTTP service (429 = Too Many Requests: delay 2 min and continue retrying)
+    // Configure retry for HTTP service (429 / FO throttle: delay 2 min and continue retrying)
     this.retryService.configureAxiosRetry(this.httpService.axiosRef, {
-      retries: 3,
+      retries: 5,
       exponentialBackoff: true,
       retryCondition: (error: AxiosError) => {
         return (
@@ -62,7 +62,8 @@ export class D365FOClientService {
           error.response?.status === 429 ||
           error.response.status >= 500 ||
           error.code === 'ECONNRESET' ||
-          error.code === 'ETIMEDOUT'
+          error.code === 'ETIMEDOUT' ||
+          this.retryService.isFoThrottleError(error)
         );
       },
     });

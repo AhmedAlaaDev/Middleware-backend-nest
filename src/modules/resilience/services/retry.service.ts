@@ -9,7 +9,7 @@ export interface RetryOptions {
   exponentialBackoff?: boolean;
 }
 
-/** Delay in ms when server returns 429 Too Many Requests (2 minutes) */
+/** Delay in ms when server returns 429 / FO throttle (2 minutes) */
 const DELAY_MS_429 = 2 * 60 * 1000;
 
 export class RetryService {
@@ -24,6 +24,11 @@ export class RetryService {
 
     // 429 Too Many Requests - retry after delay (rate limit)
     if (status === 429) {
+      return true;
+    }
+
+    // FO FinOps throttling sometimes returns a non-429 status with this text.
+    if (this.isFoThrottleError(error)) {
       return true;
     }
 
@@ -78,6 +83,16 @@ export class RetryService {
     return axiosRetry.isNetworkOrIdempotentRequestError(error);
   }
 
+  /** FinOps API throttle / onebox overload (aka.ms/FinOpsAPIThrottling). */
+  public isFoThrottleError(error: any): boolean {
+    const message = this.getErrorMessage(error).toLowerCase();
+    return (
+      message.includes('high resource utilization') ||
+      message.includes('finopsapithrottling') ||
+      message.includes('too many requests')
+    );
+  }
+
   public async executeWithRetry<T>(
     fn: () => Promise<T>,
     options?: RetryOptions,
@@ -107,16 +122,17 @@ export class RetryService {
         }
 
         if (attempt < maxRetries) {
-          const is429 = error.response?.status === 429;
-          const delay = is429
+          const isThrottle =
+            error.response?.status === 429 || this.isFoThrottleError(error);
+          const delay = isThrottle
             ? DELAY_MS_429
             : useExponentialBackoff
               ? baseDelay * Math.pow(2, attempt)
               : baseDelay;
 
           this.logger.warn(
-            is429
-              ? `Retry attempt ${attempt + 1}/${maxRetries} after 2 min (429 Too Many Requests)`
+            isThrottle
+              ? `Retry attempt ${attempt + 1}/${maxRetries} after 2 min (FO throttle / 429)`
               : `Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms (status: ${error.response?.status || 'network error'}, code: ${error.code || 'N/A'})`,
           );
 
@@ -136,7 +152,10 @@ export class RetryService {
     const retryConfig: IAxiosRetryConfig = {
       retries: options?.retries || 3,
       retryDelay: (retryCount, error: AxiosError) => {
-        if (error?.response?.status === 429) {
+        if (
+          error?.response?.status === 429 ||
+          this.isFoThrottleError(error)
+        ) {
           return DELAY_MS_429;
         }
         const baseDelay = options?.retryDelay || 1000;
@@ -149,7 +168,10 @@ export class RetryService {
       onRetry: (retryCount, error: AxiosError) => {
         const status = error.response?.status;
         const code = error.code;
-        const delayMsg = status === 429 ? ', delaying 2 min before retry' : '';
+        const delayMsg =
+          status === 429 || this.isFoThrottleError(error)
+            ? ', delaying 2 min before retry'
+            : '';
         this.logger.warn(
           `Axios retry attempt ${retryCount}: ${error.message} (status: ${status || 'network error'}, code: ${code || 'N/A'}${delayMsg})`,
         );

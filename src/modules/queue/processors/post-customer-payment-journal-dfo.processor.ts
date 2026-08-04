@@ -171,15 +171,15 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             LINE_CHUNK_SIZE,
           );
         } catch (error) {
-          if (
-            !persistedHeaderId ||
-            !this.isMissingPersistedHeaderError(error, persistedHeaderId)
-          ) {
+          // Recreate when FO no longer has this journal — including headers
+          // created earlier in this same attempt that were deleted/rolled back.
+          if (!this.isMissingPersistedHeaderError(error, headerId)) {
             throw error;
           }
 
+          const staleHeaderKey = headerId;
           const staleHeaderIndex = created.findIndex(
-            (header) => header.headerKey === persistedHeaderId,
+            (header) => header.headerKey === staleHeaderKey,
           );
           if (staleHeaderIndex >= 0) created.splice(staleHeaderIndex, 1);
 

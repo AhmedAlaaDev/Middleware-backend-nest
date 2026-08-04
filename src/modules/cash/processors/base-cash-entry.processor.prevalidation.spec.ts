@@ -136,6 +136,156 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('accepts a main-account-only Vendor Payment with debit Vendor lines and no payment offset', async () => {
+    const pair = VendorInvoiceJournalService.pairKey('INV-2066', 'V-001');
+    const { processor } = createProcessor({
+      existingPairs: new Set([pair]),
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const lines = [
+      {
+        UniqueId: 475288,
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'V-001',
+        DEBITAMOUNT: 100,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: 'DOC-2066',
+        INVOICE: 'INV-2066',
+        FINTAGDISPLAYVALUE: 'OP-2066|Q-1',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+  });
+
+  it('accepts Ledger-only Vendor Payment UniqueIds as main-account-only lines', async () => {
+    const { processor } = createProcessor();
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(processor as any, 'collectSettlementTargetErrors')
+      .mockResolvedValue(undefined);
+
+    const lines = [
+      {
+        UniqueId: 475358,
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||',
+        DEBITAMOUNT: 1000,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    expect(lines[0].IsLedger).toBe(true);
+    expect(lines[0].IsVendor).toBe(false);
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+  });
+
+  it('accepts ACCOUNTTYPE Vendor (not only Vend) as a debit vendor line', async () => {
+    const pair = VendorInvoiceJournalService.pairKey('INV-2066', 'V-001');
+    const { processor } = createProcessor({
+      existingPairs: new Set([pair]),
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const lines = [
+      {
+        UniqueId: 475288,
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Vendor',
+        ACCOUNTDISPLAYVALUE: 'V-001',
+        DEBITAMOUNT: 100,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: 'DOC-2066',
+        INVOICE: 'INV-2066',
+        FINTAGDISPLAYVALUE: 'OP-2066|Q-1',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    expect(lines[0].IsVendor).toBe(true);
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+  });
+
+  it('blocks a Vendor Payment UniqueId that has more than one credit payment offset', async () => {
+    const { processor } = createProcessor();
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(processor as any, 'collectSettlementTargetErrors')
+      .mockResolvedValue(undefined);
+
+    const lines = [
+      {
+        UniqueId: 475288,
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'V-001',
+        DEBITAMOUNT: 100,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 475288,
+        LINENUMBER: 2,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-1',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 60,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 475288,
+        LINENUMBER: 3,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-2',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 40,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).rejects.toMatchObject({
+      response: {
+        errors: expect.arrayContaining([
+          expect.stringContaining('main-account-only'),
+        ]),
+      },
+    });
+  });
+
   it('loads the vendor group from D365 when the local vendor cache is empty', async () => {
     const pair = VendorInvoiceJournalService.pairKey('INV-2066', 'V-001');
     const d365VendorService = {
