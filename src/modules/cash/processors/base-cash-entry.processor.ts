@@ -513,6 +513,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           : defaultDimensionDisplayValue;
       if (!dimensionString?.trim()) return;
 
+      const lineContext = `Line ${line.LINENUMBER || '?'} (UniqueId ${line.UniqueId || '?'}) ${label}`;
+      const paddedSegments =
+        this.utilsService.findPaddedDimensionSegments(dimensionString);
+      if (paddedSegments.length > 0) {
+        const mainAccount =
+          accountType === 'Ledger'
+            ? dimensionString.split('|')[0]?.trim() || accountDisplayValue
+            : String(accountDisplayValue ?? '').trim() || '(account)';
+        const paddedPreview = paddedSegments
+          .map((segment) => `"${segment.raw}"`)
+          .join(', ');
+        errors.push(
+          `${lineContext}: Invalid dimension value(s) for ${mainAccount} / ${dimensionString} — leading/trailing spaces in ${paddedPreview}. Remove the spaces and re-upload.`,
+        );
+        return;
+      }
+
       const dimensions =
         this.utilsService.parseDimensionString(dimensionString);
       const sourceSegments = dimensionString.split('|');
@@ -527,9 +544,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       });
       this.validateDimensionsForLine(validationLine);
       for (const error of validationLine.GetErrors()) {
-        errors.push(
-          `Line ${line.LINENUMBER || '?'} (UniqueId ${line.UniqueId || '?'}) ${label}: ${error}`,
-        );
+        errors.push(`${lineContext}: ${error}`);
       }
     };
 
@@ -1781,8 +1796,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransDate: transactionDate,
       TransactionDate: transactionDate,
       VoucherType: sourceLine.VoucherType,
-      AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+      AccountDisplayValue:
+        sourceLine.ACCOUNTTYPE === 'Ledger'
+          ? this.utilsService.trimDimensionDisplaySegments(
+              sourceLine.ACCOUNTDISPLAYVALUE,
+            )
+          : sourceLine.ACCOUNTDISPLAYVALUE,
+      OffsetAccountDisplayValue:
+        sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
+          ? this.utilsService.trimDimensionDisplaySegments(
+              sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+            )
+          : sourceLine.OFFSETACCOUNTDISPLAYVALUE,
       FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
         sourceLine.FINTAGDISPLAYVALUE,
       ),
@@ -1842,6 +1867,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dynLine.AddError(
         'Dimensions',
         `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
+      );
+    }
+
+    if (
+      sourceLine.ACCOUNTTYPE === 'Ledger' &&
+      this.utilsService.findPaddedDimensionSegments(
+        sourceLine.ACCOUNTDISPLAYVALUE,
+      ).length > 0
+    ) {
+      dynLine.AddError(
+        'AccountDisplayValue',
+        `Invalid dimension value(s) for ${dimensions.mainAccount || sourceLine.ACCOUNTDISPLAYVALUE.split('|')[0]?.trim() || ''} / ${sourceLine.ACCOUNTDISPLAYVALUE}`,
       );
     }
 
@@ -2025,7 +2062,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     const accountDisplay = (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
-    if (accountDisplay) return accountDisplay;
+    if (accountDisplay) {
+      return offsetLine.ACCOUNTTYPE === 'Ledger'
+        ? this.utilsService.trimDimensionDisplaySegments(accountDisplay)
+        : accountDisplay;
+    }
 
     return dimensionStrFallback;
   }

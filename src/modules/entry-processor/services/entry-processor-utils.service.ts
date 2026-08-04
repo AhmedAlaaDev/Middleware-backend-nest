@@ -31,6 +31,39 @@ export class EntryProcessorUtilsService {
   }
 
   /**
+   * FO ledger account / default-dimension strings reject segments with leading or
+   * trailing spaces (middleware validation normally trims, so those pads were
+   * invisible until post). Returns non-empty padded segments only.
+   */
+  findPaddedDimensionSegments(dimensionString?: unknown): Array<{
+    index: number;
+    raw: string;
+    trimmed: string;
+  }> {
+    const input = this.normalizeDimensionInput(dimensionString);
+    if (!input || !input.includes('|')) return [];
+
+    return input
+      .split('|')
+      .map((raw, index) => ({ index, raw, trimmed: raw.trim() }))
+      .filter(({ raw, trimmed }) => raw !== trimmed && trimmed.length > 0);
+  }
+
+  /**
+   * Rebuilds a pipe-separated dimension / ledger account display value with
+   * each segment trimmed, preserving empty slots and segment count.
+   */
+  trimDimensionDisplaySegments(dimensionString?: unknown): string {
+    const input = this.normalizeDimensionInput(dimensionString);
+    if (!input) return '';
+    if (!input.includes('|')) return input.trim();
+    return input
+      .split('|')
+      .map((segment) => segment.trim())
+      .join('|');
+  }
+
+  /**
    * Parses a pipe-separated dimension string into AccountDimensionsModel.
    */
   parseDimensionString(dimensionString?: unknown): EntryDimensionsModel {

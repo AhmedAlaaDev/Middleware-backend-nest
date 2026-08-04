@@ -537,6 +537,49 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(formatted[1].MarkedLines).toEqual([]);
   });
 
+  it('rejects ledger dimension strings with leading/trailing spaces before format', async () => {
+    const { processor } = createProcessor();
+    jest
+      .spyOn(processor as any, 'validateDimensionsForLine')
+      .mockImplementation(() => undefined);
+
+    const paddedLedger =
+      '511505|1302|013|001|001|101008962 |101008962 |||16433|3076|3208|Collect|||IMPORT||||';
+    const lines = [
+      new CashEntryRawDataModel(
+        {
+          UniqueId: 1,
+          LINENUMBER: 12,
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: paddedLedger,
+          DEBITAMOUNT: 200,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Direct',
+          VoucherType: 'Cash',
+        } as any,
+        'Freight',
+        false,
+      ),
+    ];
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    try {
+      await (processor as any).validateCashOutSourceAsync(lines);
+    } catch (error) {
+      const response = (error as BadRequestException).getResponse() as {
+        errors?: string[];
+      };
+      expect(response.errors?.[0]).toContain(
+        'Invalid dimension value(s) for 511505',
+      );
+      expect(response.errors?.[0]).toContain('101008962 ');
+    }
+  });
+
   it('blocks custody marking when the ledger lookup is ambiguous', async () => {
     const target: CustodySettlementTarget = {
       documentNumber: 'DOC-2066',

@@ -193,3 +193,21 @@ describe('EntryProcessorUtilsService.updateCashBatchAndVoucher', () => {
     expect(atomicResult.map((line) => line.LineNumber)).toEqual([1, 2]);
   });
 });
+
+describe('EntryProcessorUtilsService dimension display padding', () => {
+  const service = new EntryProcessorUtilsService();
+
+  it('detects and trims padded dimension segments used by FO ledger accounts', () => {
+    const padded =
+      '511505|1302|013|001|001|101008962 |101008962 |||16433|3076|3208|Collect|||IMPORT||||';
+
+    expect(service.findPaddedDimensionSegments(padded)).toEqual([
+      { index: 5, raw: '101008962 ', trimmed: '101008962' },
+      { index: 6, raw: '101008962 ', trimmed: '101008962' },
+    ]);
+    expect(service.trimDimensionDisplaySegments(padded)).toBe(
+      '511505|1302|013|001|001|101008962|101008962|||16433|3076|3208|Collect|||IMPORT||||',
+    );
+    expect(service.findPaddedDimensionSegments('BANK PSD EG')).toEqual([]);
+  });
+});
