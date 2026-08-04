@@ -102,6 +102,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
     const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
 
     const result = (handler as any).mapLines(
       [
@@ -135,7 +139,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PostingProfile: 'V-PP',
             PaymentId: 'PAY456',
             PaymentReference: 'REF456',
-            SafeType: 'Spec',
+            SafeType: 'Vendor Payment',
             TransactionText: 'Vendor payment',
             Invoice: 'INV-0002',
             MarkedInvoice: 'INV-0002',
@@ -145,6 +149,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       ],
       'USMF',
       'out',
+      route,
     );
 
     expect(result[0].customLineApiBody).toBeDefined();
@@ -176,6 +181,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
     const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
 
     const result = (handler as any).mapLines(
       [
@@ -205,12 +214,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'REF789',
             TransactionText: 'Vendor payment',
             Invoice: 'INV-0003',
+            MarkedInvoice: 'INV-0003',
+            SafeType: 'Vendor Payment',
             Voucher: '',
           },
         },
       ],
       'USMF',
       'out',
+      route,
     );
 
     const body = result[0].customLineApiBody;
@@ -619,6 +631,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('maps real Safe Out group 466698 with tags and without exchange rates', () => {
     const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
     const finTag =
       'O25-IMP-OC-12581|ME_Q-20251239362-IMP-FCL|Sl-000020|Sl-000020|SOKCB25001058||||||INMUN1 Mundra|EGSOK Sokhna Port||||||31/12/2025|';
     const defaultDimension =
@@ -648,6 +664,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CreditAmount: 0,
             CurrencyCode: 'USD',
             VoucherType: 'Cash',
+            SafeType: 'Vendor Payment',
             FinTagDisplayValue: finTag,
             OffsetFinTagDisplayValue: finTag,
             SalesTaxGroup: 'Non-Taxabl',
@@ -677,6 +694,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CreditAmount: 0,
             CurrencyCode: 'USD',
             VoucherType: 'Cash',
+            SafeType: 'Vendor Payment',
             FinTagDisplayValue: finTag,
             OffsetFinTagDisplayValue: finTag,
             SalesTaxGroup: 'Non-Taxabl',
@@ -689,6 +707,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       ],
       'm-p',
       'out',
+      route,
     );
 
     expect(result).toHaveLength(2);
@@ -712,8 +731,13 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     }
   });
 
-  it('maps custody vendor settlements into MarkedLines with DocumentNumber and OperationNumber', () => {
+  it('does not synthesize MarkedLines for Custody Issue (marking is Vendor Payment only)', () => {
     const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Issue',
+      targetProcessor: 'Freight',
+    });
     const finTag =
       'O25-IMP-OC-11585||Sl-000009|Ag-000010|261633796|||||EGY CROWN|CNSHA Shanghai|EGPSD Port Said West|||30/12/2025||02/12/2025|31/12/2025|';
 
@@ -749,13 +773,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PostingProfile: 'V-PP',
             PaymentId: '1',
             PaymentReference: 'PSD EG-1 - Freight',
-            TransactionText: 'Direct - Fleet January 2026 (Cash)',
+            TransactionText: 'Custody Issue - Freight January 2026 (Cash)',
             MarkedInvoice: '',
           },
         },
       ],
       'm-p',
       'out',
+      route,
     );
 
     expect(result).toHaveLength(1);
@@ -763,7 +788,54 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('AccountNum', '5019');
     expect(body).toHaveProperty('debitAmount', 5000);
     expect(body).toHaveProperty('VendorGroup', 'Custody');
-    expect(body).toHaveProperty('MarkedLines', [
+    expect(body.MarkedLines).toEqual([]);
+    expect(body.TRANSACTIONTEXT).not.toContain('unmarked');
+    expect(body).toHaveProperty('DocumentNum', '15925');
+  });
+
+  it('maps Vendor Payment custody marks into MarkedLines with DocumentNumber and OperationNumber', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
+    const finTag =
+      'O25-IMP-OC-11585||Sl-000009|Ag-000010|261633796|||||EGY CROWN|CNSHA Shanghai|EGPSD Port Said West|||30/12/2025||02/12/2025|31/12/2025|';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: '5019',
+            OffsetAccountType: 'Bank',
+            OffsetAccountDisplayValue: 'BANK-1',
+            DebitAmount: 5000,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            Document: '15925',
+            VendorGroup: 'Custody',
+            SettlementTargetType: 'CustodyLedger',
+            SafeType: 'Vendor Payment',
+            FinTagDisplayValue: finTag,
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'O25-IMP-OC-11585',
+                DocumentNumber: '15925',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
       {
         InvoiceNumber: '',
         OperationNumber: 'O25-IMP-OC-11585',
@@ -771,16 +843,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: false,
       },
     ]);
-    expect(body).toHaveProperty('FinTagStr', finTag);
-    expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
-    expect(body).toHaveProperty('DocumentNum', '15925');
-    expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
-    expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
   });
 
-  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps USD ExchangeRate for custody ledger targets', () => {
+  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps USD ExchangeRate without inventing custody marks', () => {
     const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
     const finTag =
       'O26-IMP-OC-1|\u200FME_Q-20251239129-IMP-FCL\u200E|\u200FSl-000010\u200E|';
 
@@ -797,7 +868,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CreditAmount: 29,
             DebitAmount: 0,
             CurrencyCode: 'USD',
-            SettlementTargetType: 'CustodyLedger',
+            VendorGroup: 'Custody',
+            SafeType: 'Custody Settlement',
             FinTagDisplayValue: finTag,
             OffsetFinTagDisplayValue: finTag,
             SalesTaxGroup: 'Non-Taxabl',
@@ -808,6 +880,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       ],
       'm-p',
       'out',
+      route,
     );
 
     const body = result[0].customLineApiBody;
@@ -817,21 +890,18 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.VendorGroup).toBe('Custody');
     expect(body.FinTagStr).toBe('O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|');
-    expect(body.OFFSETFINTAGDISPLAYVALUE).toBe(
-      'O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|',
-    );
-    expect(body.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '',
-        OperationNumber: 'O26-IMP-OC-1',
-        DocumentNumber: '16383',
-        HasWithHoldingLine: false,
-      },
-    ]);
+    // Custody Settlement multi-line rows are main-account-only; offset fields
+    // are omitted from the FO body.
+    expect(body.MarkedLines).toEqual([]);
   });
 
-  it('preserves empty MARKEDINVOICE and appends " - unmarked" to TRANSACTIONTEXT/PAYMENTNOTES when MarkedInvoice was cleared by business rules', () => {
-    const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
+  it('preserves empty MARKEDINVOICE and appends " - unmarked" for Vendor Payment when MarkedInvoice was cleared', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
 
     const result = (handler as any).mapLines(
       [
@@ -847,15 +917,18 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CurrencyCode: 'EGP',
             TransDate: '2026-01-15',
             VoucherType: 'Cash',
+            SafeType: 'Vendor Payment',
             Description: 'Vendor Payment - Freight Jan 2026',
             TransactionText: 'Vendor Payment - Freight Jan 2026',
             Invoice: 'INV-RAW-ORIGINAL',
             MarkedInvoice: '',
+            MarkedLines: [],
           },
         },
       ],
       'm-p',
       'out',
+      route,
     );
 
     expect(result).toHaveLength(1);

@@ -290,12 +290,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       const route = this.resolveCashOutRoute(lines[0].data, targetProcessor);
       const header = this.mapRoutedHeaderFromLines(lines, company, route);
-      const mappedLines = this.mapLines(
-        lines,
-        company,
-        route.lineDirection,
-        route,
-      );
+      // Cash-out batch line semantics (main-account-only + tax defaults) always
+      // use direction "out". The route.lineDirection still selects the FO
+      // custom API (VendPaym vs CustPaym) in the posting strategy.
+      const mappedLines = this.mapLines(lines, company, 'out', route);
 
       result.push({ route, header, lines: mappedLines });
     }
@@ -402,8 +400,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         String(line.FinTagDisplayValue ?? '').split('|')[0],
       ).trim();
       const documentNumber = String(line.Document ?? '').trim();
-      const markedLines =
-        line.MarkedLines && line.MarkedLines.length > 0
+      // Settlement (marking) is Vendor Payment only (AP vendor-invoice route).
+      // Never synthesize MarkedLines for Custody Settlement / Custody Issue /
+      // Direct / Other / AR routes from Document or SettlementTargetType.
+      const routeSupportsMarking = route?.kind === 'vendor-invoice';
+      const markedLines = routeSupportsMarking
+        ? line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines.map((markedLine) => ({
               InvoiceNumber: isCustodyVendor
                 ? ''
@@ -425,8 +427,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                   HasWithHoldingLine: false,
                 },
               ]
-            : [];
-      const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
+            : []
+        : [];
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
       if (
@@ -542,8 +544,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : '';
 
       if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
+        // Always send MarkedLines for AP vendor cash-out lines (empty array
+        // when the route does not support settlement).
         customLineApiBody.MarkedLines = markedLines;
-      } else {
+      } else if (routeSupportsMarking || markedInvoice) {
         customLineApiBody.MARKEDINVOICE = markedInvoice;
       }
 

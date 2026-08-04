@@ -33,3 +33,36 @@ describe('CashEntryRawDataModel account-type flags', () => {
     expect(line.IsVendor).toBe(false);
   });
 });
+
+describe('CashEntryRawDataModel SafeType normalization', () => {
+  it.each(['', null, undefined, '   '])(
+    'treats outbound empty SafeType %j as Custody Settlement',
+    (safeType) => {
+      const line = new CashEntryRawDataModel(
+        {
+          ACCOUNTTYPE: 'Vend',
+          SafeType: safeType,
+        } as any,
+        'Freight',
+        false,
+      );
+
+      expect(line.SafeType).toBe('Custody Settlement');
+      expect(line.IsCustodySettlement).toBe(true);
+    },
+  );
+
+  it('does not default empty SafeType to Custody Settlement for inbound cash', () => {
+    const line = new CashEntryRawDataModel(
+      {
+        ACCOUNTTYPE: 'Cust',
+        SafeType: '',
+      } as any,
+      'Freight',
+      true,
+    );
+
+    expect(line.SafeType).toBe('');
+    expect(line.IsCustodySettlement).toBe(false);
+  });
+});

@@ -59,7 +59,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     },
   );
 
-  it('formats outbound DownPayment as an AR customer-payment line', () => {
+  it('formats outbound DownPayment as line-based AR rows (no offset conversion)', () => {
     const processor = createProcessor();
     const rawLines = [
       {
@@ -91,15 +91,26 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       },
     ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
 
-    const [formatted] = (processor as any).buildLines('2045', rawLines);
+    const formatted = (processor as any).buildLines('2045', rawLines);
 
-    expect(formatted).toMatchObject({
+    expect(formatted).toHaveLength(2);
+    expect(formatted[0]).toMatchObject({
       AccountType: 'Cust',
       JournalName: 'Cust-Pay',
       PostingProfile: '',
       SafeType: 'DownPayment',
+      DebitAmount: 100,
+      CreditAmount: 0,
     });
-    expect(formatted.Description).toContain('DownPayment - Freight');
+    expect(formatted[0].OffsetAccountDisplayValue).toBeFalsy();
+    expect(formatted[0].MarkedLines).toEqual([]);
+    expect(formatted[1]).toMatchObject({
+      AccountType: 'Petty cash',
+      AccountDisplayValue: 'SAFE-001',
+      CreditAmount: 100,
+      DebitAmount: 0,
+    });
+    expect(formatted[0].Description).toContain('DownPayment - Freight');
   });
 
   it.each([
@@ -424,6 +435,269 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       // Stats still report withholding info
       expect(stats.withholdingRemovedCount).toBe(1);
       expect(stats.withholdingRemovedAmount).toBe(10);
+    });
+
+    it('PERMANENT: 2 vendor debits + 1 credit offset → one FO line with summed amount', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480001,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 600,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 600,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-A',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480001,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vendor',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 400,
+          CREDITAMOUNT: 0,
+          INVOICEAMOUNT: 400,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-B',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480001,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 1000,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+      // Simulate hydrated vs empty VendorGroup — must still merge.
+      rawLines[0].VendorGroup = 'Trade';
+      rawLines[1].VendorGroup = '';
+
+      const dfoLines = (processor as any).buildLines('480001', rawLines);
+
+      expect(dfoLines).toHaveLength(1);
+      expect(dfoLines[0]).toMatchObject({
+        AccountType: 'Vend',
+        AccountDisplayValue: 'VEND-001',
+        DebitAmount: 1000,
+        CreditAmount: 0,
+        OffsetAccountType: 'Bank',
+        OffsetAccountDisplayValue: 'BANK-001',
+        Invoice: 'INV-A',
+        MarkedInvoice: 'INV-A',
+      });
+      expect(dfoLines[0].MarkedLines).toHaveLength(2);
+      expect(dfoLines[0].MarkedLines).toEqual([
+        expect.objectContaining({ InvoiceNumber: 'INV-A' }),
+        expect.objectContaining({ InvoiceNumber: 'INV-B' }),
+      ]);
+      // Guard against the one-FO-line-per-debit regression.
+      expect(dfoLines.map((line: any) => line.DebitAmount)).not.toEqual([
+        600, 400,
+      ]);
+    });
+
+    it('does not emit MarkedLines for Custody Settlement vendor lines', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480002,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'CUSTODY-1',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: 'DOC-1',
+          FINTAGDISPLAYVALUE: 'OP-1|TAG',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 480002,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-TRADE',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: 'DOC-1',
+          INVOICE: 'INV-CS',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => {
+        const model = new CashEntryRawDataModel(line as any, 'Freight');
+        if (model.ACCOUNTDISPLAYVALUE === 'CUSTODY-1') {
+          model.VendorGroup = 'Custody';
+          model.IsCustodyVendor = true;
+        } else {
+          model.VendorGroup = 'Trade';
+        }
+        return model;
+      });
+
+      const dfoLines = (processor as any).buildLines('480002', rawLines);
+
+      expect(dfoLines).toHaveLength(2);
+      expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
+        true,
+      );
+      expect(dfoLines.every((line: any) => line.MarkedInvoice === '')).toBe(
+        true,
+      );
+      expect(
+        dfoLines.every((line: any) => line.SettlementTargetType === 'None'),
+      ).toBe(true);
+    });
+
+    it('keeps Custody Settlement withholding as a separate FO line (no VP merge)', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480003,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-CS-WH',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 480003,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 900,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 480003,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-CS-WH',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('480003', rawLines);
+
+      expect(dfoLines).toHaveLength(3);
+      expect(dfoLines.map((line: any) => line.AccountDisplayValue)).toEqual([
+        'VEND-001',
+        'BANK-001',
+        '223304-01',
+      ]);
+      expect(dfoLines.every((line: any) => !line.OffsetAccountDisplayValue)).toBe(
+        true,
+      );
+      expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
+        true,
+      );
+    });
+
+    it('uses withholding-row invoice for Vendor Payment MarkedLines when vendor invoice is blank', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480004,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '',
+          DOCUMENT: 'DOC-WH',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480004,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 50,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-FROM-WHT',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480004,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 950,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('480004', rawLines);
+
+      expect(dfoLines).toHaveLength(1);
+      expect(dfoLines[0].DebitAmount).toBe(1000);
+      expect(dfoLines[0].OffsetAccountDisplayValue).toBe('BANK-001');
+      expect(dfoLines[0].MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-FROM-WHT',
+          HasWithHoldingLine: true,
+        }),
+      ]);
     });
 
     it('PBI 2065: merges withholding into the Vendor Payment offset line', () => {

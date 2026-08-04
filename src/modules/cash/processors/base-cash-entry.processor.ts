@@ -1053,16 +1053,42 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     const paymentOffset = offsetLines[0];
+    return this.mergeVendorPaymentLinesWithOffset(
+      sourceId,
+      vendorLines,
+      paymentOffset,
+      withholdingLines,
+      exchangeRateContext,
+    );
+  }
+
+  /**
+   * Permanent Vendor Payment offset rule (do not regress):
+   *
+   * UniqueId shape: N debit Vendor lines + exactly one non-223304 credit
+   * payment offset → one FO journal line per vendor account.
+   * - Account = vendor
+   * - Offset = the shared credit payment account
+   * - DebitAmount = sum of that vendor's debit lines
+   * - MarkedLines = one mark per source vendor invoice / custody row
+   *
+   * Never emit one FO line per vendor debit when a payment offset exists;
+   * that splits a balanced UniqueId and drops the summed payment amount.
+   */
+  private mergeVendorPaymentLinesWithOffset(
+    sourceId: string,
+    vendorLines: CashEntryRawDataModel[],
+    paymentOffset: CashEntryRawDataModel,
+    withholdingLines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    // Group by vendor account only. VendorGroup must not split the same
+    // account into multiple FO lines (empty vs hydrated group ids).
     const vendorGroups = new Map<string, CashEntryRawDataModel[]>();
     for (const vendorLine of vendorLines) {
-      const key = [
-        String(vendorLine.ACCOUNTDISPLAYVALUE ?? '')
-          .trim()
-          .toLowerCase(),
-        String(vendorLine.VendorGroup ?? '')
-          .trim()
-          .toLowerCase(),
-      ].join('|');
+      const key = String(vendorLine.ACCOUNTDISPLAYVALUE ?? '')
+        .trim()
+        .toLowerCase();
       if (!vendorGroups.has(key)) {
         vendorGroups.set(key, []);
       }
@@ -1091,6 +1117,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     vendorLine: CashEntryRawDataModel,
     withholdingLines: CashEntryRawDataModel[],
   ): CashEntryRawDataModel | undefined {
+    if (withholdingLines.length === 0) return undefined;
+
     const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
     if (invoice) {
       const invoiceMatch = withholdingLines.find(
@@ -1099,13 +1127,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       if (invoiceMatch) return invoiceMatch;
     }
 
+    // Prefer a withholding row that already carries the settlement invoice.
+    const withholdingWithInvoice = withholdingLines.find((line) =>
+      Boolean(this.sanitizeInvoiceOutbound(line.INVOICE || line.DOCUMENT)),
+    );
+    if (withholdingWithInvoice) return withholdingWithInvoice;
+
     const operation = this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
-    return withholdingLines.find(
+    const documentMatch = withholdingLines.find(
       (line) =>
         line.DOCUMENT === vendorLine.DOCUMENT &&
         line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
         this.firstFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
     );
+    if (documentMatch) return documentMatch;
+
+    // UniqueId groups usually have one 223304 row for the payment.
+    return withholdingLines.length === 1 ? withholdingLines[0] : undefined;
   }
 
   protected caseTwoLines(
@@ -1757,10 +1795,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    // Custody Settlement counterparts (e.g. shipline) historically had empty
-    // MarkedInvoice; do not invent invoice settlements for them.
+    // Automatic settlement (marking) is Vendor Payment only. Custody Settlement
+    // and all other SafeTypes preserve source lines without MarkedLines.
     const markedLine =
-      sourceLine.IsVendor && (isCustodyVendor || !isCustodySettlement)
+      isVendorPayment && sourceLine.IsVendor
         ? this.buildMarkedLine(sourceLine, withholdingLine)
         : undefined;
     const hasSettlementTarget = Boolean(
@@ -1770,10 +1808,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           markedLine.OperationNumber),
     );
     const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
-    // Custody settlements mark DocumentNumber in MarkedLines; never send the
-    // deprecated MarkedInvoice field for those rows.
     const markedInvoice =
-      sourceLine.IsVendor && !isCustodyVendor && !isCustodySettlement
+      isVendorPayment && sourceLine.IsVendor && !isCustodyVendor
         ? this.sanitizeInvoiceOutbound(
             sourceLine.MARKEDINVOICE ||
               sourceLine.INVOICE ||
@@ -1853,11 +1889,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: sourceLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: route?.safeType ?? sourceLine.SafeType,
-      SettlementTargetType: sourceLine.IsVendor
-        ? isCustodyVendor
-          ? 'CustodyLedger'
-          : 'VendorInvoice'
-        : undefined,
+      // Settlement targets are Vendor Payment only. Other SafeTypes must not
+      // carry CustodyLedger/VendorInvoice hints into the posting mapper.
+      SettlementTargetType:
+        isVendorPayment && sourceLine.IsVendor
+          ? isCustodyVendor
+            ? 'CustodyLedger'
+            : 'VendorInvoice'
+          : undefined,
     });
 
     if (
@@ -2288,7 +2327,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : this.sanitizeInvoiceOutbound(
             vendorLine.MARKEDINVOICE ||
               vendorLine.INVOICE ||
-              vendorLine.DOCUMENT,
+              withholdingLine?.INVOICE ||
+              vendorLine.DOCUMENT ||
+              withholdingLine?.DOCUMENT,
           ),
       OperationNumber: this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
       DocumentNumber: isCustody ? String(vendorLine.DOCUMENT ?? '').trim() : '',

@@ -125,6 +125,9 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       );
 
       expect(rows).toHaveLength(4134);
+      // Vendor Payment collapses same-vendor debit rows onto one FO line with
+      // multiple MarkedLines; withholding and payment offsets are not separate
+      // FO lines, so output count is below the source vendor-debit count.
       expect(vendorPayments.length).toBeLessThan(sourceVendorDebitLines.length);
       expect(result.length).toBeLessThan(
         sourceNonVendorPayments.length + sourceVendorDebitLines.length,

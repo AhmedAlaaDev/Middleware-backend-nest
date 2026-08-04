@@ -447,6 +447,8 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
 
     const formatted = (processor as any).buildLines('2067', lines);
     expect(formatted).toHaveLength(1);
+    expect(formatted[0].DebitAmount).toBe(100);
+    expect(formatted[0].OffsetAccountDisplayValue).toBe('BANK-1');
     expect(formatted[0].MarkedInvoice).toBe('CUSTODY-VCH-1');
     expect(formatted[0].MarkedLines).toEqual([
       {
@@ -465,7 +467,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
   });
 
-  it('hydrates VendorGroup for Custody Settlement and marks DocumentNumber not InvoiceNumber', async () => {
+  it('hydrates VendorGroup for Custody Settlement without settlement marking', async () => {
     const { processor } = createProcessor({
       custodyAccounts: ['3071'],
     });
@@ -524,17 +526,14 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     const formatted = (processor as any).buildLines('466593', lines);
     expect(formatted).toHaveLength(2);
     expect(formatted[0].VendorGroup).toBe('Custody');
-    expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
-    expect(formatted[0].MarkedLines).toEqual([
-      {
-        InvoiceNumber: '',
-        OperationNumber: 'O25-IMP-OC-12140',
-        DocumentNumber: '15895',
-        HasWithHoldingLine: false,
-      },
-    ]);
-    // Non-custody counterpart on Custody Settlement stays unmarked.
+    // Automatic marking is Vendor Payment only — Custody Settlement posts
+    // multi-line journals with no settlement target or MarkedLines.
+    expect(formatted[0].SettlementTargetType).toBe('None');
+    expect(formatted[0].MarkedLines).toEqual([]);
+    expect(formatted[0].MarkedInvoice).toBe('');
+    expect(formatted[1].SettlementTargetType).toBe('None');
     expect(formatted[1].MarkedLines).toEqual([]);
+    expect(formatted[1].MarkedInvoice).toBe('');
   });
 
   it('rejects ledger dimension strings with leading/trailing spaces before format', async () => {

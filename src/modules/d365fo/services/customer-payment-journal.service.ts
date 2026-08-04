@@ -87,9 +87,9 @@ export class CustomerPaymentJournalService {
     '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym';
 
   /**
-   * Journal lines sent per cash-out request. All lines of a journal batch go
-   * out through the `Lines` collection, split into requests of this size so a
-   * large journal stays inside the endpoint's request size and timeout limits.
+   * Max UniqueId groups (balanced entry chunks) per cash-out bulk request.
+   * Every FO line that shares the same PAYMENTID / UniqueId is kept in the
+   * same request so each bulk body stays a set of complete balanced groups.
    */
   private readonly cashOutBulkBatchSize = 100;
 
@@ -278,7 +278,7 @@ export class CustomerPaymentJournalService {
 
     this.logger.log(
       cashDirection === 'out'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} lines`
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`
         : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
@@ -471,44 +471,46 @@ export class CustomerPaymentJournalService {
       });
     }
 
-    const batchSize = this.cashOutBulkBatchSize;
-    const totalBatches = Math.ceil(preparedLines.length / batchSize) || 0;
+    const uniqueIdBatches = this.chunkCashOutLinesByUniqueIdGroups(
+      preparedLines,
+      this.cashOutBulkBatchSize,
+    );
+    const totalBatches = uniqueIdBatches.length;
     const alreadyPostedCount = preparedLines.filter((line) =>
       existingLines.has(line.lineNumber),
     ).length;
 
     if (alreadyPostedCount > 0) {
-      const firstPendingIndex = preparedLines.findIndex(
-        (line) => !existingLines.has(line.lineNumber),
-      );
       const resumePatch =
-        firstPendingIndex >= 0
-          ? Math.floor(firstPendingIndex / batchSize) + 1
-          : totalBatches + 1;
+        uniqueIdBatches.findIndex((batchLines) =>
+          batchLines.some((line) => !existingLines.has(line.lineNumber)),
+        ) + 1;
       this.logger.log(
-        `[CASH-CUSTOM] Resuming cash-out for header ${headerKey}: ${alreadyPostedCount}/${preparedLines.length} line(s) already posted in FO; starting from patch ${Math.min(resumePatch, Math.max(totalBatches, 1))}/${Math.max(totalBatches, 1)}`,
+        `[CASH-CUSTOM] Resuming cash-out for header ${headerKey}: ${alreadyPostedCount}/${preparedLines.length} line(s) already posted in FO; starting from patch ${resumePatch > 0 ? resumePatch : Math.max(totalBatches, 1)}/${Math.max(totalBatches, 1)} (${totalBatches} UniqueId-group request(s))`,
       );
     }
 
-    // Walk original patch windows so already-posted FO patches stay skipped and
-    // retry continues at the first window that still has pending lines.
-    for (let index = 0; index < preparedLines.length; index += batchSize) {
-      const patchNumber = Math.floor(index / batchSize) + 1;
-      const patchLines = preparedLines.slice(index, index + batchSize);
+    // Walk UniqueId-group windows so already-posted FO patches stay skipped and
+    // retry continues at the first window that still has pending lines. A
+    // UniqueId's lines are never split across requests.
+    for (let batchIndex = 0; batchIndex < uniqueIdBatches.length; batchIndex++) {
+      const patchNumber = batchIndex + 1;
+      const patchLines = uniqueIdBatches[batchIndex];
       const pendingLines = patchLines.filter(
         (line) => !existingLines.has(line.lineNumber),
       );
+      const uniqueIdGroupCount = this.countUniqueIdGroups(patchLines);
 
       if (pendingLines.length === 0) {
         this.logger.log(
-          `[CASH-CUSTOM] Skipping cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) already posted`,
+          `[CASH-CUSTOM] Skipping cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) across ${uniqueIdGroupCount} UniqueId group(s) already posted`,
         );
         continue;
       }
 
       if (pendingLines.length !== patchLines.length) {
         this.logger.log(
-          `[CASH-CUSTOM] Cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: posting ${pendingLines.length}/${patchLines.length} remaining line(s)`,
+          `[CASH-CUSTOM] Cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: posting ${pendingLines.length}/${patchLines.length} remaining line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s)`,
         );
       }
 
@@ -528,10 +530,60 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
-   * journal batch. Retries when FO rejects because (a) a prior journal still
-   * holds SpecTrans marks, or (b) a marked invoice no longer covers the paid
-   * amount.
+   * Pack prepared FO lines into bulk requests of at most `maxGroups` UniqueId
+   * groups. Lines that share PAYMENTID (the source UniqueId) always travel
+   * together so each request is a set of complete balanced entry groups.
+   */
+  private chunkCashOutLinesByUniqueIdGroups(
+    preparedLines: CashBulkPendingLine[],
+    maxGroups: number,
+  ): CashBulkPendingLine[][] {
+    if (preparedLines.length === 0) return [];
+    if (maxGroups < 1) {
+      throw new Error(
+        `cashOutBulkBatchSize must be at least 1 UniqueId group; received ${maxGroups}`,
+      );
+    }
+
+    const groups: CashBulkPendingLine[][] = [];
+    const groupIndexByKey = new Map<string, number>();
+
+    for (const line of preparedLines) {
+      const key = this.resolveCashOutUniqueIdGroupKey(line);
+      const existingIndex = groupIndexByKey.get(key);
+      if (existingIndex === undefined) {
+        groupIndexByKey.set(key, groups.length);
+        groups.push([line]);
+      } else {
+        groups[existingIndex].push(line);
+      }
+    }
+
+    const batches: CashBulkPendingLine[][] = [];
+    for (let index = 0; index < groups.length; index += maxGroups) {
+      batches.push(groups.slice(index, index + maxGroups).flat());
+    }
+    return batches;
+  }
+
+  private resolveCashOutUniqueIdGroupKey(line: CashBulkPendingLine): string {
+    const paymentId = String(
+      line.body.PAYMENTID ?? (line.body as { PaymentId?: string }).PaymentId ?? '',
+    ).trim();
+    // Missing PAYMENTID must not merge unrelated lines into one fake group.
+    return paymentId || `__line:${line.lineNumber}`;
+  }
+
+  private countUniqueIdGroups(lines: CashBulkPendingLine[]): number {
+    return new Set(lines.map((line) => this.resolveCashOutUniqueIdGroupKey(line)))
+      .size;
+  }
+
+  /**
+   * Submit one request holding complete UniqueId groups (at most
+   * {@link cashOutBulkBatchSize} groups). Retries when FO rejects because
+   * (a) a prior journal still holds SpecTrans marks, or (b) a marked invoice
+   * no longer covers the paid amount.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -543,7 +595,7 @@ export class CustomerPaymentJournalService {
     if (pendingLines.length === 0) return;
 
     this.logger.log(
-      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
+      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s) in request ${batch.number}/${batch.total} for header ${headerKey}`,
     );
 
     const result = await this.postCustomCashLines(
@@ -1447,7 +1499,8 @@ export class CustomerPaymentJournalService {
         attempt: context.attempt,
         requestNumber: context.batch.number,
         requestCount: context.batch.total,
-        maxLinesPerRequest: this.cashOutBulkBatchSize,
+        maxUniqueIdGroupsPerRequest: this.cashOutBulkBatchSize,
+        uniqueIdGroupCount: this.countUniqueIdGroups(context.pendingLines),
         lineCount,
         lineNumbers: context.pendingLines.map((line) => line.lineNumber),
       },

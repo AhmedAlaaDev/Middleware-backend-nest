@@ -510,14 +510,15 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
   });
 
   // Scenario 5 (large journals): submit through the cash-out endpoint in
-  // requests of at most 100 Lines each.
-  it('splits a journal batch into requests of at most 100 lines', async () => {
+  // requests of at most 100 UniqueId groups each.
+  it('splits a journal batch into requests of at most 100 UniqueId groups', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValue({
       StatusCode: 'Success',
       Message: 'Success! JN-250',
     });
 
+    // 250 UniqueIds × 1 line each → 3 requests: 100 + 100 + 50 groups.
     const lines: any[] = Array.from({ length: 250 }, (_, index) => ({
       dataAreaId: 'm-p',
       LineNumber: index + 1,
@@ -527,6 +528,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         AccountNum: `VEND${index + 1}`,
         accountTypeStr: 'Vendor',
         debitAmount: 100,
+        PAYMENTID: `UID-${index + 1}`,
       },
     }));
 
@@ -551,6 +553,86 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(sentAccounts).toEqual(
       lines.map((line) => line.customLineApiBody.AccountNum),
     );
+  });
+
+  it('keeps every UniqueId group intact inside one bulk request', async () => {
+    const { service, d365foClient } = buildService();
+    Object.defineProperty(service, 'cashOutBulkBatchSize', { value: 2 });
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success! JN-GROUPS',
+    });
+
+    // 3 UniqueIds with 2 lines each. With max 2 groups/request:
+    // request 1 = UID-A + UID-B (4 lines), request 2 = UID-C (2 lines).
+    // Never split a UniqueId across requests even though line-count chunking
+    // of size 2 would have broken UID-A / UID-B mid-group.
+    const lines: any[] = [
+      {
+        LineNumber: 1,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'VEND-A1',
+          PAYMENTID: 'UID-A',
+        },
+      },
+      {
+        LineNumber: 2,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'LEDGER-A2',
+          PAYMENTID: 'UID-A',
+        },
+      },
+      {
+        LineNumber: 3,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'VEND-B1',
+          PAYMENTID: 'UID-B',
+        },
+      },
+      {
+        LineNumber: 4,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'LEDGER-B2',
+          PAYMENTID: 'UID-B',
+        },
+      },
+      {
+        LineNumber: 5,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'VEND-C1',
+          PAYMENTID: 'UID-C',
+        },
+      },
+      {
+        LineNumber: 6,
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'LEDGER-C2',
+          PAYMENTID: 'UID-C',
+        },
+      },
+    ];
+
+    await service.postCashOutLinesForHeader('JN-GROUPS', lines, 20, 'm-p');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    const paymentIdSets = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) =>
+        [
+          ...new Set(body._contract.Lines.map((line: any) => line.PAYMENTID)),
+        ].sort(),
+    );
+    expect(paymentIdSets).toEqual([['UID-A', 'UID-B'], ['UID-C']]);
+    expect(
+      d365foClient.post.mock.calls.map(
+        ([, body]: [string, any]) => body._contract.Lines.length,
+      ),
+    ).toEqual([4, 2]);
   });
 
   it('logs the complete bulk request body before sending it', async () => {
@@ -1175,7 +1257,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
   });
 
-  it('resumes cash-out from the first failed patch and skips already-posted FO lines', async () => {
+  it('resumes cash-out from the first failed UniqueId-group patch and skips already-posted FO lines', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
     Object.defineProperty(service, 'cashOutBulkBatchSize', { value: 2 });
@@ -1194,19 +1276,35 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       [
         {
           LineNumber: 1,
-          customLineApiBody: { journalNum: '', AccountNum: 'VEND1' },
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND1',
+            PAYMENTID: 'UID-1',
+          },
         } as any,
         {
           LineNumber: 2,
-          customLineApiBody: { journalNum: '', AccountNum: 'VEND2' },
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND2',
+            PAYMENTID: 'UID-2',
+          },
         } as any,
         {
           LineNumber: 3,
-          customLineApiBody: { journalNum: '', AccountNum: 'VEND3' },
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND3',
+            PAYMENTID: 'UID-3',
+          },
         } as any,
         {
           LineNumber: 4,
-          customLineApiBody: { journalNum: '', AccountNum: 'VEND4' },
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'VEND4',
+            PAYMENTID: 'UID-4',
+          },
         } as any,
       ],
       20,
@@ -1221,8 +1319,16 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
     expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toEqual([
-      expect.objectContaining({ AccountNum: 'VEND3', journalNum: 'JN-RESUME' }),
-      expect.objectContaining({ AccountNum: 'VEND4', journalNum: 'JN-RESUME' }),
+      expect.objectContaining({
+        AccountNum: 'VEND3',
+        journalNum: 'JN-RESUME',
+        PAYMENTID: 'UID-3',
+      }),
+      expect.objectContaining({
+        AccountNum: 'VEND4',
+        journalNum: 'JN-RESUME',
+        PAYMENTID: 'UID-4',
+      }),
     ]);
   });
 
