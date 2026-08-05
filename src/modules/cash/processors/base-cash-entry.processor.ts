@@ -1266,17 +1266,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Permanent Vendor Payment offset rule (do not regress):
+   * Vendor Payment offset rule:
    *
    * UniqueId shape: N debit Vendor lines + exactly one non-223304 credit
-   * payment offset → one FO journal line per vendor account.
-   * - Account = vendor
-   * - Offset = the shared credit payment account
-   * - DebitAmount = sum of that vendor's debit lines
-   * - MarkedLines = one mark per source vendor invoice / custody row
-   *
-   * Never emit one FO line per vendor debit when a payment offset exists;
-   * that splits a balanced UniqueId and drops the summed payment amount.
+   * payment offset (+ optional 223304 withholding credits)
+   * → one FO journal line per vendor debit line:
+   *   - Account = vendor
+   *   - Offset = shared payment account
+   *   - DebitAmount = that vendor line's original DEBITAMOUNT (never the
+   *     payment credit amount)
+   *   - CreditAmount = 0
+   * → one additional FO journal line per matched 223304 withholding row:
+   *   - Account = matched vendor
+   *   - Offset = withholding ledger
+   *   - DebitAmount = withholding CREDITAMOUNT
+   *   - Matched by Invoice
    */
   private mergeVendorPaymentLinesWithOffset(
     sourceId: string,
@@ -1285,35 +1289,78 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     withholdingLines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    // Group by vendor account only. VendorGroup must not split the same
-    // account into multiple FO lines (empty vs hydrated group ids).
-    const vendorGroups = new Map<string, CashEntryRawDataModel[]>();
+    const results: CashEntryDynDataModel[] = [];
+    const remainingWithholding = [...withholdingLines];
+
     for (const vendorLine of vendorLines) {
-      const key = String(vendorLine.ACCOUNTDISPLAYVALUE ?? '')
-        .trim()
-        .toLowerCase();
-      if (!vendorGroups.has(key)) {
-        vendorGroups.set(key, []);
+      const matchedWithholding = this.claimWithholdingLines(
+        vendorLine,
+        remainingWithholding,
+      );
+      const primaryWithholding = matchedWithholding[0];
+
+      // Payment offset merge: always take the vendor debit amount from the
+      // ACCOUNT (vendor) row — never substitute the shared payment credit.
+      results.push(
+        this.buildLineOutbound(
+          sourceId,
+          vendorLine,
+          paymentOffset,
+          'ACCOUNT',
+          exchangeRateContext,
+          [{ vendorLine, withholdingLine: primaryWithholding }],
+        ),
+      );
+
+      for (const withholdingLine of matchedWithholding) {
+        // Separate FO line for 223304: vendor account + withholding offset,
+        // amount preserved from the withholding credit.
+        results.push(
+          this.buildLineOutbound(
+            sourceId,
+            vendorLine,
+            withholdingLine,
+            'OFFSET',
+            exchangeRateContext,
+            [{ vendorLine, withholdingLine }],
+          ),
+        );
       }
-      vendorGroups.get(key)!.push(vendorLine);
     }
 
-    return [...vendorGroups.values()].map((groupLines) =>
-      this.buildLineOutbound(
-        sourceId,
-        groupLines[0],
-        paymentOffset,
-        'ACCOUNT',
-        exchangeRateContext,
-        groupLines.map((vendorLine) => ({
-          vendorLine,
-          withholdingLine: this.findWithholdingLine(
-            vendorLine,
-            withholdingLines,
-          ),
-        })),
-      ),
-    );
+    return results;
+  }
+
+  /**
+   * Claim unused withholding rows for a vendor line (invoice-first).
+   * When the vendor invoice is present, claim every remaining 223304 row with
+   * the same invoice. Otherwise fall back to a single best-effort match.
+   * Claimed rows are removed from `remaining` so they cannot be reused.
+   */
+  private claimWithholdingLines(
+    vendorLine: CashEntryRawDataModel,
+    remaining: CashEntryRawDataModel[],
+  ): CashEntryRawDataModel[] {
+    if (remaining.length === 0) return [];
+
+    const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
+    if (invoice) {
+      const matches = remaining.filter(
+        (line) => this.sanitizeInvoiceOutbound(line.INVOICE) === invoice,
+      );
+      for (const match of matches) {
+        const index = remaining.indexOf(match);
+        if (index >= 0) remaining.splice(index, 1);
+      }
+      return matches;
+    }
+
+    const matched = this.findWithholdingLine(vendorLine, remaining);
+    if (!matched) return [];
+
+    const index = remaining.indexOf(matched);
+    if (index >= 0) remaining.splice(index, 1);
+    return [matched];
   }
 
   private findWithholdingLine(
@@ -2643,12 +2690,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   protected isWithholdingLedgerLine(line: CashEntryRawDataModel): boolean {
-    return (
-      line.ACCOUNTTYPE === 'Ledger' &&
-      String(line.ACCOUNTDISPLAYVALUE ?? '')
-        .trim()
-        .startsWith('223304')
-    );
+    const accountType = String(line.ACCOUNTTYPE ?? '')
+      .trim()
+      .toLowerCase();
+    const mainAccount = String(line.ACCOUNTDISPLAYVALUE ?? '')
+      .trim()
+      .split('|')[0]
+      .trim();
+    return accountType === 'ledger' && mainAccount.startsWith('223304');
   }
 
   /**

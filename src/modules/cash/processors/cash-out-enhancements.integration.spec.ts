@@ -117,20 +117,22 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
           String(row.ACCOUNTTYPE).toLowerCase() === 'vend' &&
           Number(row.DEBITAMOUNT) > 0,
       );
-      const sourceNonVendorPayments = rows.filter(
-        (row) => row.SafeType !== 'Vendor Payment',
-      );
       const vendorPayments = result.filter(
         (line) => line.SafeType === 'Vendor Payment',
       );
 
       expect(rows).toHaveLength(4134);
-      // Vendor Payment collapses same-vendor debit rows onto one FO line with
-      // multiple MarkedLines; withholding and payment offsets are not separate
-      // FO lines, so output count is below the source vendor-debit count.
-      expect(vendorPayments.length).toBeLessThan(sourceVendorDebitLines.length);
-      expect(result.length).toBeLessThan(
-        sourceNonVendorPayments.length + sourceVendorDebitLines.length,
+      // Vendor Payment emits one FO line per vendor debit (payment as offset)
+      // plus one FO line per matched 223304 withholding credit.
+      const sourceWithholdingLines = sourceVendorPayments.filter((row) =>
+        String(row.ACCOUNTTYPE).toLowerCase() === 'ledger' &&
+        String(row.ACCOUNTDISPLAYVALUE ?? '')
+          .split('|')[0]
+          .startsWith('223304') &&
+        Number(row.CREDITAMOUNT) > 0,
+      );
+      expect(vendorPayments.length).toBeGreaterThanOrEqual(
+        sourceVendorDebitLines.length + sourceWithholdingLines.length,
       );
       expect(vendorPayments.every((line) => line.AccountType === 'Vend')).toBe(
         true,
@@ -141,40 +143,71 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
         ),
       ).toBe(true);
       expect(
-        vendorPayments.some(
-          (line) =>
-            String(line.AccountDisplayValue).startsWith('223304') ||
-            String(line.OffsetAccountDisplayValue).startsWith('223304'),
+        vendorPayments.some((line) =>
+          String(line.OffsetAccountDisplayValue ?? '')
+            .split('|')[0]
+            .startsWith('223304'),
         ),
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        vendorPayments.every(
+          (line) =>
+            !String(line.AccountDisplayValue ?? '')
+              .split('|')[0]
+              .startsWith('223304'),
+        ),
+      ).toBe(true);
 
-      const mergedWithholdingGroup = vendorPayments.filter(
+      const withholdingGroup = vendorPayments.filter(
         (line) => line.SourceIds[0] === '468173',
       );
-      expect(mergedWithholdingGroup).toHaveLength(1);
-      expect(mergedWithholdingGroup[0]).toMatchObject({
+      expect(withholdingGroup).toHaveLength(2);
+      const bankPaymentLine = withholdingGroup.find(
+        (line) => line.OffsetAccountType === 'Bank',
+      );
+      const withholdingOffsetLine = withholdingGroup.find((line) =>
+        String(line.OffsetAccountDisplayValue ?? '')
+          .split('|')[0]
+          .startsWith('223304'),
+      );
+      expect(bankPaymentLine).toMatchObject({
         DebitAmount: 105222,
+        CreditAmount: 0,
         OffsetAccountType: 'Bank',
         IsWithholdingCalculationEnabled: 'Yes',
       });
+      expect(withholdingOffsetLine).toMatchObject({
+        DebitAmount: 923,
+        CreditAmount: 0,
+      });
 
-      const multiMarkingGroup = vendorPayments.filter(
+      const multiVendorGroup = vendorPayments.filter(
         (line) => line.SourceIds[0] === '467706',
       );
-      expect(multiMarkingGroup).toHaveLength(1);
-      expect(multiMarkingGroup[0].MarkedLines.length).toBeGreaterThan(1);
+      const multiVendorPaymentLines = multiVendorGroup.filter(
+        (line) =>
+          !String(line.OffsetAccountDisplayValue ?? '')
+            .split('|')[0]
+            .startsWith('223304'),
+      );
+      const multiVendorWithholdingLines = multiVendorGroup.filter((line) =>
+        String(line.OffsetAccountDisplayValue ?? '')
+          .split('|')[0]
+          .startsWith('223304'),
+      );
+      expect(multiVendorPaymentLines.length).toBeGreaterThan(1);
+      expect(multiVendorWithholdingLines.length).toBeGreaterThan(1);
       expect(
-        new Set(
-          multiMarkingGroup[0].MarkedLines.map(
-            (markedLine) => markedLine.InvoiceNumber,
-          ),
-        ).size,
+        new Set(multiVendorPaymentLines.map((line) => line.DebitAmount)).size,
       ).toBeGreaterThan(1);
+      // Shared payment credit must never overwrite individual vendor debits.
       expect(
-        multiMarkingGroup[0].MarkedLines.every(
-          (markedLine) => markedLine.HasWithHoldingLine === true,
-        ),
+        multiVendorPaymentLines.every((line) => line.DebitAmount !== 41991.3),
       ).toBe(true);
+      expect(
+        multiVendorPaymentLines.every((line) => line.CreditAmount === 0),
+      ).toBe(true);
+      expect(sourceWithholdingLines.length).toBeGreaterThan(0);
 
       const directLines = result.filter((line) => line.SafeType === 'Direct');
       expect(directLines).toHaveLength(
