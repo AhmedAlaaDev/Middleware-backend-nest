@@ -502,31 +502,32 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const validateSide = (
       label: 'account' | 'offset',
       accountType: string,
-      accountDisplayValue: string,
-      defaultDimensionDisplayValue: string,
+      getAccountDisplayValue: () => string,
+      getDefaultDimensionDisplayValue: () => string,
+      setDimensionDisplayValue: (trimmed: string) => void,
       finTagDisplayValue: string,
     ) => {
-      const dimensionString =
+      let dimensionString =
         accountType === 'Ledger'
-          ? accountDisplayValue
-          : defaultDimensionDisplayValue;
+          ? getAccountDisplayValue()
+          : getDefaultDimensionDisplayValue();
       if (!dimensionString?.trim()) return;
 
       const lineContext = `Line ${line.LINENUMBER || '?'} (UniqueId ${line.UniqueId || '?'}) ${label}`;
       const paddedSegments =
         this.utilsService.findPaddedDimensionSegments(dimensionString);
+      // Excel often pads dimension segments with trailing spaces. Aborting the
+      // whole batch left Total Formatted at 0 for thousands of good rows, so
+      // normalize in-place and keep formatting the rest of the file.
       if (paddedSegments.length > 0) {
-        const mainAccount =
-          accountType === 'Ledger'
-            ? dimensionString.split('|')[0]?.trim() || accountDisplayValue
-            : String(accountDisplayValue ?? '').trim() || '(account)';
-        const paddedPreview = paddedSegments
-          .map((segment) => `"${segment.raw}"`)
-          .join(', ');
-        errors.push(
-          `${lineContext}: Invalid dimension value(s) for ${mainAccount} / ${dimensionString} — leading/trailing spaces in ${paddedPreview}. Remove the spaces and re-upload.`,
+        dimensionString =
+          this.utilsService.trimDimensionDisplaySegments(dimensionString);
+        setDimensionDisplayValue(dimensionString);
+        this.logger.warn(
+          `${lineContext}: trimmed leading/trailing spaces from dimension segment(s) ${paddedSegments
+            .map((segment) => `"${segment.raw}"`)
+            .join(', ')}`,
         );
-        return;
       }
 
       const dimensions =
@@ -538,7 +539,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const validationLine = new CashEntryDynDataModel(dimensions, {
         SourceIds: [String(line.UniqueId)],
         AccountType: accountType as any,
-        AccountDisplayValue: accountDisplayValue,
+        AccountDisplayValue: getAccountDisplayValue(),
         FinTagDisplayValue: finTagDisplayValue,
       });
       this.validateDimensionsForLine(validationLine);
@@ -550,8 +551,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     validateSide(
       'account',
       line.ACCOUNTTYPE,
-      line.ACCOUNTDISPLAYVALUE,
-      line.DEFAULTDIMENSIONDISPLAYVALUE,
+      () => line.ACCOUNTDISPLAYVALUE,
+      () => line.DEFAULTDIMENSIONDISPLAYVALUE,
+      (trimmed) => {
+        if (line.ACCOUNTTYPE === 'Ledger') {
+          line.ACCOUNTDISPLAYVALUE = trimmed;
+        } else {
+          line.DEFAULTDIMENSIONDISPLAYVALUE = trimmed;
+        }
+      },
       line.FINTAGDISPLAYVALUE,
     );
     if (
@@ -562,8 +570,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       validateSide(
         'offset',
         line.OFFSETACCOUNTTYPE,
-        line.OFFSETACCOUNTDISPLAYVALUE,
-        line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+        () => line.OFFSETACCOUNTDISPLAYVALUE,
+        () => line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+        (trimmed) => {
+          if (line.OFFSETACCOUNTTYPE === 'Ledger') {
+            line.OFFSETACCOUNTDISPLAYVALUE = trimmed;
+          } else {
+            line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = trimmed;
+          }
+        },
         line.OFFSETFINTAGDISPLAYVALUE,
       );
     }
@@ -1936,18 +1951,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dynLine.AddError(
         'Dimensions',
         `Invalid dimensions segment length: ${segmentLength}. Expected 19 or 20 segments.`,
-      );
-    }
-
-    if (
-      sourceLine.ACCOUNTTYPE === 'Ledger' &&
-      this.utilsService.findPaddedDimensionSegments(
-        sourceLine.ACCOUNTDISPLAYVALUE,
-      ).length > 0
-    ) {
-      dynLine.AddError(
-        'AccountDisplayValue',
-        `Invalid dimension value(s) for ${dimensions.mainAccount || sourceLine.ACCOUNTDISPLAYVALUE.split('|')[0]?.trim() || ''} / ${sourceLine.ACCOUNTDISPLAYVALUE}`,
       );
     }
 

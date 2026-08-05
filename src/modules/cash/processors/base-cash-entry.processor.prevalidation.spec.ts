@@ -536,7 +536,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(formatted[1].MarkedInvoice).toBe('');
   });
 
-  it('rejects ledger dimension strings with leading/trailing spaces before format', async () => {
+  it('trims ledger dimension strings with leading/trailing spaces and continues format', async () => {
     const { processor } = createProcessor();
     jest
       .spyOn(processor as any, 'validateDimensionsForLine')
@@ -564,19 +564,10 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
 
     await expect(
       (processor as any).validateCashOutSourceAsync(lines),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    try {
-      await (processor as any).validateCashOutSourceAsync(lines);
-    } catch (error) {
-      const response = (error as BadRequestException).getResponse() as {
-        errors?: string[];
-      };
-      expect(response.errors?.[0]).toContain(
-        'Invalid dimension value(s) for 511505',
-      );
-      expect(response.errors?.[0]).toContain('101008962 ');
-    }
+    ).resolves.toBeUndefined();
+    expect(lines[0].ACCOUNTDISPLAYVALUE).toBe(
+      '511505|1302|013|001|001|101008962|101008962|||16433|3076|3208|Collect|||IMPORT||||',
+    );
   });
 
   it('blocks custody marking when the ledger lookup is ambiguous', async () => {
