@@ -341,8 +341,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           .trim()
           .toLowerCase();
 
+        // Empty MarkedInvoice = unmarked customer collection (allowed).
+        // formatInvoiceInbound clears DRAFT / non-FTI document fallbacks and
+        // strips comma-glued secondary numbers before lookup.
         if (!invoiceKey) {
-          line.AddError('Invoice', 'Invoice is missing');
           continue;
         }
 
@@ -2419,11 +2421,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     };
   }
 
+  /**
+   * Normalize Cash-In invoice / document values to FO FreeTextNumber shape
+   * (`000012345/OR-TR`). Source often appends a second number after a comma
+   * (`8898/OR-TR,8932`) or falls back to draft document ids (`31906/DRAFT`)
+   * that are not FreeTextInvoiceHeaders — those must not be looked up as-is.
+   */
   protected formatInvoiceInbound(invoice?: string): string {
     const trimmedInvoice = invoice?.trim();
     if (!trimmedInvoice) return '';
 
-    const parts = trimmedInvoice.split('/');
+    // Keep only the first invoice token; trailing ",000008932" is not part of
+    // FreeTextNumber and causes exact-match FO lookups to fail.
+    const primaryInvoice = trimmedInvoice.split(/[,;]/)[0]?.trim() ?? '';
+    if (!primaryInvoice) return '';
+
+    const parts = primaryInvoice.split('/');
 
     const numberPart = parts[0]?.trim();
     const textLower = parts[1]?.trim()?.toLowerCase() ?? '';
@@ -2445,7 +2458,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     ];
     if (REJECTED_NUMBERS.includes(number.toString())) return '';
 
-    let newTextPart: string = parts[1]?.trim();
+    let newTextPart: string = parts[1]?.trim() ?? '';
+
+    // Draft document refs are not posted free-text invoices — post unmarked.
+    if (textLower === 'draft') {
+      return '';
+    }
 
     if (/نولون/.test(textLower)) {
       newTextPart = 'OF-FW';
@@ -2466,6 +2484,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         ? capitalize(newTextPart)
         : newTextPart?.toUpperCase();
 
+    if (!suffix) {
+      return '';
+    }
+
     return `${number.toString().padStart(9, '0')}/${suffix}`;
   }
 
@@ -2473,13 +2495,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const trimmedInvoice = invoice?.trim();
     if (!trimmedInvoice) return '';
 
-    const parts = trimmedInvoice.split('/');
+    const primaryInvoice = trimmedInvoice.split(/[,;]/)[0]?.trim() ?? '';
+    if (!primaryInvoice) return '';
+
+    const parts = primaryInvoice.split('/');
 
     const numberPart = parts[0]?.trim();
-    let textPart = parts[1]?.trim()?.toLowerCase();
+    let textPart = parts[1]?.trim()?.toLowerCase() ?? '';
 
     const number = parseInt(numberPart, 10);
     if (isNaN(number)) return '';
+
+    if (!textPart || textPart === 'draft') {
+      return '';
+    }
 
     if (textPart.includes('نولون')) {
       textPart = 'OF-FW';
