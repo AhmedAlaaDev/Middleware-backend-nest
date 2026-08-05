@@ -800,6 +800,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         CreditAmount: 0,
         OffsetAccountDisplayValue: 'BANK-001',
       });
+      // WHT case: vendor→payment mark + vendor→WHT mark for the same invoice.
       expect(paymentLine.MarkedLines).toEqual([
         expect.objectContaining({
           InvoiceNumber: 'INV-FROM-WHT',
@@ -811,6 +812,12 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         DebitAmount: 50,
         CreditAmount: 0,
       });
+      expect(withholdingLine.MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-FROM-WHT',
+          HasWithHoldingLine: true,
+        }),
+      ]);
     });
 
     it('PBI 2065: posts vendor payment and matched 223304 withholding as separate FO lines', () => {
@@ -884,6 +891,12 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         OffsetAccountDisplayValue: 'BANK-001',
         Invoice: 'INV-2055',
       });
+      expect(paymentLine.MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-2055',
+          HasWithHoldingLine: true,
+        }),
+      ]);
       expect(withholdingLine).toMatchObject({
         AccountType: 'Vend',
         AccountDisplayValue: 'VEND-001',
@@ -894,6 +907,12 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(String(withholdingLine.OffsetAccountDisplayValue)).toContain(
         '223304',
       );
+      expect(withholdingLine.MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-2055',
+          HasWithHoldingLine: true,
+        }),
+      ]);
     });
 
     it('matches each 223304 withholding credit to its vendor invoice as a separate FO line', () => {
@@ -1002,6 +1021,33 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(paymentLines.every((line: any) => line.DebitAmount !== 1698)).toBe(
         true,
       );
+
+      // Marking: vendor invoice on payment lines, plus the same invoice on each
+      // matched vendor→223304 WHT journal line.
+      const marksByInvoice = new Map(
+        paymentLines.map((line: any) => [
+          line.MarkedLines[0].InvoiceNumber,
+          line,
+        ]),
+      );
+      expect([...marksByInvoice.keys()].sort()).toEqual(['3829', '3844']);
+      expect(marksByInvoice.get('3829').DebitAmount).toBe(912);
+      expect(marksByInvoice.get('3844').DebitAmount).toBe(855);
+
+      const whtMarksByInvoice = new Map(
+        withholdingLines.map((line: any) => [
+          line.MarkedLines[0].InvoiceNumber,
+          line,
+        ]),
+      );
+      expect([...whtMarksByInvoice.keys()].sort()).toEqual(['3829', '3844']);
+      expect(whtMarksByInvoice.get('3829').DebitAmount).toBe(24);
+      expect(whtMarksByInvoice.get('3844').DebitAmount).toBe(45);
+      expect(
+        [...paymentLines, ...withholdingLines].every(
+          (line: any) => line.MarkedLines[0].HasWithHoldingLine === true,
+        ),
+      ).toBe(true);
     });
 
     it('preserves original vendor amounts for sample UniqueId 466695 shape', () => {
@@ -1065,6 +1111,23 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ).toBe(true);
       // Payment credit must not overwrite either vendor debit.
       expect(dfoLines.every((line: any) => line.DebitAmount !== 555)).toBe(true);
+      // Non-WHT: MarkedLines carries the vendor-line invoice only.
+      expect(
+        dfoLines
+          .map((line: any) => line.MarkedLines[0])
+          .sort((a: any, b: any) =>
+            String(a.InvoiceNumber).localeCompare(String(b.InvoiceNumber)),
+          ),
+      ).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: '2025001409',
+          HasWithHoldingLine: false,
+        }),
+        expect.objectContaining({
+          InvoiceNumber: '2025011317',
+          HasWithHoldingLine: false,
+        }),
+      ]);
     });
   });
 });

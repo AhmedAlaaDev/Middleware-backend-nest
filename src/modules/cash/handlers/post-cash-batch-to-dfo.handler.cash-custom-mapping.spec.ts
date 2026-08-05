@@ -1037,6 +1037,140 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
+  it('synthesizes Custody Settlement MarkedLines when formatting left them empty', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+    const finTag = 'O25-IMP-OC-12140|TAG|Sl-000007|';
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: '3071',
+            DebitAmount: 0,
+            CreditAmount: 100,
+            CurrencyCode: 'EGP',
+            Document: '15895',
+            Invoice: '',
+            VendorGroup: 'Custody',
+            SafeType: 'Custody Settlement',
+            FinTagDisplayValue: finTag,
+            PaymentId: '510442',
+            SourceIds: ['510442'],
+            MarkedInvoice: '',
+            MarkedLines: [],
+            TransactionText: 'Custody Settlement - Freight January 2026 (Cash)',
+          },
+        },
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Sl-000007',
+            DebitAmount: 100,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            Document: '15895',
+            Invoice: 'TMT13',
+            VendorGroup: 'Trade',
+            SettlementTargetType: 'VendorInvoice',
+            SafeType: 'Custody Settlement',
+            FinTagDisplayValue: finTag,
+            PaymentId: '510442',
+            SourceIds: ['510442'],
+            MarkedInvoice: 'TMT13',
+            MarkedLines: [],
+            TransactionText: 'Custody Settlement - Freight January 2026 (Cash)',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '15895',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'TMT13',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
+  });
+
+  it('clears Custody Settlement MarkedLines and appends Unmarked when UniqueId has 223304', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'VEND-001',
+            DebitAmount: 1000,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            Document: 'DOC-1',
+            Invoice: 'INV-1',
+            VendorGroup: 'Trade',
+            SafeType: 'Custody Settlement',
+            FinTagDisplayValue: 'OP-1|TAG',
+            PaymentId: '480003',
+            SourceIds: ['480003'],
+            MarkedInvoice: 'INV-1',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-1',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+            TransactionText: 'Custody Settlement - Freight January 2026 (Cash)',
+          },
+        },
+        {
+          data: {
+            AccountType: 'Ledger',
+            AccountDisplayValue: '223304|1101|011|001',
+            DebitAmount: 0,
+            CreditAmount: 50,
+            CurrencyCode: 'EGP',
+            SafeType: 'Custody Settlement',
+            PaymentId: '480003',
+            SourceIds: ['480003'],
+            TransactionText: 'Custody Settlement - Freight January 2026 (Cash)',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toContain('Unmarked');
+    expect(result[1].customLineApiBody.MarkedLines).toBeUndefined();
+  });
+
   it('maps Custody Settlement standard-vendor MarkedLines with InvoiceNumber only', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
@@ -1084,6 +1218,91 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: false,
       },
     ]);
+  });
+
+  it('maps Vendor Payment WHT and non-WHT MarkedLines into the FO VendPaym body', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Su-000068',
+            OffsetAccountType: 'Ledger',
+            OffsetAccountDisplayValue: '223201|1101|011|001',
+            DebitAmount: 912,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            FinTagDisplayValue: 'OP-3829|TAG',
+            SafeType: 'Vendor Payment',
+            MarkedInvoice: '3829',
+            Invoice: '3829',
+            SettlementTargetType: 'VendorInvoice',
+            MarkedLines: [
+              {
+                InvoiceNumber: '3829',
+                OperationNumber: 'OP-3829',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        },
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Su-000068',
+            OffsetAccountType: 'Ledger',
+            OffsetAccountDisplayValue: '223304|1101|011|001',
+            DebitAmount: 24,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            FinTagDisplayValue: 'OP-3829|TAG',
+            SafeType: 'Vendor Payment',
+            MarkedInvoice: '3829',
+            Invoice: '3829',
+            SettlementTargetType: 'VendorInvoice',
+            MarkedLines: [
+              {
+                InvoiceNumber: '3829',
+                OperationNumber: 'OP-3829',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '3829',
+        OperationNumber: 'OP-3829',
+        DocumentNumber: '',
+        HasWithHoldingLine: true,
+      },
+    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '3829',
+        OperationNumber: 'OP-3829',
+        DocumentNumber: '',
+        HasWithHoldingLine: true,
+      },
+    ]);
+    expect(result[1].customLineApiBody.offsetAccountDisplayValue).toContain(
+      '223304',
+    );
   });
 
   it('preserves empty MARKEDINVOICE and appends " - Unmarked" for Vendor Payment when MarkedInvoice was cleared', () => {

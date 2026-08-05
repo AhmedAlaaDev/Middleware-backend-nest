@@ -348,6 +348,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
+    // Custody Settlement UniqueIds that include a 223304 withholding ledger
+    // line must leave vendor MarkedLines empty and append "Unmarked".
+    const custodyUniqueIdsWithWithholding = new Set<string>();
+    if (route?.safeType === 'Custody Settlement') {
+      for (const record of lines) {
+        const data = record.data;
+        const accountType = String(data.AccountType ?? '')
+          .trim()
+          .toLowerCase();
+        const mainAccount = String(data.AccountDisplayValue ?? '')
+          .trim()
+          .split('|')[0]
+          .trim();
+        if (accountType !== 'ledger' || !mainAccount.startsWith('223304')) {
+          continue;
+        }
+        const uniqueId = String(
+          data.PaymentId || data.SourceIds?.[0] || '',
+        ).trim();
+        if (uniqueId) custodyUniqueIdsWithWithholding.add(uniqueId);
+      }
+    }
+
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
@@ -401,47 +424,63 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         String(line.FinTagDisplayValue ?? '').split('|')[0],
       ).trim();
       const documentNumber = String(line.Document ?? '').trim();
+      const uniqueId = String(
+        line.PaymentId || line.SourceIds?.[0] || '',
+      ).trim();
+      const suppressCustodyMarkingForWithholding =
+        route?.safeType === 'Custody Settlement' &&
+        accountTypeStr === 'Vendor' &&
+        custodyUniqueIdsWithWithholding.has(uniqueId);
+
       // Settlement (marking) for Vendor Payment and Custody Settlement.
-      // Custody Issue posts to AP headers but must not synthesize MarkedLines.
-      // Prefer pre-built MarkedLines from formatting; only synthesize a fallback
-      // for Vendor Payment when formatting left the array empty.
+      // Prefer pre-built MarkedLines from formatting; synthesize from
+      // VendorGroup / Invoice / Document / Operation when formatting left
+      // the array empty (e.g. older batches or missing hydrate at format).
       const routeSupportsMarking =
         route?.safeType === 'Vendor Payment' ||
         route?.safeType === 'Custody Settlement';
-      const markedLines = routeSupportsMarking
-        ? line.MarkedLines && line.MarkedLines.length > 0
-          ? line.MarkedLines.map((markedLine) => ({
-              InvoiceNumber: isCustodyVendor
-                ? ''
-                : String(markedLine.InvoiceNumber ?? '').trim(),
-              OperationNumber: this.stripBidiMarks(
-                String(markedLine.OperationNumber ?? operationNumber),
-              ).trim(),
-              DocumentNumber: isCustodyVendor
-                ? String(markedLine.DocumentNumber ?? documentNumber).trim()
-                : '',
-              HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
-            }))
-          : route?.safeType === 'Vendor Payment' &&
-              (markedInvoice || (isCustodyVendor && documentNumber))
-            ? [
-                {
-                  InvoiceNumber: isCustodyVendor ? '' : markedInvoice,
-                  OperationNumber: operationNumber,
-                  DocumentNumber: isCustodyVendor ? documentNumber : '',
-                  HasWithHoldingLine: false,
-                },
-              ]
-            : []
-        : [];
+      const markedLines = suppressCustodyMarkingForWithholding
+        ? []
+        : routeSupportsMarking
+          ? line.MarkedLines && line.MarkedLines.length > 0
+            ? line.MarkedLines.map((markedLine) => ({
+                // Prefer the formatted mark; fall back to MarkedInvoice so the
+                // FO VendPaym body always carries settlement when format had it.
+                InvoiceNumber: isCustodyVendor
+                  ? ''
+                  : String(
+                      markedLine.InvoiceNumber || markedInvoice || '',
+                    ).trim(),
+                OperationNumber: this.stripBidiMarks(
+                  String(markedLine.OperationNumber ?? operationNumber),
+                ).trim(),
+                DocumentNumber: isCustodyVendor
+                  ? String(markedLine.DocumentNumber ?? documentNumber).trim()
+                  : '',
+                HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+              }))
+            : this.synthesizeCashOutMarkedLines({
+                isCustodyVendor,
+                markedInvoice,
+                // Only Custody Settlement may fall back to Invoice when
+                // MarkedInvoice was never populated. Vendor Payment keeps
+                // intentional unmarked (cleared MarkedInvoice) as empty.
+                invoice:
+                  route?.safeType === 'Custody Settlement'
+                    ? String(line.Invoice ?? '').trim()
+                    : '',
+                operationNumber,
+                documentNumber,
+              })
+          : [];
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
-      if (
+      const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !markedInvoice &&
-        !transactionTextValue.toLowerCase().includes('unmarked')
-      ) {
+        (suppressCustodyMarkingForWithholding || !markedInvoice) &&
+        !transactionTextValue.toLowerCase().includes('unmarked');
+      if (shouldAppendUnmarked) {
         transactionTextValue = transactionTextValue
           ? `${transactionTextValue} - Unmarked`
           : 'Unmarked';
@@ -451,7 +490,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !markedInvoice &&
+        (suppressCustodyMarkingForWithholding || !markedInvoice) &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue
@@ -569,6 +608,45 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         customLineApiBody,
       };
     });
+  }
+
+  /**
+   * Build MarkedLines for Vendor Payment / Custody Settlement when formatting
+   * did not already populate them.
+   *
+   * Custody vendor group → OperationNumber + DocumentNumber (Invoice empty)
+   * Any other vendor group → InvoiceNumber + OperationNumber (Document empty)
+   */
+  private synthesizeCashOutMarkedLines(input: {
+    isCustodyVendor: boolean;
+    markedInvoice: string;
+    invoice: string;
+    operationNumber: string;
+    documentNumber: string;
+  }): Array<{
+    InvoiceNumber: string;
+    OperationNumber: string;
+    DocumentNumber: string;
+    HasWithHoldingLine: boolean;
+  }> {
+    const invoiceNumber = input.isCustodyVendor
+      ? ''
+      : input.markedInvoice || input.invoice;
+    const documentNumber = input.isCustodyVendor ? input.documentNumber : '';
+    const operationNumber = input.operationNumber;
+
+    if (!invoiceNumber && !documentNumber && !operationNumber) {
+      return [];
+    }
+
+    return [
+      {
+        InvoiceNumber: invoiceNumber,
+        OperationNumber: operationNumber,
+        DocumentNumber: documentNumber,
+        HasWithHoldingLine: false,
+      },
+    ];
   }
 
   private isMainAccountOnlyLine(

@@ -2064,8 +2064,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.utilsService.parseDimensionString(offsetDimensionString),
     );
     let description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
-    const isCustodySettlement = route?.safeType === 'Custody Settlement';
-    const isVendorPayment = route?.safeType === 'Vendor Payment';
+    const isCustodySettlement =
+      sourceLine.IsCustodySettlement ||
+      route?.safeType === 'Custody Settlement';
+    const isVendorPayment =
+      sourceLine.IsVendorPayment || route?.safeType === 'Vendor Payment';
     const supportsSettlementMarking = isVendorPayment || isCustodySettlement;
     const suppressSettlementMarking = Boolean(
       options?.suppressSettlementMarking,
@@ -2181,7 +2184,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         sourceLine.POSTINGPROFILE,
       ),
       Invoice: this.sanitizeInvoiceOutbound(
-        sourceLine.INVOICE || sourceLine.DOCUMENT,
+        // Custody vendors settle by Document/Operation — never promote Document
+        // into Invoice (that would mis-mark standard invoice settlement).
+        isCustodyVendor
+          ? sourceLine.INVOICE
+          : sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
       MarkedInvoice: markedInvoice,
       MarkedLines: markedLines,
@@ -2909,14 +2916,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       vendorLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
 
     return {
+      // Standard vendors mark by invoice (+ operation). Do not fall back to
+      // DOCUMENT — that value belongs only on custody DocumentNumber marks.
       InvoiceNumber: isCustody
         ? ''
         : this.sanitizeInvoiceOutbound(
             vendorLine.MARKEDINVOICE ||
               vendorLine.INVOICE ||
-              withholdingLine?.INVOICE ||
-              vendorLine.DOCUMENT ||
-              withholdingLine?.DOCUMENT,
+              withholdingLine?.INVOICE,
           ),
       OperationNumber: this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
       DocumentNumber: isCustody ? String(vendorLine.DOCUMENT ?? '').trim() : '',

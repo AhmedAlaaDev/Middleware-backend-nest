@@ -1165,48 +1165,44 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('retries a failed bulk line without marked settlements when its amount exceeds the remaining invoice amount', async () => {
+  it('keeps MarkedLines on the FO body and does not strip settlement after an invoice remaining-amount error', async () => {
     const { service, d365foClient } = buildService();
 
-    d365foClient.post
-      .mockResolvedValueOnce({
-        StatusCode: 'Error',
-        Message:
-          'The amount of the Invoice: 2025001409 is greater than the remain amount.',
-      })
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: 'Success! Mesco-000013709',
-      });
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'The amount of the Invoice: 2025001409 is greater than the remain amount.',
+    });
 
-    const result = await service.postCashOutLinesForHeader(
-      'Mesco-000013709',
-      [
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 9,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001409',
-                OperationNumber: 'OP-1',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-            TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-          },
-        } as any,
-      ],
-      20,
-      'm-p',
-    );
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000013709',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 9,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001409',
+                  OperationNumber: 'OP-1',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+              TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(/greater than the remain amount/i);
 
-    expect(result).toEqual([{ headerId: 'Mesco-000013709', lineNumber: 9 }]);
-    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
     expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toMatchObject(
       {
         journalNum: 'Mesco-000013709',
@@ -1215,97 +1211,82 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
       },
     );
-    expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
-      {
-        journalNum: 'Mesco-000013709',
-        PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-        TRANSACTIONTEXT:
-          'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-      },
-    );
-    expect(
-      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
-    ).not.toHaveProperty('MarkedLines');
   });
 
-  it('retries every line unmarked when an all-or-nothing FO response reports remaining invoice amount', async () => {
+  it('does not unmarked-retry a marked UniqueId group when FO reports remaining invoice amount', async () => {
     const { service, d365foClient } = buildService();
 
-    d365foClient.post
-      .mockResolvedValueOnce({
-        StatusCode: 'Error',
-        Message:
-          'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
-      })
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: '2 line(s) processed successfully.',
-      });
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+    });
 
-    await service.postCashOutLinesForHeader(
-      'JN-TTS',
-      [
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 1,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            AccountNum: 'VEND1',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001409',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Pay 1',
-            TRANSACTIONTEXT: 'Pay 1',
-          },
-        } as any,
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 2,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            AccountNum: 'VEND2',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001410',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Pay 2',
-            TRANSACTIONTEXT: 'Pay 2',
-          },
-        } as any,
-      ],
-      20,
-      'm-p',
-    );
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-TTS',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND1',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001409',
+                  OperationNumber: '',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Pay 1',
+              TRANSACTIONTEXT: 'Pay 1',
+            },
+          } as any,
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 2,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND2',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001410',
+                  OperationNumber: '',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Pay 2',
+              TRANSACTIONTEXT: 'Pay 2',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(/greater than the remaining amount/i);
 
-    expect(d365foClient.post).toHaveBeenCalledTimes(2);
-    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(2);
-    expect(d365foClient.post.mock.calls[1][1]._contract.Lines).toEqual([
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toEqual([
       expect.objectContaining({
         AccountNum: 'VEND1',
-        PAYMENTNOTES: 'Pay 1 - unmarked',
+        MarkedLines: [
+          expect.objectContaining({ InvoiceNumber: '2025001409' }),
+        ],
+        PAYMENTNOTES: 'Pay 1',
       }),
       expect.objectContaining({
         AccountNum: 'VEND2',
-        PAYMENTNOTES: 'Pay 2 - unmarked',
+        MarkedLines: [
+          expect.objectContaining({ InvoiceNumber: '2025001410' }),
+        ],
+        PAYMENTNOTES: 'Pay 2',
       }),
     ]);
-    expect(
-      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
-    ).not.toHaveProperty('MarkedLines');
-    expect(
-      d365foClient.post.mock.calls[1][1]._contract.Lines[1],
-    ).not.toHaveProperty('MarkedLines');
   });
 
   it('does not retry only the failed part of one UniqueId group', async () => {
@@ -1349,10 +1330,16 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         'm-p',
       ),
     ).rejects.toThrow(
-      'request would split complete UniqueId group(s): UID-A (1/2 line(s) selected)',
+      /greater than the remaining amount/i,
     );
 
+    // Settlement marks stay on the failed FO body — no unmarked split-retry.
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[1],
+    ).toHaveProperty('MarkedLines', [
+      expect.objectContaining({ InvoiceNumber: 'INV-2' }),
+    ]);
   });
 
   it('fails the whole Lines chunk when FO returns a non-Success StatusCode', async () => {

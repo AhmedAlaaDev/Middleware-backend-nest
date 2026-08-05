@@ -580,8 +580,18 @@ export class CustomerPaymentJournalService {
     const retryableFailures = failures.filter((failure) =>
       this.isCashOutSettlementRetryableError(failure.message),
     );
+    // Vendor Payment / invoice settlement: never strip MarkedLines just because
+    // FO rejected the remaining invoice amount. Posting unmarked would hide the
+    // settlement failure and leave journals without SpecTrans marks. SpecTrans
+    // "already marked" recovery may still fall through to unmarked below.
+    const preserveSettlementMarks =
+      this.bulkLinesHaveSettlementMarks(activeLines) &&
+      failures.every((failure) =>
+        this.isInvoiceAmountGreaterThanRemainingError(failure.message),
+      );
     const canUnmarkedRetry =
       allowUnmarkedInvoiceRetry &&
+      !preserveSettlementMarks &&
       retryableFailures.length === failures.length &&
       failures.every((failure) => failure.correlated);
 
@@ -1195,6 +1205,29 @@ export class CustomerPaymentJournalService {
     return retryBody;
   }
 
+  /** True when any line carries FO settlement marks (invoice / doc / operation). */
+  private bulkLinesHaveSettlementMarks(
+    pendingLines: CashBulkPendingLine[],
+  ): boolean {
+    return pendingLines.some((line) =>
+      this.lineHasSettlementMarks(line.body),
+    );
+  }
+
+  private lineHasSettlementMarks(
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): boolean {
+    if (!Array.isArray(body.MarkedLines) || body.MarkedLines.length === 0) {
+      return false;
+    }
+    return body.MarkedLines.some(
+      (marked) =>
+        Boolean(String(marked?.InvoiceNumber ?? '').trim()) ||
+        Boolean(String(marked?.DocumentNumber ?? '').trim()) ||
+        Boolean(String(marked?.OperationNumber ?? '').trim()),
+    );
+  }
+
   /**
    * A ledger line that carries a sales tax group cannot be inserted through
    * `addLedgerJournalTransVendPaym`: FO converts the taxable amount into the
@@ -1634,10 +1667,15 @@ export class CustomerPaymentJournalService {
           : String(line.MARKEDINVOICE);
     }
 
+    // Always project settlement marks onto the FO body when present. Omitting
+    // MarkedLines here is what made Vendor Payment journals post without
+    // SpecTrans after format had already built the marks correctly.
     if (markedLines.length > 0) {
       body.MarkedLines = markedLines.map((marked) => ({
-        ...marked,
+        InvoiceNumber: String(marked.InvoiceNumber ?? ''),
         OperationNumber: stripBidi(String(marked.OperationNumber ?? '')),
+        DocumentNumber: String(marked.DocumentNumber ?? ''),
+        HasWithHoldingLine: Boolean(marked.HasWithHoldingLine),
       }));
     }
 
