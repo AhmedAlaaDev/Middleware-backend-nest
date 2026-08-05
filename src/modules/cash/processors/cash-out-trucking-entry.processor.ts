@@ -11,6 +11,11 @@ import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 export class CashOutTruckingEntryProcessor extends BaseCashEntryProcessor {
   readonly entryProcessorType = EntryProcessorTypes.CashOutTrucking;
 
+  /**
+   * Fleet Cash-Out mirrors Vendor/Cash-In Fleet: Worker is not part of the
+   * validated dimension set. (`Worker: false` would still reject unknown
+   * present Worker values and block format for optional fleet Worker codes.)
+   */
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: false,
     Activity: false,
@@ -28,7 +33,6 @@ export class CashOutTruckingEntryProcessor extends BaseCashEntryProcessor {
     TruckerType: false,
     TruckNumber: false,
     FreightType: false,
-    Worker: false,
   };
 
   constructor(
