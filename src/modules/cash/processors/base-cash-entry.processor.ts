@@ -336,6 +336,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.validateDimensionsForLine(line);
       }
 
+      this.validateBankLikeAccountDisplayValues(line);
+
       if (this.isInbound() && this.freeTextInvoiceMap) {
         const invoiceKey = (line.MarkedInvoice || line.Invoice || '')
           .trim()
@@ -344,30 +346,26 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         // Empty MarkedInvoice = unmarked customer collection (allowed).
         // formatInvoiceInbound clears DRAFT / non-FTI document fallbacks and
         // strips comma-glued secondary numbers before lookup.
-        if (!invoiceKey) {
-          continue;
-        }
+        if (invoiceKey) {
+          const entries = this.freeTextInvoiceMap.get(invoiceKey);
 
-        const entries = this.freeTextInvoiceMap.get(invoiceKey);
+          const displayInvoice = line.MarkedInvoice || line.Invoice;
 
-        const displayInvoice = line.MarkedInvoice || line.Invoice;
+          if (!entries?.length) {
+            line.AddError(
+              'Invoice',
+              `Free text invoice (${displayInvoice}) not exists in D365FO`,
+            );
+          } else {
+            const postedEntries = entries.filter((e) => e.isPosted);
 
-        if (!entries?.length) {
-          line.AddError(
-            'Invoice',
-            `Free text invoice (${displayInvoice}) not exists in D365FO`,
-          );
-          continue;
-        }
-
-        const postedEntries = entries.filter((e) => e.isPosted);
-
-        if (postedEntries.length === 0) {
-          line.AddError(
-            'Invoice',
-            `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`,
-          );
-          continue;
+            if (postedEntries.length === 0) {
+              line.AddError(
+                'Invoice',
+                `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`,
+              );
+            }
+          }
         }
       }
 
@@ -2166,7 +2164,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Bank / RCash (Petty cash) → FO account id from source ACCOUNTDISPLAYVALUE
    * (e.g. "PSD EG", "AAIB-EG-CA"), never the dimension string.
    * Ledger → full ledger account display value.
-   * Notes-receivable forced to Bank → bankAccount dim segment when present.
+   * Notes-receivable forced to Bank → bankAccount dim segment only.
+   * Never fall back to the ledger display value when Bank is required — that
+   * makes FO look up `122201|1301|...` in BankAccountTable.
    */
   protected resolveOffsetAccountDisplayValue(
     offsetLine: CashEntryRawDataModel,
@@ -2175,8 +2175,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     dimensionStrFallback: string,
   ): string {
     if (isNotesReceivable) {
-      const bankAccount = this.dimensionPartAsString(dimensions.bankAccount);
-      if (bankAccount) return bankAccount;
+      return this.dimensionPartAsString(dimensions.bankAccount);
     }
 
     if (offsetLine.IsBank || offsetLine.IsPettyCash) {
@@ -2353,6 +2352,56 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.company,
         invoices,
       );
+  }
+
+  /**
+   * Bank / Petty cash / RCash account ids must be BankAccountTable (or RCash)
+   * ids — never a ledger dimension string like `122201|1301|013|001|`.
+   * Notes-receivable Cash-In forces OffsetAccountType=Bank; missing bank
+   * segment must fail at format/validate, not at FO post.
+   */
+  protected validateBankLikeAccountDisplayValues(
+    line: CashEntryDynDataModel,
+  ): void {
+    const checks: Array<{
+      field: 'AccountDisplayValue' | 'OffsetAccountDisplayValue';
+      accountType: string | undefined;
+      value: string | undefined;
+    }> = [
+      {
+        field: 'AccountDisplayValue',
+        accountType: line.AccountType,
+        value: line.AccountDisplayValue,
+      },
+      {
+        field: 'OffsetAccountDisplayValue',
+        accountType: line.OffsetAccountType,
+        value: line.OffsetAccountDisplayValue,
+      },
+    ];
+
+    for (const { field, accountType, value } of checks) {
+      const type = (accountType || '').trim();
+      if (type !== 'Bank' && type !== 'Petty cash' && type !== 'RCash') {
+        continue;
+      }
+
+      const display = (value || '').trim();
+      if (!display) {
+        line.AddError(
+          field,
+          `${type} account is required; ${field} is empty.`,
+        );
+        continue;
+      }
+
+      if (display.includes('|')) {
+        line.AddError(
+          field,
+          `${type} account must be a bank/RCash id, not a ledger dimension value (${display}).`,
+        );
+      }
+    }
   }
 
   /**

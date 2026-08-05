@@ -85,7 +85,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
   }
 
   it('posts cash-in via addLedgerJournalTransCustPaym using the bulk Lines contract', async () => {
-    const { service, d365foClient, vendorPaymentJournalService } =
+    const { service, d365foClient, vendorPaymentJournalService, operationalLogs } =
       buildService();
 
     jest
@@ -166,6 +166,20 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
+
+    const events = operationalLogs.emit.mock.calls.map(([event]: [any]) => event);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'd365fo.cash-in.bulk-request',
+          message: expect.stringContaining('Cash-in bulk request'),
+        }),
+        expect.objectContaining({
+          eventType: 'd365fo.cash-in.bulk-response',
+          message: expect.stringContaining('Cash-in bulk request'),
+        }),
+      ]),
+    );
   });
 
   // Scenario 2: a single journal line still goes out inside Lines.

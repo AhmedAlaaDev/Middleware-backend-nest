@@ -546,6 +546,7 @@ export class CustomerPaymentJournalService {
     );
     let failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
+      endpoint,
       headerKey,
       pendingLines,
       attempt: 'initial',
@@ -610,6 +611,7 @@ export class CustomerPaymentJournalService {
       );
       failures = this.extractCashBulkFailures(retryResult, activeLines);
       await this.logCashBulkOutcome({
+        endpoint,
         headerKey,
         pendingLines: activeLines,
         attempt: 'unmarked-retry',
@@ -994,6 +996,7 @@ export class CustomerPaymentJournalService {
         pendingLines,
       );
       await this.logCashBulkOutcome({
+        endpoint,
         headerKey,
         pendingLines,
         attempt: 'marked-retry-after-clear',
@@ -1448,15 +1451,18 @@ export class CustomerPaymentJournalService {
     },
   ): Promise<void> {
     const lineCount = requestBody._contract.Lines.length;
+    const direction = this.resolveCashBulkDirection(endpoint);
+    const label = direction === 'in' ? 'Cash-in' : 'Cash-out';
 
     await this.operationalLogs.emit({
       level: 'info',
-      message: `Cash-out bulk request ${context.batch.number}/${context.batch.total} for journal ${context.headerKey} with ${lineCount} line(s)`,
+      message: `${label} bulk request ${context.batch.number}/${context.batch.total} for journal ${context.headerKey} with ${lineCount} line(s)`,
       context: CustomerPaymentJournalService.name,
-      eventType: 'd365fo.cash-out.bulk-request',
+      eventType: `d365fo.cash-${direction}.bulk-request`,
       status: 'submitted',
       metadata: {
         endpoint,
+        cashDirection: direction,
         journalNum: context.headerKey,
         attempt: context.attempt,
         requestNumber: context.batch.number,
@@ -1475,6 +1481,7 @@ export class CustomerPaymentJournalService {
    * journal line can be traced back to the line it was built from.
    */
   private async logCashBulkOutcome(args: {
+    endpoint: string;
     headerKey: string;
     pendingLines: CashBulkPendingLine[];
     attempt: CashBulkAttempt;
@@ -1482,18 +1489,30 @@ export class CustomerPaymentJournalService {
     result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined;
     failures: CashBulkLineFailure[];
   }): Promise<void> {
-    const { headerKey, pendingLines, attempt, batch, result, failures } = args;
+    const {
+      endpoint,
+      headerKey,
+      pendingLines,
+      attempt,
+      batch,
+      result,
+      failures,
+    } = args;
     const succeeded = failures.length === 0;
+    const direction = this.resolveCashBulkDirection(endpoint);
+    const label = direction === 'in' ? 'Cash-in' : 'Cash-out';
 
     await this.operationalLogs.emit({
       level: succeeded ? 'info' : 'error',
       message: succeeded
-        ? `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} accepted ${pendingLines.length} line(s)`
-        : `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} failed for ${failures.length} line(s)`,
+        ? `${label} bulk request ${batch.number}/${batch.total} for journal ${headerKey} accepted ${pendingLines.length} line(s)`
+        : `${label} bulk request ${batch.number}/${batch.total} for journal ${headerKey} failed for ${failures.length} line(s)`,
       context: CustomerPaymentJournalService.name,
-      eventType: 'd365fo.cash-out.bulk-response',
+      eventType: `d365fo.cash-${direction}.bulk-response`,
       status: succeeded ? 'accepted' : 'rejected',
       metadata: {
+        endpoint,
+        cashDirection: direction,
         journalNum: headerKey,
         attempt,
         requestNumber: batch.number,
@@ -1517,6 +1536,10 @@ export class CustomerPaymentJournalService {
       },
       payload: this.logPayloads.captureExchange(undefined, result ?? null),
     });
+  }
+
+  private resolveCashBulkDirection(endpoint: string): 'in' | 'out' {
+    return endpoint.includes('addLedgerJournalTransCustPaym') ? 'in' : 'out';
   }
 
   /**
