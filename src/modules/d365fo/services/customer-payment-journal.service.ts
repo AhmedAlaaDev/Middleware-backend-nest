@@ -277,9 +277,7 @@ export class CustomerPaymentJournalService {
         : this.cashOutLineEndpoint;
 
     this.logger.log(
-      cashDirection === 'out'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`
-        : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
+      `[CASH-CUSTOM] Preparing ${lines.length} cash-${cashDirection} lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`,
     );
 
     let existingLines: Set<number> = new Set();
@@ -308,160 +306,41 @@ export class CustomerPaymentJournalService {
       }
     }
 
-    const successfullyPosted: Array<{
-      headerId: string;
-      lineNumber: number;
-    }> = [];
-
-    if (cashDirection === 'out') {
-      return this.postCashOutBulkLinesForHeader(
-        endpoint,
-        headerKey,
-        lines,
-        existingLines,
-        allowUnmarkedInvoiceRetry,
-      );
-    }
-
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize);
-      const chunkNumber = Math.floor(i / chunkSize) + 1;
-      const totalChunks = Math.ceil(lines.length / chunkSize);
-
-      this.logger.log(
-        `[CASH-CUSTOM] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
-      );
-
-      for (const line of chunk) {
-        const body = line.customLineApiBody;
-        if (!body) {
-          throw new Error(
-            `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
-          );
-        }
-
-        if (existingLines.has(line.LineNumber)) {
-          successfullyPosted.push({
-            headerId: headerKey,
-            lineNumber: line.LineNumber,
-          });
-          continue;
-        }
-
-        try {
-          await this.postCustomCashLine(endpoint, {
-            ...body,
-            journalNum: headerKey,
-          });
-        } catch (error) {
-          const errorDetails = this.dfoErrorExtractor.extractMessage(error);
-
-          if (
-            allowUnmarkedInvoiceRetry &&
-            this.isAlreadyMarkedForSettlementError(errorDetails)
-          ) {
-            const syntheticFailures: CashBulkLineFailure[] = [
-              {
-                requestIndex: 0,
-                lineNumber: line.LineNumber,
-                message: errorDetails,
-                correlated: true,
-              },
-            ];
-            const remaining = await this.recoverAlreadyMarkedCashOutBulk({
-              endpoint,
-              headerKey,
-              pendingLines: [
-                {
-                  lineNumber: line.LineNumber,
-                  body: { ...body, journalNum: headerKey },
-                },
-              ],
-              batch: { number: 1, total: 1 },
-              failures: syntheticFailures,
-            });
-            if (remaining.length === 0) {
-              successfullyPosted.push({
-                headerId: headerKey,
-                lineNumber: line.LineNumber,
-              });
-              continue;
-            }
-            await this.postCustomCashLine(
-              endpoint,
-              this.buildUnmarkedCashLine({
-                ...body,
-                journalNum: headerKey,
-              }),
-            );
-            successfullyPosted.push({
-              headerId: headerKey,
-              lineNumber: line.LineNumber,
-            });
-            continue;
-          }
-
-          if (
-            allowUnmarkedInvoiceRetry &&
-            this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
-          ) {
-            await this.postCustomCashLine(
-              endpoint,
-              this.buildUnmarkedCashLine({
-                ...body,
-                journalNum: headerKey,
-              }),
-            );
-            successfullyPosted.push({
-              headerId: headerKey,
-              lineNumber: line.LineNumber,
-            });
-            continue;
-          }
-
-          this.logger.error(
-            `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-          throw new Error(
-            `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-          );
-        }
-
-        successfullyPosted.push({
-          headerId: headerKey,
-          lineNumber: line.LineNumber,
-        });
-        if (line !== chunk[chunk.length - 1]) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-        }
-      }
-    }
-
-    return successfullyPosted;
+    // Both CustPaym and VendPaym expect `{ _contract: { Lines: [...] } }`.
+    // A flat single-line `_contract` makes FO return "No journal lines were received."
+    return this.postCashBulkLinesForHeader(
+      endpoint,
+      headerKey,
+      lines,
+      existingLines,
+      allowUnmarkedInvoiceRetry,
+      cashDirection,
+    );
   }
 
-  private async postCashOutBulkLinesForHeader(
+  private async postCashBulkLinesForHeader(
     endpoint: string,
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: Set<number>,
     allowUnmarkedInvoiceRetry: boolean,
+    cashDirection: 'in' | 'out',
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const preparedLines: CashBulkPendingLine[] = [];
+    const directionLabel = `cash-${cashDirection}`;
 
     for (const line of lines) {
       const body = line.customLineApiBody;
       if (!body) {
         throw new Error(
-          `Missing customLineApiBody on cash-out line ${line.LineNumber}`,
+          `Missing customLineApiBody on ${directionLabel} line ${line.LineNumber}`,
         );
       }
 
       const suppliedJournalNumber = String(body.journalNum ?? '').trim();
       if (suppliedJournalNumber && suppliedJournalNumber !== headerKey) {
         throw new Error(
-          `Cash-out line ${line.LineNumber} belongs to journal ${suppliedJournalNumber}, not ${headerKey}`,
+          `${directionLabel} line ${line.LineNumber} belongs to journal ${suppliedJournalNumber}, not ${headerKey}`,
         );
       }
 
@@ -498,7 +377,7 @@ export class CustomerPaymentJournalService {
           batchLines.some((line) => !existingLines.has(line.lineNumber)),
         ) + 1;
       this.logger.log(
-        `[CASH-CUSTOM] Resuming cash-out for header ${headerKey}: ${alreadyPostedCount}/${preparedLines.length} line(s) already posted in FO; starting from patch ${resumePatch > 0 ? resumePatch : Math.max(totalBatches, 1)}/${Math.max(totalBatches, 1)} (${totalBatches} UniqueId-group request(s))`,
+        `[CASH-CUSTOM] Resuming ${directionLabel} for header ${headerKey}: ${alreadyPostedCount}/${preparedLines.length} line(s) already posted in FO; starting from patch ${resumePatch > 0 ? resumePatch : Math.max(totalBatches, 1)}/${Math.max(totalBatches, 1)} (${totalBatches} UniqueId-group request(s))`,
       );
     }
 
@@ -515,14 +394,14 @@ export class CustomerPaymentJournalService {
 
       if (pendingLines.length === 0) {
         this.logger.log(
-          `[CASH-CUSTOM] Skipping cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) across ${uniqueIdGroupCount} UniqueId group(s) already posted`,
+          `[CASH-CUSTOM] Skipping ${directionLabel} patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) across ${uniqueIdGroupCount} UniqueId group(s) already posted`,
         );
         continue;
       }
 
       if (pendingLines.length !== patchLines.length) {
         this.logger.log(
-          `[CASH-CUSTOM] Cash-out patch ${patchNumber}/${totalBatches} for header ${headerKey}: posting ${pendingLines.length}/${patchLines.length} remaining line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s)`,
+          `[CASH-CUSTOM] ${directionLabel} patch ${patchNumber}/${totalBatches} for header ${headerKey}: posting ${pendingLines.length}/${patchLines.length} remaining line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s)`,
         );
       }
 
@@ -657,7 +536,7 @@ export class CustomerPaymentJournalService {
     if (pendingLines.length === 0) return;
 
     this.logger.log(
-      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s) in request ${batch.number}/${batch.total} for header ${headerKey}`,
+      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash line(s) across ${this.countUniqueIdGroups(pendingLines)} UniqueId group(s) in request ${batch.number}/${batch.total} for header ${headerKey}`,
     );
 
     const result = await this.postCustomCashLines(
@@ -954,7 +833,7 @@ export class CustomerPaymentJournalService {
           : `line ${failure.lineNumber}: ${failure.message}`,
       )
       .join('; ');
-    return `Failed to post cash-out lines for header ${headerKey}: ${details}`;
+    return `Failed to post cash lines for header ${headerKey}: ${details}`;
   }
 
   private isInvoiceAmountGreaterThanRemainingError(message: string): boolean {
@@ -1722,6 +1601,15 @@ export class CustomerPaymentJournalService {
       // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
       VendorGroup: String(line.VendorGroup ?? ''),
     };
+
+    // Cash-In settles via MARKEDINVOICE on CustPaym; Cash-Out uses MarkedLines.
+    // Preserve the key whenever the mapper set it (including null for unmarked).
+    if ('MARKEDINVOICE' in line) {
+      body.MARKEDINVOICE =
+        line.MARKEDINVOICE === null || line.MARKEDINVOICE === undefined
+          ? null
+          : String(line.MARKEDINVOICE);
+    }
 
     if (markedLines.length > 0) {
       body.MarkedLines = markedLines.map((marked) => ({

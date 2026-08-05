@@ -134,6 +134,8 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   ExchangeRate: number;
   ReportingExchangeRate: number;
   VendorGroup: string;
+  /** Cash-In customer settlement invoice id (CustPaym). Null clears marking. */
+  MARKEDINVOICE?: string | null;
 }
 
 /** Bulk request body: every journal line of the batch (or chunk) in `Lines`. */
