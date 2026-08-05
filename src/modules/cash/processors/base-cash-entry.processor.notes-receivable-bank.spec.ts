@@ -75,16 +75,18 @@ describe('Cash-In notes-receivable Bank offset', () => {
       },
     ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', true));
 
-  it('does not fall back to the ledger dimension string as Bank offset', () => {
+  it('falls back to Ledger offset when bankAccount dimension is empty', () => {
     const processor = createProcessor();
     const [formatted] = (processor as any).buildLines(
       '468100',
       buildNrPair(nrLedgerEmptyBank),
     );
 
-    expect(formatted.OffsetAccountType).toBe('Bank');
-    expect(formatted.OffsetAccountDisplayValue).toBe('');
-    expect(formatted.OffsetAccountDisplayValue).not.toContain('|');
+    // With empty bankAccount, the processor must NOT force Bank.
+    // It should keep the original Ledger type and use the ledger display value.
+    expect(formatted.OffsetAccountType).toBe('Ledger');
+    expect(formatted.OffsetAccountDisplayValue).toContain('122201');
+    expect(formatted.OffsetAccountDisplayValue).toContain('|');
   });
 
   it('uses the bankAccount dimension segment when present', () => {
@@ -98,7 +100,7 @@ describe('Cash-In notes-receivable Bank offset', () => {
     expect(formatted.OffsetAccountDisplayValue).toBe('AAIB-EG-CA');
   });
 
-  it('fails validateAsync when notes-receivable Bank offset is empty', () => {
+  it('passes validateAsync when NR falls back to Ledger (no bank segment)', () => {
     const processor = createProcessor();
     (processor as any).freeTextInvoiceMap = new Map([
       [
@@ -113,15 +115,15 @@ describe('Cash-In notes-receivable Bank offset', () => {
     );
     const [validated] = processor.validateAsync([formatted]);
 
-    expect(validated.ErrorCount).toBeGreaterThan(0);
-    expect(
-      validated
-        .GetErrors()
-        .some((e: string) =>
+    // Ledger offset does not trigger the Bank-account-required validation.
+    const bankErrors = validated
+      .GetErrors()
+      .filter(
+        (e: string) =>
           e.includes('Bank account is required') &&
           e.includes('OffsetAccountDisplayValue'),
-        ),
-    ).toBe(true);
+      );
+    expect(bankErrors).toHaveLength(0);
   });
 
   it('fails validateAsync when a Bank display value is a ledger pipe string', () => {

@@ -1383,6 +1383,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine,
       dimensions,
     );
+    // Only force Bank offset when the bankAccount dimension segment is
+    // actually populated. When empty (source data does not include a bank
+    // id), fall back to the original Ledger account type so FO does not
+    // reject the line with "Bank account is required".
+    const hasNotesReceivableBankAccount =
+      isNotesReceivable && !!dimensions.bankAccount?.trim();
 
     const formattedDate = this.utilsService.formatMonthYear(
       accountLine.TRANSDATE,
@@ -1434,7 +1440,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransactionText: description,
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
-      OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
+      OffsetAccountType: hasNotesReceivableBankAccount
+        ? 'Bank'
+        : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
       JournalName: this.getJournalName(),
@@ -1443,7 +1451,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
         offsetLine,
         dimensions,
-        isNotesReceivable,
+        hasNotesReceivableBankAccount,
         dimensionStr,
       ),
       FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
@@ -1561,6 +1569,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine,
       dimensions,
     );
+    const hasNotesReceivableBankAccount =
+      isNotesReceivable && !!dimensions.bankAccount?.trim();
 
     const formattedDate = this.utilsService.formatMonthYear(
       accountLine.TRANSDATE,
@@ -1658,11 +1668,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransactionText: description,
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
-      OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
+      OffsetAccountType: hasNotesReceivableBankAccount
+        ? 'Bank'
+        : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
       OffsetTransactionText: (() => {
-        let offsetText = isNotesReceivable
+        let offsetText = hasNotesReceivableBankAccount
           ? paymentReference
           : offsetLine.DESCRIPTION || '';
         if (descriptionSuffix) {
@@ -1687,7 +1699,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
         offsetLine,
         dimensions,
-        isNotesReceivable,
+        hasNotesReceivableBankAccount,
         dimensionStr,
       ),
       FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
