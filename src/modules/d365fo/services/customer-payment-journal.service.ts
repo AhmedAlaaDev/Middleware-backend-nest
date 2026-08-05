@@ -1575,14 +1575,18 @@ export class CustomerPaymentJournalService {
   /**
    * Project an internal cash line onto a `_contract.Lines` entry.
    *
-   * Emits the Cash Out bulk shape, including both rate keys required across
-   * deployed contract versions. MarkedLines is included only when the line
-   * actually settles invoices. Scenario 4 (main account-only) keeps the offset
-   * keys present with empty values so FO lookups do not throw.
+   * Emits the Cash Out bulk shape that X++ FormJsonSerializer looks up by key
+   * (`ExchangeRate`, `ReportingExchangeRate`, `VendorGroup`, offset fields).
+   * MarkedLines is included only when the line actually settles invoices.
+   * Scenario 4 (main account-only) keeps the offset keys present with empty
+   * values so FO lookups do not throw.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
+    const exchangeRate = Number(
+      line.ExchangeRate ?? line.EXCHANGERATE ?? line.ExchRate ?? 0,
+    );
     const reportingExchangeRate = Number(
       line.ReportingExchangeRate ??
         line.REPORTINGEXCHANGERATE ??
@@ -1623,6 +1627,8 @@ export class CustomerPaymentJournalService {
       offsetDEFAULTDIMENSIONDISPLAYVALUE: String(
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
       ),
+      // Always present: X++ does jsonMap.lookup("ExchangeRate") unconditionally.
+      ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
       ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),

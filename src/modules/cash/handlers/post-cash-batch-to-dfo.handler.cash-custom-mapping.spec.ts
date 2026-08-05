@@ -174,7 +174,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
-    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).toHaveProperty('ExchangeRate', 1);
     expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body).not.toHaveProperty('ExchRate');
     expect(body).toHaveProperty('ReportingExchangeRate');
@@ -730,7 +730,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       expect(body).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', finTag);
       expect(body).toHaveProperty('DocumentNum', '15936');
       expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
-      expect(body).not.toHaveProperty('ExchangeRate');
+      expect(body).toHaveProperty('ExchangeRate', 4765);
       expect(body).not.toHaveProperty('EXCHANGERATE');
       expect(body).not.toHaveProperty('ExchRate');
     }
@@ -850,7 +850,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
-  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and omits ExchangeRate without inventing custody marks', () => {
+  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps ExchangeRate without inventing custody marks', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -891,7 +891,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const body = result[0].customLineApiBody;
     expect(body.transDate).toBe('2026-01-25T00:00:00');
     expect(body.DocumentDate).toBe('2026-01-14T00:00:00');
-    expect(body).not.toHaveProperty('ExchangeRate');
+    expect(body).toHaveProperty('ExchangeRate', 4765);
     expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.VendorGroup).toBe('Custody');

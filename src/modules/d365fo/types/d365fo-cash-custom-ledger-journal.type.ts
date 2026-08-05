@@ -92,8 +92,9 @@ export interface TSLedgerJournalTransCustomRequest {
  *
  * Matches the FO Cash Out bulk contract: one clean field set per line (no
  * duplicate ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
- * Offset display values use the documented lowercase keys; other Offset*
- * members and VendorGroup stay present (empty when unused) because FO's
+ * `ExchangeRate` and `ReportingExchangeRate` are required keys. Offset display
+ * values use the documented lowercase keys; other Offset* members and
+ * VendorGroup stay present (empty when unused) because FO's
  * `constructFromJsonObject` looks them up without `exists()`.
  */
 export interface TSLedgerJournalTransCustomBulkLineRequestBody {
@@ -130,6 +131,7 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   TRANSACTIONTEXT: string;
   DocumentNum: string;
   DocumentDate: string;
+  ExchangeRate: number;
   ReportingExchangeRate: number;
   VendorGroup: string;
 }

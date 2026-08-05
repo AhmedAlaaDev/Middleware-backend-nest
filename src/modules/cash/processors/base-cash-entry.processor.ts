@@ -1665,6 +1665,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           : offsetLine.CREDITAMOUNT,
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
+      ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       DefaultDimensionDisplayValue: dimensionStr,
       OffsetDefaultDimensionDisplayValue: dimensionStr,
@@ -1857,6 +1858,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DebitAmount: sourceLine.DEBITAMOUNT,
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
+      ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       DefaultDimensionDisplayValue: this.toCashDefaultDimensionDisplayValue(
         dimensions,

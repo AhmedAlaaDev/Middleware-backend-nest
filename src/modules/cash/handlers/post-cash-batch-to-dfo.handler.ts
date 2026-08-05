@@ -456,13 +456,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const documentDate = this.normalizeTransDateForCustomApi(
         this.formatDate(line.DocumentDate || transactionDate),
       );
+      // Transaction ExchangeRate is already on FO's percentage-rate scale
+      // (EGP = 100, USD≈4765). ReportingCurrencyExchRate is stored as a ratio
+      // and scaled * 100 for the custom contract (USD reporting = 100).
+      const exchangeRate = Number(line.ExchangeRate || line.ExchRate || 0);
       const reportingExchangeRate =
         (line.ReportingCurrencyExchRate || 0) * 100;
 
       // Dates before currency/rates: if FO assigns fields in JSON order,
       // TransDate must be present before CurrencyCode triggers rate lookup.
-      // ExchangeRate / EXCHANGERATE / ExchRate are intentionally omitted from
-      // every custom cash body per cash-out journal routing contract.
+      // Cash Out X++ does jsonMap.lookup("ExchangeRate") unconditionally.
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
         // This is filled later from the successful header-post response.
         journalNum: '',
@@ -484,6 +487,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
+        ...(cashDirection === 'out'
+          ? {
+              ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
+            }
+          : {}),
         ReportingCurrencyExchRate: reportingExchangeRate,
         ReportingExchangeRate: reportingExchangeRate,
         REPORTINGEXCHANGERATE: reportingExchangeRate,

@@ -246,7 +246,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(postedLine).toHaveProperty('transDate', '2026-04-21T00:00:00');
-    expect(postedLine).not.toHaveProperty('ExchangeRate');
+    expect(postedLine).toHaveProperty('ExchangeRate', 100);
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
@@ -790,6 +790,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       TRANSACTIONTEXT: 'Direct - Fleet January 2026 (Cash)',
       DocumentNum: '15925',
       DocumentDate: '2026-01-01T00:00:00',
+      ExchangeRate: 100,
       ReportingExchangeRate: 2.09863588667366,
       VendorGroup: 'Custody',
     };
@@ -810,7 +811,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     // Same values as the documented body: journalNum is filled in,
     // accountTypeStr is lowercased, dates stay `yyyy-MM-ddT00:00:00` for FO
-    // FormJsonSerializer, and ExchangeRate / ExchRate / EXCHANGERATE are omitted.
+    // FormJsonSerializer, and ExchangeRate + ReportingExchangeRate are present.
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
@@ -825,10 +826,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     });
     expect(
       d365foClient.post.mock.calls[0][1]._contract.Lines[0],
-    ).not.toHaveProperty('ExchangeRate');
+    ).toHaveProperty('ExchangeRate', 100);
   });
 
-  it('omits empty MarkedLines and unsupported exchange-rate aliases from the bulk body', async () => {
+  it('keeps ExchangeRate/ReportingExchangeRate and omits empty MarkedLines plus rate aliases', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -878,13 +879,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       journalNum: 'JN-CLEAN',
       AccountNum: 'RP-000007',
       accountTypeStr: 'vendor',
+      ExchangeRate: 4765,
       ReportingExchangeRate: 100,
       VendorGroup: '',
       offsetAccountDisplayValue: '',
       offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
     });
     expect(postedLine).not.toHaveProperty('MarkedLines');
-    expect(postedLine).not.toHaveProperty('ExchangeRate');
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
