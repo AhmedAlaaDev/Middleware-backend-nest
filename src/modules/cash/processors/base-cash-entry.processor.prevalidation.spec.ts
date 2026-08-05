@@ -446,10 +446,11 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     ).resolves.toBeUndefined();
 
     const formatted = (processor as any).buildLines('2067', lines);
-    expect(formatted).toHaveLength(1);
-    expect(formatted[0].DebitAmount).toBe(100);
-    expect(formatted[0].OffsetAccountDisplayValue).toBe('BANK-1');
-    expect(formatted[0].MarkedInvoice).toBe('CUSTODY-VCH-1');
+    expect(formatted).toHaveLength(2);
+    expect(formatted.map((line: any) => line.DebitAmount)).toEqual([60, 40]);
+    expect(
+      formatted.every((line: any) => line.OffsetAccountDisplayValue === 'BANK-1'),
+    ).toBe(true);
     expect(formatted[0].MarkedLines).toEqual([
       {
         InvoiceNumber: '',
@@ -457,6 +458,8 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
         DocumentNumber: 'DOC-CUSTODY-1',
         HasWithHoldingLine: false,
       },
+    ]);
+    expect(formatted[1].MarkedLines).toEqual([
       {
         InvoiceNumber: '',
         OperationNumber: 'OP-CUSTODY-2',
@@ -464,10 +467,12 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
         HasWithHoldingLine: false,
       },
     ]);
-    expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
+    expect(
+      formatted.every((line: any) => line.SettlementTargetType === 'CustodyLedger'),
+    ).toBe(true);
   });
 
-  it('hydrates VendorGroup for Custody Settlement without settlement marking', async () => {
+  it('hydrates VendorGroup and MarkedLines for Custody Settlement vendors', async () => {
     const { processor } = createProcessor({
       custodyAccounts: ['3071'],
     });
@@ -526,14 +531,26 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     const formatted = (processor as any).buildLines('466593', lines);
     expect(formatted).toHaveLength(2);
     expect(formatted[0].VendorGroup).toBe('Custody');
-    // Automatic marking is Vendor Payment only — Custody Settlement posts
-    // multi-line journals with no settlement target or MarkedLines.
-    expect(formatted[0].SettlementTargetType).toBe('None');
-    expect(formatted[0].MarkedLines).toEqual([]);
+    expect(formatted[0].SettlementTargetType).toBe('CustodyLedger');
     expect(formatted[0].MarkedInvoice).toBe('');
-    expect(formatted[1].SettlementTargetType).toBe('None');
-    expect(formatted[1].MarkedLines).toEqual([]);
-    expect(formatted[1].MarkedInvoice).toBe('');
+    expect(formatted[0].MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '15895',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    expect(formatted[1].SettlementTargetType).toBe('VendorInvoice');
+    expect(formatted[1].MarkedInvoice).toBe('TMT13');
+    expect(formatted[1].MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'TMT13',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
   });
 
   it('trims ledger dimension strings with leading/trailing spaces and continues format', async () => {

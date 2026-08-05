@@ -149,26 +149,30 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     },
   );
 
-  it('applies vendor-invoice validation to Vendor Payment', () => {
-    const processor = createProcessor();
-    jest
-      .spyOn(processor as any, 'validateDimensionsForLine')
-      .mockImplementation(() => undefined);
-    const vendorValidation = jest
-      .spyOn(processor as any, 'validateCashOutMarkedInvoice')
-      .mockImplementation(() => undefined);
-    const line = {
-      SourceIds: ['2045'],
-      SafeType: 'Vendor Payment',
-      VoucherType: 'Cash',
-      AccountType: 'Vend',
-      AddError: jest.fn(),
-    };
+  it.each(['Vendor Payment', 'Custody Settlement'] as const)(
+    'applies vendor-invoice validation to %s when SettlementTargetType is VendorInvoice',
+    (safeType) => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'validateDimensionsForLine')
+        .mockImplementation(() => undefined);
+      const vendorValidation = jest
+        .spyOn(processor as any, 'validateCashOutMarkedInvoice')
+        .mockImplementation(() => undefined);
+      const line = {
+        SourceIds: ['2045'],
+        SafeType: safeType,
+        VoucherType: 'Cash',
+        AccountType: 'Vend',
+        SettlementTargetType: 'VendorInvoice',
+        AddError: jest.fn(),
+      };
 
-    processor.validateAsync([line] as any);
+      processor.validateAsync([line] as any);
 
-    expect(vendorValidation).toHaveBeenCalledWith(line);
-  });
+      expect(vendorValidation).toHaveBeenCalledWith(line);
+    },
+  );
 
   it('builds main-account-only Vendor Payment lines when the UniqueId has no payment offset', () => {
     const processor = createProcessor();
@@ -588,7 +592,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ).toBe(1000);
     });
 
-    it('does not emit MarkedLines for Custody Settlement vendor lines', () => {
+    it('emits custody vs standard MarkedLines for Custody Settlement vendor lines', () => {
       const processor = createProcessor();
       jest
         .spyOn(processor as any, 'fetchExchangeRates')
@@ -620,6 +624,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           CURRENCYCODE: 'EGP',
           DOCUMENT: 'DOC-1',
           INVOICE: 'INV-CS',
+          FINTAGDISPLAYVALUE: 'OP-2|TAG',
           SafeType: 'Custody Settlement',
           VoucherType: 'Cash',
         },
@@ -637,18 +642,33 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       const dfoLines = (processor as any).buildLines('480002', rawLines);
 
       expect(dfoLines).toHaveLength(2);
-      expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
-        true,
-      );
-      expect(dfoLines.every((line: any) => line.MarkedInvoice === '')).toBe(
-        true,
-      );
-      expect(
-        dfoLines.every((line: any) => line.SettlementTargetType === 'None'),
-      ).toBe(true);
+      expect(dfoLines[0]).toMatchObject({
+        SettlementTargetType: 'CustodyLedger',
+        MarkedInvoice: '',
+        MarkedLines: [
+          {
+            InvoiceNumber: '',
+            OperationNumber: 'OP-1',
+            DocumentNumber: 'DOC-1',
+            HasWithHoldingLine: false,
+          },
+        ],
+      });
+      expect(dfoLines[1]).toMatchObject({
+        SettlementTargetType: 'VendorInvoice',
+        MarkedInvoice: 'INV-CS',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'INV-CS',
+            OperationNumber: 'OP-2',
+            DocumentNumber: '',
+            HasWithHoldingLine: false,
+          },
+        ],
+      });
     });
 
-    it('keeps Custody Settlement withholding as a separate FO line (no VP merge)', () => {
+    it('keeps Custody Settlement withholding separate and leaves vendor lines unmarked', () => {
       const processor = createProcessor();
       jest
         .spyOn(processor as any, 'fetchExchangeRates')
@@ -665,6 +685,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           CREDITAMOUNT: 0,
           CURRENCYCODE: 'EGP',
           INVOICE: 'INV-CS-WH',
+          FINTAGDISPLAYVALUE: 'OP-WH|TAG',
           SafeType: 'Custody Settlement',
           VoucherType: 'Cash',
         },
@@ -709,6 +730,10 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
         true,
       );
+      expect(dfoLines[0].SettlementTargetType).toBe('None');
+      expect(dfoLines[0].Description).toContain('Unmarked');
+      expect(dfoLines[0].TransactionText).toContain('Unmarked');
+      expect(dfoLines[1].Description).not.toContain('Unmarked');
     });
 
     it('uses withholding-row invoice for Vendor Payment MarkedLines when vendor invoice is blank', () => {

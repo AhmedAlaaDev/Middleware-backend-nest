@@ -970,7 +970,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
-  it('emits FO JSON dates with T00:00:00, strips FinTag bidi marks, and keeps ExchangeRate without inventing custody marks', () => {
+  it('maps Custody Settlement custody MarkedLines and FO dates without inventing marks', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -994,12 +994,21 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             DebitAmount: 0,
             CurrencyCode: 'USD',
             VendorGroup: 'Custody',
+            SettlementTargetType: 'CustodyLedger',
             SafeType: 'Custody Settlement',
             FinTagDisplayValue: finTag,
             OffsetFinTagDisplayValue: finTag,
             SalesTaxGroup: 'Non-Taxabl',
             PostingProfile: 'V-PP',
             ReportingCurrencyExchRate: 1,
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'O26-IMP-OC-1',
+                DocumentNumber: '16383',
+                HasWithHoldingLine: false,
+              },
+            ],
           },
         },
       ],
@@ -1018,12 +1027,66 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.FinTagStr).toBe(
       'O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|',
     );
-    // Custody Settlement multi-line rows are main-account-only; offset fields
-    // are omitted from the FO body.
-    expect(body.MarkedLines).toEqual([]);
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O26-IMP-OC-1',
+        DocumentNumber: '16383',
+        HasWithHoldingLine: false,
+      },
+    ]);
   });
 
-  it('preserves empty MARKEDINVOICE and appends " - unmarked" for Vendor Payment when MarkedInvoice was cleared', () => {
+  it('maps Custody Settlement standard-vendor MarkedLines with InvoiceNumber only', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Sl-000007',
+            DebitAmount: 1000,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            Document: '15895',
+            VendorGroup: 'Trade',
+            SettlementTargetType: 'VendorInvoice',
+            SafeType: 'Custody Settlement',
+            FinTagDisplayValue: 'O25-IMP-OC-12140|TAG',
+            MarkedInvoice: 'TMT13',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'TMT13',
+                OperationNumber: 'O25-IMP-OC-12140',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'TMT13',
+        OperationNumber: 'O25-IMP-OC-12140',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
+  });
+
+  it('preserves empty MARKEDINVOICE and appends " - Unmarked" for Vendor Payment when MarkedInvoice was cleared', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -1063,11 +1126,11 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const body = result[0].customLineApiBody;
     expect(body.MarkedLines).toEqual([]);
     expect(body.TRANSACTIONTEXT).toBe(
-      'Vendor Payment - Freight Jan 2026 - unmarked',
+      'Vendor Payment - Freight Jan 2026 - Unmarked',
     );
-    expect(body.OFFSETTRANSACTIONTEXT).toBe('unmarked');
+    expect(body.OFFSETTRANSACTIONTEXT).toBe('Unmarked');
     expect(body.PAYMENTNOTES).toBe(
-      'Vendor Payment - Freight Jan 2026 - unmarked',
+      'Vendor Payment - Freight Jan 2026 - Unmarked',
     );
   });
 });

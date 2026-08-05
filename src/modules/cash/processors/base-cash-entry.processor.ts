@@ -431,11 +431,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
             voucherType: line.VoucherType,
           });
-          // Only Vendor Payment settles against vendor invoices.
-          // Custody Settlement / Custody Issue use AP headers but do not mark.
+          // Invoice existence checks only apply when MarkedLines target a
+          // vendor invoice (not custody document/operation marking).
           shouldValidateCashOutMarkedInvoice =
-            route.safeType === 'Vendor Payment' &&
-            line.SettlementTargetType !== 'CustodyLedger';
+            (route.safeType === 'Vendor Payment' ||
+              route.safeType === 'Custody Settlement') &&
+            line.SettlementTargetType === 'VendorInvoice';
         } catch (error) {
           const message =
             error instanceof CashJournalRoutingError
@@ -1162,9 +1163,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // rows. Only Vendor Payment converts a source counterpart into Offset.
       // Associate 223304 withholding rows so vendor MarkedLines can set
       // HasWithHoldingLine when the related settlement line is present.
+      // Custody Settlement + any 223304 in the UniqueId → suppress marking
+      // on vendor lines and append "Unmarked" to the description.
       const withholdingLines = lines.filter((line) =>
         this.isWithholdingLedgerLine(line),
       );
+      const isCustodySettlementGroup =
+        lines[0]?.SafeType === 'Custody Settlement';
+      const suppressSettlementMarking =
+        isCustodySettlementGroup && withholdingLines.length > 0;
       return lines.map((line) =>
         this.buildSourceLineOutbound(
           sourceId,
@@ -1173,6 +1180,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           line.IsVendor
             ? this.findWithholdingLine(line, withholdingLines)
             : undefined,
+          { suppressSettlementMarking },
         ),
       );
     }
@@ -1989,6 +1997,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceLine: CashEntryRawDataModel,
     exchangeRateContext?: CashOutExchangeRateContext,
     withholdingLine?: CashEntryRawDataModel,
+    options?: { suppressSettlementMarking?: boolean },
   ): CashEntryDynDataModel {
     const dimensionString =
       sourceLine.ACCOUNTTYPE === 'Ledger'
@@ -2054,21 +2063,29 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const offsetDimensions = this.omitFleetWorkerDimension(
       this.utilsService.parseDimensionString(offsetDimensionString),
     );
-    const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
+    let description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
     const isCustodySettlement = route?.safeType === 'Custody Settlement';
     const isVendorPayment = route?.safeType === 'Vendor Payment';
+    const supportsSettlementMarking = isVendorPayment || isCustodySettlement;
+    const suppressSettlementMarking = Boolean(
+      options?.suppressSettlementMarking,
+    );
     const sourceHasWithholding =
       this.isWithholdingLedgerLine(sourceLine) ||
       String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
-      Boolean(sourceLine.ITEMWITHHOLDINGTAXGROUPCODE);
+      Boolean(sourceLine.ITEMWITHHOLDINGTAXGROUPCODE) ||
+      Boolean(withholdingLine);
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    // Automatic settlement (marking) is Vendor Payment only. Custody Settlement
-    // and all other SafeTypes preserve source lines without MarkedLines.
+    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows.
+    // Custody Settlement UniqueIds that include a 223304 withholding credit
+    // intentionally leave vendor lines unmarked.
     const markedLine =
-      isVendorPayment && sourceLine.IsVendor
+      supportsSettlementMarking &&
+      sourceLine.IsVendor &&
+      !suppressSettlementMarking
         ? this.buildMarkedLine(sourceLine, withholdingLine)
         : undefined;
     const hasSettlementTarget = Boolean(
@@ -2079,7 +2096,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
     const markedInvoice =
-      isVendorPayment && sourceLine.IsVendor && !isCustodyVendor
+      supportsSettlementMarking &&
+      sourceLine.IsVendor &&
+      !isCustodyVendor &&
+      !suppressSettlementMarking
         ? this.sanitizeInvoiceOutbound(
             sourceLine.MARKEDINVOICE ||
               sourceLine.INVOICE ||
@@ -2087,10 +2107,24 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           )
         : '';
 
+    let transactionText = sourceLine.TEXT || description;
+    if (
+      isCustodySettlement &&
+      sourceLine.IsVendor &&
+      suppressSettlementMarking
+    ) {
+      if (!description.toLowerCase().includes('unmarked')) {
+        description = `${description} - Unmarked`;
+      }
+      if (!transactionText.toLowerCase().includes('unmarked')) {
+        transactionText = `${transactionText} - Unmarked`;
+      }
+    }
+
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
       Description: description,
-      TransactionText: sourceLine.TEXT || description,
+      TransactionText: transactionText,
       Company: this.company,
       AccountType: sourceLine.ACCOUNTTYPE,
       OffsetAccountType: sourceLine.OFFSETACCOUNTTYPE,
@@ -2159,10 +2193,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: sourceLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: route?.safeType ?? sourceLine.SafeType,
-      // Settlement targets are Vendor Payment only. Other SafeTypes must not
-      // carry CustodyLedger/VendorInvoice hints into the posting mapper.
+      // Settlement targets for Vendor Payment and Custody Settlement vendor
+      // rows. Suppressed when Custody Settlement UniqueId includes 223304.
       SettlementTargetType:
-        isVendorPayment && sourceLine.IsVendor
+        supportsSettlementMarking &&
+        sourceLine.IsVendor &&
+        !suppressSettlementMarking
           ? isCustodyVendor
             ? 'CustodyLedger'
             : 'VendorInvoice'

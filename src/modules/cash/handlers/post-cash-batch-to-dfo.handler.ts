@@ -401,9 +401,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         String(line.FinTagDisplayValue ?? '').split('|')[0],
       ).trim();
       const documentNumber = String(line.Document ?? '').trim();
-      // Settlement (marking) is Vendor Payment only. Custody Settlement /
-      // Custody Issue also post to AP headers but must not synthesize MarkedLines.
-      const routeSupportsMarking = route?.safeType === 'Vendor Payment';
+      // Settlement (marking) for Vendor Payment and Custody Settlement.
+      // Custody Issue posts to AP headers but must not synthesize MarkedLines.
+      // Prefer pre-built MarkedLines from formatting; only synthesize a fallback
+      // for Vendor Payment when formatting left the array empty.
+      const routeSupportsMarking =
+        route?.safeType === 'Vendor Payment' ||
+        route?.safeType === 'Custody Settlement';
       const markedLines = routeSupportsMarking
         ? line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines.map((markedLine) => ({
@@ -418,7 +422,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                 : '',
               HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
             }))
-          : markedInvoice || (isCustodyVendor && documentNumber)
+          : route?.safeType === 'Vendor Payment' &&
+              (markedInvoice || (isCustodyVendor && documentNumber))
             ? [
                 {
                   InvoiceNumber: isCustodyVendor ? '' : markedInvoice,
@@ -438,8 +443,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         !transactionTextValue.toLowerCase().includes('unmarked')
       ) {
         transactionTextValue = transactionTextValue
-          ? `${transactionTextValue} - unmarked`
-          : 'unmarked';
+          ? `${transactionTextValue} - Unmarked`
+          : 'Unmarked';
       }
       let offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
@@ -450,8 +455,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue
-          ? `${offsetTransactionTextValue} - unmarked`
-          : 'unmarked';
+          ? `${offsetTransactionTextValue} - Unmarked`
+          : 'Unmarked';
       }
 
       const documentDate = this.normalizeTransDateForCustomApi(
