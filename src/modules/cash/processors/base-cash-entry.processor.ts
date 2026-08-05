@@ -1528,6 +1528,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       accountLine,
       offsetLine,
     );
+    dimensions = this.omitFleetWorkerDimension(dimensions);
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
@@ -1679,7 +1680,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransactionDate: transactionDate,
       VoucherType: accountLine.VoucherType,
       // Cash-Out: AccountNum = vendor; OffsetAccountDisplayValue = Bank/RCash account id or ledger account.
-      AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
+      AccountDisplayValue: this.resolveAccountDisplayValueForOutbound(
+        accountLine.ACCOUNTTYPE,
+        accountLine.ACCOUNTDISPLAYVALUE,
+      ),
       OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
         offsetLine,
         dimensions,
@@ -1779,6 +1783,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       sourceLine,
       undefined,
     );
+    dimensions = this.omitFleetWorkerDimension(dimensions);
 
     if (dimensions.mainAccount === '123510') {
       dimensions.mainAccount = '122204';
@@ -1822,8 +1827,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
         ? sourceLine.OFFSETACCOUNTDISPLAYVALUE
         : sourceLine.OFFSETDEFAULTDIMENSIONDISPLAYVALUE;
-    const offsetDimensions = this.utilsService.parseDimensionString(
-      offsetDimensionString,
+    const offsetDimensions = this.omitFleetWorkerDimension(
+      this.utilsService.parseDimensionString(offsetDimensionString),
     );
     const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
     const isCustodySettlement = route?.safeType === 'Custody Settlement';
@@ -1873,18 +1878,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransDate: transactionDate,
       TransactionDate: transactionDate,
       VoucherType: sourceLine.VoucherType,
-      AccountDisplayValue:
-        sourceLine.ACCOUNTTYPE === 'Ledger'
-          ? this.utilsService.trimDimensionDisplaySegments(
-              sourceLine.ACCOUNTDISPLAYVALUE,
-            )
-          : sourceLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue:
-        sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
-          ? this.utilsService.trimDimensionDisplaySegments(
-              sourceLine.OFFSETACCOUNTDISPLAYVALUE,
-            )
-          : sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+      AccountDisplayValue: this.resolveAccountDisplayValueForOutbound(
+        sourceLine.ACCOUNTTYPE,
+        sourceLine.ACCOUNTDISPLAYVALUE,
+      ),
+      OffsetAccountDisplayValue: this.resolveAccountDisplayValueForOutbound(
+        sourceLine.OFFSETACCOUNTTYPE,
+        sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+      ),
       FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
         sourceLine.FINTAGDISPLAYVALUE,
       ),
@@ -2113,6 +2114,53 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
+   * Fleet Cash-Out skips Worker validation, but FO still rejects unknown Worker
+   * codes in ledger AccountNum / default dimensions. Clear Worker before post.
+   */
+  protected shouldOmitFleetWorkerDimension(): boolean {
+    return !this.isInbound() && this.isTrucking();
+  }
+
+  protected omitFleetWorkerDimension(
+    dimensions: EntryDimensionsModel,
+  ): EntryDimensionsModel {
+    if (this.shouldOmitFleetWorkerDimension()) {
+      dimensions.worker = undefined;
+    }
+    return dimensions;
+  }
+
+  /**
+   * Ledger display values: trim padded segments; for Fleet Cash-Out also drop
+   * Worker so FO AccountNum does not carry unvalidated fleet Worker codes.
+   * Non-ledger values (Vendor, Bank, RCash ids) are returned unchanged.
+   */
+  protected resolveAccountDisplayValueForOutbound(
+    accountType: string | undefined,
+    accountDisplayValue: string | undefined,
+  ): string {
+    const raw = accountDisplayValue ?? '';
+    if (accountType !== 'Ledger') {
+      return raw;
+    }
+
+    const trimmed = this.utilsService.trimDimensionDisplaySegments(raw);
+    if (!this.shouldOmitFleetWorkerDimension()) {
+      return trimmed;
+    }
+
+    const dims = this.omitFleetWorkerDimension(
+      this.utilsService.parseDimensionString(trimmed),
+    );
+    const segmentLength =
+      this.utilsService.getDimensionSegmentLength(trimmed) || 19;
+    return this.utilsService.toDimensionStringWithSegments(
+      dims,
+      segmentLength,
+    );
+  }
+
+  /**
    * Bank / RCash (Petty cash) → FO account id from source ACCOUNTDISPLAYVALUE
    * (e.g. "PSD EG", "AAIB-EG-CA"), never the dimension string.
    * Ledger → full ledger account display value.
@@ -2135,9 +2183,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const accountDisplay = (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
     if (accountDisplay) {
-      return offsetLine.ACCOUNTTYPE === 'Ledger'
-        ? this.utilsService.trimDimensionDisplaySegments(accountDisplay)
-        : accountDisplay;
+      return this.resolveAccountDisplayValueForOutbound(
+        offsetLine.ACCOUNTTYPE,
+        accountDisplay,
+      );
     }
 
     return dimensionStrFallback;

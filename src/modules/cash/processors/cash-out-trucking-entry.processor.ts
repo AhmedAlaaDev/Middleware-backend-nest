@@ -15,6 +15,8 @@ export class CashOutTruckingEntryProcessor extends BaseCashEntryProcessor {
    * Fleet Cash-Out mirrors Vendor/Cash-In Fleet: Worker is not part of the
    * validated dimension set. (`Worker: false` would still reject unknown
    * present Worker values and block format for optional fleet Worker codes.)
+   * Worker is also stripped from outbound ledger AccountNum / default
+   * dimensions so FO does not reject unvalidated fleet Worker codes at post.
    */
   readonly requiredDimensions: RequiredDimensionsConfig = {
     MainAccount: false,

@@ -99,6 +99,10 @@ describe('CashOutTruckingEntryProcessor - Fleet Worker dimensions', () => {
       ]),
     );
     (processor as any).accountNumberSet = new Set(['223404']);
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
+      exchangeRate: 1,
+      reportingRate: 1,
+    });
     return processor;
   };
 
@@ -110,6 +114,49 @@ describe('CashOutTruckingEntryProcessor - Fleet Worker dimensions', () => {
     ).resolves.toBeUndefined();
 
     expect(processor.requiredDimensions).not.toHaveProperty('Worker');
+  });
+
+  it('strips Worker from Fleet Cash-Out ledger AccountNum before FO post', () => {
+    const processor = createProcessor('Fleet');
+    const dynLine = (processor as any).buildSourceLineOutbound(
+      '226668',
+      fleetWorkerLine(),
+    );
+
+    expect(dynLine.AccountDisplayValue).toBe(
+      '223404|2101|021|002|001|101000838|101000838|3012|3012|744|2524|3345|Payable|12|H10|DOMESTIC||||',
+    );
+    expect(dynLine.AccountDisplayValue).not.toContain('2753');
+    expect(dynLine.DefaultDimensionDisplayValue.split('|')[15] ?? '').toBe('');
+  });
+
+  it('keeps Worker on Freight Cash-Out ledger AccountNum when known', () => {
+    const processor = createProcessor('Freight');
+    (processor as any).dimensionsMap.set(
+      'Worker',
+      new Set(['2753'.toLowerCase()]),
+    );
+    const dynLine = (processor as any).buildSourceLineOutbound(
+      '226668',
+      new CashEntryRawDataModel(
+        {
+          UniqueId: 226668,
+          LINENUMBER: 549,
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '223404|2101|021|002|001|101000838|101000838|3012|3012|744|2524|3345|Payable|12|H10|DOMESTIC|2753|||',
+          DEBITAMOUNT: 10,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Direct',
+          VoucherType: 'Cash',
+        } as any,
+        'Freight',
+        false,
+      ),
+    );
+
+    expect(dynLine.AccountDisplayValue).toContain('|2753|');
   });
 
   it('still validates Worker for Cash-Out Freight when the value is present', async () => {
