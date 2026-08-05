@@ -529,10 +529,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           accountTypeStr,
         ),
 
-        TaxGroup:
-          cashDirection === 'out'
-            ? this.normalizeCashOutTaxGroup(line.SalesTaxGroup)
-            : (line.SalesTaxGroup ?? ''),
+        TaxGroup: this.normalizeCashTaxGroup(line.SalesTaxGroup),
         TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
 
         TRANSACTIONTEXT: transactionTextValue,
@@ -857,9 +854,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return value === 'Taxable' || value === 'Non-Taxabl';
   }
 
-  private normalizeCashOutTaxGroup(
-    taxGroup: string | undefined | null,
-  ): string {
+  /**
+   * Cash custom API accepts only Taxable / Non-Taxabl. Source SALESTAXGROUP is
+   * often blank on Cash-In bank/customer lines — default to Non-Taxabl.
+   */
+  private normalizeCashTaxGroup(taxGroup: string | undefined | null): string {
     const value = taxGroup?.trim() ?? '';
     if (!value) return 'Non-Taxabl';
 

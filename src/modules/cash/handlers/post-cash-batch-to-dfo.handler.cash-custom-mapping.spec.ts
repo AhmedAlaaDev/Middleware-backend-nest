@@ -392,6 +392,53 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
   });
 
+  it('defaults blank Cash-In SalesTaxGroup to Non-Taxabl for custom FO body', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'USMF',
+            JournalBatchNumber: 'JN000123',
+            LineNumber: 1,
+            AccountType: 'Cust',
+            AccountDisplayValue: 'CUST001',
+            OffsetAccountDisplayValue: 'BANK001',
+            OffsetAccountType: 'Bank',
+            OffsetCompany: 'USMF',
+            DefaultDimensionsForAccountDisplayValue: 'BU-001|CC-002|Dept-003',
+            DefaultDimensionsForOffsetAccountDisplayValue:
+              'BU-001|CC-002|Dept-004',
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            ExchangeRate: 1,
+            CreditAmount: 1000,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            VoucherType: 'Cash',
+            SalesTaxGroup: '',
+            ItemSalesTaxGroup: '',
+            PostingProfile: 'Cust-PP',
+            PaymentId: 'PAY-IN-1',
+            PaymentReference: 'REF-IN-1',
+            TransactionText: 'Customer collection',
+            MarkedInvoice: '000008898/OR-TR',
+            Voucher: '',
+          },
+        },
+      ],
+      'USMF',
+      'in',
+    );
+
+    expect(result[0].customLineApiBody.TaxGroup).toBe('Non-Taxabl');
+    expect(
+      (handler as any).validateLine(result[0]),
+    ).not.toContain(
+      'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
+    );
+  });
+
   it('rejects invalid TaxGroup values', () => {
     const handler = buildHandler();
 
