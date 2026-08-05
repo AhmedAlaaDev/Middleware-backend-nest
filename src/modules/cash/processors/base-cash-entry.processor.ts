@@ -14,7 +14,12 @@ import {
   CashOutExchangeRateResolution,
   CashOutExchangeRateService,
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
-import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
+import { ProcessCashOutFreightCommand } from '@/modules/cash/commands/process-cash-out-freight.command';
+import { ProcessCashOutTruckingCommand } from '@/modules/cash/commands/process-cash-out-trucking.command';
+import {
+  CashInSafeTypeRoutingFailure,
+  CashInSafeTypeRoutingService,
+} from '@/modules/cash/services/cash-in-safetype-routing.service';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
@@ -35,6 +40,16 @@ import {
   ProcessVendorPaymentFreightCommand,
   ProcessVendorPaymentTruckingCommand,
 } from '@/modules/vendor/commands';
+
+import {
+  CashInCustomerFxSpecialCaseResult,
+  cashInLineStableId,
+  evaluateCashInCustomerFxGroup,
+  extractCashInMainAccount,
+  isCashInLedger421103Line,
+  normalizeCashInAccountType,
+  parseCashInCustomerInvoices,
+} from './cash-in-customer-fx.rules';
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
@@ -71,6 +86,8 @@ const FINTAG_SHIPPING_LINE_INDEX = 2;
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
   private readonly cashJournalRoutingService = new CashJournalRoutingService();
+  private readonly cashInSafeTypeRoutingService =
+    new CashInSafeTypeRoutingService(this.cashJournalRoutingService);
   private readonly cashOutExchangeRateService: CashOutExchangeRateService;
   private readonly generalJournalService: GeneralJournalService;
   private readonly d365VendorService?: VendorService;
@@ -82,6 +99,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * VendInvoiceJournalLines (filled once per enrich via batched FO lookup).
    */
   protected vendorInvoiceExistsMap: Set<string> | null = null;
+
+  /**
+   * Cash-In special case: customer FX matching + Ledger 421103 skip results
+   * keyed by UniqueId. Reset at the start of each formatAndEnrichAsync.
+   */
+  private cashInCustomerFxResults = new Map<
+    string,
+    CashInCustomerFxSpecialCaseResult
+  >();
+
+  /**
+   * UniqueId groups that failed SafeType / TargetProcessor routing and must
+   * not enter Cash-In or Cash-Out journal construction.
+   */
+  private cashInSafeTypeRoutingFailures: CashInSafeTypeRoutingFailure[] = [];
 
   protected readonly NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
     '122201',
@@ -224,6 +256,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       withholdingStats = result.stats;
     }
 
+    if (this.isInbound()) {
+      // SafeType routing must run before Cash-In FX / 421103 transforms so
+      // Custody Settlement UniqueIds never enter customer-collection rules.
+      processedLines =
+        await this.routeCashInCustodySettlementToCashOut(processedLines);
+      processedLines =
+        await this.applyCashInCustomerForeignCurrencyRules(processedLines);
+    }
+
     this.logger.debug(
       `[STEP 2] Filtering lines from ${processedLines.length} lines${this.isInbound() ? ' (cash-in splits custody)' : ' (cash-out keeps all)'}`,
     );
@@ -295,10 +336,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
-    this.logger.debug(
-      `[STEP 7] Processing ${custodySettlementLines.length} custody settlement lines`,
-    );
-    this.processCustodySettlementLines(custodySettlementLines);
+    // Leftover custody lines are a safety net only — primary routing happens
+    // before Cash-In transforms via routeCashInCustodySettlementToCashOut.
+    if (custodySettlementLines.length > 0) {
+      this.logger.debug(
+        `[STEP 7] Routing ${custodySettlementLines.length} leftover custody settlement lines to Cash-Out`,
+      );
+      await this.processCustodySettlementLines(custodySettlementLines);
+    }
 
     if (!this.isInbound()) {
       this.logger.debug(
@@ -310,6 +355,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     if (withholdingStats) {
       (updatedDfoLines as any).metadata = withholdingStats;
     }
+
+    if (this.isInbound() && this.cashInSafeTypeRoutingFailures.length > 0) {
+      updatedDfoLines.push(
+        ...this.buildCashInSafeTypeRoutingFailureLines(
+          this.cashInSafeTypeRoutingFailures,
+        ),
+      );
+    }
+
     return updatedDfoLines;
   }
 
@@ -882,29 +936,129 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     };
   }
 
-  protected processCustodySettlementLines(
+  /**
+   * Route Custody Settlement UniqueIds from a Cash-In upload to Cash-Out
+   * before any Cash-In customer FX / 421103 / invoice rules run.
+   */
+  protected async routeCashInCustodySettlementToCashOut(
     lines: CashEntryRawDataModel[],
-  ): void {
+  ): Promise<CashEntryRawDataModel[]> {
+    this.cashInSafeTypeRoutingFailures = [];
+
+    if (!this.isInbound() || lines.length === 0) {
+      return lines;
+    }
+
+    const split = this.cashInSafeTypeRoutingService.splitCashInGroups(lines, {
+      defaultTargetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+    });
+
+    this.cashInSafeTypeRoutingFailures = split.failures;
+
+    for (const failure of split.failures) {
+      this.logger.warn(
+        `Transaction processor could not be resolved. ${JSON.stringify({
+          uniqueId: failure.uniqueId,
+          voucher: failure.voucher,
+          lineNumbers: failure.lineNumbers,
+          safeTypes: failure.safeTypes,
+          targetProcessors: failure.targetProcessors,
+          reason: failure.message,
+        })}`,
+      );
+    }
+
+    await this.dispatchCashOutCustodySettlementBatches({
+      freightLines: split.cashOutFreightLines,
+      fleetLines: split.cashOutFleetLines,
+    });
+
+    return split.cashInLines;
+  }
+
+  protected async processCustodySettlementLines(
+    lines: CashEntryRawDataModel[],
+  ): Promise<void> {
     if (lines.length === 0) return;
 
-    const command = new ProcessCustodySettlementEntryCommand(
-      this.company,
-      undefined,
-      lines,
-    );
+    const split = this.cashInSafeTypeRoutingService.splitCashInGroups(lines, {
+      defaultTargetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+    });
 
-    this.commandBus
-      .execute(command)
-      .then(() => {
+    await this.dispatchCashOutCustodySettlementBatches({
+      freightLines: split.cashOutFreightLines,
+      fleetLines: split.cashOutFleetLines,
+    });
+  }
+
+  private async dispatchCashOutCustodySettlementBatches(options: {
+    freightLines: CashEntryRawDataModel[];
+    fleetLines: CashEntryRawDataModel[];
+  }): Promise<void> {
+    const { freightLines, fleetLines } = options;
+
+    if (freightLines.length > 0) {
+      try {
+        await this.commandBus.execute(
+          new ProcessCashOutFreightCommand(
+            undefined,
+            this.company,
+            freightLines,
+          ),
+        );
         this.logger.debug(
-          `[STEP 2.5] Successfully processed ${lines.length} custody settlement lines`,
+          `[STEP 2.5] Routed ${freightLines.length} custody settlement lines to Cash-Out Freight`,
         );
-      })
-      .catch((error) => {
+      } catch (error) {
         this.logger.error(
-          `[STEP 2.5] Error processing custody settlement entry for ${lines.length} lines: ${error}`,
+          `[STEP 2.5] Error routing custody settlement lines to Cash-Out Freight: ${error}`,
         );
+        throw error;
+      }
+    }
+
+    if (fleetLines.length > 0) {
+      try {
+        await this.commandBus.execute(
+          new ProcessCashOutTruckingCommand(
+            undefined,
+            this.company,
+            fleetLines,
+          ),
+        );
+        this.logger.debug(
+          `[STEP 2.5] Routed ${fleetLines.length} custody settlement lines to Cash-Out Fleet`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `[STEP 2.5] Error routing custody settlement lines to Cash-Out Fleet: ${error}`,
+        );
+        throw error;
+      }
+    }
+  }
+
+  protected buildCashInSafeTypeRoutingFailureLines(
+    failures: CashInSafeTypeRoutingFailure[],
+  ): CashEntryDynDataModel[] {
+    return failures.map((failure) => {
+      const line = new CashEntryDynDataModel(new EntryDimensionsModel(), {
+        SourceIds: [failure.uniqueId],
+        SafeType: failure.safeTypes[0] || 'Custody Settlement',
+        VoucherType: failure.lines[0]?.VoucherType,
       });
+      line.AddError(
+        'SafeTypeRouting',
+        `${failure.message} ${JSON.stringify({
+          uniqueId: failure.uniqueId,
+          voucher: failure.voucher,
+          lineNumbers: failure.lineNumbers,
+          safeTypes: failure.safeTypes,
+          targetProcessors: failure.targetProcessors,
+        })}`,
+      );
+      return line;
+    });
   }
 
   protected processVendorPaymentLines(lines: CashEntryRawDataModel[]): void {
@@ -1019,6 +1173,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             ? this.findWithholdingLine(line, withholdingLines)
             : undefined,
         ),
+      );
+    }
+
+    const specialCase = this.cashInCustomerFxResults.get(sourceId);
+    if (specialCase) {
+      return this.buildCashInCustomerFxLines(
+        sourceId,
+        lines,
+        specialCase,
+        exchangeRateContext,
       );
     }
 
@@ -2211,6 +2375,189 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return typeof part === 'string' ? part.trim() : String(part);
   }
 
+  /**
+   * Cash-In special case: UniqueId groups with debit + Cust credit + Ledger
+   * 421103 get one-to-one debit→customer amount/currency copy, Ledger skip,
+   * and consumed-pair metadata for the inbound build path.
+   */
+  protected async applyCashInCustomerForeignCurrencyRules(
+    lines: CashEntryRawDataModel[],
+  ): Promise<CashEntryRawDataModel[]> {
+    this.cashInCustomerFxResults.clear();
+
+    if (!this.isInbound() || lines.length === 0) {
+      return lines;
+    }
+
+    const grouped = this.buildUniqueIdMap(lines);
+    const output: CashEntryRawDataModel[] = [];
+
+    for (const [uniqueId, groupLines] of grouped.entries()) {
+      const { result, outputLines } = evaluateCashInCustomerFxGroup({
+        uniqueId,
+        lines: groupLines,
+        resolveExchangeRate: (transactionDate, currencyCode) =>
+          this.fetchExchangeRates(transactionDate, currencyCode),
+      });
+
+      // Only persist metadata for groups that actually entered the special case
+      // (invalid or successfully transformed). Residual-only empty results are
+      // omitted so non-special UniqueIds keep the existing build path.
+      const enteredSpecialCase =
+        result.isInvalid ||
+        result.matchedPairs.length > 0 ||
+        result.skippedLedgerLineIds.size > 0;
+
+      if (enteredSpecialCase) {
+        this.cashInCustomerFxResults.set(uniqueId, result);
+        this.logCashInCustomerFxResult(result, groupLines);
+      }
+
+      output.push(...outputLines);
+    }
+
+    return output;
+  }
+
+  protected buildCashInCustomerFxLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+    specialCase: CashInCustomerFxSpecialCaseResult,
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    if (specialCase.isInvalid) {
+      const errorLine = new CashEntryDynDataModel(new EntryDimensionsModel(), {
+        SourceIds: [sourceId],
+        SafeType: lines[0]?.SafeType,
+        VoucherType: lines[0]?.VoucherType,
+      });
+
+      for (const validationError of specialCase.validationErrors) {
+        const detailSuffix = validationError.details
+          ? ` ${JSON.stringify(validationError.details)}`
+          : '';
+        errorLine.AddError(
+          validationError.field,
+          `${validationError.message}${detailSuffix}`,
+        );
+      }
+
+      if (specialCase.validationErrors.length === 0) {
+        errorLine.AddError(
+          'CustomerDebitMatch',
+          'Unable to determine a unique debit line for the customer Cash-In line.',
+        );
+      }
+
+      return [errorLine];
+    }
+
+    const built: CashEntryDynDataModel[] = [];
+
+    for (const pair of specialCase.matchedPairs) {
+      // Exact pair only — never fan the customer across residual offsets.
+      built.push(
+        this.buildLineInbound(
+          sourceId,
+          pair.customerLine,
+          pair.debitLine,
+          'OFFSET',
+          exchangeRateContext,
+        ),
+      );
+    }
+
+    const residualLines = specialCase.residualLines.filter((line) =>
+      lines.includes(line),
+    );
+
+    if (residualLines.length === 0) {
+      return built;
+    }
+
+    if (residualLines.length === 2) {
+      built.push(
+        ...this.caseTwoLines(sourceId, residualLines, exchangeRateContext),
+      );
+    } else {
+      built.push(
+        ...this.caseMoreThanTwoLines(
+          sourceId,
+          residualLines,
+          exchangeRateContext,
+        ),
+      );
+    }
+
+    return built;
+  }
+
+  private logCashInCustomerFxResult(
+    result: CashInCustomerFxSpecialCaseResult,
+    groupLines: CashEntryRawDataModel[],
+  ): void {
+    const voucher = groupLines[0]?.VOUCHER ?? '';
+
+    if (result.isInvalid) {
+      this.logger.warn(
+        `Cash-In customer-to-debit matching failed. ${JSON.stringify({
+          uniqueId: result.uniqueId,
+          voucher,
+          validationErrors: result.validationErrors,
+        })}`,
+      );
+      return;
+    }
+
+    for (const pair of result.matchedPairs) {
+      const audit = (pair.customerLine as any).__cashInFxTransform;
+      this.logger.log(
+        `Cash-In customer line transformed using a uniquely matched debit line. ${JSON.stringify(
+          {
+            uniqueId: result.uniqueId,
+            voucher,
+            customerLineNumber: pair.customerLineNumber,
+            customerAccount: pair.customerLine.ACCOUNTDISPLAYVALUE,
+            originalCreditAmount: audit?.originalCreditAmount,
+            updatedCreditAmount:
+              audit?.updatedCreditAmount ?? pair.customerLine.CREDITAMOUNT,
+            originalCurrency: audit?.originalCurrency,
+            updatedCurrency:
+              audit?.updatedCurrency ?? pair.customerLine.CURRENCYCODE,
+            sourceDebitLineNumber: pair.debitLineNumber,
+            sourceDebitAmount: pair.debitLine.DEBITAMOUNT,
+            parsedCustomerInvoices:
+              audit?.parsedInvoices ??
+              parseCashInCustomerInvoices(pair.customerLine),
+          },
+        )}`,
+      );
+    }
+
+    for (const [index, line] of groupLines.entries()) {
+      const lineId = cashInLineStableId(line, index);
+      if (!result.skippedLedgerLineIds.has(lineId)) continue;
+
+      this.logger.log(
+        `Cash-In Ledger line skipped because AccountType is Ledger and the main account starts with 421103. ${JSON.stringify(
+          {
+            uniqueId: result.uniqueId,
+            voucher: line.VOUCHER || voucher,
+            ledgerLineNumber: line.LINENUMBER,
+            accountDisplayValue: line.ACCOUNTDISPLAYVALUE,
+            extractedMainAccount: extractCashInMainAccount(
+              line.ACCOUNTDISPLAYVALUE,
+            ),
+            debitAmount: line.DEBITAMOUNT,
+            creditAmount: line.CREDITAMOUNT,
+            currency: line.CURRENCYCODE,
+            invoice: line.INVOICE,
+          },
+        )}`,
+      );
+    }
+  }
+
   protected isNotesReceivableLine(
     line: CashEntryRawDataModel,
     dimensions: EntryDimensionsModel,
@@ -2229,14 +2576,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     line: CashEntryRawDataModel,
     dimensions: EntryDimensionsModel,
   ): boolean {
-    const accountType = line.ACCOUNTTYPE;
-    const mainAccount = dimensions.mainAccount;
+    // Keep residual Cash-In settlement filtering aligned with the special-case
+    // Ledger 421103 rule (case-insensitive AccountType + startsWith).
+    if (isCashInLedger421103Line(line)) {
+      return true;
+    }
 
-    if (accountType !== 'Ledger') return false;
+    const accountType = normalizeCashInAccountType(line.ACCOUNTTYPE);
+    const mainAccount =
+      dimensions.mainAccount ||
+      extractCashInMainAccount(line.ACCOUNTDISPLAYVALUE);
 
+    if (accountType !== 'ledger') return false;
     if (!mainAccount) return false;
 
-    return this.SETTLEMENT_MAIN_ACCOUNTS.includes(mainAccount);
+    return this.SETTLEMENT_MAIN_ACCOUNTS.some((account) =>
+      mainAccount.startsWith(account),
+    );
   }
 
   protected filterOutSettlementLines(

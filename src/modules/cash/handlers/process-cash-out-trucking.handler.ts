@@ -25,26 +25,39 @@ export class ProcessCashOutTruckingHandler implements ICommandHandler<ProcessCas
   public async execute({
     companyId,
     fileBuffer,
+    rawData: injectedRawData,
   }: ProcessCashOutTruckingCommand): Promise<IDataBatch> {
     const company = companyId || 'm-p';
 
-    const sheet =
-      await this.excelService.excelToSheetData<CashEntryRawDataModel>(
-        fileBuffer,
+    let rawData: CashEntryRawDataModel[] = [];
+
+    if (injectedRawData?.length) {
+      // Cash-In SafeType routing may hand off Custody Settlement rows already
+      // parsed from the Cash-In workbook — skip Cash-Out template checks.
+      rawData = injectedRawData as CashEntryRawDataModel[];
+    } else {
+      if (!fileBuffer) {
+        throw new BadRequestException('Empty file');
+      }
+
+      const sheet =
+        await this.excelService.excelToSheetData<CashEntryRawDataModel>(
+          fileBuffer,
+        );
+      rawData = sheet.rows;
+      const templateErrors = this.templateValidation.getValidationErrors(
+        sheet.headers,
       );
-    const rawData = sheet.rows;
-    const templateErrors = this.templateValidation.getValidationErrors(
-      sheet.headers,
-    );
-    if (templateErrors.length > 0) {
-      return this.dataBatchService.createPreFormatValidationFailureAsync(
-        EntryProcessorTypes.CashOutTrucking,
-        ENTRY_PROCESSOR_NAMES.CASH_OUT_TRUCKING,
-        company,
-        `Cash-Out Fleet ${Date.now()}`,
-        rawData,
-        templateErrors,
-      );
+      if (templateErrors.length > 0) {
+        return this.dataBatchService.createPreFormatValidationFailureAsync(
+          EntryProcessorTypes.CashOutTrucking,
+          ENTRY_PROCESSOR_NAMES.CASH_OUT_TRUCKING,
+          company,
+          `Cash-Out Fleet ${Date.now()}`,
+          rawData,
+          templateErrors,
+        );
+      }
     }
 
     if (!rawData || rawData.length === 0) {

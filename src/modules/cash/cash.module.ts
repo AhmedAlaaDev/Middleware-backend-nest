@@ -9,6 +9,7 @@ import {
   ProcessCashOutTruckingHandler,
   PostCashBatchToDFOHandler,
 } from '@/modules/cash/handlers';
+import { CashInSafeTypeRoutingService } from '@/modules/cash/services/cash-in-safetype-routing.service';
 import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
 import { CashOutTemplateValidationService } from '@/modules/cash/services/cash-out-template-validation.service';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
@@ -37,8 +38,10 @@ const CommandHandlers = [
   controllers: [CashController],
   providers: [
     CashJournalRoutingService,
+    CashInSafeTypeRoutingService,
     CashOutTemplateValidationService,
     ...CommandHandlers,
   ],
+  exports: [CashInSafeTypeRoutingService, CashJournalRoutingService],
 })
 export class CashModule {}

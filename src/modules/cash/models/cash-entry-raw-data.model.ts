@@ -6,6 +6,8 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   SafeTransaction: 'In' | 'Out';
   SafeType: EntrySafeType;
   VoucherType: EntryVoucherType;
+  /** Excel TargetProcessor (Fleet / Freight) used for Cash-Out journal routing. */
+  TargetProcessor: string;
 
   // ACCOUNT TYPE FLAGS
   IsCustomer: boolean;
@@ -49,6 +51,12 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.SafeTransaction = isInbound ? 'In' : 'Out';
     this.SafeType = this.normalizeSafeType(data?.SafeType, !isInbound);
     this.VoucherType = s(data?.VoucherType) as EntryVoucherType;
+    this.TargetProcessor = s(
+      (data as any)?.TargetProcessor ??
+        (data as any)?.TARGETPROCESSOR ??
+        (data as any)?.Targetprocessor ??
+        (data as any)?.targetProcessor,
+    );
 
     this.IsCustomer =
       this.compare(data?.ACCOUNTTYPE, 'cust') ||
