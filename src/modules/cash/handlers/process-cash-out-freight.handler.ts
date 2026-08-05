@@ -32,8 +32,20 @@ export class ProcessCashOutFreightHandler implements ICommandHandler<ProcessCash
       await this.excelService.excelToSheetData<CashEntryRawDataModel>(
         fileBuffer,
       );
-    this.templateValidation.assertSupported(sheet.headers);
     const rawData = sheet.rows;
+    const templateErrors = this.templateValidation.getValidationErrors(
+      sheet.headers,
+    );
+    if (templateErrors.length > 0) {
+      return this.dataBatchService.createPreFormatValidationFailureAsync(
+        EntryProcessorTypes.CashOutFreight,
+        ENTRY_PROCESSOR_NAMES.CASH_OUT_FREIGHT,
+        company,
+        `Cash-Out Freight ${Date.now()}`,
+        rawData,
+        templateErrors,
+      );
+    }
 
     if (!rawData || rawData.length === 0) {
       throw new BadRequestException('Empty file');

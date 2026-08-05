@@ -519,19 +519,38 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       Message: 'Success! JN-250',
     });
 
-    // 250 UniqueIds × 1 line each → 3 requests: 100 + 100 + 50 groups.
-    const lines: any[] = Array.from({ length: 250 }, (_, index) => ({
-      dataAreaId: 'm-p',
-      LineNumber: index + 1,
-      cashDirection: 'out',
-      customLineApiBody: {
-        journalNum: '',
-        AccountNum: `VEND${index + 1}`,
-        accountTypeStr: 'Vendor',
-        debitAmount: 100,
-        PAYMENTID: `UID-${index + 1}`,
-      },
-    }));
+    // 250 UniqueIds x 2 lines each -> 3 requests containing 100 + 100 + 50
+    // complete groups (200 + 200 + 100 lines). This distinguishes the
+    // required group-count limit from the old raw-line-count limit.
+    const lines: any[] = Array.from({ length: 250 }, (_, index) => {
+      const paymentId = `UID-${index + 1}`;
+      return [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: index * 2 + 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: `VEND${index + 1}`,
+            accountTypeStr: 'Vendor',
+            debitAmount: 100,
+            PAYMENTID: paymentId,
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: index * 2 + 2,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: `OFFSET${index + 1}`,
+            accountTypeStr: 'Ledger',
+            creditAmount: 100,
+            PAYMENTID: paymentId,
+          },
+        },
+      ];
+    }).flat();
 
     const result = await service.postCashOutLinesForHeader(
       'JN-250',
@@ -540,12 +559,17 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
     );
 
-    expect(result).toHaveLength(250);
+    expect(result).toHaveLength(500);
     expect(d365foClient.post).toHaveBeenCalledTimes(3);
     const lineCounts = d365foClient.post.mock.calls.map(
       ([, body]: [string, any]) => body._contract.Lines.length,
     );
-    expect(lineCounts).toEqual([100, 100, 50]);
+    expect(lineCounts).toEqual([200, 200, 100]);
+    const uniqueIdCounts = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) =>
+        new Set(body._contract.Lines.map((line: any) => line.PAYMENTID)).size,
+    );
+    expect(uniqueIdCounts).toEqual([100, 100, 50]);
     // Every line is sent exactly once, in order, and stays on its journal.
     const sentAccounts = d365foClient.post.mock.calls.flatMap(
       ([, body]: [string, any]) =>
@@ -634,6 +658,44 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         ([, body]: [string, any]) => body._contract.Lines.length,
       ),
     ).toEqual([4, 2]);
+  });
+
+  it('stops resume when FO contains only part of a UniqueId group', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValueOnce([
+      { LineNumber: 1 },
+    ]);
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-PARTIAL',
+        [
+          {
+            LineNumber: 1,
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND-A',
+              PAYMENTID: 'UID-A',
+            },
+          },
+          {
+            LineNumber: 2,
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'OFFSET-A',
+              PAYMENTID: 'UID-A',
+            },
+          },
+        ] as any[],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'request would split complete UniqueId group(s): UID-A (1/2 line(s) selected)',
+    );
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
   it('logs the complete bulk request body before sending it', async () => {
@@ -1229,6 +1291,53 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       d365foClient.post.mock.calls[1][1]._contract.Lines[1],
     ).not.toHaveProperty('MarkedLines');
+  });
+
+  it('does not retry only the failed part of one UniqueId group', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Lines: [
+        { LineNumber: 1, Success: true },
+        {
+          LineNumber: 2,
+          Success: false,
+          Message:
+            'The amount of the Invoice: INV-2 is greater than the remaining amount.',
+        },
+      ],
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-PARTIAL-RETRY',
+        [
+          {
+            LineNumber: 1,
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND-A',
+              PAYMENTID: 'UID-A',
+            },
+          },
+          {
+            LineNumber: 2,
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'OFFSET-A',
+              PAYMENTID: 'UID-A',
+              MarkedLines: [{ InvoiceNumber: 'INV-2' }],
+            },
+          },
+        ] as any[],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'request would split complete UniqueId group(s): UID-A (1/2 line(s) selected)',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
   });
 
   it('fails the whole Lines chunk when FO returns a non-Success StatusCode', async () => {

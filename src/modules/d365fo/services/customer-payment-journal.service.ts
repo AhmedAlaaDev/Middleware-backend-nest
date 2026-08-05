@@ -476,6 +476,18 @@ export class CustomerPaymentJournalService {
       this.cashOutBulkBatchSize,
     );
     const totalBatches = uniqueIdBatches.length;
+    const pendingPreparedLines = preparedLines.filter(
+      (line) => !existingLines.has(line.lineNumber),
+    );
+
+    // A resumed post may skip an entire UniqueId group that FO already has,
+    // but it must never post only the missing part of a group. That would turn
+    // a source-balanced entry into an unbalanced request.
+    this.assertCompleteUniqueIdGroupSelection(
+      preparedLines,
+      pendingPreparedLines,
+      `resume journal ${headerKey}`,
+    );
     const alreadyPostedCount = preparedLines.filter((line) =>
       existingLines.has(line.lineNumber),
     ).length;
@@ -545,10 +557,22 @@ export class CustomerPaymentJournalService {
       );
     }
 
+    const groups = this.groupCashOutLinesByUniqueId(preparedLines);
+
+    const batches: CashBulkPendingLine[][] = [];
+    for (let index = 0; index < groups.length; index += maxGroups) {
+      batches.push(groups.slice(index, index + maxGroups).flat());
+    }
+    return batches;
+  }
+
+  private groupCashOutLinesByUniqueId(
+    lines: CashBulkPendingLine[],
+  ): CashBulkPendingLine[][] {
     const groups: CashBulkPendingLine[][] = [];
     const groupIndexByKey = new Map<string, number>();
 
-    for (const line of preparedLines) {
+    for (const line of lines) {
       const key = this.resolveCashOutUniqueIdGroupKey(line);
       const existingIndex = groupIndexByKey.get(key);
       if (existingIndex === undefined) {
@@ -559,11 +583,49 @@ export class CustomerPaymentJournalService {
       }
     }
 
-    const batches: CashBulkPendingLine[][] = [];
-    for (let index = 0; index < groups.length; index += maxGroups) {
-      batches.push(groups.slice(index, index + maxGroups).flat());
-    }
-    return batches;
+    return groups;
+  }
+
+  /**
+   * Verify that `selectedLines` contains either every line or no line from
+   * each UniqueId group in `allLines`. This protects both resume and retry
+   * requests from splitting a balanced source entry.
+   */
+  private assertCompleteUniqueIdGroupSelection(
+    allLines: CashBulkPendingLine[],
+    selectedLines: CashBulkPendingLine[],
+    operation: string,
+  ): void {
+    const selectedLineNumbers = new Set(
+      selectedLines.map((line) => line.lineNumber),
+    );
+    const partialGroups = this.groupCashOutLinesByUniqueId(allLines)
+      .map((group) => {
+        const selectedCount = group.filter((line) =>
+          selectedLineNumbers.has(line.lineNumber),
+        ).length;
+        return {
+          key: this.resolveCashOutUniqueIdGroupKey(group[0]),
+          selectedCount,
+          totalCount: group.length,
+        };
+      })
+      .filter(
+        (group) =>
+          group.selectedCount > 0 && group.selectedCount < group.totalCount,
+      );
+
+    if (partialGroups.length === 0) return;
+
+    const details = partialGroups
+      .map(
+        (group) =>
+          `${group.key} (${group.selectedCount}/${group.totalCount} line(s) selected)`,
+      )
+      .join(', ');
+    throw new Error(
+      `[CASH-CUSTOM] Cannot ${operation}: the request would split complete UniqueId group(s): ${details}. Recreate or roll back the affected journal before retrying.`,
+    );
   }
 
   private resolveCashOutUniqueIdGroupKey(line: CashBulkPendingLine): string {
@@ -644,13 +706,19 @@ export class CustomerPaymentJournalService {
       failures.every((failure) => failure.correlated);
 
     if (canUnmarkedRetry) {
-      activeLines = retryableFailures.map((failure) => {
+      const retryLines = retryableFailures.map((failure) => {
         const pendingLine = activeLines[failure.requestIndex];
         return {
           ...pendingLine,
           body: this.buildUnmarkedCashLine(pendingLine.body),
         };
       });
+      this.assertCompleteUniqueIdGroupSelection(
+        activeLines,
+        retryLines,
+        `retry request ${batch.number}/${batch.total} for journal ${headerKey} without invoice marks`,
+      );
+      activeLines = retryLines;
       const retryResult = await this.postCustomCashLines(
         endpoint,
         activeLines.map((line) => line.body),

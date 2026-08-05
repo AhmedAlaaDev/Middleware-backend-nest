@@ -516,6 +516,82 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ]);
     });
 
+    it('keeps different vendor accounts separate while sharing one payment offset', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480003,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-A',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 600,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-A',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480003,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vendor',
+          ACCOUNTDISPLAYVALUE: 'VEND-B',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 400,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-B',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 480003,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('480003', rawLines);
+
+      expect(dfoLines).toHaveLength(2);
+      expect(dfoLines).toEqual([
+        expect.objectContaining({
+          AccountDisplayValue: 'VEND-A',
+          DebitAmount: 600,
+          OffsetAccountDisplayValue: 'BANK-001',
+          PaymentId: '480003',
+          MarkedLines: [expect.objectContaining({ InvoiceNumber: 'INV-A' })],
+        }),
+        expect.objectContaining({
+          AccountDisplayValue: 'VEND-B',
+          DebitAmount: 400,
+          OffsetAccountDisplayValue: 'BANK-001',
+          PaymentId: '480003',
+          MarkedLines: [expect.objectContaining({ InvoiceNumber: 'INV-B' })],
+        }),
+      ]);
+      expect(
+        dfoLines.reduce(
+          (total: number, line: any) => total + line.DebitAmount,
+          0,
+        ),
+      ).toBe(1000);
+    });
+
     it('does not emit MarkedLines for Custody Settlement vendor lines', () => {
       const processor = createProcessor();
       jest

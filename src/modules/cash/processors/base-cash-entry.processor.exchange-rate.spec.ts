@@ -107,6 +107,29 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
     );
   });
 
+  it('marks an unbalanced UniqueId before it can be posted to D365', async () => {
+    const { cashOutExchangeRateService, processor } = createProcessor([
+      {
+        RateTypeName: 'Default',
+        FromCurrency: 'USD',
+        ToCurrency: 'EGP',
+        StartDate: '2026-03-01T12:00:00Z',
+        EndDate: '2026-03-31T12:00:00Z',
+        Rate: 48.75,
+      },
+    ]);
+    const group = buildGroup('USD', '2026-03-20', 999999);
+    group[1].CREDITAMOUNT = 90;
+    const context = await cashOutExchangeRateService.load('m-p', group);
+
+    const unbalanced = (processor as any).checkInvoiceBalancedAfterFx(
+      new Map([['2047', group]]),
+      context,
+    );
+    expect(unbalanced).toEqual(new Set(['2047']));
+    expect((processor as any).unbalancedUniqueIds).toContain('2047');
+  });
+
   it('adds a specific line validation and avoids fallback/unbalanced noise when no period matches', async () => {
     const { cashOutExchangeRateService, processor } = createProcessor([]);
     const group = buildGroup('USD', '2026-03-20', 48.75);
@@ -153,7 +176,7 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
       toCurrency: 'USD',
       startDate: '2026-03-01',
       endDate: '2026-03-31',
-      useCache: false,
+      useCache: true,
     });
     expect(line.ExchRate).toBe(100);
     expect(line.ReportingCurrencyExchRate).toBe(0.02);

@@ -56,7 +56,7 @@ export const CASH_OUT_TEMPLATE_HEADERS = [
 
 @Injectable()
 export class CashOutTemplateValidationService {
-  public assertSupported(headers: string[]): void {
+  public getValidationErrors(headers: string[]): string[] {
     const normalized = headers.map((header) => String(header ?? '').trim());
     const counts = new Map<string, number>();
     for (const header of normalized) {
@@ -80,7 +80,7 @@ export class CashOutTemplateValidationService {
       duplicates.length === 0 &&
       blankHeaderCount === 0
     ) {
-      return;
+      return [];
     }
 
     const details = [
@@ -90,8 +90,13 @@ export class CashOutTemplateValidationService {
       blankHeaderCount ? `${blankHeaderCount} blank column header(s)` : '',
     ].filter(Boolean);
 
-    throw new BadRequestException(
+    return [
       `Unsupported Cash Out Excel template (${details.join('; ')}). Use one of the approved 51-column Cash Out templates without changing its headers.`,
-    );
+    ];
+  }
+
+  public assertSupported(headers: string[]): void {
+    const [validationError] = this.getValidationErrors(headers);
+    if (validationError) throw new BadRequestException(validationError);
   }
 }

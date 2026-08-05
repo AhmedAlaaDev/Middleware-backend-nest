@@ -51,4 +51,15 @@ describe('CashOutTemplateValidationService - PBI 2063', () => {
       expect(message).toContain('blank column header');
     }
   });
+
+  it('returns a file-level validation error for the Fleet CloseDate column', () => {
+    const errors = service.getValidationErrors([
+      ...CASH_OUT_TEMPLATE_HEADERS,
+      'CloseDate',
+    ]);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unsupported columns: CloseDate');
+    expect(errors[0]).toContain('approved 51-column Cash Out templates');
+  });
 });
