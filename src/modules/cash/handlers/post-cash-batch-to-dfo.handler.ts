@@ -524,7 +524,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         // TODO: mapping is unknown; keeping empty until confirmed.
         PAYMENTSPECIFICATION: '',
 
-        PostingProfile: this.resolvePostingProfile(line.PostingProfile, route),
+        PostingProfile: this.resolvePostingProfile(
+          line.PostingProfile,
+          accountTypeStr,
+        ),
 
         TaxGroup:
           cashDirection === 'out'
@@ -594,12 +597,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private resolvePostingProfile(
     sourceProfile: string | undefined,
-    route: CashJournalRoute | undefined,
+    accountType: TSLedgerJournalCustomAccountTypeStr,
   ): string {
+    // Posting profiles belong to subledger accounts only. Sending V-PP for a
+    // primary RCash/Bank/Ledger line makes FO look up that account in the
+    // vendor posting profile (for example, "PSD EG" in V-PP) and the journal
+    // cannot be posted.
+    if (accountType !== 'Vendor' && accountType !== 'Cust') return '';
+
     const fromSource = String(sourceProfile ?? '').trim();
     if (fromSource) return fromSource;
-    if (!route) return '';
-    return route.module === 'AR' ? 'Cust-PP' : 'V-PP';
+    return accountType === 'Cust' ? 'Cust-PP' : 'V-PP';
   }
 
   private normalizeTransDateForCustomApi(dateIsoString: string): string {

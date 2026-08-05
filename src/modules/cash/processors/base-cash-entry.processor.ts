@@ -806,6 +806,30 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
   }
 
+  protected resolvePostingProfileForAccount(
+    accountType: unknown,
+    ...sourceProfiles: Array<string | null | undefined>
+  ): string {
+    const rawAccountType =
+      typeof accountType === 'string' || typeof accountType === 'number'
+        ? String(accountType)
+        : '';
+    const normalized = rawAccountType.trim().toLowerCase().replace(/\s+/g, '');
+    const isVendor = normalized === 'vend' || normalized === 'vendor';
+    const isCustomer = normalized === 'cust' || normalized === 'customer';
+
+    // RCash/Petty cash, Bank, and Ledger accounts are posted directly and do
+    // not use AP/AR posting profiles. A vendor profile on those primary lines
+    // causes FO to search for the cash account inside V-PP.
+    if (!isVendor && !isCustomer) return '';
+
+    const fromSource = sourceProfiles
+      .map((profile) => String(profile ?? '').trim())
+      .find(Boolean);
+    if (fromSource) return fromSource;
+    return isCustomer ? 'Cust-PP' : 'V-PP';
+  }
+
   protected getCollectionDescriptionLabel(): string {
     return this.isTrucking() ? 'Fleet' : 'Freight';
   }
@@ -1424,12 +1448,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: offsetLine.ITEMSALESTAXGROUP,
       ItemWithholdingTaxGroupCode: offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
-      PostingProfile:
-        accountLine.POSTINGPROFILE?.trim() ||
-        offsetLine.POSTINGPROFILE?.trim() ||
-        (this.resolveCashOutJournalRoute(accountLine.SafeType)?.module === 'AR'
-          ? 'Cust-PP'
-          : 'V-PP'),
+      PostingProfile: this.resolvePostingProfileForAccount(
+        accountLine.ACCOUNTTYPE,
+        accountLine.POSTINGPROFILE,
+        offsetLine.POSTINGPROFILE,
+      ),
       Invoice: markedInvoice,
       MarkedInvoice: markedInvoice,
       dataAreaId: this.company,
@@ -1677,12 +1700,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
         offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
-      PostingProfile:
-        accountLine.POSTINGPROFILE?.trim() ||
-        offsetLine.POSTINGPROFILE?.trim() ||
-        (this.resolveCashOutJournalRoute(accountLine.SafeType)?.module === 'AR'
-          ? 'Cust-PP'
-          : 'V-PP'),
+      PostingProfile: this.resolvePostingProfileForAccount(
+        accountLine.ACCOUNTTYPE,
+        accountLine.POSTINGPROFILE,
+        offsetLine.POSTINGPROFILE,
+      ),
       Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
       MarkedLines: markedLines,
@@ -1807,9 +1829,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : undefined;
     const hasSettlementTarget = Boolean(
       markedLine &&
-        (markedLine.InvoiceNumber ||
-          markedLine.DocumentNumber ||
-          markedLine.OperationNumber),
+      (markedLine.InvoiceNumber ||
+        markedLine.DocumentNumber ||
+        markedLine.OperationNumber),
     );
     const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
     const markedInvoice =
@@ -1880,9 +1902,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             ''
           : '',
       OffsetCompany: this.company,
-      PostingProfile:
-        sourceLine.POSTINGPROFILE?.trim() ||
-        (route?.module === 'AR' ? 'Cust-PP' : 'V-PP'),
+      PostingProfile: this.resolvePostingProfileForAccount(
+        sourceLine.ACCOUNTTYPE,
+        sourceLine.POSTINGPROFILE,
+      ),
       Invoice: this.sanitizeInvoiceOutbound(
         sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),

@@ -242,6 +242,79 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
+  it.each([
+    ['Petty cash', 'RCash'],
+    ['RCash', 'RCash'],
+    ['Bank', 'Bank'],
+    ['Ledger', 'Ledger'],
+  ])(
+    'clears an inherited posting profile for a primary %s account',
+    (sourceAccountType, expectedAccountType) => {
+      const handler = buildHandler();
+      const route = new CashJournalRoutingService().resolve({
+        safeType: 'Custody Issue',
+        targetProcessor: 'Freight',
+      });
+
+      const [mapped] = (handler as any).mapLines(
+        [
+          {
+            data: {
+              AccountType: sourceAccountType,
+              AccountDisplayValue: 'PSD EG',
+              TransactionDate: '2026-01-01',
+              CreditAmount: 100,
+              DebitAmount: 0,
+              CurrencyCode: 'EGP',
+              SafeType: 'Custody Issue',
+              PostingProfile: 'V-PP',
+            },
+          },
+        ],
+        'm-p',
+        'out',
+        route,
+      );
+
+      expect(mapped.customLineApiBody).toMatchObject({
+        AccountNum: 'PSD EG',
+        accountTypeStr: expectedAccountType,
+        PostingProfile: '',
+      });
+    },
+  );
+
+  it.each([
+    ['Vend', 'Vendor', 'V-PP'],
+    ['Cust', 'Cust', 'Cust-PP'],
+  ])(
+    'defaults a primary %s account to its subledger posting profile',
+    (sourceAccountType, expectedAccountType, expectedProfile) => {
+      const handler = buildHandler();
+      const [mapped] = (handler as any).mapLines(
+        [
+          {
+            data: {
+              AccountType: sourceAccountType,
+              AccountDisplayValue: 'ACCOUNT-001',
+              TransactionDate: '2026-01-01',
+              CreditAmount: 100,
+              DebitAmount: 0,
+              CurrencyCode: 'EGP',
+            },
+          },
+        ],
+        'm-p',
+        'out',
+      );
+
+      expect(mapped.customLineApiBody).toMatchObject({
+        accountTypeStr: expectedAccountType,
+        PostingProfile: expectedProfile,
+      });
+    },
+  );
+
   it('keeps PAYMENTMETHODNAME empty for Petty cash when Excel has no payment method', () => {
     const handler = buildHandler();
 
@@ -895,7 +968,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.VendorGroup).toBe('Custody');
-    expect(body.FinTagStr).toBe('O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|');
+    expect(body.FinTagStr).toBe(
+      'O26-IMP-OC-1|ME_Q-20251239129-IMP-FCL|Sl-000010|',
+    );
     // Custody Settlement multi-line rows are main-account-only; offset fields
     // are omitted from the FO body.
     expect(body.MarkedLines).toEqual([]);

@@ -107,6 +107,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted[1]).toMatchObject({
       AccountType: 'Petty cash',
       AccountDisplayValue: 'SAFE-001',
+      PostingProfile: '',
       CreditAmount: 100,
       DebitAmount: 0,
     });
