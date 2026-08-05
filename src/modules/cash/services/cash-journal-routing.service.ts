@@ -29,7 +29,7 @@ export interface CashJournalRoute {
     | 'DownPayment'
     | 'CN';
   targetProcessor?: CashTargetProcessor;
-  journalName: 'P-Fleet' | 'P-Freight' | 'CustSettle' | 'CashOut' | 'Cust-Pay';
+  journalName: 'P-Fleet' | 'P-Freight' | 'CashOut' | 'Cust-Pay';
   headerApi: CashJournalHeaderApi;
   lineDirection: 'in' | 'out';
 }
@@ -54,8 +54,8 @@ export class CashJournalRoutingError extends Error {
 /**
  * Cash-out journal header routing from the configurable lookup table.
  *
- * Safe Type chooses the D365 journal module. Target Processor is required only
- * for Vendor Payment; Custody Settlement / Custody Issue / Any-routes ignore it.
+ * Safe Type chooses the D365 journal module. Target Processor is required for
+ * all AP routes; GL and AR routes ignore it.
  */
 @Injectable()
 export class CashJournalRoutingService {

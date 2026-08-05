@@ -116,7 +116,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       case EntryProcessorTypes.CashOutTrucking:
         return 'Fleet';
       default:
-        // Task 2045 uses Target Processor only for outbound Vendor Payment.
+        // Inbound routes are processor-agnostic. Every outbound AP route gets
+        // its processor from the batch's Freight/Fleet entry processor type.
         return undefined;
     }
   }
@@ -460,8 +461,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // (EGP = 100, USD≈4765). ReportingCurrencyExchRate is stored as a ratio
       // and scaled * 100 for the custom contract (USD reporting = 100).
       const exchangeRate = Number(line.ExchangeRate || line.ExchRate || 0);
-      const reportingExchangeRate =
-        (line.ReportingCurrencyExchRate || 0) * 100;
+      const reportingExchangeRate = (line.ReportingCurrencyExchRate || 0) * 100;
 
       // Dates before currency/rates: if FO assigns fields in JSON order,
       // TransDate must be present before CurrencyCode triggers rate lookup.
@@ -615,7 +615,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   }
 
   private stripBidiMarks(value: string): string {
-    return value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
+    return value.replace(
+      /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g,
+      '',
+    );
   }
 
   private toDefaultDimensionDisplayValue(
@@ -774,7 +777,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private validateLine(
     line: D365FOCustomerPaymentJournalLineRequest,
-    route?: CashJournalRoute,
+    _route?: CashJournalRoute,
   ): string[] {
     const missingFields: string[] = [];
 

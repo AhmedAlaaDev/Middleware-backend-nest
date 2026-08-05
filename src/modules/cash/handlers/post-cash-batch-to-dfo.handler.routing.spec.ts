@@ -87,13 +87,37 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
   };
 
   it.each([
-    [EntryProcessorTypes.CashOutFreight, 'Freight', 'P-Freight'],
-    [EntryProcessorTypes.CashOutTrucking, 'Fleet', 'P-Fleet'],
+    [
+      EntryProcessorTypes.CashOutFreight,
+      'Vendor Payment',
+      'Freight',
+      'P-Freight',
+    ],
+    [EntryProcessorTypes.CashOutTrucking, 'Vendor Payment', 'Fleet', 'P-Fleet'],
+    [
+      EntryProcessorTypes.CashOutFreight,
+      'Custody Settlement',
+      'Freight',
+      'P-Freight',
+    ],
+    [
+      EntryProcessorTypes.CashOutTrucking,
+      'Custody Settlement',
+      'Fleet',
+      'P-Fleet',
+    ],
+    [
+      EntryProcessorTypes.CashOutFreight,
+      'Custody Issue',
+      'Freight',
+      'P-Freight',
+    ],
+    [EntryProcessorTypes.CashOutTrucking, 'Custody Issue', 'Fleet', 'P-Fleet'],
   ] as const)(
-    'routes Vendor Payment processor %s to AP %s',
-    async (entryProcessorType, targetProcessor, journalName) => {
+    'routes %s / %s through the configured AP payment journal',
+    async (entryProcessorType, safeType, targetProcessor, journalName) => {
       const { handler, queueService } = buildHandler(entryProcessorType, [
-        makeLine(),
+        makeLine({ SafeType: safeType }),
       ]);
 
       await handler.execute({ batchId: 'batch-2045' } as any);
@@ -115,6 +139,7 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
         expect.objectContaining({
           kind: 'vendor-invoice',
           module: 'AP',
+          safeType,
           targetProcessor,
           journalName,
           headerApi: 'VendorPaymentJournalHeaders',
@@ -125,7 +150,7 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
         JournalBatchNumber: 'Mesco-000000001',
       });
       expect(groups[0].lines[0].cashDirection).toBe('out');
-      expect(groups[0].lines[0].customLineApiBody).not.toHaveProperty(
+      expect(groups[0].lines[0].customLineApiBody).toHaveProperty(
         'ExchangeRate',
       );
       expect(groups[0].lines[0].customLineApiBody).not.toHaveProperty(
@@ -199,7 +224,7 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(groups[2].route.lineDirection).toBe('in');
   });
 
-  it('routes Custody Settlement through GL CustSettle / LedgerJournalHeaders', async () => {
+  it('routes Freight Custody Settlement through AP P-Freight', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,
       [
@@ -217,18 +242,19 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     const groups = queueService.addDurableJob.mock.calls[0][3];
     expect(groups).toHaveLength(1);
     expect(groups[0].route).toMatchObject({
-      kind: 'ledger',
-      module: 'GL',
+      kind: 'vendor-invoice',
+      module: 'AP',
       safeType: 'Custody Settlement',
-      journalName: 'CustSettle',
-      headerApi: 'LedgerJournalHeaders',
+      targetProcessor: 'Freight',
+      journalName: 'P-Freight',
+      headerApi: 'VendorPaymentJournalHeaders',
     });
     expect(groups[0].header).toMatchObject({
-      JournalName: 'CustSettle',
+      JournalName: 'P-Freight',
     });
   });
 
-  it('routes Custody Issue through GL CashOut / LedgerJournalHeaders', async () => {
+  it('routes Freight Custody Issue through AP P-Freight', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,
       [
@@ -246,11 +272,12 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     const groups = queueService.addDurableJob.mock.calls[0][3];
     expect(groups).toHaveLength(1);
     expect(groups[0].route).toMatchObject({
-      kind: 'ledger',
-      module: 'GL',
+      kind: 'vendor-invoice',
+      module: 'AP',
       safeType: 'Custody Issue',
-      journalName: 'CashOut',
-      headerApi: 'LedgerJournalHeaders',
+      targetProcessor: 'Freight',
+      journalName: 'P-Freight',
+      headerApi: 'VendorPaymentJournalHeaders',
     });
   });
 

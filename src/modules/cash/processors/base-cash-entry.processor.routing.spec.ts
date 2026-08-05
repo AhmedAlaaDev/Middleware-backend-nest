@@ -32,8 +32,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   };
 
   it.each([
-    ['Custody Settlement', 'CustSettle'],
-    ['Custody Issue', 'CashOut'],
+    ['Custody Settlement', 'P-Freight'],
+    ['Custody Issue', 'P-Freight'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
@@ -121,7 +121,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     'Custody Settlement',
     'Customer Collection',
   ])(
-    'does not apply vendor-invoice validation to the %s non-AP route',
+    'does not apply invoice-settlement validation to the %s route',
     (safeType) => {
       const processor = createProcessor();
       jest
@@ -630,9 +630,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         'BANK-001',
         '223304-01',
       ]);
-      expect(dfoLines.every((line: any) => !line.OffsetAccountDisplayValue)).toBe(
-        true,
-      );
+      expect(
+        dfoLines.every((line: any) => !line.OffsetAccountDisplayValue),
+      ).toBe(true);
       expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
         true,
       );

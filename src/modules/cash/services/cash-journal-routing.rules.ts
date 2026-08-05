@@ -3,16 +3,15 @@
  * Add/adjust rows here to extend Safe Type coverage without rewriting resolve logic.
  *
  * Acceptance Criteria (task routing):
- * - Vendor Payment Fleet/Freight → AP P-Fleet/P-Freight
- * - Custody Settlement → GL CustSettle (processor ignored)
- * - Custody Issue → GL CashOut (processor ignored)
+ * - Vendor Payment / Custody Settlement / Custody Issue Fleet/Freight
+ *   → AP P-Fleet/P-Freight
  * - Direct / Other → GL CashOut
  * - DownPayment / CN / Customer Collection → AR Cust-Pay
  */
 export type CashJournalRoutingRule =
   | {
       safeTypeToken: string;
-      safeType: 'Vendor Payment';
+      safeType: 'Vendor Payment' | 'Custody Settlement' | 'Custody Issue';
       requiresTargetProcessor: true;
       kind: 'vendor-invoice';
       module: 'AP';
@@ -26,22 +25,17 @@ export type CashJournalRoutingRule =
   | {
       safeTypeToken: string;
       safeType:
-        | 'Custody Settlement'
-        | 'Custody Issue'
         | 'Customer Collection'
         | 'Direct'
         | 'Other'
         | 'DownPayment'
         | 'CN';
       requiresTargetProcessor: false;
-      kind: 'vendor-invoice' | 'ledger' | 'customer-payment';
-      module: 'AP' | 'GL' | 'AR';
-      headerApi:
-        | 'VendorPaymentJournalHeaders'
-        | 'LedgerJournalHeaders'
-        | 'CustomerPaymentJournalHeaders';
+      kind: 'ledger' | 'customer-payment';
+      module: 'GL' | 'AR';
+      headerApi: 'LedgerJournalHeaders' | 'CustomerPaymentJournalHeaders';
       lineDirection: 'in' | 'out';
-      journalName: 'CustSettle' | 'CashOut' | 'Cust-Pay';
+      journalName: 'CashOut' | 'Cust-Pay';
     };
 
 export const CASH_JOURNAL_ROUTING_RULES: readonly CashJournalRoutingRule[] = [
@@ -61,22 +55,28 @@ export const CASH_JOURNAL_ROUTING_RULES: readonly CashJournalRoutingRule[] = [
   {
     safeTypeToken: 'custodysettlement',
     safeType: 'Custody Settlement',
-    requiresTargetProcessor: false,
-    kind: 'ledger',
-    module: 'GL',
-    headerApi: 'LedgerJournalHeaders',
+    requiresTargetProcessor: true,
+    kind: 'vendor-invoice',
+    module: 'AP',
+    headerApi: 'VendorPaymentJournalHeaders',
     lineDirection: 'out',
-    journalName: 'CustSettle',
+    journalByProcessor: {
+      Fleet: 'P-Fleet',
+      Freight: 'P-Freight',
+    },
   },
   {
     safeTypeToken: 'custodyissue',
     safeType: 'Custody Issue',
-    requiresTargetProcessor: false,
-    kind: 'ledger',
-    module: 'GL',
-    headerApi: 'LedgerJournalHeaders',
+    requiresTargetProcessor: true,
+    kind: 'vendor-invoice',
+    module: 'AP',
+    headerApi: 'VendorPaymentJournalHeaders',
     lineDirection: 'out',
-    journalName: 'CashOut',
+    journalByProcessor: {
+      Fleet: 'P-Fleet',
+      Freight: 'P-Freight',
+    },
   },
   {
     safeTypeToken: 'customercollection',

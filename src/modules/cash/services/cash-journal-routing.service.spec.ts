@@ -44,23 +44,27 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
     },
     {
       safeType: 'Custody Settlement',
+      targetProcessor: 'Fleet',
       expected: {
-        kind: 'ledger',
-        module: 'GL',
+        kind: 'vendor-invoice',
+        module: 'AP',
         safeType: 'Custody Settlement',
-        journalName: 'CustSettle',
-        headerApi: 'LedgerJournalHeaders',
+        targetProcessor: 'Fleet',
+        journalName: 'P-Fleet',
+        headerApi: 'VendorPaymentJournalHeaders',
         lineDirection: 'out',
       },
     },
     {
       safeType: 'Custody Issue',
+      targetProcessor: 'Freight',
       expected: {
-        kind: 'ledger',
-        module: 'GL',
+        kind: 'vendor-invoice',
+        module: 'AP',
         safeType: 'Custody Issue',
-        journalName: 'CashOut',
-        headerApi: 'LedgerJournalHeaders',
+        targetProcessor: 'Freight',
+        journalName: 'P-Freight',
+        headerApi: 'VendorPaymentJournalHeaders',
         lineDirection: 'out',
       },
     },
@@ -131,12 +135,12 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
     ['VENDOR-PAYMENT', ' freight ', 'Vendor Payment', 'Freight', 'P-Freight'],
     [
       ' custody_settlement ',
-      undefined,
+      ' fLeEt ',
       'Custody Settlement',
-      undefined,
-      'CustSettle',
+      'Fleet',
+      'P-Fleet',
     ],
-    [' custody_issue ', undefined, 'Custody Issue', undefined, 'CashOut'],
+    [' custody_issue ', ' freight ', 'Custody Issue', 'Freight', 'P-Freight'],
     [
       ' customer_collection ',
       undefined,
@@ -164,8 +168,6 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
   );
 
   it.each([
-    ['Custody Settlement', 'CustSettle'],
-    ['Custody Issue', 'CashOut'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
@@ -198,18 +200,28 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
     },
   );
 
-  it.each([undefined, null, '', '   ', 'Any', 'Air', 'Fleet/Freight'])(
-    'rejects Vendor Payment Target Processor %p',
-    (targetProcessor) => {
-      expect(() =>
-        service.resolve({ safeType: 'Vendor Payment', targetProcessor }),
-      ).toThrow(CashJournalRoutingError);
-      expect(() =>
-        service.resolve({ safeType: 'Vendor Payment', targetProcessor }),
-      ).toThrow(/Vendor Payment requires a valid Target Processor/);
-      expect(() =>
-        service.resolve({ safeType: 'Vendor Payment', targetProcessor }),
-      ).toThrow(/expected Fleet or Freight/);
+  it.each(['Vendor Payment', 'Custody Settlement', 'Custody Issue'])(
+    'rejects invalid Target Processor values for the %s AP route',
+    (safeType) => {
+      for (const targetProcessor of [
+        undefined,
+        null,
+        '',
+        '   ',
+        'Any',
+        'Air',
+        'Fleet/Freight',
+      ]) {
+        expect(() => service.resolve({ safeType, targetProcessor })).toThrow(
+          CashJournalRoutingError,
+        );
+        expect(() => service.resolve({ safeType, targetProcessor })).toThrow(
+          new RegExp(`${safeType} requires a valid Target Processor`),
+        );
+        expect(() => service.resolve({ safeType, targetProcessor })).toThrow(
+          /expected Fleet or Freight/,
+        );
+      }
     },
   );
 });
