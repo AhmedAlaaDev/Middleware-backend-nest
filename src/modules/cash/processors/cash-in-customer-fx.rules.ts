@@ -300,9 +300,9 @@ export function evaluateCashInCustomerFxGroup(options: {
   const emptyResult = (): CashInCustomerFxSpecialCaseResult => ({
     uniqueId,
     matchedPairs: [],
-    consumedLineIds: new Set(),
-    skippedLedgerLineIds: new Set(),
-    residualLineIds: new Set(indexed.map((entry) => entry.id)),
+    consumedLineIds: new Set<string>(),
+    skippedLedgerLineIds: new Set<string>(),
+    residualLineIds: new Set<string>(indexed.map((entry) => entry.id)),
     residualLines: lines,
     validationErrors: [],
     isInvalid: false,
@@ -329,13 +329,13 @@ export function evaluateCashInCustomerFxGroup(options: {
       result: {
         uniqueId,
         matchedPairs: [],
-        consumedLineIds: new Set(),
-        skippedLedgerLineIds: new Set(),
-        residualLineIds: new Set(),
+        consumedLineIds: new Set<string>(),
+        skippedLedgerLineIds: new Set<string>(),
+        residualLineIds: new Set<string>(),
         residualLines: [],
         validationErrors: [validationError],
         isInvalid: true,
-      },
+      } satisfies CashInCustomerFxSpecialCaseResult,
       outputLines: lines,
     };
   };
@@ -485,12 +485,16 @@ export function evaluateCashInCustomerFxGroup(options: {
     };
   }
 
-  const skippedLedgerLineIds = new Set(ledger421103.map((entry) => entry.id));
+  const skippedLedgerLineIds = new Set<string>(
+    ledger421103.map((entry) => entry.id),
+  );
   const residualEntries = indexed.filter(
     (entry) =>
       !consumedLineIds.has(entry.id) && !skippedLedgerLineIds.has(entry.id),
   );
-  const residualLineIds = new Set(residualEntries.map((entry) => entry.id));
+  const residualLineIds = new Set<string>(
+    residualEntries.map((entry) => entry.id),
+  );
   const residualLines = residualEntries.map((entry) => entry.line);
 
   const outputLines = indexed

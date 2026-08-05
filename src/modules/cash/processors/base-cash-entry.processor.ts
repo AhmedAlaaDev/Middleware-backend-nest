@@ -1044,7 +1044,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return failures.map((failure) => {
       const line = new CashEntryDynDataModel(new EntryDimensionsModel(), {
         SourceIds: [failure.uniqueId],
-        SafeType: failure.safeTypes[0] || 'Custody Settlement',
+        SafeType: (failure.safeTypes[0] ||
+          'Custody Settlement') as CashEntryRawDataModel['SafeType'],
         VoucherType: failure.lines[0]?.VoucherType,
       });
       line.AddError(
