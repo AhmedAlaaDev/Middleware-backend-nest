@@ -432,9 +432,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
 
     expect(result[0].customLineApiBody.TaxGroup).toBe('Non-Taxabl');
-    expect(
-      (handler as any).validateLine(result[0]),
-    ).not.toContain(
+    expect((handler as any).validateLine(result[0])).not.toContain(
       'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
     );
   });
@@ -1231,6 +1229,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       [
         {
           data: {
+            PaymentId: 'G1',
             AccountType: 'Vend',
             AccountDisplayValue: 'Su-000068',
             OffsetAccountType: 'Ledger',
@@ -1243,6 +1242,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             MarkedInvoice: '3829',
             Invoice: '3829',
             SettlementTargetType: 'VendorInvoice',
+            // WHT-entry payment line: format may have carried marks, but the
+            // mapper must strip them and append "Unmarked" (Scenario 3).
             MarkedLines: [
               {
                 InvoiceNumber: '3829',
@@ -1255,6 +1256,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         },
         {
           data: {
+            PaymentId: 'G1',
             AccountType: 'Vend',
             AccountDisplayValue: 'Su-000068',
             OffsetAccountType: 'Ledger',
@@ -1286,14 +1288,11 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
 
     expect(result).toHaveLength(2);
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '3829',
-        OperationNumber: 'OP-3829',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    // WHT-entry payment line shares the 223304 UniqueId → intentionally
+    // unmarked with "Unmarked" appended to the transaction description.
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toMatch(/unmarked/i);
+    // 223304 companion stays unmarked but never carries the suffix.
     expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
     expect(result[1].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
       /unmarked/i,
