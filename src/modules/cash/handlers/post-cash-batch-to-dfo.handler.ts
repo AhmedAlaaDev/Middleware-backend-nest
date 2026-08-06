@@ -348,10 +348,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
-    // Custody Settlement UniqueIds that include a 223304 withholding ledger
-    // line must leave vendor MarkedLines empty and append "Unmarked".
-    const custodyUniqueIdsWithWithholding = new Set<string>();
-    if (route?.safeType === 'Custody Settlement') {
+    // UniqueIds that include a 223304 withholding ledger line must leave
+    // vendor MarkedLines empty and append "Unmarked".
+    const uniqueIdsWithWithholding = new Set<string>();
+    if (
+      route?.safeType === 'Custody Settlement' ||
+      route?.safeType === 'Vendor Payment'
+    ) {
       for (const record of lines) {
         const data = record.data;
         const accountType = String(data.AccountType ?? '')
@@ -367,7 +370,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         const uniqueId = String(
           data.PaymentId || data.SourceIds?.[0] || '',
         ).trim();
-        if (uniqueId) custodyUniqueIdsWithWithholding.add(uniqueId);
+        if (uniqueId) uniqueIdsWithWithholding.add(uniqueId);
       }
     }
 
@@ -427,10 +430,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const uniqueId = String(
         line.PaymentId || line.SourceIds?.[0] || '',
       ).trim();
-      const suppressCustodyMarkingForWithholding =
-        route?.safeType === 'Custody Settlement' &&
+      const suppressMarkingForWithholding =
+        (route?.safeType === 'Custody Settlement' ||
+          route?.safeType === 'Vendor Payment') &&
         accountTypeStr === 'Vendor' &&
-        custodyUniqueIdsWithWithholding.has(uniqueId);
+        uniqueIdsWithWithholding.has(uniqueId);
 
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
@@ -439,7 +443,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const routeSupportsMarking =
         route?.safeType === 'Vendor Payment' ||
         route?.safeType === 'Custody Settlement';
-      const markedLines = suppressCustodyMarkingForWithholding
+      const markedLines = suppressMarkingForWithholding
         ? []
         : routeSupportsMarking
           ? line.MarkedLines && line.MarkedLines.length > 0
@@ -478,7 +482,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (suppressCustodyMarkingForWithholding || !markedInvoice) &&
+        (suppressMarkingForWithholding || !markedInvoice) &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
         transactionTextValue = transactionTextValue
@@ -490,7 +494,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (suppressCustodyMarkingForWithholding || !markedInvoice) &&
+        (suppressMarkingForWithholding || !markedInvoice) &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue

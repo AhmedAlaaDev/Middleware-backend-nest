@@ -1503,7 +1503,59 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     });
   });
 
-  it('keeps the current journal and posts unmarked when SpecTrans cites it', async () => {
+  it('deletes the self-cited journal and throws missing-header when SpecTrans cites it with MarkedLines', async () => {
+    const { service, d365foClient, generalJournalService, vendorPaymentJournalService } =
+      buildService();
+
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Failed',
+      Message:
+        'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014382 in company m-p.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000014382',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              company: 'm-p',
+              DocumentNum: 'INV-1',
+              MarkedLines: [
+                {
+                  InvoiceNumber: 'INV-1',
+                  OperationNumber: '',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Vendor Payment - Freight January 2026 (Transfer)',
+              TRANSACTIONTEXT: 'Vendor Payment - Freight January 2026 (Transfer)',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('Journal Mesco-000014382 was not found.');
+
+    expect(generalJournalService.deleteJournalHeader).toHaveBeenCalledWith(
+      'm-p',
+      'Mesco-000014382',
+    );
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+    // Do not unmarked-retry — queue processor recreates header and rematches.
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toMatchObject({
+      MarkedLines: [expect.objectContaining({ InvoiceNumber: 'INV-1' })],
+    });
+  });
+
+  it('posts unmarked when SpecTrans cites the current journal but lines have no settlement marks', async () => {
     const { service, d365foClient, generalJournalService, vendorPaymentJournalService } =
       buildService();
 
@@ -1528,15 +1580,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           customLineApiBody: {
             journalNum: '',
             company: 'm-p',
-            DocumentNum: 'DOC-1',
-            MarkedLines: [
-              {
-                InvoiceNumber: '',
-                OperationNumber: 'OP-1',
-                DocumentNumber: 'DOC-1',
-                HasWithHoldingLine: false,
-              },
-            ],
+            DocumentNum: '',
             PAYMENTNOTES: 'Custody Settlement',
             TRANSACTIONTEXT: 'Custody Settlement',
           },

@@ -1893,19 +1893,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
       PaymentReference: paymentReference,
-      OffsetTransactionText: (() => {
-        let offsetText = hasNotesReceivableBankAccount
-          ? paymentReference
-          : offsetLine.DESCRIPTION || '';
-        if (descriptionSuffix) {
-          if (!offsetText) {
-            offsetText = 'unmarked';
-          } else if (!offsetText.toLowerCase().includes('unmarked')) {
-            offsetText = `${offsetText}${descriptionSuffix}`;
-          }
-        }
-        return offsetText;
-      })(),
       JournalName:
         route?.journalName ?? this.getJournalName(accountLine.SafeType),
       TransDate: transactionDate,

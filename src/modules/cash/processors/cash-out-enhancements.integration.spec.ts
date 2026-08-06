@@ -28,7 +28,17 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
     const processor = new Processor(
       { execute: jest.fn() } as any,
       {
-        queryBus: { execute: jest.fn() },
+        queryBus: {
+          execute: jest.fn().mockImplementation((query: any) => {
+            const accounts = query?.payload?.accountNumbers ?? [];
+            return Promise.resolve({
+              items: accounts.map((account: string) => ({
+                vendorAccountNumber: account,
+                vendorGroupId: 'Custody',
+              })),
+            });
+          }),
+        },
         exchangeRateService: {},
         utilsService: new EntryProcessorUtilsService(),
         dimensionService: new DimensionValidationService(),
@@ -46,7 +56,14 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       .mockResolvedValue(undefined);
     jest
       .spyOn(processor as any, 'validateCashOutSourceAsync')
-      .mockResolvedValue(undefined);
+      .mockImplementation(async (lines: any[]) => {
+        for (const line of lines) {
+          if (line.IsVendor) {
+            line.VendorGroup = 'Custody';
+            line.IsCustodyVendor = true;
+          }
+        }
+      });
     jest
       .spyOn(processor as any, 'fetchVendorInvoiceExistsMap')
       .mockResolvedValue(undefined);

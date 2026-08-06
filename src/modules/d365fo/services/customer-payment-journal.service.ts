@@ -947,17 +947,19 @@ export class CustomerPaymentJournalService {
    * Clear FO SpecTrans marks left by prior cash-out attempts, then rematch.
    *
    * Where the marks come from: earlier `MarkedLines` posts to
-   * `addLedgerJournalTransVendPaym` write SpecTrans rows that cite a Custody
-   * Settlement journal. Failed/partial TTS often leaves those rows behind.
+   * `addLedgerJournalTransVendPaym` write SpecTrans rows that cite a journal.
+   * Failed/partial TTS often leaves those rows behind.
    *
    * Recovery:
    * 1. Delete every *other* journal FO cites (if it still exists), rematch
    *    with MarkedLines.
-   * 2. If marks cite *this* journal, do **not** delete/recreate (that loops
-   *    after the processor already recreated the header). Return failures so
-   *    the caller posts unmarked on the existing journal.
-   * 3. Caller falls back to unmarked (no MarkedLines / DocumentNum) when
-   *    SpecTrans is orphaned.
+   * 2. If marks cite *this* journal and the request still carries settlement
+   *    MarkedLines: delete this journal (releases SpecTrans) and throw a
+   *    missing-header error so the queue processor recreates a fresh journal
+   *    and retries with MarkedLines. Do **not** fall back to unmarked — that
+   *    posts the journal without settlement.
+   * 3. If marks cite *this* journal but the lines have no settlement marks,
+   *    fall through so the caller can unmarked-retry on the existing header.
    *
    * @returns remaining failures after rematch (empty = recovered).
    */
@@ -975,10 +977,11 @@ export class CustomerPaymentJournalService {
       (blocker) =>
         blocker.journalBatchNumber.trim().toLowerCase() !== headerKeyNorm,
     );
-    const selfCited = blockers.some(
+    const selfCitedBlocker = blockers.find(
       (blocker) =>
         blocker.journalBatchNumber.trim().toLowerCase() === headerKeyNorm,
     );
+    const selfCited = Boolean(selfCitedBlocker);
 
     for (const blocker of otherBlockers) {
       this.logger.warn(
@@ -1020,9 +1023,24 @@ export class CustomerPaymentJournalService {
       }
     }
 
+    if (selfCited && this.bulkLinesHaveSettlementMarks(pendingLines)) {
+      const company =
+        selfCitedBlocker?.company ||
+        String(pendingLines[0]?.body?.company ?? '').trim();
+      this.logger.warn(
+        `[CASH-CUSTOM] SpecTrans cites the journal being posted (${headerKey}); deleting it to clear SpecTrans so the header can be recreated and rematched with MarkedLines`,
+      );
+      if (company) {
+        await this.tryDeleteBlockingJournalHeader(company, headerKey);
+      }
+      // Queue processor recreates the header when it sees this shape, then
+      // retries postLinesForHeader with the original MarkedLines intact.
+      throw new Error(`Journal ${headerKey} was not found.`);
+    }
+
     if (selfCited) {
       this.logger.warn(
-        `[CASH-CUSTOM] SpecTrans cites the journal being posted (${headerKey}); keeping the header and falling back to unmarked lines (no delete/recreate loop)`,
+        `[CASH-CUSTOM] SpecTrans cites the journal being posted (${headerKey}); lines have no settlement marks — falling back to unmarked retry`,
       );
     }
 
