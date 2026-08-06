@@ -1234,16 +1234,16 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             AccountDisplayValue: 'Su-000068',
             OffsetAccountType: 'Ledger',
             OffsetAccountDisplayValue: '223201|1101|011|001',
-            DebitAmount: 912,
+            DebitAmount: 888,
             CreditAmount: 0,
             CurrencyCode: 'EGP',
             FinTagDisplayValue: 'OP-3829|TAG',
+            Description: 'Vendor Payment - Freight January 2026 (Transfer)',
+            TransactionText: 'Vendor Payment - Freight January 2026 (Transfer)',
             SafeType: 'Vendor Payment',
             MarkedInvoice: '3829',
             Invoice: '3829',
             SettlementTargetType: 'VendorInvoice',
-            // WHT-entry payment line: format may have carried marks, but the
-            // mapper must strip them and append "Unmarked" (Scenario 3).
             MarkedLines: [
               {
                 InvoiceNumber: '3829',
@@ -1265,12 +1265,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             CreditAmount: 0,
             CurrencyCode: 'EGP',
             FinTagDisplayValue: 'OP-3829|TAG',
+            Description: 'Vendor Payment - Freight January 2026 (Transfer)',
+            TransactionText: 'Vendor Payment - Freight January 2026 (Transfer)',
             SafeType: 'Vendor Payment',
             MarkedInvoice: '3829',
             Invoice: '3829',
             SettlementTargetType: 'VendorInvoice',
-            // Stale format shape: companion still carries marks. Mapper must
-            // strip them so FO does not SpecTrans self-cite in one VendPaym TTS.
             MarkedLines: [
               {
                 InvoiceNumber: '3829',
@@ -1288,12 +1288,23 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
 
     expect(result).toHaveLength(2);
-    // WHT-entry payment line shares the 223304 UniqueId → intentionally
-    // unmarked with "Unmarked" appended to the transaction description.
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
-    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toMatch(/unmarked/i);
-    // 223304 companion stays unmarked but never carries the suffix.
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
+    // Both the normal-payment portion and the 223304 companion keep marks for
+    // the same vendor invoice (split settlement of the original vendor debit).
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: '3829',
+        HasWithHoldingLine: true,
+      }),
+    ]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
+      /unmarked/i,
+    );
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: '3829',
+        HasWithHoldingLine: true,
+      }),
+    ]);
     expect(result[1].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
       /unmarked/i,
     );

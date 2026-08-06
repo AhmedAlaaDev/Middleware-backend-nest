@@ -1232,9 +1232,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorLines = lines.filter(
       (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
     );
+    // Normal payment = non-Vendor, non-223304 credit (Petty Cash / Bank /
+    // Ledger / Cash / …). WHT credits must never be selected as the offset.
     const offsetLines = lines.filter(
       (line) =>
-        Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
+        Number(line.CREDITAMOUNT) > 0 &&
+        !line.IsVendor &&
+        !this.isWithholdingLedgerLine(line),
     );
 
     if (vendorLines.length === 0 || offsetLines.length > 1) {
@@ -1244,7 +1248,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       });
       invalid.AddError(
         'InvalidMapping',
-        `Vendor Payment requires (a) one or more debit Vendor lines with either one credit payment offset or none, or (b) Ledger-only main-account-only lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s).`,
+        `Vendor Payment requires (a) one or more debit Vendor lines with either one credit payment offset or none, or (b) Ledger-only main-account-only lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s). UniqueId=${sourceId}.`,
       );
       return [invalid];
     }
@@ -1274,24 +1278,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Vendor Payment offset rule (only when the UniqueId includes 223304
-   * withholding ledger credits):
+   * Vendor Payment offset rule:
    *
    * UniqueId shape: N debit Vendor lines + exactly one non-223304 credit
    * payment offset (+ optional 223304 withholding credits)
    * → one FO journal line per vendor debit line:
    *   - Account = vendor
    *   - Offset = shared payment account (Petty Cash / Bank / Ledger / …)
-   *   - DebitAmount = vendor DEBITAMOUNT − withholding allocated to that vendor
-   *   - CreditAmount = 0
+   *   - DebitAmount = that vendor's DEBITAMOUNT − WHT allocated to it only
+   *   - MarkedLines = vendor invoice
    * → one additional FO journal line per matched 223304 withholding row:
-   *   - Account = matched vendor (exact invoice, then accounting shape)
+   *   - Account = matched vendor (exact invoice → accounting shape → line #)
    *   - Offset = withholding ledger
-   *   - DebitAmount = withholding CREDITAMOUNT (preserved)
-   *   - Each withholding row assigned once only
-   *   - No MarkedLines (settlement stays on the payment line only —
-   *     double-marking the same invoice in one VendPaym TTS makes FO
-   *     reject with "marked for settlement by … this journal")
+   *   - DebitAmount = withholding CREDITAMOUNT (preserved, once only)
+   *   - MarkedLines = same vendor invoice (both portions settle the invoice)
    */
   private mergeVendorPaymentLinesWithOffset(
     sourceId: string,
@@ -1302,64 +1302,70 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): CashEntryDynDataModel[] {
     if (withholdingLines.length > 0) {
       const balanceError = this.validateVendorPaymentWithholdingBalance(
+        sourceId,
         vendorLines,
         paymentOffset,
         withholdingLines,
       );
       if (balanceError) {
-        const invalid = new CashEntryDynDataModel(new EntryDimensionsModel(), {
-          SourceIds: [sourceId],
-          SafeType: 'Vendor Payment',
-        });
-        invalid.AddError('UnbalancedWithholding', balanceError);
-        return [invalid];
+        return [
+          this.buildVendorPaymentValidationError(
+            sourceId,
+            'UnbalancedWithholding',
+            balanceError,
+          ),
+        ];
       }
     }
 
+    const { assignments, error: allocationError } =
+      this.allocateWhtLinesToVendors(sourceId, vendorLines, withholdingLines);
+    if (allocationError) {
+      return [
+        this.buildVendorPaymentValidationError(
+          sourceId,
+          'WithholdingAllocation',
+          allocationError,
+        ),
+      ];
+    }
+
     const results: CashEntryDynDataModel[] = [];
-    const assignments = this.assignWithholdingLinesToVendors(
-      vendorLines,
-      withholdingLines,
-    );
-    const withholdingReductionMap = this.buildWithholdingReductionMap(
-      vendorLines,
-      withholdingLines,
-      assignments,
-    );
 
     for (const vendorLine of vendorLines) {
       const matchedWithholding = assignments.get(vendorLine) ?? [];
+      const vendorWhtTotal = this.roundMoney(
+        matchedWithholding.reduce(
+          (sum, line) =>
+            sum + Number(line.CREDITAMOUNT ?? line.DEBITAMOUNT ?? 0),
+          0,
+        ),
+      );
+      const vendorDebit = this.roundMoney(Number(vendorLine.DEBITAMOUNT ?? 0));
+      const normalPaymentAmount = this.roundMoney(vendorDebit - vendorWhtTotal);
       const primaryWithholding = matchedWithholding[0];
-
-      // Every payment line settling an invoice that carries a 223304 row must
-      // report the withholding (HasWithHoldingLine + IsWithholdingCalculation
-      // Enabled) so D365 applies it to the whole settlement — not just the
-      // vendor that owns the companion FO line. Companion emission is driven
-      // only by `matchedWithholding` (each 223304 row once).
-      const withholdingForMark =
-        primaryWithholding ??
-        this.findWithholdingLine(vendorLine, withholdingLines);
 
       // Payment offset merge: always take the vendor debit amount from the
       // ACCOUNT (vendor) row — never substitute the shared payment credit.
-      // Matched withholding is deducted so the vendor line posts at the net
-      // amount; the 223304 companion below carries the withheld portion.
-      results.push(
-        this.buildLineOutbound(
-          sourceId,
-          vendorLine,
-          paymentOffset,
-          'ACCOUNT',
-          exchangeRateContext,
-          [{ vendorLine, withholdingLine: withholdingForMark }],
-          withholdingReductionMap.get(vendorLine) ?? 0,
-        ),
-      );
+      // Only this vendor's allocated WHT is deducted.
+      if (normalPaymentAmount > 0 || matchedWithholding.length === 0) {
+        results.push(
+          this.buildLineOutbound(
+            sourceId,
+            vendorLine,
+            paymentOffset,
+            'ACCOUNT',
+            exchangeRateContext,
+            [{ vendorLine, withholdingLine: primaryWithholding }],
+            vendorWhtTotal,
+          ),
+        );
+      }
 
       for (const withholdingLine of matchedWithholding) {
-        // Separate FO line for 223304: vendor account + withholding offset,
-        // amount preserved from the withholding credit. Pass [] so this line
-        // does not settle — the payment line above already marked the invoice.
+        // Separate FO line for 223304: vendor account + withholding offset.
+        // Both the payment portion and this WHT portion mark the same vendor
+        // invoice so together they settle the original vendor debit.
         results.push(
           this.buildLineOutbound(
             sourceId,
@@ -1367,80 +1373,191 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             withholdingLine,
             'OFFSET',
             exchangeRateContext,
-            [],
+            [{ vendorLine, withholdingLine }],
           ),
         );
       }
     }
 
+    const generatedError = this.validateGeneratedVendorPaymentAmounts(
+      sourceId,
+      vendorLines,
+      paymentOffset,
+      withholdingLines,
+      results,
+    );
+    if (generatedError) {
+      return [
+        this.buildVendorPaymentValidationError(
+          sourceId,
+          'UnbalancedWithholding',
+          generatedError,
+        ),
+      ];
+    }
+
     return results;
+  }
+
+  private buildVendorPaymentValidationError(
+    sourceId: string,
+    code: string,
+    message: string,
+  ): CashEntryDynDataModel {
+    const invalid = new CashEntryDynDataModel(new EntryDimensionsModel(), {
+      SourceIds: [sourceId],
+      SafeType: 'Vendor Payment',
+    });
+    invalid.AddError(code, message);
+    return invalid;
   }
 
   /**
    * Assign each 223304 withholding credit to exactly one vendor in the group.
    *
-   * Priority 1: exact invoice match (normalizeInvoice; "156" ≠ "1567").
-   * Priority 2: among invoice matches, highest accounting-shape score.
+   * Priority 1: exact invoice match ("156" ≠ "1567").
+   * Priority 2: among invoice matches with remaining capacity, best shape.
    * Priority 3: identical shape → lowest LINENUMBER (deterministic).
-   * Fallback: single-vendor UniqueId may absorb an unmatched withholding row.
+   * Unmatched invoice / over-allocation → validation error (no silent attach).
    */
-  private assignWithholdingLinesToVendors(
+  private allocateWhtLinesToVendors(
+    sourceId: string,
     vendorLines: CashEntryRawDataModel[],
     withholdingLines: CashEntryRawDataModel[],
-  ): Map<CashEntryRawDataModel, CashEntryRawDataModel[]> {
+  ): {
+    assignments: Map<CashEntryRawDataModel, CashEntryRawDataModel[]>;
+    error: string | null;
+  } {
     const assignments = new Map<
       CashEntryRawDataModel,
       CashEntryRawDataModel[]
     >();
+    const remainingCapacity = new Map<CashEntryRawDataModel, number>();
     for (const vendorLine of vendorLines) {
       assignments.set(vendorLine, []);
+      remainingCapacity.set(
+        vendorLine,
+        this.roundMoney(Number(vendorLine.DEBITAMOUNT ?? 0)),
+      );
     }
-    if (withholdingLines.length === 0 || vendorLines.length === 0) {
-      return assignments;
+    if (withholdingLines.length === 0) {
+      return { assignments, error: null };
     }
 
     const orderedWithholding = [...withholdingLines].sort(
       (a, b) => Number(a.LINENUMBER ?? 0) - Number(b.LINENUMBER ?? 0),
     );
+    const consumed = new Set<CashEntryRawDataModel>();
 
     for (const withholdingLine of orderedWithholding) {
+      if (consumed.has(withholdingLine)) {
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: withholding line ` +
+            `${withholdingLine.LINENUMBER} on ` +
+            `${withholdingLine.ACCOUNTDISPLAYVALUE} was consumed more than once.`,
+        };
+      }
+
+      const amount = this.roundMoney(
+        Number(
+          withholdingLine.CREDITAMOUNT ?? withholdingLine.DEBITAMOUNT ?? 0,
+        ),
+      );
+      const withholdingInvoice = this.sanitizeInvoiceOutbound(
+        withholdingLine.INVOICE,
+      );
+      if (!withholdingInvoice) {
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: withholding line ` +
+            `${withholdingLine.LINENUMBER} account=` +
+            `${withholdingLine.ACCOUNTDISPLAYVALUE} has no invoice for matching.`,
+        };
+      }
+
+      const eligible = vendorLines.filter(
+        (vendorLine) =>
+          this.sanitizeInvoiceOutbound(vendorLine.INVOICE) ===
+          withholdingInvoice,
+      );
+      if (eligible.length === 0) {
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: no Vendor line matches ` +
+            `withholding invoice=${withholdingInvoice} ` +
+            `(voucher=${withholdingLine.VOUCHER || ''}, ` +
+            `whtAccount=${withholdingLine.ACCOUNTDISPLAYVALUE}, ` +
+            `whtAmount=${amount}).`,
+        };
+      }
+
+      const withCapacity = eligible.filter(
+        (vendorLine) =>
+          (remainingCapacity.get(vendorLine) ?? 0) + 1e-9 >= amount,
+      );
+
+      if (withCapacity.length === 0) {
+        const vendorSummary = eligible
+          .map(
+            (vendorLine) =>
+              `${vendorLine.ACCOUNTDISPLAYVALUE}/line=${vendorLine.LINENUMBER}/remaining=${remainingCapacity.get(vendorLine)}`,
+          )
+          .join('; ');
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: allocated WHT exceeds ` +
+            `Vendor amount for invoice=${withholdingInvoice}, ` +
+            `whtAmount=${amount}, whtAccount=${withholdingLine.ACCOUNTDISPLAYVALUE}. ` +
+            `Eligible vendors: ${vendorSummary}.`,
+        };
+      }
+
       const selected = this.selectVendorForWithholdingLine(
         withholdingLine,
-        vendorLines,
+        withCapacity,
       );
-      if (!selected) continue;
+      if (!selected) {
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: failed to select a Vendor ` +
+            `for withholding invoice=${withholdingInvoice}.`,
+        };
+      }
+
+      const remaining = remainingCapacity.get(selected) ?? 0;
+      if (remaining + 1e-9 < amount) {
+        return {
+          assignments,
+          error:
+            `Vendor Payment UniqueId=${sourceId}: allocated WHT exceeds ` +
+            `Vendor amount. vendor=${selected.ACCOUNTDISPLAYVALUE}, ` +
+            `vendorAmount=${selected.DEBITAMOUNT}, invoice=${withholdingInvoice}, ` +
+            `whtAmount=${amount}, whtAccount=${withholdingLine.ACCOUNTDISPLAYVALUE}.`,
+        };
+      }
+
+      remainingCapacity.set(selected, this.roundMoney(remaining - amount));
       assignments.get(selected)!.push(withholdingLine);
+      consumed.add(withholdingLine);
     }
 
-    return assignments;
+    return { assignments, error: null };
   }
 
   private selectVendorForWithholdingLine(
     withholdingLine: CashEntryRawDataModel,
-    vendorLines: CashEntryRawDataModel[],
+    eligibleVendors: CashEntryRawDataModel[],
   ): CashEntryRawDataModel | undefined {
-    const withholdingInvoice = this.sanitizeInvoiceOutbound(
-      withholdingLine.INVOICE,
-    );
+    if (eligibleVendors.length === 0) return undefined;
+    if (eligibleVendors.length === 1) return eligibleVendors[0];
 
-    let eligible = withholdingInvoice
-      ? vendorLines.filter(
-          (vendorLine) =>
-            this.sanitizeInvoiceOutbound(vendorLine.INVOICE) ===
-            withholdingInvoice,
-        )
-      : [];
-
-    // Single-vendor UniqueId: allow match when the vendor invoice is blank but
-    // the withholding row carries the settlement invoice (or vice versa).
-    if (eligible.length === 0 && vendorLines.length === 1) {
-      eligible = [...vendorLines];
-    }
-
-    if (eligible.length === 0) return undefined;
-    if (eligible.length === 1) return eligible[0];
-
-    return [...eligible].sort((a, b) => {
+    return [...eligibleVendors].sort((a, b) => {
       const scoreDiff =
         this.scoreVendorWithholdingShape(b, withholdingLine) -
         this.scoreVendorWithholdingShape(a, withholdingLine);
@@ -1465,6 +1582,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     if (same(vendorLine.CURRENCYCODE, withholdingLine.CURRENCYCODE)) score += 1;
     if (same(vendorLine.DOCUMENT, withholdingLine.DOCUMENT)) score += 1;
+    if (same(vendorLine.DOCUMENTDATE, withholdingLine.DOCUMENTDATE)) score += 1;
     if (same(vendorLine.VOUCHER, withholdingLine.VOUCHER)) score += 1;
     if (
       same(vendorLine.ACCOUNTDISPLAYVALUE, withholdingLine.ACCOUNTDISPLAYVALUE)
@@ -1574,96 +1692,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Compute the net withholding reduction per vendor payment line.
-   *
-   * When a 223304 withholding row exists for an invoice, every vendor line
-   * settling that invoice is reduced proportionally so the group posts exactly
-   * (gross − withheld) to the payment offset, while the separate 223304
-   * companion line (assigned once via invoice/shape matching) records the
-   * withheld amount. The rounding remainder is absorbed by the last line so
-   * the total reduction equals the withholding total exactly.
-   *
-   * Assigned withholding that could not be keyed by invoice (e.g. blank
-   * vendor invoice on a single-vendor UniqueId) reduces that vendor directly.
-   */
-  private buildWithholdingReductionMap(
-    vendorLines: CashEntryRawDataModel[],
-    withholdingLines: CashEntryRawDataModel[],
-    assignments?: Map<CashEntryRawDataModel, CashEntryRawDataModel[]>,
-  ): Map<CashEntryRawDataModel, number> {
-    const reductions = new Map<CashEntryRawDataModel, number>();
-
-    const withholdingByInvoice = new Map<string, number>();
-    for (const wLine of withholdingLines) {
-      const invoice = this.sanitizeInvoiceOutbound(wLine.INVOICE);
-      if (!invoice) continue;
-      const amount = Number(wLine.CREDITAMOUNT ?? wLine.DEBITAMOUNT ?? 0);
-      withholdingByInvoice.set(
-        invoice,
-        this.roundMoney((withholdingByInvoice.get(invoice) ?? 0) + amount),
-      );
-    }
-
-    const linesByInvoice = new Map<string, CashEntryRawDataModel[]>();
-    for (const vendorLine of vendorLines) {
-      const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
-      if (!invoice || !withholdingByInvoice.has(invoice)) continue;
-      if (!linesByInvoice.has(invoice)) linesByInvoice.set(invoice, []);
-      linesByInvoice.get(invoice)!.push(vendorLine);
-    }
-
-    for (const [, lines] of linesByInvoice) {
-      const invoice = this.sanitizeInvoiceOutbound(lines[0].INVOICE);
-      const withholdingTotal = withholdingByInvoice.get(invoice)!;
-      const grossTotal = this.roundMoney(
-        lines.reduce((sum, line) => sum + Number(line.DEBITAMOUNT ?? 0), 0),
-      );
-      if (grossTotal <= 0 || withholdingTotal <= 0) continue;
-
-      let applied = 0;
-      lines.forEach((line, index) => {
-        const lineGross = Number(line.DEBITAMOUNT ?? 0);
-        const isLast = index === lines.length - 1;
-        const rawShare = lineGross * (withholdingTotal / grossTotal);
-        const reduction = Math.max(
-          0,
-          Math.min(
-            lineGross,
-            this.roundMoney(isLast ? withholdingTotal - applied : rawShare),
-          ),
-        );
-        applied = this.roundMoney(applied + reduction);
-        reductions.set(line, reduction);
-      });
-    }
-
-    if (assignments) {
-      for (const vendorLine of vendorLines) {
-        if (reductions.has(vendorLine)) continue;
-        const assigned = assignments.get(vendorLine) ?? [];
-        if (assigned.length === 0) continue;
-        const amount = this.roundMoney(
-          assigned.reduce(
-            (sum, line) =>
-              sum + Number(line.CREDITAMOUNT ?? line.DEBITAMOUNT ?? 0),
-            0,
-          ),
-        );
-        reductions.set(
-          vendorLine,
-          Math.max(0, Math.min(Number(vendorLine.DEBITAMOUNT ?? 0), amount)),
-        );
-      }
-    }
-
-    return reductions;
-  }
-
-  /**
    * Source-group balance for Vendor Payment + withholding:
    * totalVendorDebit === totalNormalPaymentCredit + totalWithholdingCredit
    */
   private validateVendorPaymentWithholdingBalance(
+    sourceId: string,
     vendorLines: CashEntryRawDataModel[],
     paymentOffset: CashEntryRawDataModel,
     withholdingLines: CashEntryRawDataModel[],
@@ -1683,18 +1716,93 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const expectedPayment = this.roundMoney(
       totalVendorDebit - totalWithholdingCredit,
     );
+    const difference = this.roundMoney(
+      totalVendorDebit - totalNormalPaymentCredit - totalWithholdingCredit,
+    );
+
+    if (Math.abs(difference) > 0.01) {
+      return (
+        `Vendor Payment UniqueId=${sourceId} is unbalanced: ` +
+        `vendorDebit=${totalVendorDebit}, normalPaymentCredit=${totalNormalPaymentCredit}, ` +
+        `withholdingCredit=${totalWithholdingCredit} ` +
+        `(expected normalPaymentCredit=${expectedPayment}, difference=${difference}).`
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Generated-line balance:
+   * payment portions === payment credit
+   * WHT portions === WHT credit
+   * payment + WHT portions === vendor debit total
+   */
+  private validateGeneratedVendorPaymentAmounts(
+    sourceId: string,
+    vendorLines: CashEntryRawDataModel[],
+    paymentOffset: CashEntryRawDataModel,
+    withholdingLines: CashEntryRawDataModel[],
+    generated: CashEntryDynDataModel[],
+  ): string | null {
+    if (withholdingLines.length === 0) return null;
+
+    const isWhtOffset = (line: CashEntryDynDataModel) =>
+      String(line.OffsetAccountDisplayValue ?? '')
+        .trim()
+        .split('|')[0]
+        .startsWith('223304');
+
+    const generatedPaymentTotal = this.roundMoney(
+      generated
+        .filter((line) => !isWhtOffset(line))
+        .reduce((sum, line) => sum + Number(line.DebitAmount ?? 0), 0),
+    );
+    const generatedWhtTotal = this.roundMoney(
+      generated
+        .filter((line) => isWhtOffset(line))
+        .reduce((sum, line) => sum + Number(line.DebitAmount ?? 0), 0),
+    );
+    const totalVendorDebit = this.roundMoney(
+      vendorLines.reduce((sum, line) => sum + Number(line.DEBITAMOUNT ?? 0), 0),
+    );
+    const totalNormalPaymentCredit = this.roundMoney(
+      Number(paymentOffset.CREDITAMOUNT ?? 0),
+    );
+    const totalWithholdingCredit = this.roundMoney(
+      withholdingLines.reduce(
+        (sum, line) => sum + Number(line.CREDITAMOUNT ?? 0),
+        0,
+      ),
+    );
 
     if (
       !this.areMoneyAmountsEqual(
-        totalVendorDebit,
-        totalNormalPaymentCredit + totalWithholdingCredit,
+        generatedPaymentTotal,
+        totalNormalPaymentCredit,
       )
     ) {
       return (
-        `Vendor Payment with withholding is unbalanced for this UniqueId: ` +
-        `vendorDebit=${totalVendorDebit}, normalPaymentCredit=${totalNormalPaymentCredit}, ` +
-        `withholdingCredit=${totalWithholdingCredit} ` +
-        `(expected normalPaymentCredit=${expectedPayment}).`
+        `Vendor Payment UniqueId=${sourceId}: generated payment portions ` +
+        `${generatedPaymentTotal} do not equal payment credit ${totalNormalPaymentCredit}.`
+      );
+    }
+    if (!this.areMoneyAmountsEqual(generatedWhtTotal, totalWithholdingCredit)) {
+      return (
+        `Vendor Payment UniqueId=${sourceId}: generated WHT portions ` +
+        `${generatedWhtTotal} do not equal WHT credit ${totalWithholdingCredit}.`
+      );
+    }
+    if (
+      !this.areMoneyAmountsEqual(
+        generatedPaymentTotal + generatedWhtTotal,
+        totalVendorDebit,
+      )
+    ) {
+      return (
+        `Vendor Payment UniqueId=${sourceId}: generated vendor portions ` +
+        `${this.roundMoney(generatedPaymentTotal + generatedWhtTotal)} ` +
+        `do not equal vendor debit ${totalVendorDebit}.`
       );
     }
 
@@ -2144,8 +2252,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : legacyRates!.reportingRate;
 
     // `settlements === undefined` → default single mark from accountLine.
-    // `settlements === []` → intentional no settlement (e.g. Vendor Payment
-    // 223304 withholding companion line; payment line already marked).
+    // `settlements === []` → intentional no settlement marks.
+    // Vendor Payment WHT companions pass a settlement so both payment and WHT
+    // portions mark the same vendor invoice.
     const suppressSettlement =
       Array.isArray(settlements) && settlements.length === 0;
     const normalizedSettlements =
@@ -2254,15 +2363,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CreditAmount: 0,
       DebitAmount:
         amountSource === 'ACCOUNT'
-          ? Math.max(
-              0,
-              normalizedSettlements.reduce(
-                (sum, { vendorLine }) =>
-                  sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+          ? this.roundMoney(
+              Math.max(
                 0,
-              ) - withholdingReduction,
+                normalizedSettlements.reduce(
+                  (sum, { vendorLine }) =>
+                    sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+                  0,
+                ) - withholdingReduction,
+              ),
             )
-          : offsetLine.CREDITAMOUNT,
+          : this.roundMoney(Number(offsetLine.CREDITAMOUNT ?? 0)),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ExchangeRate: exchangeRate,

@@ -348,38 +348,24 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
-    // Custody Settlement and Vendor Payment UniqueIds that include a 223304
-    // withholding row must leave vendor MarkedLines empty so the settlement is
-    // intentionally unmarked. Custody keeps the ledger row (AccountDisplayValue
-    // starts with 223304); Vendor Payment converts it to a vendor-accounted
-    // companion line whose ledger offset is 223304.
+    // Custody Settlement UniqueIds that include a 223304 withholding ledger
+    // row leave vendor MarkedLines empty (intentionally unmarked).
+    // Vendor Payment keeps settlement marks on both the normal-payment portion
+    // and the separate Vendor→223304 WHT companion line.
     const uniqueIdsWithWithholding = new Set<string>();
-    if (
-      route?.safeType === 'Custody Settlement' ||
-      route?.safeType === 'Vendor Payment'
-    ) {
+    if (route?.safeType === 'Custody Settlement') {
       for (const record of lines) {
         const data = record.data;
         const accountType = String(data.AccountType ?? '')
-          .trim()
-          .toLowerCase();
-        const offsetAccountType = String(data.OffsetAccountType ?? '')
           .trim()
           .toLowerCase();
         const mainAccount = String(data.AccountDisplayValue ?? '')
           .trim()
           .split('|')[0]
           .trim();
-        const offsetMainAccount = String(data.OffsetAccountDisplayValue ?? '')
-          .trim()
-          .split('|')[0]
-          .trim();
-        const carriesWithholding =
-          (accountType === 'ledger' && mainAccount.startsWith('223304')) ||
-          ((accountType === 'vendor' || accountType === 'vend') &&
-            offsetAccountType === 'ledger' &&
-            offsetMainAccount.startsWith('223304'));
-        if (!carriesWithholding) continue;
+        if (accountType !== 'ledger' || !mainAccount.startsWith('223304')) {
+          continue;
+        }
         const uniqueId = String(
           data.PaymentId || data.SourceIds?.[0] || '',
         ).trim();
@@ -443,26 +429,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const uniqueId = String(
         line.PaymentId || line.SourceIds?.[0] || '',
       ).trim();
-      const offsetMainAccount = String(offsetAccountDisplayValue ?? '')
-        .trim()
-        .split('|')[0]
-        .trim();
-      // Vendor Payment 223304 companion lines must not settle and must not
-      // carry the "Unmarked" suffix (the payment line carries that marker).
-      const isVendorPaymentWithholdingCompanion =
-        route?.safeType === 'Vendor Payment' &&
-        accountTypeStr === 'Vendor' &&
-        offsetAccountTypeStr === 'Ledger' &&
-        offsetMainAccount.startsWith('223304');
-      // Any vendor line whose UniqueId group contains a 223304 withholding row
-      // (Custody Settlement ledger row or Vendor Payment companion) is left
-      // intentionally unmarked; the withholding is posted by the 223304 line.
+      // Custody Settlement UniqueIds with a 223304 ledger row stay unmarked.
+      // Vendor Payment WHT companions keep MarkedLines (same invoice as the
+      // normal-payment portion).
       const suppressMarkingForWithholding =
-        ((route?.safeType === 'Custody Settlement' ||
-          route?.safeType === 'Vendor Payment') &&
-          accountTypeStr === 'Vendor' &&
-          uniqueIdsWithWithholding.has(uniqueId)) ||
-        isVendorPaymentWithholdingCompanion;
+        route?.safeType === 'Custody Settlement' &&
+        accountTypeStr === 'Vendor' &&
+        uniqueIdsWithWithholding.has(uniqueId);
 
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
@@ -507,11 +480,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : [];
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
-      // WHT companion lines are not "unmarked" settlements — skip the suffix.
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !isVendorPaymentWithholdingCompanion &&
         (suppressMarkingForWithholding || !markedInvoice) &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
@@ -524,7 +495,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !isVendorPaymentWithholdingCompanion &&
         (suppressMarkingForWithholding || !markedInvoice) &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
