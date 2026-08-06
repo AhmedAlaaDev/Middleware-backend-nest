@@ -1310,6 +1310,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
       const primaryWithholding = matchedWithholding[0];
 
+      // Every payment line settling an invoice that carries a 223304 row must
+      // report the withholding (HasWithHoldingLine + IsWithholdingCalculation
+      // Enabled) so D365 applies it to the whole settlement — not just the
+      // first line that claimed the row. The claimed row still controls how
+      // many separate 223304 companion FO lines are emitted below.
+      const withholdingForMark =
+        primaryWithholding ??
+        this.findWithholdingLine(vendorLine, withholdingLines);
+
       // Payment offset merge: always take the vendor debit amount from the
       // ACCOUNT (vendor) row — never substitute the shared payment credit.
       // HasWithHoldingLine is set here when a 223304 row exists for the invoice.
@@ -1320,7 +1329,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           paymentOffset,
           'ACCOUNT',
           exchangeRateContext,
-          [{ vendorLine, withholdingLine: primaryWithholding }],
+          [{ vendorLine, withholdingLine: withholdingForMark }],
         ),
       );
 
@@ -1895,7 +1904,24 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     // settle. Keep the payment description without a "- unmarked" suffix.
     const descriptionSuffix =
       !suppressSettlement && !sanitizedInvoice ? ' - unmarked' : '';
-    const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
+    let description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
+
+    // WHT companion (223304) lines: surface the withholding invoice and the
+    // withheld amount in the description so the settlement is traceable.
+    if (suppressSettlement) {
+      const withholdingInvoice = this.sanitizeInvoiceOutbound(
+        offsetLine.INVOICE || accountLine.INVOICE || offsetLine.DOCUMENT,
+      );
+      const withholdingAmount = Number(
+        offsetLine.CREDITAMOUNT ?? offsetLine.DEBITAMOUNT ?? 0,
+      );
+      if (withholdingInvoice) {
+        description = `${description} - Inv ${withholdingInvoice}`;
+      }
+      if (withholdingAmount) {
+        description = `${description} - ${withholdingAmount.toFixed(2)}`;
+      }
+    }
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
     const itemSalesTaxGroup =

@@ -906,6 +906,10 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       // WHT companion must not settle — payment line already marked INV-2055.
       expect(withholdingLine.MarkedLines).toEqual([]);
       expect(withholdingLine.MarkedInvoice).toBe('');
+      // WHT companion description carries the withholding invoice + amount.
+      expect(withholdingLine.Description).toBe(
+        'Vendor Payment - Freight January 2026 (Transfer) - Inv INV-2055 - 50.00',
+      );
     });
 
     it('matches each 223304 withholding credit to its vendor invoice as a separate FO line', () => {
@@ -1036,6 +1040,107 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
             Array.isArray(line.MarkedLines) && line.MarkedLines.length === 0,
         ),
       ).toBe(true);
+    });
+
+    it('marks HasWithHoldingLine on every payment line of an invoice that shares one 223304 row', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 477553,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Sl-000081',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'SHARED-INV',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477553,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Sl-000081',
+          DEBITAMOUNT: 200,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'SHARED-INV',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477553,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Sl-000081',
+          DEBITAMOUNT: 300,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'SHARED-INV',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477553,
+          LINENUMBER: 4,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 6,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'SHARED-INV',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477553,
+          LINENUMBER: 5,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 594,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('477553', rawLines);
+      // 3 payment lines + 1 WHT companion.
+      expect(dfoLines).toHaveLength(4);
+
+      const paymentLines = dfoLines.filter(
+        (line: any) =>
+          !String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      const withholdingLines = dfoLines.filter((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      expect(paymentLines).toHaveLength(3);
+      expect(withholdingLines).toHaveLength(1);
+
+      // Every payment line settling the shared invoice reports withholding.
+      expect(
+        paymentLines.every(
+          (line: any) =>
+            line.MarkedLines[0]?.InvoiceNumber === 'SHARED-INV' &&
+            line.MarkedLines[0].HasWithHoldingLine === true &&
+            String(line.IsWithholdingCalculationEnabled) === 'Yes',
+        ),
+      ).toBe(true);
+      // Only one 223304 companion, and it must not settle (double-mark guard).
+      expect(withholdingLines[0].MarkedLines).toEqual([]);
+      expect(withholdingLines[0].DebitAmount).toBe(6);
     });
 
     it('preserves original vendor amounts for sample UniqueId 466695 shape', () => {
