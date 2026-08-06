@@ -1,3 +1,8 @@
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+
+import { Workbook } from 'exceljs';
+
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/cash-out-freight-entry.processor';
 import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/cash-out-trucking-entry.processor';
@@ -500,14 +505,18 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(dfoLines).toHaveLength(2);
       expect(dfoLines.map((line: any) => line.DebitAmount)).toEqual([600, 400]);
       expect(dfoLines.every((line: any) => line.CreditAmount === 0)).toBe(true);
-      expect(dfoLines.every((line: any) => line.AccountDisplayValue === 'VEND-001')).toBe(
-        true,
-      );
       expect(
-        dfoLines.every((line: any) => line.OffsetAccountDisplayValue === 'BANK-001'),
+        dfoLines.every((line: any) => line.AccountDisplayValue === 'VEND-001'),
+      ).toBe(true);
+      expect(
+        dfoLines.every(
+          (line: any) => line.OffsetAccountDisplayValue === 'BANK-001',
+        ),
       ).toBe(true);
       // Must never copy the payment credit (1000) onto each vendor line.
-      expect(dfoLines.every((line: any) => line.DebitAmount !== 1000)).toBe(true);
+      expect(dfoLines.every((line: any) => line.DebitAmount !== 1000)).toBe(
+        true,
+      );
       expect(dfoLines[0].MarkedLines).toEqual([
         expect.objectContaining({ InvoiceNumber: 'INV-A' }),
       ]);
@@ -796,7 +805,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       );
 
       expect(paymentLine).toMatchObject({
-        DebitAmount: 1000,
+        // Vendor debit 1000 − withholding 50 = 950 (do not keep gross 1000).
+        DebitAmount: 950,
         CreditAmount: 0,
         OffsetAccountDisplayValue: 'BANK-001',
       });
@@ -1006,9 +1016,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
             String(line.OffsetAccountDisplayValue).startsWith('223201'),
         ),
       ).toBe(true);
-      expect(withholdingLines.map((line: any) => line.DebitAmount).sort()).toEqual(
-        [24, 45],
-      );
+      expect(
+        withholdingLines.map((line: any) => line.DebitAmount).sort(),
+      ).toEqual([24, 45]);
       expect(
         withholdingLines.every(
           (line: any) =>
@@ -1158,6 +1168,256 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(withholdingLines[0].DebitAmount).toBe(6);
     });
 
+    it('matches withholding by exact invoice only (156 does not match 1567)', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 477560,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '156',
+          DOCUMENT: 'DOC-A',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477560,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEBITAMOUNT: 200,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '1567',
+          DOCUMENT: 'DOC-B',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477560,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304|1301|013',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 10,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '156',
+          DOCUMENT: 'DOC-A',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477560,
+          LINENUMBER: 4,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty cash',
+          ACCOUNTDISPLAYVALUE: 'PSD EG',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 290,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('477560', rawLines);
+      const paymentLines = dfoLines.filter(
+        (line: any) =>
+          !String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      const withholdingLines = dfoLines.filter((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+
+      expect(paymentLines).toHaveLength(2);
+      expect(withholdingLines).toHaveLength(1);
+      expect(
+        paymentLines.find((line: any) => line.Invoice === '156').DebitAmount,
+      ).toBe(90);
+      expect(
+        paymentLines.find((line: any) => line.Invoice === '1567').DebitAmount,
+      ).toBe(200);
+      expect(withholdingLines[0]).toMatchObject({
+        DebitAmount: 10,
+        OffsetAccountType: 'Ledger',
+      });
+    });
+
+    it('assigns shared-invoice withholding companion by accounting shape, then line number', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 477561,
+          LINENUMBER: 10,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Sl-000081',
+          DEFAULTDIMENSIONDISPLAYVALUE:
+            '|1301|013|001|005|101000001|101000001|Sl-000081|Sl-000081|',
+          FINTAGDISPLAYVALUE: 'OP-OTHER|TAG',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: '17176',
+          INVOICE: '156',
+          VOUCHER: 'V-1',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477561,
+          LINENUMBER: 20,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Sl-000081',
+          DEFAULTDIMENSIONDISPLAYVALUE:
+            '|1301|013|001|005|101000554|101000554|Sl-000081|Sl-000081|16454|3042|5013|Collect|||IMPORT||||',
+          FINTAGDISPLAYVALUE: 'O26-IMP-OC-80|ME_Q-20260140997-IMP-LCL',
+          DEBITAMOUNT: 50,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: '17176',
+          INVOICE: '156',
+          VOUCHER: 'V-1',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477561,
+          LINENUMBER: 30,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '223304|1301|013|001|005|101000554|101000554|Sl-000081|Sl-000081|16454|3042|5013|Collect|||IMPORT||||',
+          FINTAGDISPLAYVALUE: 'O26-IMP-OC-80|ME_Q-20260140997-IMP-LCL',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 6,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: '17176',
+          INVOICE: '156',
+          VOUCHER: 'V-1',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 477561,
+          LINENUMBER: 40,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty cash',
+          ACCOUNTDISPLAYVALUE: 'PSD EG',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 144,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('477561', rawLines);
+      const withholdingLine = dfoLines.find((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      // Companion uses the shape-matched vendor; withholding is still allocated
+      // across every same-invoice vendor so Petty Cash stays at 144.
+      expect(withholdingLine).toMatchObject({
+        AccountDisplayValue: 'Sl-000081',
+        DebitAmount: 6,
+        OffsetAccountType: 'Ledger',
+      });
+      expect(withholdingLine.FinTagDisplayValue).toContain('O26-IMP-OC-80');
+
+      const paymentTotal = dfoLines
+        .filter(
+          (line: any) =>
+            !String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+        )
+        .reduce((sum: number, line: any) => sum + Number(line.DebitAmount), 0);
+      expect(paymentTotal).toBe(144);
+    });
+
+    it('cashout_settel_test UniqueId 477553: Petty Cash + 223304 stay balanced', async () => {
+      const processor = createProcessor();
+      const workbook = new Workbook();
+      await workbook.xlsx.load(
+        (await readFile(join(process.cwd(), 'cashout_settel_test.xlsx'))) as any,
+      );
+      const worksheet = workbook.worksheets[0];
+      const headers: string[] = [];
+      worksheet.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => {
+        headers[col - 1] = String(cell.value ?? '').trim();
+      });
+      const rawLines = [] as CashEntryRawDataModel[];
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const record: Record<string, unknown> = {};
+        headers.forEach((header, index) => {
+          record[header] = row.getCell(index + 1).value;
+        });
+        if (Number(record.UniqueId) !== 477553) return;
+        rawLines.push(new CashEntryRawDataModel(record as any, 'Freight'));
+      });
+
+      expect(rawLines.length).toBeGreaterThan(3);
+      const dfoLines = (processor as any).buildLines('477553', rawLines);
+      expect(
+        dfoLines.every(
+          (line: any) =>
+            !Array.isArray(line.GetErrors?.()) || line.GetErrors().length === 0,
+        ),
+      ).toBe(true);
+
+      const paymentLines = dfoLines.filter(
+        (line: any) =>
+          !String(line.OffsetAccountDisplayValue ?? '')
+            .split('|')[0]
+            .startsWith('223304'),
+      );
+      const withholdingLines = dfoLines.filter((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '')
+          .split('|')[0]
+          .startsWith('223304'),
+      );
+
+      const paymentTotal = paymentLines.reduce(
+        (sum: number, line: any) => sum + Number(line.DebitAmount),
+        0,
+      );
+      const withholdingTotal = withholdingLines.reduce(
+        (sum: number, line: any) => sum + Number(line.DebitAmount),
+        0,
+      );
+
+      expect(withholdingLines).toHaveLength(1);
+      expect(withholdingTotal).toBe(35.99);
+      expect(paymentTotal).toBe(1332);
+      expect(paymentTotal + withholdingTotal).toBe(1367.99);
+      expect(
+        paymentLines.every(
+          (line: any) =>
+            line.OffsetAccountDisplayValue === 'PSD EG' &&
+            line.CreditAmount === 0 &&
+            line.AccountDisplayValue === 'Sl-000081',
+        ),
+      ).toBe(true);
+      expect(withholdingLines[0]).toMatchObject({
+        AccountType: 'Vend',
+        AccountDisplayValue: 'Sl-000081',
+        OffsetAccountType: 'Ledger',
+        CreditAmount: 0,
+      });
+      // Payment credit must never be copied onto each vendor line.
+      expect(paymentLines.every((line: any) => line.DebitAmount !== 1332)).toBe(
+        true,
+      );
+    });
+
     it('preserves original vendor amounts for sample UniqueId 466695 shape', () => {
       const processor = createProcessor();
       jest
@@ -1218,7 +1478,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         ),
       ).toBe(true);
       // Payment credit must not overwrite either vendor debit.
-      expect(dfoLines.every((line: any) => line.DebitAmount !== 555)).toBe(true);
+      expect(dfoLines.every((line: any) => line.DebitAmount !== 555)).toBe(
+        true,
+      );
       // Non-WHT: MarkedLines carries the vendor-line invoice only.
       expect(
         dfoLines
