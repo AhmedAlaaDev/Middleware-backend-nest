@@ -1267,6 +1267,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             MarkedInvoice: '3829',
             Invoice: '3829',
             SettlementTargetType: 'VendorInvoice',
+            // Stale format shape: companion still carries marks. Mapper must
+            // strip them so FO does not SpecTrans self-cite in one VendPaym TTS.
             MarkedLines: [
               {
                 InvoiceNumber: '3829',
@@ -1292,14 +1294,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: true,
       },
     ]);
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '3829',
-        OperationNumber: 'OP-3829',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[1].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
+      /unmarked/i,
+    );
     expect(result[1].customLineApiBody.offsetAccountDisplayValue).toContain(
       '223304',
     );

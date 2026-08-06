@@ -1289,6 +1289,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    *   - Offset = withholding ledger
    *   - DebitAmount = withholding CREDITAMOUNT
    *   - Matched by Invoice
+   *   - No MarkedLines (settlement stays on the payment line only —
+   *     double-marking the same invoice in one VendPaym TTS makes FO
+   *     reject with "marked for settlement by … this journal")
    */
   private mergeVendorPaymentLinesWithOffset(
     sourceId: string,
@@ -1309,6 +1312,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       // Payment offset merge: always take the vendor debit amount from the
       // ACCOUNT (vendor) row — never substitute the shared payment credit.
+      // HasWithHoldingLine is set here when a 223304 row exists for the invoice.
       results.push(
         this.buildLineOutbound(
           sourceId,
@@ -1322,7 +1326,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       for (const withholdingLine of matchedWithholding) {
         // Separate FO line for 223304: vendor account + withholding offset,
-        // amount preserved from the withholding credit.
+        // amount preserved from the withholding credit. Pass [] so this line
+        // does not settle — the payment line above already marked the invoice.
         results.push(
           this.buildLineOutbound(
             sourceId,
@@ -1330,7 +1335,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             withholdingLine,
             'OFFSET',
             exchangeRateContext,
-            [{ vendorLine, withholdingLine }],
+            [],
           ),
         );
       }
@@ -1837,15 +1842,23 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         ? 0
         : legacyRates!.reportingRate;
 
+    // `settlements === undefined` → default single mark from accountLine.
+    // `settlements === []` → intentional no settlement (e.g. Vendor Payment
+    // 223304 withholding companion line; payment line already marked).
+    const suppressSettlement =
+      Array.isArray(settlements) && settlements.length === 0;
     const normalizedSettlements =
-      settlements && settlements.length > 0
-        ? settlements
-        : [{ vendorLine: accountLine }];
-    const markedLines = normalizedSettlements.map(
-      ({ vendorLine, withholdingLine }) =>
-        this.buildMarkedLine(vendorLine, withholdingLine),
-    );
-    const primarySettlement = normalizedSettlements[0];
+      settlements === undefined
+        ? [{ vendorLine: accountLine }]
+        : settlements;
+    const markedLines = suppressSettlement
+      ? []
+      : normalizedSettlements.map(({ vendorLine, withholdingLine }) =>
+          this.buildMarkedLine(vendorLine, withholdingLine),
+        );
+    const primarySettlement = normalizedSettlements[0] ?? {
+      vendorLine: accountLine,
+    };
     const isWithholding =
       normalizedSettlements.some(
         ({ vendorLine, withholdingLine }) =>
@@ -1863,7 +1876,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
         String(offsetLine.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0') ||
       !!(accountLine as any).hasWithholdingReduction ||
-      !!(offsetLine as any).hasWithholdingReduction;
+      !!(offsetLine as any).hasWithholdingReduction ||
+      // Companion 223304 FO lines still need withholding flags even with no marks.
+      suppressSettlement;
 
     const rawInvoice =
       primarySettlement.vendorLine.MARKEDINVOICE ||
@@ -1872,9 +1887,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine.INVOICE ||
       primarySettlement.vendorLine.DOCUMENT ||
       offsetLine.DOCUMENT;
-    const sanitizedInvoice = this.sanitizeInvoiceOutbound(rawInvoice);
+    const sanitizedInvoice = suppressSettlement
+      ? ''
+      : this.sanitizeInvoiceOutbound(rawInvoice);
 
-    const descriptionSuffix = !sanitizedInvoice ? ' - unmarked' : '';
+    // WHT companion lines are not unmarked settlements — they simply do not
+    // settle. Keep the payment description without a "- unmarked" suffix.
+    const descriptionSuffix =
+      !suppressSettlement && !sanitizedInvoice ? ' - unmarked' : '';
     const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';

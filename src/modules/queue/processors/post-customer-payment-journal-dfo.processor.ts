@@ -163,41 +163,44 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             route: routedGroup?.route,
           });
         }
-        try {
-          await postingStrategy.postLinesForHeader(
-            headerId,
-            record.payload.lines,
-            job.data.company,
-            LINE_CHUNK_SIZE,
-          );
-        } catch (error) {
-          // Recreate when FO no longer has this journal — including headers
-          // created earlier in this same attempt that were deleted/rolled back.
-          if (!this.isMissingPersistedHeaderError(error, headerId)) {
-            throw error;
+        // SpecTrans self-cite recovery deletes the journal and throws
+        // "was not found"; recreate and rematch. FO may reuse the same
+        // journal number after delete, so allow a couple of recreates
+        // in-process before bubbling to BullMQ.
+        const maxHeaderRecreates = 2;
+        for (let recreate = 0; ; recreate++) {
+          try {
+            await postingStrategy.postLinesForHeader(
+              headerId,
+              record.payload.lines,
+              job.data.company,
+              LINE_CHUNK_SIZE,
+            );
+            break;
+          } catch (error) {
+            if (
+              recreate >= maxHeaderRecreates ||
+              !this.isMissingPersistedHeaderError(error, headerId)
+            ) {
+              throw error;
+            }
+
+            const staleHeaderKey = headerId;
+            const staleHeaderIndex = created.findIndex(
+              (header) => header.headerKey === staleHeaderKey,
+            );
+            if (staleHeaderIndex >= 0) created.splice(staleHeaderIndex, 1);
+
+            headerId = await this.createAndTrackHeader(
+              postingStrategy,
+              record.payload.header,
+              created,
+              jobId,
+              record.index,
+              job.data.company,
+              routedGroup?.route,
+            );
           }
-
-          const staleHeaderKey = headerId;
-          const staleHeaderIndex = created.findIndex(
-            (header) => header.headerKey === staleHeaderKey,
-          );
-          if (staleHeaderIndex >= 0) created.splice(staleHeaderIndex, 1);
-
-          headerId = await this.createAndTrackHeader(
-            postingStrategy,
-            record.payload.header,
-            created,
-            jobId,
-            record.index,
-            job.data.company,
-            routedGroup?.route,
-          );
-          await postingStrategy.postLinesForHeader(
-            headerId,
-            record.payload.lines,
-            job.data.company,
-            LINE_CHUNK_SIZE,
-          );
         }
         await this.jobs.completeGroup(jobId, record.index);
         completedGroups += 1;

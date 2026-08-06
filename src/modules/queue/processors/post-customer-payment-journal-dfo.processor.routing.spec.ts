@@ -315,6 +315,55 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
   });
 
+  it('recreates again when SpecTrans self-cite deletes the replacement header', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
+      group,
+    ]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'Mesco-000014387',
+        payload: group,
+      },
+    ]);
+    cashStrategy.postHeadersInBatches.mockReset();
+    cashStrategy.postHeadersInBatches
+      .mockResolvedValueOnce({
+        headerIds: ['Mesco-000014388'],
+        responses: [],
+      })
+      .mockResolvedValueOnce({
+        headerIds: ['Mesco-000014389'],
+        responses: [],
+      });
+    cashStrategy.postLinesForHeader.mockReset();
+    cashStrategy.postLinesForHeader
+      .mockRejectedValueOnce(
+        new Error('Journal Mesco-000014387 was not found.'),
+      )
+      .mockRejectedValueOnce(
+        new Error('Journal Mesco-000014388 was not found.'),
+      )
+      .mockResolvedValueOnce([]);
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).toHaveBeenCalledTimes(2);
+    expect(cashStrategy.postLinesForHeader.mock.calls).toEqual([
+      ['Mesco-000014387', group.lines, 'm-p', 20],
+      ['Mesco-000014388', group.lines, 'm-p', 20],
+      ['Mesco-000014389', group.lines, 'm-p', 20],
+    ]);
+    expect(jobs.setCreatedHeader).toHaveBeenLastCalledWith(
+      'job-2045',
+      0,
+      'Mesco-000014389',
+    );
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+  });
+
   it('leaves a header completed by an earlier attempt intact when a later route fails', async () => {
     const completedAp = makeGroup(apRoute, 1);
     const pendingGl = makeGroup(glRoute, 1);

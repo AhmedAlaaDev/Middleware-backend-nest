@@ -348,13 +348,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
-    // UniqueIds that include a 223304 withholding ledger line must leave
-    // vendor MarkedLines empty and append "Unmarked".
+    // Custody Settlement UniqueIds that include a 223304 withholding ledger
+    // line (as the main account) must leave vendor MarkedLines empty.
+    // Vendor Payment keeps settlement on the payment line; 223304 companion
+    // lines are stripped below via offset account, not UniqueId-wide.
     const uniqueIdsWithWithholding = new Set<string>();
-    if (
-      route?.safeType === 'Custody Settlement' ||
-      route?.safeType === 'Vendor Payment'
-    ) {
+    if (route?.safeType === 'Custody Settlement') {
       for (const record of lines) {
         const data = record.data;
         const accountType = String(data.AccountType ?? '')
@@ -430,11 +429,24 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const uniqueId = String(
         line.PaymentId || line.SourceIds?.[0] || '',
       ).trim();
-      const suppressMarkingForWithholding =
-        (route?.safeType === 'Custody Settlement' ||
-          route?.safeType === 'Vendor Payment') &&
+      const offsetMainAccount = String(offsetAccountDisplayValue ?? '')
+        .trim()
+        .split('|')[0]
+        .trim();
+      // Vendor Payment 223304 companion lines must not settle — the payment
+      // line already carries MarkedLines for the invoice. Double-marking in
+      // one VendPaym TTS causes FO SpecTrans self-cite failures.
+      const isVendorPaymentWithholdingCompanion =
+        route?.safeType === 'Vendor Payment' &&
         accountTypeStr === 'Vendor' &&
-        uniqueIdsWithWithholding.has(uniqueId);
+        offsetAccountTypeStr === 'Ledger' &&
+        offsetMainAccount.startsWith('223304');
+      const suppressMarkingForWithholding =
+        ((route?.safeType === 'Custody Settlement' ||
+          route?.safeType === 'Vendor Payment') &&
+          accountTypeStr === 'Vendor' &&
+          uniqueIdsWithWithholding.has(uniqueId)) ||
+        isVendorPaymentWithholdingCompanion;
 
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
@@ -479,9 +491,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : [];
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
+      // WHT companion lines are not "unmarked" settlements — skip the suffix.
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
+        !isVendorPaymentWithholdingCompanion &&
         (suppressMarkingForWithholding || !markedInvoice) &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
@@ -494,6 +508,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
+        !isVendorPaymentWithholdingCompanion &&
         (suppressMarkingForWithholding || !markedInvoice) &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
