@@ -882,7 +882,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(paymentLine).toMatchObject({
         AccountType: 'Vend',
         AccountDisplayValue: 'VEND-001',
-        DebitAmount: 1000,
+        DebitAmount: 950,
         CreditAmount: 0,
         OffsetAccountDisplayValue: 'BANK-001',
         Invoice: 'INV-2055',
@@ -997,7 +997,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       );
 
       expect(paymentLines.map((line: any) => line.DebitAmount).sort()).toEqual([
-        855, 912,
+        810, 888,
       ]);
       expect(
         paymentLines.every(
@@ -1027,8 +1027,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         ]),
       );
       expect([...marksByInvoice.keys()].sort()).toEqual(['3829', '3844']);
-      expect(marksByInvoice.get('3829').DebitAmount).toBe(912);
-      expect(marksByInvoice.get('3844').DebitAmount).toBe(855);
+      expect(marksByInvoice.get('3829').DebitAmount).toBe(888);
+      expect(marksByInvoice.get('3844').DebitAmount).toBe(810);
       expect(
         paymentLines.every(
           (line: any) => line.MarkedLines[0].HasWithHoldingLine === true,
@@ -1128,6 +1128,21 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       );
       expect(paymentLines).toHaveLength(3);
       expect(withholdingLines).toHaveLength(1);
+
+      // Vendor lines post at the net amount (Scenario 3): the shared invoice
+      // is reduced proportionally by the withholding so the group pays exactly
+      // gross − withheld (594 = 600 − 6) to the bank offset.
+      expect(
+        paymentLines
+          .map((line: any) => line.DebitAmount)
+          .sort((a: number, b: number) => a - b),
+      ).toEqual([99, 198, 297]);
+      expect(
+        paymentLines.reduce(
+          (total: number, line: any) => total + line.DebitAmount,
+          0,
+        ),
+      ).toBe(594);
 
       // Every payment line settling the shared invoice reports withholding.
       expect(

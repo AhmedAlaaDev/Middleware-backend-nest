@@ -1291,8 +1291,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    *   - Matched by Invoice
    *   - No MarkedLines (settlement stays on the payment line only —
    *     double-marking the same invoice in one VendPaym TTS makes FO
-   *     reject with "marked for settlement by … this journal")
-   */
+    *     reject with "marked for settlement by … this journal")
+    */
   private mergeVendorPaymentLinesWithOffset(
     sourceId: string,
     vendorLines: CashEntryRawDataModel[],
@@ -1302,6 +1302,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): CashEntryDynDataModel[] {
     const results: CashEntryDynDataModel[] = [];
     const remainingWithholding = [...withholdingLines];
+    const withholdingReductionMap = this.buildWithholdingReductionMap(
+      vendorLines,
+      withholdingLines,
+    );
 
     for (const vendorLine of vendorLines) {
       const matchedWithholding = this.claimWithholdingLines(
@@ -1322,6 +1326,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Payment offset merge: always take the vendor debit amount from the
       // ACCOUNT (vendor) row — never substitute the shared payment credit.
       // HasWithHoldingLine is set here when a 223304 row exists for the invoice.
+      // The matched withholding is deducted from the debit so the vendor line
+      // posts at the net amount (Scenario 3); the 223304 companion line below
+      // carries the withheld portion separately.
       results.push(
         this.buildLineOutbound(
           sourceId,
@@ -1330,6 +1337,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           'ACCOUNT',
           exchangeRateContext,
           [{ vendorLine, withholdingLine: withholdingForMark }],
+          withholdingReductionMap.get(vendorLine) ?? 0,
         ),
       );
 
@@ -1416,6 +1424,72 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     // UniqueId groups usually have one 223304 row for the payment.
     return withholdingLines.length === 1 ? withholdingLines[0] : undefined;
+  }
+
+  /**
+   * Compute the net withholding reduction per vendor payment line.
+   *
+   * When a 223304 withholding row exists for an invoice, every vendor line
+   * settling that invoice is reduced proportionally so the group posts exactly
+   * (gross − withheld) to the payment/bank offset, while the separate 223304
+   * companion line records the withheld amount. The rounding remainder is
+   * absorbed by the last line so the total reduction equals the withholding
+   * total exactly.
+   */
+  private buildWithholdingReductionMap(
+    vendorLines: CashEntryRawDataModel[],
+    withholdingLines: CashEntryRawDataModel[],
+  ): Map<CashEntryRawDataModel, number> {
+    const reductions = new Map<CashEntryRawDataModel, number>();
+
+    const withholdingByInvoice = new Map<string, number>();
+    for (const wLine of withholdingLines) {
+      const invoice = this.sanitizeInvoiceOutbound(
+        wLine.INVOICE || wLine.DOCUMENT,
+      );
+      if (!invoice) continue;
+      const amount = Number(wLine.CREDITAMOUNT ?? wLine.DEBITAMOUNT ?? 0);
+      withholdingByInvoice.set(
+        invoice,
+        (withholdingByInvoice.get(invoice) ?? 0) + amount,
+      );
+    }
+
+    const linesByInvoice = new Map<string, CashEntryRawDataModel[]>();
+    for (const vendorLine of vendorLines) {
+      const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
+      if (!invoice || !withholdingByInvoice.has(invoice)) continue;
+      if (!linesByInvoice.has(invoice)) linesByInvoice.set(invoice, []);
+      linesByInvoice.get(invoice)!.push(vendorLine);
+    }
+
+    for (const [invoice, lines] of linesByInvoice) {
+      const withholdingTotal = withholdingByInvoice.get(invoice)!;
+      const grossTotal = lines.reduce(
+        (sum, line) => sum + Number(line.DEBITAMOUNT ?? 0),
+        0,
+      );
+      if (grossTotal <= 0 || withholdingTotal <= 0) continue;
+
+      let applied = 0;
+      lines.forEach((line, index) => {
+        const lineGross = Number(line.DEBITAMOUNT ?? 0);
+        const isLast = index === lines.length - 1;
+        const rawShare = lineGross * (withholdingTotal / grossTotal);
+        const reduction = Math.max(
+          0,
+          Math.min(
+            lineGross,
+            Math.round((isLast ? withholdingTotal - applied : rawShare) * 100) /
+              100,
+          ),
+        );
+        applied += reduction;
+        reductions.set(line, reduction);
+      });
+    }
+
+    return reductions;
   }
 
   protected caseTwoLines(
@@ -1753,6 +1827,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       vendorLine: CashEntryRawDataModel;
       withholdingLine?: CashEntryRawDataModel;
     }>,
+    withholdingReduction = 0,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -1964,10 +2039,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CreditAmount: 0,
       DebitAmount:
         amountSource === 'ACCOUNT'
-          ? normalizedSettlements.reduce(
-              (sum, { vendorLine }) =>
-                sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+          ? Math.max(
               0,
+              normalizedSettlements.reduce(
+                (sum, { vendorLine }) =>
+                  sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+                0,
+              ) - withholdingReduction,
             )
           : offsetLine.CREDITAMOUNT,
       CurrencyCode: currencyCode,

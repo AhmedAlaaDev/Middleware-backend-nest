@@ -188,7 +188,7 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
           .startsWith('223304'),
       );
       expect(bankPaymentLine).toMatchObject({
-        DebitAmount: 105222,
+        DebitAmount: 104299,
         CreditAmount: 0,
         OffsetAccountType: 'Bank',
         IsWithholdingCalculationEnabled: 'Yes',
