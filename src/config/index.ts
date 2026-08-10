@@ -63,7 +63,7 @@ export const ConfigSchema = Joi.object<IConfig>({
 
   resilience: Joi.object<ResilienceConfig>({
     httpTimeout: Joi.number().default(120000),
-    bulkHttpTimeout: Joi.number().default(600000),
+    bulkHttpTimeout: Joi.number().default(1200000),
     circuitBreaker: Joi.object({
       timeout: Joi.number().default(30000),
       resetTimeout: Joi.number().default(30000),

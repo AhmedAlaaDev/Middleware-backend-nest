@@ -109,7 +109,7 @@ export class CustomerPaymentJournalService {
   ) {
     this.cashOutBulkHttpTimeout =
       configService.get<ResilienceConfig>('resilience')?.bulkHttpTimeout ??
-      600_000;
+      1_200_000;
   }
 
   /**
@@ -384,7 +384,11 @@ export class CustomerPaymentJournalService {
     // Walk UniqueId-group windows so already-posted FO patches stay skipped and
     // retry continues at the first window that still has pending lines. A
     // UniqueId's lines are never split across requests.
-    for (let batchIndex = 0; batchIndex < uniqueIdBatches.length; batchIndex++) {
+    for (
+      let batchIndex = 0;
+      batchIndex < uniqueIdBatches.length;
+      batchIndex++
+    ) {
       const patchNumber = batchIndex + 1;
       const patchLines = uniqueIdBatches[batchIndex];
       const pendingLines = patchLines.filter(
@@ -509,15 +513,18 @@ export class CustomerPaymentJournalService {
 
   private resolveCashOutUniqueIdGroupKey(line: CashBulkPendingLine): string {
     const paymentId = String(
-      line.body.PAYMENTID ?? (line.body as { PaymentId?: string }).PaymentId ?? '',
+      line.body.PAYMENTID ??
+        (line.body as { PaymentId?: string }).PaymentId ??
+        '',
     ).trim();
     // Missing PAYMENTID must not merge unrelated lines into one fake group.
     return paymentId || `__line:${line.lineNumber}`;
   }
 
   private countUniqueIdGroups(lines: CashBulkPendingLine[]): number {
-    return new Set(lines.map((line) => this.resolveCashOutUniqueIdGroupKey(line)))
-      .size;
+    return new Set(
+      lines.map((line) => this.resolveCashOutUniqueIdGroupKey(line)),
+    ).size;
   }
 
   /**
@@ -1054,10 +1061,7 @@ export class CustomerPaymentJournalService {
     for (const failure of failures) {
       const blocker = this.parseMarkedSettlementBlocker(failure.message);
       if (!blocker) continue;
-      blockers.set(
-        `${blocker.company}|${blocker.journalBatchNumber}`,
-        blocker,
-      );
+      blockers.set(`${blocker.company}|${blocker.journalBatchNumber}`, blocker);
     }
     return [...blockers.values()];
   }
@@ -1227,9 +1231,7 @@ export class CustomerPaymentJournalService {
   private bulkLinesHaveSettlementMarks(
     pendingLines: CashBulkPendingLine[],
   ): boolean {
-    return pendingLines.some((line) =>
-      this.lineHasSettlementMarks(line.body),
-    );
+    return pendingLines.some((line) => this.lineHasSettlementMarks(line.body));
   }
 
   private lineHasSettlementMarks(

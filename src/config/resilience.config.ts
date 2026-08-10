@@ -29,7 +29,7 @@ export const resilienceConfig = registerAs(
     bulkHttpTimeout: parseInt(
       process.env.D365FO_BULK_HTTP_TIMEOUT ??
         process.env.HTTP_TIMEOUT ??
-        '600000',
+        '1200000',
       10,
     ),
     circuitBreaker: {

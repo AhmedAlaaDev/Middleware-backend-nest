@@ -59,7 +59,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     };
 
     const configService = {
-      get: jest.fn().mockReturnValue({ bulkHttpTimeout: 600_000 }),
+      get: jest.fn().mockReturnValue({ bulkHttpTimeout: 1_200_000 }),
     };
 
     const service = new CustomerPaymentJournalService(
@@ -245,7 +245,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const [endpoint, body, options] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransVendPaym');
-    expect(options).toEqual({ timeout: 600_000, retries: 0 });
+    expect(options).toEqual({ timeout: 1_200_000, retries: 0 });
     expect(body._contract.Lines).toHaveLength(1);
     const postedLine = body._contract.Lines[0];
     expect(postedLine).toHaveProperty('journalNum', 'JN000123');
