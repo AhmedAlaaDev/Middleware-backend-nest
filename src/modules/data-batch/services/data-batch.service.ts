@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import {
   BadRequestException,
@@ -25,6 +25,7 @@ import {
   MissingMasterDataType,
 } from '@/modules/data-batch/interfaces/data-batch-missing-master-data.interface';
 import {
+  ICreateDataBatch,
   IDataBatch,
   IDataBatchListFilter,
 } from '@/modules/data-batch/interfaces/data-batch.interface';
@@ -66,6 +67,94 @@ export class DataBatchService {
   ) {}
 
   /**
+   * Create a batch once for a given company, processor, and source content.
+   * The read avoids a duplicate-key exception for normal repeat uploads; the
+   * unique database index closes the race when two identical requests arrive
+   * together.
+   */
+  private async createIdempotentDataBatch(
+    data: ICreateDataBatch,
+  ): Promise<{ batch: IDataBatch; created: boolean }> {
+    const sourceFingerprint = data.sourceFingerprint;
+    if (!sourceFingerprint) {
+      return { batch: await this.dataBatchRepo.create(data), created: true };
+    }
+
+    const existing = await this.dataBatchRepo.findBySourceFingerprint(
+      data.company,
+      data.entryProcessorType,
+      sourceFingerprint,
+    );
+    if (existing) {
+      this.logger.warn(
+        `Duplicate upload resolved to existing batch ${existing.id}: company=${data.company} type=${data.entryProcessorType}`,
+      );
+      return { batch: existing, created: false };
+    }
+
+    try {
+      return { batch: await this.dataBatchRepo.create(data), created: true };
+    } catch (error: unknown) {
+      if (!this.isDuplicateKeyError(error)) throw error;
+
+      const concurrentExisting =
+        await this.dataBatchRepo.findBySourceFingerprint(
+          data.company,
+          data.entryProcessorType,
+          sourceFingerprint,
+        );
+      if (!concurrentExisting) throw error;
+
+      this.logger.warn(
+        `Concurrent duplicate upload resolved to existing batch ${concurrentExisting.id}: company=${data.company} type=${data.entryProcessorType}`,
+      );
+      return { batch: concurrentExisting, created: false };
+    }
+  }
+
+  private createSourceFingerprint(rawData: RawDataModel[]): string {
+    const canonicalSource = rawData.map((record) =>
+      this.canonicalizeFingerprintValue(record),
+    );
+    return createHash('sha256')
+      .update(JSON.stringify(canonicalSource))
+      .digest('hex');
+  }
+
+  private canonicalizeFingerprintValue(value: unknown): unknown {
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) {
+      return value.map((item) => this.canonicalizeFingerprintValue(item));
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.keys(value as Record<string, unknown>)
+          .sort()
+          .filter(
+            (key) =>
+              (value as Record<string, unknown>)[key] !== undefined &&
+              typeof (value as Record<string, unknown>)[key] !== 'function',
+          )
+          .map((key) => [
+            key,
+            this.canonicalizeFingerprintValue(
+              (value as Record<string, unknown>)[key],
+            ),
+          ]),
+      );
+    }
+    return value;
+  }
+
+  private isDuplicateKeyError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: number }).code === 11000
+    );
+  }
+
+  /**
    * Stores Cash Out source-validation failures as a regular batch so the
    * existing batch summary and dedicated error page remain the single UI flow.
    */
@@ -82,7 +171,8 @@ export class DataBatchService {
     const validationRunId = randomUUID();
     const actor = this.traceContext.get();
     const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
-    const dataBatch = await this.dataBatchRepo.create({
+    const sourceFingerprint = this.createSourceFingerprint(rawData);
+    const { batch: dataBatch, created } = await this.createIdempotentDataBatch({
       company: companyId,
       entryProcessorType,
       entryProcessorName,
@@ -97,6 +187,7 @@ export class DataBatchService {
       billingCodeId: undefined,
       expectedGroupCount: 0,
       activeValidationRunId: validationRunId,
+      sourceFingerprint,
       createdByUserId: actor?.userId,
       createdByName: actor?.userName,
       createdByEmail: actor?.userEmail,
@@ -104,6 +195,8 @@ export class DataBatchService {
       sourceColumnHeaders:
         sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
     });
+
+    if (!created) return dataBatch;
 
     if (rawData.length > 0) {
       await this.dataSourceRecordRepo.insertMany(
@@ -164,9 +257,10 @@ export class DataBatchService {
     );
 
     const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
+    const sourceFingerprint = this.createSourceFingerprint(rawData);
 
     // Create batch
-    const dataBatch = await this.dataBatchRepo.create({
+    const { batch: dataBatch, created } = await this.createIdempotentDataBatch({
       company: companyId,
       entryProcessorType,
       entryProcessorName,
@@ -179,6 +273,7 @@ export class DataBatchService {
       billingCodeId: billingClassification,
       expectedGroupCount,
       activeValidationRunId: validationRunId,
+      sourceFingerprint,
       createdByUserId: actor?.userId,
       createdByName: actor?.userName,
       createdByEmail: actor?.userEmail,
@@ -188,6 +283,9 @@ export class DataBatchService {
       sourceColumnHeaders:
         sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
     });
+
+    if (!created) return dataBatch;
+
     this.logger.log(`Batch created: id=${dataBatch.id}`);
 
     // Bulk insert source records

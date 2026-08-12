@@ -149,6 +149,9 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
         JournalName: journalName,
         JournalBatchNumber: 'Mesco-000000001',
       });
+      expect(groups[0].integrationMarker).toBe('MW:batch-2045:0');
+      expect(groups[0].header.Description).toContain('[MW:batch-2045:0]');
+      expect(groups[0].header.Description.length).toBeLessThanOrEqual(60);
       expect(groups[0].lines[0].cashDirection).toBe('out');
       expect(groups[0].lines[0].customLineApiBody).toHaveProperty(
         'ExchangeRate',
@@ -204,6 +207,11 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(queueService.addDurableJob).toHaveBeenCalledTimes(1);
     const groups = queueService.addDurableJob.mock.calls[0][3];
     expect(groups).toHaveLength(3);
+    expect(groups.map((group: any) => group.integrationMarker)).toEqual([
+      'MW:batch-2045:0',
+      'MW:batch-2045:1',
+      'MW:batch-2045:2',
+    ]);
     expect(groups.map((group: any) => group.route.headerApi)).toEqual([
       'VendorPaymentJournalHeaders',
       'LedgerJournalHeaders',

@@ -172,7 +172,11 @@ export class QueueService {
       journalKind: metadata.journalKind,
       cashDirection: metadata.cashDirection,
     };
-    const job = await queue.add(jobName, payload, this.durableJobOptions(jobId));
+    const job = await queue.add(
+      jobName,
+      payload,
+      this.durableJobOptions(jobId),
+    );
 
     const submissionStatus = existingJob ? 'requeued' : 'queued';
     await this.operationalLogs.emit({
@@ -400,7 +404,8 @@ export class QueueService {
         batchId: job.batchId,
         company: job.company,
         correlationId: job.correlationId,
-        sourceModule: job.sourceModule as DurablePostingJobPayload['sourceModule'],
+        sourceModule:
+          job.sourceModule as DurablePostingJobPayload['sourceModule'],
         payloadVersion: job.payloadVersion,
         journalKind: job.journalKind as DurablePostingJobPayload['journalKind'],
         cashDirection:
@@ -522,7 +527,9 @@ export class QueueService {
    */
   public async cleanJobs(
     queueName: QueueName,
-    types: Array<'completed' | 'wait' | 'active' | 'delayed' | 'failed' | 'paused'>,
+    types: Array<
+      'completed' | 'wait' | 'active' | 'delayed' | 'failed' | 'paused'
+    >,
   ): Promise<Record<string, number>> {
     const queue = this.getQueue(queueName);
     const removed: Record<string, number> = {};

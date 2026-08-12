@@ -296,7 +296,7 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
       InvoiceDate: line.DOCUMENTDATE,
       IsWithholdingTaxCalculate: isWithholding ? 'Yes' : 'No',
       ItemSalesTaxGroup: line.ITEMSALESTAXGROUP || '',
-      ItemWithholdingTaxGroupCode: line.ITEMWITHHOLDINGTAXGROUPCODE || '',
+      ItemWithholdingTaxGroupCode: '',
       MethodOfPayment: line.PAYMENTMETHOD,
       PaymId: sourceId,
       PostingProfile: line.POSTINGPROFILE,

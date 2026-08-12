@@ -149,4 +149,15 @@ export class VendorPaymentJournalPostingStrategy implements IDfoPostingStrategy 
       dataAreaId,
     );
   }
+
+  public headerExists(headerKey: string, dataAreaId: string): Promise<boolean> {
+    return this.vendorPaymentJournalService.headerExists(headerKey, dataAreaId);
+  }
+
+  public getHeaderIdentity(headerKey: string, dataAreaId: string) {
+    return this.vendorPaymentJournalService.getHeaderIdentity(
+      headerKey,
+      dataAreaId,
+    );
+  }
 }

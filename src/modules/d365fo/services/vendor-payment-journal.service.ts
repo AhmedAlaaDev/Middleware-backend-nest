@@ -11,6 +11,20 @@ import {
 } from '@/modules/d365fo/types';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
+export interface VendorPaymentJournalSettledInvoice {
+  JournalLineCompany: string;
+  JournalBatchNumber: string;
+  JournalLineNumber: number;
+  InvoiceNumber: string;
+  InvoiceCompany: string;
+  InvoiceDueDate: string;
+  InvoiceToPaymentCrossRate: number;
+  SettlementAmountInInvoiceCurrency: number;
+  CashDiscountToTakeInInvoiceCurrency: number;
+  invoiceAccount?: string;
+  AccountDisplayValue?: string;
+}
+
 /**
  * Service for managing vendor payment journals in D365FO
  * (VendorPaymentJournalHeaders / VendorPaymentJournalLines)
@@ -155,6 +169,225 @@ export class VendorPaymentJournalService {
     );
 
     return response.value || [];
+  }
+
+  public async listIntegrityLinesForHeader(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<Array<Record<string, unknown> & { LineNumber: number }>> {
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalLines',
+      {
+        filter,
+        select: [
+          'LineNumber',
+          'AccountDisplayValue',
+          'AccountType',
+          'OffsetAccountDisplayValue',
+          'OffsetAccountType',
+          'CurrencyCode',
+          'DebitAmount',
+          'CreditAmount',
+          'PaymentId',
+          'PaymentReference',
+          'MarkedInvoice',
+          'TransactionText',
+          'FinTagDisplayValue',
+          'OffsetFinTagDisplayValue',
+          'PostingProfile',
+          'TransactionDate',
+          'SettleVoucher',
+        ],
+        top: 10000,
+        crossCompany: true,
+      },
+    );
+    const response = await this.d365foClient.get<
+      Record<string, unknown> & { LineNumber: number }
+    >(query, { useCache: false });
+    return response.value ?? [];
+  }
+
+  /**
+   * Read the actual SpecTrans-backed invoice selections for a vendor payment
+   * journal. VendorPaymentJournalLines.MarkedInvoice is not sufficient: the
+   * custom X++ service can return success while silently leaving one line
+   * unmarked. This child entity is Finance's authoritative settlement state.
+   */
+  public async listSettledInvoicesForHeader(
+    headerKey: string,
+    _dataAreaId: string,
+  ): Promise<VendorPaymentJournalSettledInvoice[]> {
+    // JournalLineCompany is not consistently populated with the data-area ID
+    // by this entity. JournalBatchNumber is the reliable Finance key.
+    const filter = this.queryBuilder.eq('JournalBatchNumber', headerKey);
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      {
+        filter,
+        select: [
+          'JournalLineCompany',
+          'JournalBatchNumber',
+          'JournalLineNumber',
+          'InvoiceNumber',
+          'InvoiceCompany',
+          'InvoiceDueDate',
+          'InvoiceToPaymentCrossRate',
+          'SettlementAmountInInvoiceCurrency',
+          'CashDiscountToTakeInInvoiceCurrency',
+          'invoiceAccount',
+          'AccountDisplayValue',
+        ],
+        top: 10000,
+        crossCompany: true,
+      },
+    );
+    const response =
+      await this.d365foClient.get<VendorPaymentJournalSettledInvoice>(query, {
+        useCache: false,
+      });
+    return response.value ?? [];
+  }
+
+  /** Locate another unposted journal that currently owns an invoice mark. */
+  public async listSettlementOwnersForInvoices(
+    dataAreaId: string,
+    invoiceNumbers: string[],
+  ): Promise<VendorPaymentJournalSettledInvoice[]> {
+    const uniqueInvoices = [
+      ...new Set(
+        invoiceNumbers
+          .map((value) => String(value ?? ''))
+          .filter((value) => Boolean(value.trim())),
+      ),
+    ];
+    if (uniqueInvoices.length === 0) return [];
+
+    // IIS/D365FO rejects very long OData URLs with HTTP 414. Keep each owner
+    // lookup deliberately short even for journals containing hundreds of
+    // invoices, while retaining exact and whitespace variants.
+    const invoiceChunks: string[][] = [];
+    for (let index = 0; index < uniqueInvoices.length; index += 8) {
+      invoiceChunks.push(uniqueInvoices.slice(index, index + 8));
+    }
+
+    const results: VendorPaymentJournalSettledInvoice[] = [];
+    for (let index = 0; index < invoiceChunks.length; index += 4) {
+      const requestGroup = invoiceChunks.slice(index, index + 4);
+      const responses = await Promise.all(
+        requestGroup.map(async (invoiceChunk) => {
+          const invoiceValues = [
+            ...new Set(
+              invoiceChunk.flatMap((value) => {
+                const trimmed = value.trim();
+                return [
+                  value,
+                  trimmed,
+                  ` ${trimmed}`,
+                  `${trimmed} `,
+                  ` ${trimmed} `,
+                ];
+              }),
+            ),
+          ];
+          const invoiceFilter = this.queryBuilder.or(
+            ...invoiceValues.map((invoice) =>
+              this.queryBuilder.eq('InvoiceNumber', invoice),
+            ),
+          );
+          const filter = this.queryBuilder.and(
+            this.queryBuilder.eq('InvoiceCompany', dataAreaId),
+            `(${invoiceFilter})`,
+          );
+          const query = this.queryBuilder.buildQuery(
+            '/data/VendorPaymentJournalLineSettledInvoices',
+            {
+              filter,
+              select: [
+                'JournalLineCompany',
+                'JournalBatchNumber',
+                'JournalLineNumber',
+                'InvoiceNumber',
+                'InvoiceCompany',
+                'InvoiceDueDate',
+                'InvoiceToPaymentCrossRate',
+                'SettlementAmountInInvoiceCurrency',
+                'CashDiscountToTakeInInvoiceCurrency',
+                'invoiceAccount',
+                'AccountDisplayValue',
+              ],
+              top: 10000,
+              crossCompany: true,
+            },
+          );
+          const response =
+            await this.d365foClient.get<VendorPaymentJournalSettledInvoice>(
+              query,
+              { useCache: false },
+            );
+          return response.value ?? [];
+        }),
+      );
+      responses.forEach((response) => results.push(...response));
+    }
+
+    const uniqueResults = new Map<string, VendorPaymentJournalSettledInvoice>();
+    for (const result of results) {
+      uniqueResults.set(
+        `${result.JournalLineCompany}|${result.JournalBatchNumber}|${result.JournalLineNumber}|${result.InvoiceNumber}`,
+        result,
+      );
+    }
+    return [...uniqueResults.values()];
+  }
+
+  /** Add only the settlement child record; no payment amount line is reposted. */
+  public async addSettledInvoice(
+    settlement: VendorPaymentJournalSettledInvoice,
+  ): Promise<unknown> {
+    return this.d365foClient.post<VendorPaymentJournalSettledInvoice, unknown>(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      settlement,
+    );
+  }
+
+  public async headerExists(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    return (await this.getHeaderIdentity(headerKey, dataAreaId)) !== null;
+  }
+
+  public async getHeaderIdentity(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<{ JournalBatchNumber: string; Description?: string } | null> {
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalHeaders',
+      {
+        filter,
+        select: ['JournalBatchNumber', 'Description'],
+        top: 1,
+        crossCompany: true,
+      },
+    );
+    const response = await this.d365foClient.get<{
+      JournalBatchNumber: string;
+      Description?: string;
+    }>(query, { useCache: false });
+    return (
+      (response.value ?? []).find(
+        (header) => header.JournalBatchNumber === headerKey,
+      ) ?? null
+    );
   }
 
   /**

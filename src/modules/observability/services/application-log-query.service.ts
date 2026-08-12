@@ -173,10 +173,7 @@ export class ApplicationLogQueryService {
     return this.deleteByQuery(query, confirmAll);
   }
 
-  private async deleteByQuery(
-    query: Record<string, any>,
-    confirmAll?: string,
-  ) {
+  private async deleteByQuery(query: Record<string, any>, confirmAll?: string) {
     if (Object.keys(query).length === 0 && confirmAll !== 'true') {
       throw new BadRequestException(
         'Pass confirmAll=true to delete all application logs',
@@ -200,6 +197,28 @@ export class ApplicationLogQueryService {
       .lean()
       .exec();
   }
+
+  /**
+   * Retrieve all application logs and captured request/response bodies for a batch ID or journal number.
+   */
+  async getLogsByBatchId(batchId: string) {
+    const escaped = this.escapeRegex(batchId);
+    const query = {
+      $or: [
+        { batchId },
+        { 'metadata.batchId': batchId },
+        { correlationId: batchId },
+        { jobId: batchId },
+        { message: { $regex: escaped, $options: 'i' } },
+      ],
+    };
+    return this.model
+      .find(query)
+      .sort({ timestamp: 1, _id: 1 })
+      .lean()
+      .exec();
+  }
+
 
   private buildQuery(filters: ApplicationLogFilters): Record<string, any> {
     const query: Record<string, any> = {};

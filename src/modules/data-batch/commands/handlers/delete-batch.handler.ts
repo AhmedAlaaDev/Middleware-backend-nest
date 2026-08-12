@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -33,9 +32,20 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
 
-    if (batch.status === DataBatchStatus.Posted) {
-      throw new ConflictException(
-        'This batch has already been posted to DFO and cannot be deleted.',
+    const hasDfoJournals = (batch.dfoIds ?? []).some((id) =>
+      Boolean(id.trim()),
+    );
+
+    // Warn when the batch has DFO journals but allow force-deletion
+    if (
+      batch.status === DataBatchStatus.Posting ||
+      batch.status === DataBatchStatus.Posted ||
+      hasDfoJournals
+    ) {
+      this.logger.warn(
+        `Force-deleting batch ${batchId} that has DFO state ` +
+          `(status=${DataBatchStatus[batch.status]}, dfoIds=${(batch.dfoIds ?? []).join(', ')}). ` +
+          `DFO journals will NOT be rolled back automatically.`,
       );
     }
 
@@ -71,7 +81,10 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
       metadata: {
         actorName: actor.name,
         actorEmail: actor.email,
-        deletionMode: 'hard-delete',
+        deletionMode: 'force-hard-delete',
+        hadDfoJournals: hasDfoJournals,
+        dfoIds: batch.dfoIds ?? [],
+        previousStatus: DataBatchStatus[batch.status],
         removedJobIds: discarded.removedJobIds,
         purgedDurableJobIds: discarded.purgedDurableJobIds,
       },

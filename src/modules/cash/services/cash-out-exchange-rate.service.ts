@@ -428,9 +428,7 @@ export class CashOutExchangeRateService {
     const numeric = Number(input);
     if (Number.isFinite(numeric) && numeric > 25000 && numeric < 75000) {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-      const dateFromExcel = new Date(
-        excelEpoch.getTime() + numeric * 86400000,
-      );
+      const dateFromExcel = new Date(excelEpoch.getTime() + numeric * 86400000);
       if (!Number.isNaN(dateFromExcel.getTime())) {
         return dateFromExcel.toISOString().slice(0, 10);
       }

@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 
 async function analyze() {
-  const filePath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST_Report_After_Matching_Version3.xlsx';
+  const filePath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST_Report_After_Matching_Version3.xlsx';
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
@@ -28,9 +29,15 @@ async function analyze() {
     if (rowNumber === 1) return;
     totalIstRows++;
 
-    const payRef = String(row.getCell(headers['PAYMENTREFERENCE'] || 61).value || '').trim();
-    const matchStatus = String(row.getCell(headers['MATCH_STATUS'] || 67).value || '').trim();
-    const matchCase = String(row.getCell(headers['MATCH_CASE'] || 68).value || '').trim();
+    const payRef = String(
+      row.getCell(headers['PAYMENTREFERENCE'] || 61).value || '',
+    ).trim();
+    const matchStatus = String(
+      row.getCell(headers['MATCH_STATUS'] || 67).value || '',
+    ).trim();
+    const matchCase = String(
+      row.getCell(headers['MATCH_CASE'] || 68).value || '',
+    ).trim();
 
     if (payRef !== '') {
       filledReferences++;

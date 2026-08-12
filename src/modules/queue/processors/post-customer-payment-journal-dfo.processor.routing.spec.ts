@@ -46,14 +46,28 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       postHeadersInBatches: jest.fn(),
       postLinesForHeader: jest.fn(),
     };
-    const cashStrategy = {
+    const cashStrategy: any = {
       setRouteContext: jest.fn(),
       postHeadersInBatches: jest
         .fn()
         .mockResolvedValueOnce({ headerIds: ['D365-RET-001'], responses: [] })
         .mockResolvedValueOnce({ headerIds: ['D365-RET-002'], responses: [] }),
       postLinesForHeader: jest.fn().mockResolvedValue([]),
+      getJournalIntegrityState: jest.fn(),
+      repairDuplicatedUnmarkedFallbackLines: jest.fn().mockResolvedValue(false),
+      assertJournalSettlementIntegrity: jest.fn().mockResolvedValue(undefined),
     };
+    cashStrategy.getJournalIntegrityState.mockImplementation(
+      async (headerId: string) => ({
+        headerExists: true,
+        lineCount:
+          headerId.includes('COMPLETED') ||
+          cashStrategy.postLinesForHeader.mock.calls.length > 0
+            ? 1
+            : 0,
+        headerDescription: 'Task 2045 test',
+      }),
+    );
     const batches = {
       getByIdAsync: jest.fn().mockResolvedValue({ dfoIds: [] }),
       updateDfoIdsAsync: jest.fn().mockResolvedValue(undefined),
@@ -168,6 +182,21 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
   });
 
+  it('replaces stale recovery IDs with the final verified group IDs', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, batches } = buildProcessor([group]);
+    batches.getByIdAsync.mockResolvedValue({
+      dfoIds: ['Mesco-STALE-001'],
+    });
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(1);
+    expect(batches.updateDfoIdsAsync).toHaveBeenLastCalledWith('batch-2045', [
+      'D365-RET-001',
+    ]);
+  });
+
   it('does not post lines when D365 returns no journal number', async () => {
     const group = makeGroup(apRoute);
     const { processor, job, cashStrategy, jobs, rollback } = buildProcessor([
@@ -275,6 +304,179 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       'm-p',
       20,
     );
+  });
+
+  it('does not post again when read-back proves the persisted journal is complete', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'D365-COMPLETE-AP',
+        payload: group,
+      },
+    ]);
+    cashStrategy.getJournalIntegrityState.mockResolvedValue({
+      headerExists: true,
+      lineCount: 1,
+    });
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
+  });
+
+  it('creates a fresh journal when Finance reused the persisted number for another transaction', async () => {
+    const integrationMarker = 'MW:ac381037eeaa:0';
+    const group = {
+      ...makeGroup(apRoute),
+      integrationMarker,
+      header: {
+        ...makeGroup(apRoute).header,
+        Description: `Task 2045 test [${integrationMarker}]`,
+      },
+    };
+    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'Mesco-000014742',
+        payload: group,
+      },
+    ]);
+    cashStrategy.getJournalIntegrityState.mockImplementation(
+      async (headerId: string) =>
+        headerId === 'Mesco-000014742'
+          ? {
+              headerExists: true,
+              lineCount: 15,
+              headerDescription: 'Unrelated Finance transaction',
+            }
+          : {
+              headerExists: true,
+              lineCount: 1,
+              headerDescription: group.header.Description,
+            },
+    );
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).toHaveBeenCalledWith(
+      [group.header],
+      1,
+    );
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(1);
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledWith(
+      'D365-RET-001',
+      group.lines,
+      'm-p',
+      20,
+    );
+    expect(jobs.setCreatedHeader).toHaveBeenCalledWith(
+      'job-2045',
+      0,
+      'D365-RET-001',
+    );
+  });
+
+  it('fails completion when the newly created Finance header loses its identity marker', async () => {
+    const integrationMarker = 'MW:ac381037eeaa:0';
+    const group = {
+      ...makeGroup(apRoute),
+      integrationMarker,
+      header: {
+        ...makeGroup(apRoute).header,
+        Description: `Task 2045 test [${integrationMarker}]`,
+      },
+    };
+    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    cashStrategy.getJournalIntegrityState.mockResolvedValue({
+      headerExists: true,
+      lineCount: 1,
+      headerDescription: 'Different transaction',
+    });
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'belongs to a different Finance transaction',
+    );
+
+    expect(jobs.completeGroup).not.toHaveBeenCalled();
+  });
+
+  it('stops without creating or posting when D365 contains extra lines', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, jobs, batches } = buildProcessor([
+      group,
+    ]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'D365-DUPLICATED-AP',
+        payload: group,
+      },
+    ]);
+    cashStrategy.getJournalIntegrityState.mockResolvedValue({
+      headerExists: true,
+      lineCount: 2,
+    });
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      '[DATA INTEGRITY]',
+    );
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      DataBatchStatus.Canceled,
+    );
+  });
+
+  it('repairs a proven 251 plus 251 D365 unmarked fallback duplication on retry', async () => {
+    const integrationMarker = 'MW:1037eeaa656a:0';
+    const group = {
+      ...makeGroup(apRoute),
+      integrationMarker,
+      header: {
+        ...makeGroup(apRoute).header,
+        Description: `Task 2045 test [${integrationMarker}]`,
+      },
+    };
+    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    jobs.listGroups.mockResolvedValue([
+      {
+        index: 0,
+        status: QueueJobGroupStatus.ACTIVE,
+        createdHeaderId: 'Mesco-000014745',
+        payload: group,
+      },
+    ]);
+    cashStrategy.getJournalIntegrityState
+      .mockResolvedValueOnce({
+        headerExists: true,
+        lineCount: 2,
+        headerDescription: group.header.Description,
+      })
+      .mockResolvedValue({
+        headerExists: true,
+        lineCount: 1,
+        headerDescription: group.header.Description,
+      });
+    cashStrategy.repairDuplicatedUnmarkedFallbackLines.mockResolvedValue(true);
+
+    await processor.process(job as any);
+
+    expect(
+      cashStrategy.repairDuplicatedUnmarkedFallbackLines,
+    ).toHaveBeenCalledWith('Mesco-000014745', 1, 'm-p');
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
   });
 
   it('recreates a missing persisted header within the same attempt', async () => {
@@ -440,8 +642,15 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
   });
 
   it('posts nothing when the batch is paused before the first journal', async () => {
-    const { processor, job, cashStrategy, batches, jobs, rollback, pauseControl } =
-      buildProcessor([makeGroup(apRoute)]);
+    const {
+      processor,
+      job,
+      cashStrategy,
+      batches,
+      jobs,
+      rollback,
+      pauseControl,
+    } = buildProcessor([makeGroup(apRoute)]);
     pauseControl.isPaused.mockResolvedValue(true);
 
     await processor.process(job as any);

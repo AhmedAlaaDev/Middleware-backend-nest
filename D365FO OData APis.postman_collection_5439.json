@@ -3526,8 +3526,138 @@
         }
       },
       "response": []
+    },
+
+    {
+      "name": "Get Batch Response Body & Logs",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3001/api/v1/DataMigration/DataBatch/:batchId/response-body",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3001",
+          "path": [
+            "api",
+            "v1",
+            "DataMigration",
+            "DataBatch",
+            ":batchId",
+            "response-body"
+          ],
+          "variable": [
+            {
+              "key": "batchId",
+              "value": "6a781281bca6423be5cc93c6",
+              "description": "Batch ID or Journal Batch Number (e.g. 6a781281bca6423be5cc93c6 or Mesco-000013814)"
+            }
+          ]
+        },
+        "description": "Returns the full raw body, captured D365FO HTTP request/response payloads, application logs, and posting errors for a batch ID or journal number."
+      },
+      "response": []
+    },
+    {
+      "name": "Get D365FO Response by Journal Batch Number",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3001/api/v1/DataMigration/DataBatch/journal-batch/:journalBatchNumber",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3001",
+          "path": [
+            "api",
+            "v1",
+            "DataMigration",
+            "DataBatch",
+            "journal-batch",
+            ":journalBatchNumber"
+          ],
+          "variable": [
+            {
+              "key": "journalBatchNumber",
+              "value": "Mesco-000013814",
+              "description": "D365FO Journal Batch Number (e.g. Mesco-000013814)"
+            }
+          ]
+        },
+        "description": "Queries D365FO OData API live for the specified JournalBatchNumber (e.g. Mesco-000013814) and returns the full D365FO header, line items, and logs."
+      },
+      "response": []
+    },
+    {
+      "name": "Check Journal Amount and Duplication Integrity",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3001/api/v1/DataMigration/DataBatch/journal-batch/:journalBatchNumber/integrity",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3001",
+          "path": [
+            "api",
+            "v1",
+            "DataMigration",
+            "DataBatch",
+            "journal-batch",
+            ":journalBatchNumber",
+            "integrity"
+          ],
+          "variable": [
+            {
+              "key": "journalBatchNumber",
+              "value": "Mesco-000014742",
+              "description": "D365FO Journal Batch Number to validate"
+            }
+          ]
+        },
+        "description": "Reads the complete live Finance header and lines, compares expected and actual line counts and debit/credit totals per currency, and reports confirmed duplication separately from review-only repeated business signatures. duplicationConclusion NO_EXTRA_FINANCE_DATA means Finance has no additional rows or amount; CONFIRMED_DUPLICATION means definite duplicate evidence; REVIEW_REQUIRED needs manual review."
+      },
+      "response": []
     }
   ],
+
+
   "event": [
     {
       "listen": "prerequest",

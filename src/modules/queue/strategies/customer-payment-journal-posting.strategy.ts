@@ -207,4 +207,22 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       dataAreaId,
     );
   }
+
+  public headerExists(headerKey: string, dataAreaId: string): Promise<boolean> {
+    return this.isCashOut
+      ? this.vendorPaymentJournalService.headerExists(headerKey, dataAreaId)
+      : this.customerPaymentJournalService.headerExists(headerKey, dataAreaId);
+  }
+
+  public getHeaderIdentity(headerKey: string, dataAreaId: string) {
+    return this.isCashOut
+      ? this.vendorPaymentJournalService.getHeaderIdentity(
+          headerKey,
+          dataAreaId,
+        )
+      : this.customerPaymentJournalService.getHeaderIdentity(
+          headerKey,
+          dataAreaId,
+        );
+  }
 }

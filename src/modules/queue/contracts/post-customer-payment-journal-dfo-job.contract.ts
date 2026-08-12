@@ -20,6 +20,8 @@ export type CashJournalHeaderRequest =
 
 export interface RoutedCashJournalPostingGroup {
   route: CashJournalRoute;
+  /** Stable identity persisted with the durable group and stamped into D365FO. */
+  integrationMarker?: string;
   header: CashJournalHeaderRequest;
   lines: D365FOCustomerPaymentJournalLineRequest[];
 }

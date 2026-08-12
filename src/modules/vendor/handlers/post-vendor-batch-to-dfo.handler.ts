@@ -269,7 +269,6 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
       const date = line.Date ?? '';
       const voucher = line.Voucher ?? '';
       const currency = line.Currency ?? '';
-      const itemWithholding = line.ItemWithholdingTaxGroupCode ?? '';
       const invoiceDate = line.InvoiceDate ?? date;
       const debit = Number(line.Debit ?? 0);
       const dueDate = line.DueDate ?? '';
@@ -300,8 +299,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         Date: this.formatDate(date),
         Voucher: voucher != null ? String(voucher) : undefined,
         Currency: currency,
-        ItemWithholdingTaxGroupCode:
-          this.toOptionalTrimmedString(itemWithholding),
+        ItemWithholdingTaxGroupCode: '',
         InvoiceDate: invoiceDate
           ? this.formatDate(invoiceDate)
           : this.formatDate(date),
@@ -411,7 +409,7 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
 
       this.assertValidDateInput(date, 'TransactionDate', lineNumber);
 
-      const markedInvoiceStr = this.toOptionalTrimmedString(
+      const markedInvoiceStr = this.toOptionalInvoiceString(
         line.MarkedInvoice !== undefined ? line.MarkedInvoice : line.Invoice,
       );
       let transactionText = this.toOptionalTrimmedString(line.Description);
@@ -456,6 +454,14 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
     if (value === null || value === undefined) return undefined;
     const trimmed = String(value).trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private toOptionalInvoiceString(
+    value: string | undefined | null,
+  ): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    const sourceValue = String(value);
+    return sourceValue.trim().length > 0 ? sourceValue : undefined;
   }
 
   /**

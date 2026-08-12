@@ -94,7 +94,9 @@ export class CashInSafeTypeRoutingService {
       const voucher = String(groupLines[0]?.VOUCHER ?? '');
       const safeTypes = [
         ...new Set(
-          groupLines.map((line) => String(line.SafeType ?? '').trim()).filter(Boolean),
+          groupLines
+            .map((line) => String(line.SafeType ?? '').trim())
+            .filter(Boolean),
         ),
       ];
       const rawSafeTypeTokens = [
@@ -166,8 +168,7 @@ export class CashInSafeTypeRoutingService {
       const explicitTarget = targetTokens[0]
         ? this.resolveTargetProcessor(targetTokens[0])
         : undefined;
-      const targetProcessor =
-        explicitTarget ?? options.defaultTargetProcessor;
+      const targetProcessor = explicitTarget ?? options.defaultTargetProcessor;
 
       if (!targetProcessor) {
         result.failures.push({

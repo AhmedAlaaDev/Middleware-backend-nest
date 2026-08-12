@@ -201,6 +201,7 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     expect(builtLine.Invoice).toBe('INV-2026-WITHHOLDING');
     expect(builtLine.MarkedInvoice).toBe('INV-2026-WITHHOLDING');
     expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
+    expect(builtLine.ItemWithholdingTaxGroupCode).toBe('');
   });
 
   it('should retain MarkedInvoice string and normal Description for Full / Over Payment', () => {

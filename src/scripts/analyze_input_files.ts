@@ -1,8 +1,10 @@
 import ExcelJS from 'exceljs';
 
 async function analyzeInputs() {
-  const bankPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\ALL banks 31-5-2026 update.xlsx';
-  const istPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST Report from jan to apr 2026.xlsx';
+  const bankPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\ALL banks 31-5-2026 update.xlsx';
+  const istPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST Report from jan to apr 2026.xlsx';
 
   const istWb = new ExcelJS.Workbook();
   await istWb.xlsx.readFile(istPath);
@@ -12,7 +14,7 @@ async function analyzeInputs() {
   await bankWb.xlsx.readFile(bankPath);
   const bankSheet = bankWb.worksheets[0];
 
-  let totalIstRows = istSheet.rowCount - 1;
+  const totalIstRows = istSheet.rowCount - 1;
   let existingPreserved = 0;
   let blankIstCount = 0;
 
@@ -34,7 +36,7 @@ async function analyzeInputs() {
     }
   });
 
-  let totalBankRows = bankSheet.rowCount - 1;
+  const totalBankRows = bankSheet.rowCount - 1;
 
   console.log('\n================ INPUT FILES ANALYSIS ================');
   console.log(`Total IST Rows: ${totalIstRows}`);

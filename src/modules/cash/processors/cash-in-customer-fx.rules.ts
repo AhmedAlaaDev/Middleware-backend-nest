@@ -32,9 +32,7 @@ interface IndexedLine {
   index: number;
 }
 
-export function normalizeCashInAccountType(
-  value?: string | null,
-): string {
+export function normalizeCashInAccountType(value?: string | null): string {
   return String(value ?? '')
     .trim()
     .toLowerCase();
@@ -49,17 +47,13 @@ export function extractCashInMainAccount(
     .trim();
 }
 
-export function isCashInLedger421103Line(
-  line: CashEntryRawDataModel,
-): boolean {
+export function isCashInLedger421103Line(line: CashEntryRawDataModel): boolean {
   const accountType = normalizeCashInAccountType(line.ACCOUNTTYPE);
   const mainAccount = extractCashInMainAccount(line.ACCOUNTDISPLAYVALUE);
   return accountType === 'ledger' && mainAccount.startsWith('421103');
 }
 
-export function isCashInCustomerAccountType(
-  value?: string | null,
-): boolean {
+export function isCashInCustomerAccountType(value?: string | null): boolean {
   const normalized = normalizeCashInAccountType(value);
   return normalized === 'cust' || normalized === 'customer';
 }
@@ -86,7 +80,11 @@ export function cashInLineStableId(
 ): string {
   const uniqueId = String(line.UniqueId ?? '');
   const lineNumber = line.LINENUMBER;
-  if (lineNumber !== undefined && lineNumber !== null && `${lineNumber}` !== '') {
+  if (
+    lineNumber !== undefined &&
+    lineNumber !== null &&
+    `${lineNumber}` !== ''
+  ) {
     return `${uniqueId}:${lineNumber}`;
   }
   return `${uniqueId}:idx:${index}`;
@@ -142,9 +140,7 @@ export function isCashInSpecialCustomerFxCase(
   return hasDebit && hasCustomerCredit && hasLedger421103;
 }
 
-function collectDebitCandidates(
-  lines: IndexedLine[],
-): IndexedLine[] {
+function collectDebitCandidates(lines: IndexedLine[]): IndexedLine[] {
   return lines.filter((entry) => {
     if (isCashInLedger421103Line(entry.line)) return false;
     if (toPositiveNumber(entry.line.DEBITAMOUNT) === null) return false;
@@ -153,9 +149,7 @@ function collectDebitCandidates(
   });
 }
 
-function collectCustomerCredits(
-  lines: IndexedLine[],
-): IndexedLine[] {
+function collectCustomerCredits(lines: IndexedLine[]): IndexedLine[] {
   return lines.filter(
     (entry) =>
       (isCashInCustomerAccountType(entry.line.ACCOUNTTYPE) ||
@@ -241,8 +235,7 @@ function buildFailureDetails(
   debits: IndexedLine[],
   reason: string,
 ): CashInCustomerFxValidationError {
-  const voucher =
-    customers[0]?.line.VOUCHER || debits[0]?.line.VOUCHER || '';
+  const voucher = customers[0]?.line.VOUCHER || debits[0]?.line.VOUCHER || '';
   const primaryCustomer = customers[0]?.line;
 
   return {
@@ -344,7 +337,9 @@ export function evaluateCashInCustomerFxGroup(options: {
     return fail('No valid customer credit lines found.');
   }
   if (debits.length === 0) {
-    return fail('No matching debit line was found for the customer Cash-In line.');
+    return fail(
+      'No matching debit line was found for the customer Cash-In line.',
+    );
   }
 
   // Sort customers deterministically by line number before assignment search.

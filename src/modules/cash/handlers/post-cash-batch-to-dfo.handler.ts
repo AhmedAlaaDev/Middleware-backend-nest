@@ -79,7 +79,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       targetProcessor,
     );
 
-    const journalsToQueue = this.applyTestingMode(groupedJournals);
+    const journalsToQueue = this.attachIntegrationIdentities(
+      this.applyTestingMode(groupedJournals),
+      batchId,
+    );
     this.validateCustomerPaymentJournals(journalsToQueue);
 
     await this.prepareBatchForPosting(batchId);
@@ -413,11 +416,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const offsetDefaultDimDisplayValue =
         this.toOptionalTrimmedString(offsetDefaultDim) ?? '';
 
-      const markedInvoice = (
+      const markedInvoice = this.toOptionalInvoiceString(
         line.MarkedInvoice !== undefined
           ? line.MarkedInvoice
-          : line.Invoice || ''
-      ).trim();
+          : line.Invoice || '',
+      );
       const vendorGroup = String(line.VendorGroup ?? '').trim();
       const isCustodyVendor =
         vendorGroup.toLowerCase() === 'custody' ||
@@ -453,9 +456,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                 // FO VendPaym body always carries settlement when format had it.
                 InvoiceNumber: isCustodyVendor
                   ? ''
-                  : String(
+                  : this.toOptionalInvoiceString(
                       markedLine.InvoiceNumber || markedInvoice || '',
-                    ).trim(),
+                    ),
                 OperationNumber: this.stripBidiMarks(
                   String(markedLine.OperationNumber ?? operationNumber),
                 ).trim(),
@@ -472,11 +475,35 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                 // intentional unmarked (cleared MarkedInvoice) as empty.
                 invoice:
                   route?.safeType === 'Custody Settlement'
-                    ? String(line.Invoice ?? '').trim()
+                    ? this.toOptionalInvoiceString(line.Invoice)
                     : '',
                 operationNumber,
                 documentNumber,
               })
+          : [];
+      const cashInMarkedLines =
+        cashDirection === 'in'
+          ? line.MarkedLines && line.MarkedLines.length > 0
+            ? line.MarkedLines.map((markedLine) => ({
+                InvoiceNumber: String(
+                  markedLine.InvoiceNumber || markedInvoice || '',
+                ).trim(),
+                OperationNumber: this.stripBidiMarks(
+                  String(markedLine.OperationNumber ?? ''),
+                ).trim(),
+                DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+                HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+              }))
+            : markedInvoice
+              ? [
+                  {
+                    InvoiceNumber: markedInvoice,
+                    OperationNumber: '',
+                    DocumentNumber: '',
+                    HasWithHoldingLine: false,
+                  },
+                ]
+              : []
           : [];
       let transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
@@ -550,7 +577,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
         FinTagStr: this.stripBidiMarks(line.FinTagDisplayValue ?? ''),
         ISPREPAYMENT: 'No',
-        ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
+        ITEMWITHHOLDINGTAXGROUP: '',
         IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
         ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
 
@@ -598,6 +625,14 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         // Always send MarkedLines for AP vendor cash-out lines (empty array
         // when the route does not support settlement).
         customLineApiBody.MarkedLines = markedLines;
+      } else if (cashDirection === 'in') {
+        // Cash-In historically used MARKEDINVOICE only. Keep that field for
+        // existing CustPaym behavior, but expose the same structured array
+        // used by Cash-Out so settlement marks are not lost in the body.
+        customLineApiBody.MarkedLines = cashInMarkedLines;
+        if (routeSupportsMarking || markedInvoice) {
+          customLineApiBody.MARKEDINVOICE = markedInvoice;
+        }
       } else if (routeSupportsMarking || markedInvoice) {
         customLineApiBody.MARKEDINVOICE = markedInvoice;
       }
@@ -656,14 +691,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private isMainAccountOnlyLine(
     line: CashEntryDynDataModel,
-    cashDirection: 'in' | 'out',
-    route: CashJournalRoute | undefined,
+    _cashDirection: 'in' | 'out',
+    _route: CashJournalRoute | undefined,
   ): boolean {
-    // Cash Out custom API accepts primary-account-only lines (GL and AP).
-    // Detect that shape from blank offset fields; do not invent an offset.
+    // Both Cash-In and Cash-Out accept primary-account-only lines. Detect the
+    // shape from blank offset fields and never invent an offset in the body.
     return (
-      cashDirection === 'out' &&
-      Boolean(route) &&
       !this.toOptionalTrimmedString(line.OffsetAccountType) &&
       !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
     );
@@ -790,6 +823,33 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return [limited as CashJournalPostingGroup];
   }
 
+  private attachIntegrationIdentities(
+    groupedJournals: CashJournalPostingGroup[],
+    batchId: string,
+  ): CashJournalPostingGroup[] {
+    return groupedJournals.map((journal, journalIndex) => {
+      if (!('route' in journal)) return journal;
+
+      const integrationMarker = `MW:${batchId.slice(-12)}:${journalIndex}`;
+      const suffix = ` [${integrationMarker}]`;
+      // D365FO journal descriptions are limited to 60 characters. Preserve
+      // the marker in full and shorten only the human-readable prefix.
+      const maxDescriptionLength = 60;
+      const prefix = String(journal.header.Description ?? '')
+        .slice(0, Math.max(0, maxDescriptionLength - suffix.length))
+        .trimEnd();
+
+      return {
+        ...journal,
+        integrationMarker,
+        header: {
+          ...journal.header,
+          Description: prefix ? `${prefix}${suffix}` : suffix.trim(),
+        },
+      };
+    });
+  }
+
   private validateCustomerPaymentJournals(
     groupedJournals: CashJournalPostingGroup[],
   ): void {
@@ -904,12 +964,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    const isMainAccountOnlyCashOut =
-      line.cashDirection === 'out' &&
+    const isMainAccountOnlyCashLine =
       !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
       !body.offsetAccountDisplayValue?.trim() &&
       !body.OffsetAccountTypeStr?.trim();
-    if (!isMainAccountOnlyCashOut) {
+    if (!isMainAccountOnlyCashLine) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
           'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
@@ -1014,6 +1073,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (value === null || value === undefined) return undefined;
     const trimmed = String(value).trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private toOptionalInvoiceString(value: string | undefined | null): string {
+    if (value === null || value === undefined) return '';
+    const sourceValue = String(value);
+    return sourceValue.trim().length > 0 ? sourceValue : '';
   }
 
   private async *cursorToAsyncIterable<TData>(

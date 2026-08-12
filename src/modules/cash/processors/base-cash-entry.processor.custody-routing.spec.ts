@@ -1,8 +1,8 @@
-import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { ProcessCashOutFreightCommand } from '@/modules/cash/commands/process-cash-out-freight.command';
 import { ProcessCashOutTruckingCommand } from '@/modules/cash/commands/process-cash-out-trucking.command';
-import { CashInFreightEntryProcessor } from '@/modules/cash/processors/cash-in-freight-entry.processor';
+import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { isCashInLedger421103Line } from '@/modules/cash/processors/cash-in-customer-fx.rules';
+import { CashInFreightEntryProcessor } from '@/modules/cash/processors/cash-in-freight-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
@@ -11,19 +11,22 @@ describe('Cash-In Custody Settlement → Cash-Out routing', () => {
 
   const createProcessor = () => {
     const commandBus = { execute: jest.fn().mockResolvedValue({ id: 'co-1' }) };
-    const processor = new CashInFreightEntryProcessor(commandBus as any, {
-      queryBus: { execute: jest.fn() },
-      exchangeRateService: {},
-      utilsService,
-      dimensionService: new DimensionValidationService(),
-      taxGroupService: {},
-      freeTextInvoiceService: {},
-      vendorInvoiceJournalService: {},
-      cashOutExchangeRateService: {
-        load: jest.fn().mockResolvedValue(undefined),
-      },
-      generalJournalService: {},
-    } as any);
+    const processor = new CashInFreightEntryProcessor(
+      commandBus as any,
+      {
+        queryBus: { execute: jest.fn() },
+        exchangeRateService: {},
+        utilsService,
+        dimensionService: new DimensionValidationService(),
+        taxGroupService: {},
+        freeTextInvoiceService: {},
+        vendorInvoiceJournalService: {},
+        cashOutExchangeRateService: {
+          load: jest.fn().mockResolvedValue(undefined),
+        },
+        generalJournalService: {},
+      } as any,
+    );
     (processor as any).company = 'm-p';
     (processor as any).dimensionsMap = new Map();
     (processor as any).accountNumberSet = new Set();
@@ -125,9 +128,9 @@ describe('Cash-In Custody Settlement → Cash-Out routing', () => {
     expect(
       enriched.every((line: any) => !line.SourceIds?.includes('466700')),
     ).toBe(true);
-    expect(enriched.some((line: any) => line.SourceIds?.includes('466669'))).toBe(
-      true,
-    );
+    expect(
+      enriched.some((line: any) => line.SourceIds?.includes('466669')),
+    ).toBe(true);
   });
 
   it('routes Fleet TargetProcessor custody groups to Cash-Out Trucking', async () => {
@@ -231,9 +234,9 @@ describe('Cash-In Custody Settlement → Cash-Out routing', () => {
     expect(routed.some((line: any) => isCashInLedger421103Line(line))).toBe(
       true,
     );
-    expect(
-      routed.find((line: any) => line.LINENUMBER === 2).CREDITAMOUNT,
-    ).toBe(737);
+    expect(routed.find((line: any) => line.LINENUMBER === 2).CREDITAMOUNT).toBe(
+      737,
+    );
   });
 
   it('emits a Cash-In validation failure for conflicting SafeTypes and routes neither processor', async () => {

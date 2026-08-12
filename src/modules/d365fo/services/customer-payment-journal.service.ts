@@ -5,6 +5,7 @@ import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { GeneralJournalService } from './general-journal.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import { VendorInvoiceJournalService } from './vendor-invoice-journal.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
 import { IConfig, ResilienceConfig } from '@/config';
@@ -69,6 +70,58 @@ interface DeferredLedgerTax {
   taxItemGroup: string;
 }
 
+interface CashCustomMainAccountAlias {
+  alias: string;
+  name: string;
+}
+
+interface D365FOMainAccountAliasRecord {
+  MainAccountId?: string;
+  Name?: string;
+  ChartOfAccounts?: string;
+}
+
+export interface ExpectedVendorInvoiceSettlement {
+  lineNumber: number;
+  invoiceNumber: string;
+  vendorAccount: string;
+  currency: string;
+  settlementAmount: number;
+}
+
+export interface CashOutSettlementIntegrityResult {
+  matches: boolean;
+  expectedCount: number;
+  actualCount: number;
+  missing: ExpectedVendorInvoiceSettlement[];
+  unexpected: Array<{
+    lineNumber: number;
+    invoiceNumber: string;
+    journalBatchNumber: string;
+  }>;
+  blockers: Array<{
+    expectedLineNumber: number;
+    invoiceNumber: string;
+    journalBatchNumber: string;
+    journalLineNumber: number;
+    journalLineCompany: string;
+  }>;
+  repaired: Array<{ lineNumber: number; invoiceNumber: string }>;
+  repairErrors: Array<{
+    lineNumber: number;
+    invoiceNumber: string;
+    message: string;
+  }>;
+}
+
+const CASH_CUSTOM_MAIN_ACCOUNT_ALIASES: readonly CashCustomMainAccountAlias[] =
+  [
+    { alias: 'WCA-US', name: 'WCApp - USD' },
+    { alias: 'WCA-USD', name: 'WCApp - USD' },
+    { alias: 'WCA-EU', name: 'WCApp - EUR' },
+    { alias: 'WCA-EUR', name: 'WCApp - EUR' },
+  ];
+
 /**
  * Service for managing customer payment journals in D365FO
  * (CustomerPaymentJournalHeaders / CustomerPaymentJournalLines)
@@ -101,6 +154,7 @@ export class CustomerPaymentJournalService {
     private readonly queryBuilder: ODataQueryBuilderService,
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
+    private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
     private readonly generalJournalService: GeneralJournalService,
     private readonly operationalLogs: OperationalLoggerService,
@@ -280,6 +334,22 @@ export class CustomerPaymentJournalService {
       `[CASH-CUSTOM] Preparing ${lines.length} cash-${cashDirection} lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`,
     );
 
+    // Older batches can already contain WCA-US / WCA-EUR in their persisted
+    // custom body. Resolve those aliases at posting time as well as for new
+    // batches, so retrying an existing journal uses the current D365 main
+    // account setup without requiring a re-upload.
+    let normalizedLines = await this.resolveCashCustomMainAccountAliases(
+      lines,
+      dataAreaId,
+    );
+
+    if (cashDirection === 'out') {
+      normalizedLines = await this.resolveCashCustomMarkedInvoiceIds(
+        normalizedLines,
+        dataAreaId,
+      );
+    }
+
     let existingLines: Set<number> = new Set();
     if (dataAreaId && lines.length > 0) {
       try {
@@ -311,11 +381,667 @@ export class CustomerPaymentJournalService {
     return this.postCashBulkLinesForHeader(
       endpoint,
       headerKey,
-      lines,
+      normalizedLines,
       existingLines,
+      dataAreaId,
       allowUnmarkedInvoiceRetry,
       cashDirection,
     );
+  }
+
+  /**
+   * D365 settlement compares InvoiceNumber exactly, including surrounding
+   * spaces. Resolve the normalized invoice/vendor pair through the posted
+   * invoice entity, then send the exact InvoiceId returned by Finance. This is
+   * intentionally done during posting so Resume/Retry also fixes old batches.
+   */
+  private async resolveCashCustomMarkedInvoiceIds(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    dataAreaId?: string,
+  ): Promise<D365FOCustomerPaymentJournalLineRequest[]> {
+    const company =
+      String(dataAreaId ?? '').trim() ||
+      String(
+        lines.find((line) => line.customLineApiBody?.company)?.customLineApiBody
+          ?.company ?? '',
+      ).trim();
+    if (!company) return lines;
+
+    const invoices = lines.flatMap((line) => {
+      const markedLines = line.customLineApiBody?.MarkedLines;
+      if (!Array.isArray(markedLines)) return [];
+      return markedLines
+        .map((marked) => String(marked?.InvoiceNumber ?? ''))
+        .filter((invoice) => Boolean(invoice.trim()));
+    });
+    if (invoices.length === 0) return lines;
+
+    const exactInvoiceIds =
+      await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairInvoiceIds(
+        company,
+        invoices,
+      );
+    if (exactInvoiceIds.size === 0) return lines;
+
+    let replacements = 0;
+    const resolvedLines = lines.map((line) => {
+      const body = line.customLineApiBody;
+      if (!body || !Array.isArray(body.MarkedLines)) return line;
+
+      const vendorAccount = String(body.AccountNum ?? '');
+      let bodyChanged = false;
+      const markedLines = body.MarkedLines.map((marked) => {
+        const sourceInvoiceId = String(marked?.InvoiceNumber ?? '');
+        if (!sourceInvoiceId.trim() || !vendorAccount.trim()) return marked;
+
+        const exactInvoiceId = exactInvoiceIds.get(
+          VendorInvoiceJournalService.pairKey(sourceInvoiceId, vendorAccount),
+        );
+        if (
+          exactInvoiceId === undefined ||
+          exactInvoiceId === sourceInvoiceId
+        ) {
+          return marked;
+        }
+
+        replacements += 1;
+        bodyChanged = true;
+        return { ...marked, InvoiceNumber: exactInvoiceId };
+      });
+
+      if (!bodyChanged) return line;
+      return {
+        ...line,
+        customLineApiBody: { ...body, MarkedLines: markedLines },
+      };
+    });
+
+    if (replacements > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Replaced ${replacements} marked invoice value(s) with the exact InvoiceId stored in D365`,
+      );
+    }
+
+    return resolvedLines;
+  }
+
+  /**
+   * Verify the authoritative Finance settlement child rows against the marks
+   * requested by middleware. If the custom X++ service silently leaves a mark
+   * out and no other journal owns it, repair only that child record. Monetary
+   * journal lines are never reposted by this method.
+   */
+  public async verifyCashOutSettlementIntegrity(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    dataAreaId: string,
+    repairMissing = true,
+  ): Promise<CashOutSettlementIntegrityResult> {
+    const expected = this.expectedVendorInvoiceSettlements(lines);
+    if (expected.length === 0) {
+      return {
+        matches: true,
+        expectedCount: 0,
+        actualCount: 0,
+        missing: [],
+        unexpected: [],
+        blockers: [],
+        repaired: [],
+        repairErrors: [],
+      };
+    }
+
+    let actual = await this.loadActualVendorInvoiceSettlements(
+      headerKey,
+      dataAreaId,
+    );
+    let comparison = this.compareVendorInvoiceSettlements(
+      headerKey,
+      expected,
+      actual,
+    );
+    const repaired: Array<{ lineNumber: number; invoiceNumber: string }> = [];
+    const repairErrors: Array<{
+      lineNumber: number;
+      invoiceNumber: string;
+      message: string;
+    }> = [];
+
+    let blockers = await this.findVendorInvoiceSettlementBlockers(
+      headerKey,
+      dataAreaId,
+      comparison.missing,
+    );
+
+    if (repairMissing && comparison.missing.length > 0) {
+      const blockedKeys = new Set(
+        blockers.map((blocker) =>
+          this.settlementKey(blocker.expectedLineNumber, blocker.invoiceNumber),
+        ),
+      );
+      for (const missing of comparison.missing) {
+        if (
+          blockedKeys.has(
+            this.settlementKey(missing.lineNumber, missing.invoiceNumber),
+          )
+        ) {
+          continue;
+        }
+        try {
+          await this.repairMissingVendorInvoiceSettlement(
+            headerKey,
+            dataAreaId,
+            missing,
+          );
+          repaired.push({
+            lineNumber: missing.lineNumber,
+            invoiceNumber: missing.invoiceNumber,
+          });
+        } catch (error) {
+          repairErrors.push({
+            lineNumber: missing.lineNumber,
+            invoiceNumber: missing.invoiceNumber,
+            message: this.dfoErrorExtractor.extractMessage(error),
+          });
+        }
+      }
+
+      actual = await this.loadActualVendorInvoiceSettlements(
+        headerKey,
+        dataAreaId,
+      );
+      comparison = this.compareVendorInvoiceSettlements(
+        headerKey,
+        expected,
+        actual,
+      );
+      blockers = await this.findVendorInvoiceSettlementBlockers(
+        headerKey,
+        dataAreaId,
+        comparison.missing,
+      );
+    }
+
+    return {
+      matches:
+        comparison.missing.length === 0 && comparison.unexpected.length === 0,
+      expectedCount: expected.length,
+      actualCount: actual.length,
+      missing: comparison.missing,
+      unexpected: comparison.unexpected,
+      blockers,
+      repaired,
+      repairErrors,
+    };
+  }
+
+  public async assertCashOutSettlementIntegrity(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const result = await this.verifyCashOutSettlementIntegrity(
+      headerKey,
+      lines,
+      dataAreaId,
+      true,
+    );
+    if (result.matches) return;
+
+    const details: string[] = [];
+    for (const missing of result.missing) {
+      const blocker = result.blockers.find(
+        (candidate) =>
+          candidate.expectedLineNumber === missing.lineNumber &&
+          this.normalizeSettlementInvoice(candidate.invoiceNumber) ===
+            this.normalizeSettlementInvoice(missing.invoiceNumber),
+      );
+      details.push(
+        blocker
+          ? `line ${missing.lineNumber} expected invoice ${missing.invoiceNumber}, but it is already marked by ${blocker.journalBatchNumber} line ${blocker.journalLineNumber} in ${blocker.journalLineCompany}`
+          : `line ${missing.lineNumber} expected invoice ${missing.invoiceNumber}, but Finance left it unmarked`,
+      );
+    }
+    for (const unexpected of result.unexpected) {
+      details.push(
+        `line ${unexpected.lineNumber} unexpectedly marks invoice ${unexpected.invoiceNumber}`,
+      );
+    }
+    throw new Error(
+      `[DATA INTEGRITY] Journal ${headerKey} invoice settlement mismatch (${result.actualCount}/${result.expectedCount} expected mark(s) confirmed): ${details.join('; ')}. No monetary journal lines were reposted.`,
+    );
+  }
+
+  private expectedVendorInvoiceSettlements(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+  ): ExpectedVendorInvoiceSettlement[] {
+    const expected = new Map<string, ExpectedVendorInvoiceSettlement>();
+    for (const line of lines) {
+      const body = line.customLineApiBody;
+      const markedLines = body?.MarkedLines;
+      if (!body || !Array.isArray(markedLines)) continue;
+      for (const marked of markedLines) {
+        const invoiceNumber = String(marked?.InvoiceNumber ?? '');
+        if (!invoiceNumber.trim()) continue;
+        const item: ExpectedVendorInvoiceSettlement = {
+          lineNumber: Number(line.LineNumber),
+          invoiceNumber,
+          vendorAccount: String(body.AccountNum ?? ''),
+          currency: String(body.currency ?? ''),
+          settlementAmount:
+            (Number(body.creditAmount) || 0) - (Number(body.debitAmount) || 0),
+        };
+        expected.set(
+          this.settlementKey(item.lineNumber, item.invoiceNumber),
+          item,
+        );
+      }
+    }
+    return [...expected.values()];
+  }
+
+  /** Combine the two settlement representations exposed by this D365FO build. */
+  private async loadActualVendorInvoiceSettlements(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<
+    Array<{
+      JournalLineNumber: number;
+      InvoiceNumber: string;
+      JournalBatchNumber: string;
+    }>
+  > {
+    const [journalLines, childRows] = await Promise.all([
+      this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+        headerKey,
+        dataAreaId,
+      ),
+      this.vendorPaymentJournalService.listSettledInvoicesForHeader(
+        headerKey,
+        dataAreaId,
+      ),
+    ]);
+    const actual = new Map<
+      string,
+      {
+        JournalLineNumber: number;
+        InvoiceNumber: string;
+        JournalBatchNumber: string;
+      }
+    >();
+
+    // The custom cash X++ service stores successful selections directly on
+    // the journal line (MarkedInvoice + SettleVoucher).
+    for (const line of journalLines) {
+      const invoiceNumber = String(line.MarkedInvoice ?? '');
+      if (!invoiceNumber.trim()) continue;
+      const item = {
+        JournalLineNumber: Number(line.LineNumber),
+        InvoiceNumber: invoiceNumber,
+        JournalBatchNumber: headerKey,
+      };
+      actual.set(
+        this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
+        item,
+      );
+    }
+
+    // Standard OData-created settlement selections can instead appear as
+    // child rows. Include them without double counting the journal-line mark.
+    for (const child of childRows) {
+      const item = {
+        JournalLineNumber: Number(child.JournalLineNumber),
+        InvoiceNumber: String(child.InvoiceNumber ?? ''),
+        JournalBatchNumber: String(child.JournalBatchNumber ?? headerKey),
+      };
+      actual.set(
+        this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
+        item,
+      );
+    }
+    return [...actual.values()];
+  }
+
+  private compareVendorInvoiceSettlements(
+    headerKey: string,
+    expected: ExpectedVendorInvoiceSettlement[],
+    actual: Array<{
+      JournalLineNumber: number;
+      InvoiceNumber: string;
+      JournalBatchNumber: string;
+    }>,
+  ): {
+    missing: ExpectedVendorInvoiceSettlement[];
+    unexpected: Array<{
+      lineNumber: number;
+      invoiceNumber: string;
+      journalBatchNumber: string;
+    }>;
+  } {
+    const expectedKeys = new Set(
+      expected.map((item) =>
+        this.settlementKey(item.lineNumber, item.invoiceNumber),
+      ),
+    );
+    const actualKeys = new Set(
+      actual.map((item) =>
+        this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
+      ),
+    );
+    return {
+      missing: expected.filter(
+        (item) =>
+          !actualKeys.has(
+            this.settlementKey(item.lineNumber, item.invoiceNumber),
+          ),
+      ),
+      unexpected: actual
+        .filter(
+          (item) =>
+            !expectedKeys.has(
+              this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
+            ),
+        )
+        .map((item) => ({
+          lineNumber: Number(item.JournalLineNumber),
+          invoiceNumber: String(item.InvoiceNumber ?? ''),
+          journalBatchNumber: String(item.JournalBatchNumber ?? headerKey),
+        })),
+    };
+  }
+
+  private async findVendorInvoiceSettlementBlockers(
+    headerKey: string,
+    dataAreaId: string,
+    missing: ExpectedVendorInvoiceSettlement[],
+  ): Promise<CashOutSettlementIntegrityResult['blockers']> {
+    if (missing.length === 0) return [];
+    const owners =
+      await this.vendorPaymentJournalService.listSettlementOwnersForInvoices(
+        dataAreaId,
+        missing.map((item) => item.invoiceNumber),
+      );
+    const blockers: CashOutSettlementIntegrityResult['blockers'] = [];
+    for (const item of missing) {
+      const invoice = this.normalizeSettlementInvoice(item.invoiceNumber);
+      for (const owner of owners) {
+        if (
+          owner.JournalBatchNumber === headerKey ||
+          this.normalizeSettlementInvoice(owner.InvoiceNumber) !== invoice ||
+          (owner.invoiceAccount &&
+            String(owner.invoiceAccount).trim().toLowerCase() !==
+              item.vendorAccount.trim().toLowerCase())
+        ) {
+          continue;
+        }
+        blockers.push({
+          expectedLineNumber: item.lineNumber,
+          invoiceNumber: owner.InvoiceNumber,
+          journalBatchNumber: owner.JournalBatchNumber,
+          journalLineNumber: Number(owner.JournalLineNumber),
+          journalLineCompany: owner.JournalLineCompany,
+        });
+      }
+    }
+    return blockers;
+  }
+
+  private async repairMissingVendorInvoiceSettlement(
+    headerKey: string,
+    dataAreaId: string,
+    missing: ExpectedVendorInvoiceSettlement,
+  ): Promise<void> {
+    const variants = [
+      missing.invoiceNumber,
+      missing.invoiceNumber.trim(),
+      ` ${missing.invoiceNumber.trim()}`,
+      `${missing.invoiceNumber.trim()} `,
+      ` ${missing.invoiceNumber.trim()} `,
+    ];
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('AccountNum', missing.vendorAccount),
+      `(${this.queryBuilder.or(
+        ...[...new Set(variants)].map((invoice) =>
+          this.queryBuilder.eq('Invoice', invoice),
+        ),
+      )})`,
+    );
+    const query = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
+      filter,
+      select: [
+        'Invoice',
+        'AccountNum',
+        'AmountCur',
+        'SettleAmountCur',
+        'CurrencyCode',
+        'DueDate',
+        'Closed',
+      ],
+      top: 20,
+      crossCompany: true,
+    });
+    const response = await this.d365foClient.get<{
+      Invoice: string;
+      AccountNum: string;
+      AmountCur: number;
+      SettleAmountCur: number;
+      CurrencyCode: string;
+      DueDate: string;
+      Closed: string;
+    }>(query, { useCache: false });
+    const invoice = (response.value ?? []).find(
+      (row) =>
+        this.normalizeSettlementInvoice(row.Invoice) ===
+        this.normalizeSettlementInvoice(missing.invoiceNumber),
+    );
+    if (!invoice) {
+      throw new Error(
+        `posted vendor invoice ${missing.invoiceNumber} / ${missing.vendorAccount} was not found`,
+      );
+    }
+    const available = Math.abs(
+      (Number(invoice.AmountCur) || 0) - (Number(invoice.SettleAmountCur) || 0),
+    );
+    const requested = Math.abs(missing.settlementAmount);
+    if (available + 0.01 < requested) {
+      throw new Error(
+        `invoice ${missing.invoiceNumber} has ${available} ${invoice.CurrencyCode} remaining, below requested ${requested} ${missing.currency}`,
+      );
+    }
+    if (
+      missing.currency &&
+      invoice.CurrencyCode &&
+      missing.currency.trim().toUpperCase() !==
+        invoice.CurrencyCode.trim().toUpperCase()
+    ) {
+      throw new Error(
+        `invoice ${missing.invoiceNumber} currency ${invoice.CurrencyCode} does not match payment currency ${missing.currency}`,
+      );
+    }
+
+    await this.vendorPaymentJournalService.addSettledInvoice({
+      JournalLineCompany: dataAreaId,
+      JournalBatchNumber: headerKey,
+      JournalLineNumber: missing.lineNumber,
+      InvoiceNumber: invoice.Invoice,
+      InvoiceCompany: dataAreaId,
+      InvoiceDueDate: invoice.DueDate,
+      InvoiceToPaymentCrossRate: 0,
+      SettlementAmountInInvoiceCurrency: missing.settlementAmount,
+      CashDiscountToTakeInInvoiceCurrency: 0,
+    });
+  }
+
+  private settlementKey(lineNumber: number, invoiceNumber: string): string {
+    return `${Number(lineNumber)}|${this.normalizeSettlementInvoice(invoiceNumber)}`;
+  }
+
+  private normalizeSettlementInvoice(value: unknown): string {
+    return String(value ?? '')
+      .replace(
+        /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
+        '',
+      )
+      .replace(/\u00a0/g, ' ')
+      .normalize('NFKC')
+      .trim()
+      .toLowerCase();
+  }
+
+  /**
+   * D365 stores the WCA accounts as ledger main accounts named `WCApp - USD`
+   * and `WCApp - EUR`, while source files can provide aliases such as
+   * `WCA-US` and `WCA-EUR`. The custom API must receive the main-account ID
+   * with account type Ledger; sending the alias as Bank makes FO query
+   * BankAccountTable and fail with "No record ... exists".
+   */
+  private async resolveCashCustomMainAccountAliases(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    _dataAreaId?: string,
+  ): Promise<D365FOCustomerPaymentJournalLineRequest[]> {
+    const aliasesByValue = new Map(
+      CASH_CUSTOM_MAIN_ACCOUNT_ALIASES.map((entry) => [
+        this.normalizeCashCustomAccountAlias(entry.alias),
+        entry,
+      ]),
+    );
+
+    const requestedAliases = new Set<string>();
+    for (const line of lines) {
+      const body = line.customLineApiBody;
+      if (!body) continue;
+
+      if (String(body.OffsetAccountTypeStr ?? '').toLowerCase() === 'bank') {
+        const alias = this.normalizeCashCustomAccountAlias(
+          body.offsetAccountDisplayValue,
+        );
+        if (aliasesByValue.has(alias)) requestedAliases.add(alias);
+      }
+
+      if (String(body.accountTypeStr ?? '').toLowerCase() === 'bank') {
+        const alias = this.normalizeCashCustomAccountAlias(body.AccountNum);
+        if (aliasesByValue.has(alias)) requestedAliases.add(alias);
+      }
+    }
+
+    if (requestedAliases.size === 0) return lines;
+
+    const targetNamesForQuery = Array.from(
+      new Set(
+        Array.from(requestedAliases).map(
+          (alias) => aliasesByValue.get(alias)!.name,
+        ),
+      ),
+    );
+    const targetNames = new Set(
+      targetNamesForQuery.map((name) =>
+        this.normalizeCashCustomMainAccountName(name),
+      ),
+    );
+    // Finance rejects contains(Name, ...) on this entity with
+    // "The type 'System.String' for the query operator is not Queryable".
+    // Match the exact values used by MainAccounts, including the legacy
+    // leading-space variant visible in Dynamics.
+    const nameFilter = targetNamesForQuery
+      .flatMap((name) => [
+        this.queryBuilder.eq('Name', name),
+        this.queryBuilder.eq('Name', ` ${name}`),
+      ])
+      .join(' or ');
+    const query = this.queryBuilder.buildQuery('/data/MainAccounts', {
+      filter: nameFilter,
+      select: ['MainAccountId', 'Name', 'ChartOfAccounts'],
+      top: 100,
+      crossCompany: true,
+    });
+
+    const response = await this.d365foClient.get<D365FOMainAccountAliasRecord>(
+      query,
+      { useCache: true, cacheTtl: 60 * 60 * 1000 },
+    );
+    const records = Array.isArray(response?.value) ? response.value : [];
+    const mainAccountIdsByName = new Map<string, Set<string>>();
+
+    for (const record of records) {
+      const name = this.normalizeCashCustomMainAccountName(record.Name);
+      const accountId = String(record.MainAccountId ?? '').trim();
+      if (!name || !accountId || !targetNames.has(name)) continue;
+
+      const accountIds = mainAccountIdsByName.get(name) ?? new Set<string>();
+      accountIds.add(accountId);
+      mainAccountIdsByName.set(name, accountIds);
+    }
+
+    const resolvedByAlias = new Map<string, string>();
+    for (const alias of requestedAliases) {
+      const target = aliasesByValue.get(alias)!;
+      const accountIds = mainAccountIdsByName.get(
+        this.normalizeCashCustomMainAccountName(target.name),
+      );
+      if (!accountIds || accountIds.size === 0) {
+        throw new Error(
+          `[CASH-CUSTOM] Could not resolve bank alias ${target.alias}: D365 main account "${target.name}" was not found.`,
+        );
+      }
+      if (accountIds.size > 1) {
+        throw new Error(
+          `[CASH-CUSTOM] Could not resolve bank alias ${target.alias}: D365 returned multiple main accounts for "${target.name}" (${Array.from(accountIds).join(', ')}).`,
+        );
+      }
+      resolvedByAlias.set(alias, Array.from(accountIds)[0]);
+    }
+
+    return lines.map((line) => {
+      const body = line.customLineApiBody;
+      if (!body) return line;
+
+      const normalizedBody = { ...body };
+      if (String(body.OffsetAccountTypeStr ?? '').toLowerCase() === 'bank') {
+        const alias = this.normalizeCashCustomAccountAlias(
+          body.offsetAccountDisplayValue,
+        );
+        const mainAccountId = resolvedByAlias.get(alias);
+        if (mainAccountId) {
+          normalizedBody.offsetAccountDisplayValue = mainAccountId;
+          normalizedBody.OffsetAccountTypeStr = 'Ledger';
+        }
+      }
+
+      if (String(body.accountTypeStr ?? '').toLowerCase() === 'bank') {
+        const alias = this.normalizeCashCustomAccountAlias(body.AccountNum);
+        const mainAccountId = resolvedByAlias.get(alias);
+        if (mainAccountId) {
+          normalizedBody.AccountNum = mainAccountId;
+          normalizedBody.accountTypeStr = 'Ledger';
+        }
+      }
+
+      return { ...line, customLineApiBody: normalizedBody };
+    });
+  }
+
+  private normalizeCashCustomAccountAlias(value: unknown): string {
+    return (
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value)
+        : ''
+    )
+      .trim()
+      .toUpperCase()
+      .replace(/[\s_]+/g, '-')
+      .replace(/-+/g, '-');
+  }
+
+  private normalizeCashCustomMainAccountName(value: unknown): string {
+    return (
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value)
+        : ''
+    )
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toUpperCase();
   }
 
   private async postCashBulkLinesForHeader(
@@ -323,6 +1049,7 @@ export class CustomerPaymentJournalService {
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: Set<number>,
+    dataAreaId: string | undefined,
     allowUnmarkedInvoiceRetry: boolean,
     cashDirection: 'in' | 'out',
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
@@ -359,12 +1086,25 @@ export class CustomerPaymentJournalService {
       (line) => !existingLines.has(line.lineNumber),
     );
 
+    await this.repairPartialUniqueIdGroups(
+      headerKey,
+      dataAreaId,
+      cashDirection,
+      preparedLines,
+      pendingPreparedLines,
+      existingLines,
+    );
+
+    const resumablePendingLines = preparedLines.filter(
+      (line) => !existingLines.has(line.lineNumber),
+    );
+
     // A resumed post may skip an entire UniqueId group that FO already has,
     // but it must never post only the missing part of a group. That would turn
     // a source-balanced entry into an unbalanced request.
     this.assertCompleteUniqueIdGroupSelection(
       preparedLines,
-      pendingPreparedLines,
+      resumablePendingLines,
       `resume journal ${headerKey}`,
     );
     const alreadyPostedCount = preparedLines.filter((line) =>
@@ -479,24 +1219,10 @@ export class CustomerPaymentJournalService {
     selectedLines: CashBulkPendingLine[],
     operation: string,
   ): void {
-    const selectedLineNumbers = new Set(
-      selectedLines.map((line) => line.lineNumber),
+    const partialGroups = this.findPartialUniqueIdGroups(
+      allLines,
+      selectedLines,
     );
-    const partialGroups = this.groupCashOutLinesByUniqueId(allLines)
-      .map((group) => {
-        const selectedCount = group.filter((line) =>
-          selectedLineNumbers.has(line.lineNumber),
-        ).length;
-        return {
-          key: this.resolveCashOutUniqueIdGroupKey(group[0]),
-          selectedCount,
-          totalCount: group.length,
-        };
-      })
-      .filter(
-        (group) =>
-          group.selectedCount > 0 && group.selectedCount < group.totalCount,
-      );
 
     if (partialGroups.length === 0) return;
 
@@ -509,6 +1235,85 @@ export class CustomerPaymentJournalService {
     throw new Error(
       `[CASH-CUSTOM] Cannot ${operation}: the request would split complete UniqueId group(s): ${details}. Recreate or roll back the affected journal before retrying.`,
     );
+  }
+
+  private findPartialUniqueIdGroups(
+    allLines: CashBulkPendingLine[],
+    selectedLines: CashBulkPendingLine[],
+  ): Array<{
+    key: string;
+    lines: CashBulkPendingLine[];
+    selectedCount: number;
+    totalCount: number;
+  }> {
+    const selectedLineNumbers = new Set(
+      selectedLines.map((line) => line.lineNumber),
+    );
+
+    return this.groupCashOutLinesByUniqueId(allLines)
+      .map((lines) => ({
+        key: this.resolveCashOutUniqueIdGroupKey(lines[0]),
+        lines,
+        selectedCount: lines.filter((line) =>
+          selectedLineNumbers.has(line.lineNumber),
+        ).length,
+        totalCount: lines.length,
+      }))
+      .filter(
+        (group) =>
+          group.selectedCount > 0 && group.selectedCount < group.totalCount,
+      );
+  }
+
+  /**
+   * Recover a retry after a bulk request left only part of a UniqueId group in
+   * Finance. Delete only those partial-group lines, then let the normal flow
+   * repost the complete group. Fully posted groups remain untouched.
+   */
+  private async repairPartialUniqueIdGroups(
+    headerKey: string,
+    dataAreaId: string | undefined,
+    cashDirection: 'in' | 'out',
+    allLines: CashBulkPendingLine[],
+    selectedLines: CashBulkPendingLine[],
+    existingLines: Set<number>,
+  ): Promise<void> {
+    const partialGroups = this.findPartialUniqueIdGroups(
+      allLines,
+      selectedLines,
+    );
+    if (partialGroups.length === 0) return;
+
+    if (!dataAreaId) {
+      this.assertCompleteUniqueIdGroupSelection(
+        allLines,
+        selectedLines,
+        `resume journal ${headerKey}`,
+      );
+      return;
+    }
+
+    const partialLineNumbers = partialGroups
+      .flatMap((group) => group.lines)
+      .filter((line) => existingLines.has(line.lineNumber))
+      .map((line) => line.lineNumber);
+
+    this.logger.warn(
+      `[CASH-CUSTOM] Repairing ${partialLineNumbers.length} existing line(s) from partial UniqueId group(s) before resuming journal ${headerKey}: ${partialGroups.map((group) => `${group.key} (${group.selectedCount}/${group.totalCount})`).join(', ')}`,
+    );
+
+    for (const lineNumber of partialLineNumbers) {
+      if (cashDirection === 'out') {
+        await this.vendorPaymentJournalService.deleteLine(
+          headerKey,
+          lineNumber,
+          dataAreaId,
+        );
+      } else {
+        await this.deleteLine(headerKey, lineNumber, dataAreaId);
+      }
+      existingLines.delete(lineNumber);
+    }
   }
 
   private resolveCashOutUniqueIdGroupKey(line: CashBulkPendingLine): string {
@@ -525,6 +1330,133 @@ export class CustomerPaymentJournalService {
     return new Set(
       lines.map((line) => this.resolveCashOutUniqueIdGroupKey(line)),
     ).size;
+  }
+
+  /**
+   * Repair the exact corruption produced by the D365 custom vendor-payment
+   * service when one successful request creates a marked set followed by an
+   * unmarked fallback set. No deletion occurs unless every row in the second
+   * half is proven to be the fallback twin of the corresponding first row.
+   */
+  public async repairDuplicatedUnmarkedFallbackLines(
+    headerKey: string,
+    expectedLineCount: number,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    if (expectedLineCount < 1) return false;
+    const lines = (
+      await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+        headerKey,
+        dataAreaId,
+      )
+    ).sort((left, right) => Number(left.LineNumber) - Number(right.LineNumber));
+    if (lines.length !== expectedLineCount * 2) return false;
+
+    const retained = lines.slice(0, expectedLineCount);
+    const fallback = lines.slice(expectedLineCount);
+    for (let index = 0; index < expectedLineCount; index++) {
+      if (
+        Number(fallback[index].LineNumber) !==
+          Number(retained[index].LineNumber) + expectedLineCount ||
+        !this.isProvenUnmarkedFallbackTwin(retained[index], fallback[index])
+      ) {
+        return false;
+      }
+    }
+
+    const fallbackLineNumbers = fallback.map((line) => Number(line.LineNumber));
+    this.logger.warn(
+      `[CASH-CUSTOM] Repairing D365 successful-response duplication on journal ${headerKey}: retaining ${expectedLineCount} original line(s) and deleting ${fallbackLineNumbers.length} proven unmarked fallback twin(s).`,
+    );
+    for (let start = 0; start < fallbackLineNumbers.length; start += 5) {
+      await Promise.all(
+        fallbackLineNumbers
+          .slice(start, start + 5)
+          .map((lineNumber) =>
+            this.vendorPaymentJournalService.deleteLine(
+              headerKey,
+              lineNumber,
+              dataAreaId,
+            ),
+          ),
+      );
+    }
+
+    const remaining = await this.vendorPaymentJournalService.listLinesForHeader(
+      headerKey,
+      dataAreaId,
+    );
+    if (remaining.length !== expectedLineCount) {
+      throw new Error(
+        `[DATA INTEGRITY] Journal ${headerKey} fallback cleanup was incomplete: expected ${expectedLineCount} retained line(s), found ${remaining.length}.`,
+      );
+    }
+    return true;
+  }
+
+  private isProvenUnmarkedFallbackTwin(
+    retained: Record<string, unknown> & { LineNumber: number },
+    fallback: Record<string, unknown> & { LineNumber: number },
+  ): boolean {
+    const retainedLineNumber = Number(retained.LineNumber);
+    const fallbackLineNumber = Number(fallback.LineNumber);
+    if (
+      !Number.isFinite(retainedLineNumber) ||
+      !Number.isFinite(fallbackLineNumber)
+    ) {
+      return false;
+    }
+    if (fallbackLineNumber <= retainedLineNumber) return false;
+    if (this.integrityString(fallback.MarkedInvoice).trim()) return false;
+
+    const comparableFields = [
+      'AccountDisplayValue',
+      'AccountType',
+      'OffsetAccountDisplayValue',
+      'OffsetAccountType',
+      'CurrencyCode',
+      'DebitAmount',
+      'CreditAmount',
+      'PaymentId',
+      'PaymentReference',
+      'FinTagDisplayValue',
+      'OffsetFinTagDisplayValue',
+      'PostingProfile',
+      'TransactionDate',
+    ];
+    if (
+      comparableFields.some(
+        (field) =>
+          this.normalizeIntegrityValue(retained[field]) !==
+          this.normalizeIntegrityValue(fallback[field]),
+      )
+    ) {
+      return false;
+    }
+
+    const retainedText = this.integrityString(retained.TransactionText).trim();
+    const fallbackText = this.integrityString(fallback.TransactionText).trim();
+    const retainedInvoice = this.integrityString(retained.MarkedInvoice).trim();
+    return retainedInvoice
+      ? fallbackText === `${retainedText} unmarked with ${retainedInvoice}`
+      : fallbackText === retainedText &&
+          fallbackText.includes(' unmarked with ');
+  }
+
+  private normalizeIntegrityValue(value: unknown): string {
+    if (typeof value === 'number') return value.toFixed(6);
+    return this.integrityString(value)
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  private integrityString(value: unknown): string {
+    return typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+      ? String(value)
+      : '';
   }
 
   /**
@@ -1080,7 +2012,7 @@ export class CustomerPaymentJournalService {
   ): Promise<boolean> {
     if (await this.ledgerJournalHeaderExists(company, journalBatchNumber)) {
       try {
-        await this.generalJournalService.deleteJournalHeader(
+        await this.deleteLedgerJournalWithDependentLines(
           company,
           journalBatchNumber,
         );
@@ -1095,10 +2027,9 @@ export class CustomerPaymentJournalService {
           );
           return false;
         }
-        this.logger.warn(
-          `[CASH-CUSTOM] Ledger journal ${journalBatchNumber} in ${company} not deleted: ${this.dfoErrorExtractor.extractMessage(error)}`,
+        throw new Error(
+          `[CASH-CUSTOM] Could not safely delete ledger journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
         );
-        return false;
       }
     }
 
@@ -1106,7 +2037,7 @@ export class CustomerPaymentJournalService {
       await this.vendorPaymentJournalHeaderExists(company, journalBatchNumber)
     ) {
       try {
-        await this.vendorPaymentJournalService.deleteHeader(
+        await this.deleteVendorPaymentJournalWithDependentLines(
           journalBatchNumber,
           company,
         );
@@ -1121,10 +2052,9 @@ export class CustomerPaymentJournalService {
           );
           return false;
         }
-        this.logger.warn(
-          `[CASH-CUSTOM] Vendor payment journal ${journalBatchNumber} in ${company} not deleted: ${this.dfoErrorExtractor.extractMessage(error)}`,
+        throw new Error(
+          `[CASH-CUSTOM] Could not safely delete vendor payment journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
         );
-        return false;
       }
     }
 
@@ -1132,6 +2062,117 @@ export class CustomerPaymentJournalService {
       `[CASH-CUSTOM] No FO journal header ${journalBatchNumber} in ${company} to delete (SpecTrans ghost)`,
     );
     return false;
+  }
+
+  /**
+   * Delete dependent lines before a GL header. Recreating a header while the
+   * old one still exists leaves duplicate journals in Finance.
+   */
+  private async deleteLedgerJournalWithDependentLines(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<void> {
+    await this.deleteJournalHeaderWithLineCleanup({
+      journalBatchNumber,
+      listLines: () =>
+        this.generalJournalService.getJournalLines(
+          company,
+          journalBatchNumber,
+          { maxCount: 10_000, select: ['LineNumber'], useCache: false },
+        ),
+      deleteLine: (lineNumber) =>
+        this.generalJournalService.deleteJournalLine(
+          company,
+          journalBatchNumber,
+          lineNumber,
+        ),
+      deleteHeader: () =>
+        this.generalJournalService.deleteJournalHeader(
+          company,
+          journalBatchNumber,
+        ),
+    });
+  }
+
+  /** Delete dependent AP lines before the Vendor Payment header. */
+  private async deleteVendorPaymentJournalWithDependentLines(
+    journalBatchNumber: string,
+    company: string,
+  ): Promise<void> {
+    await this.deleteJournalHeaderWithLineCleanup({
+      journalBatchNumber,
+      listLines: () =>
+        this.vendorPaymentJournalService.listLinesForHeader(
+          journalBatchNumber,
+          company,
+        ),
+      deleteLine: (lineNumber) =>
+        this.vendorPaymentJournalService.deleteLine(
+          journalBatchNumber,
+          lineNumber,
+          company,
+        ),
+      deleteHeader: () =>
+        this.vendorPaymentJournalService.deleteHeader(
+          journalBatchNumber,
+          company,
+        ),
+    });
+  }
+
+  private async deleteJournalHeaderWithLineCleanup(args: {
+    journalBatchNumber: string;
+    listLines: () => Promise<Array<{ LineNumber: number }>>;
+    deleteLine: (lineNumber: number) => Promise<void>;
+    deleteHeader: () => Promise<void>;
+  }): Promise<void> {
+    const maxAttempts = 4;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const lines = await args.listLines();
+      for (let offset = 0; offset < lines.length; offset += 20) {
+        const chunk = lines.slice(offset, offset + 20);
+        await Promise.all(
+          chunk.map(async (line) => {
+            try {
+              await args.deleteLine(Number(line.LineNumber));
+            } catch (error) {
+              if (!this.isODataResourceMissingError(error)) throw error;
+            }
+          }),
+        );
+      }
+
+      if (lines.length > 0) {
+        this.logger.log(
+          `[CASH-CUSTOM] Deleted ${lines.length} dependent line(s) from journal ${args.journalBatchNumber} before header cleanup`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      try {
+        await args.deleteHeader();
+        return;
+      } catch (error) {
+        if (this.isODataResourceMissingError(error)) return;
+        if (attempt < maxAttempts && this.isDependentJournalLinesError(error)) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  private isDependentJournalLinesError(error: unknown): boolean {
+    const message = this.dfoErrorExtractor
+      .extractMessage(error)
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    return (
+      message.includes('dependent journal lines') ||
+      (message.includes('dependent') && message.includes('lines exist'))
+    );
   }
 
   private isODataResourceMissingError(error: unknown): boolean {
@@ -1678,8 +2719,11 @@ export class CustomerPaymentJournalService {
       VendorGroup: String(line.VendorGroup ?? ''),
     };
 
-    // Cash-In settles via MARKEDINVOICE on CustPaym; Cash-Out uses MarkedLines.
-    // Preserve the key whenever the mapper set it (including null for unmarked).
+    // Cash-In keeps MARKEDINVOICE for existing CustPaym behavior and also
+    // carries the structured MarkedLines array. Cash-Out uses MarkedLines as
+    // its settlement contract.
+    // Preserve MARKEDINVOICE whenever the mapper set it (including null for
+    // unmarked).
     if ('MARKEDINVOICE' in line) {
       body.MARKEDINVOICE =
         line.MARKEDINVOICE === null || line.MARKEDINVOICE === undefined
@@ -1729,6 +2773,41 @@ export class CustomerPaymentJournalService {
     );
 
     return response.value || [];
+  }
+
+  public async headerExists(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    return (await this.getHeaderIdentity(headerKey, dataAreaId)) !== null;
+  }
+
+  public async getHeaderIdentity(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<{ JournalBatchNumber: string; Description?: string } | null> {
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+    const query = this.queryBuilder.buildQuery(
+      '/data/CustomerPaymentJournalHeaders',
+      {
+        filter,
+        select: ['JournalBatchNumber', 'Description'],
+        top: 1,
+        crossCompany: true,
+      },
+    );
+    const response = await this.d365foClient.get<{
+      JournalBatchNumber: string;
+      Description?: string;
+    }>(query, { useCache: false });
+    return (
+      (response.value ?? []).find(
+        (header) => header.JournalBatchNumber === headerKey,
+      ) ?? null
+    );
   }
 
   /**

@@ -1,11 +1,11 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { CashInFreightEntryProcessor } from '@/modules/cash/processors/cash-in-freight-entry.processor';
-import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/cash-out-freight-entry.processor';
 import {
   extractCashInMainAccount,
   isCashInLedger421103Line,
   parseCashInCustomerInvoices,
 } from '@/modules/cash/processors/cash-in-customer-fx.rules';
+import { CashInFreightEntryProcessor } from '@/modules/cash/processors/cash-in-freight-entry.processor';
+import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/cash-out-freight-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
@@ -62,10 +62,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     return processor;
   };
 
-  const toModels = (
-    lines: Array<Record<string, unknown>>,
-    inbound = true,
-  ) =>
+  const toModels = (lines: Array<Record<string, unknown>>, inbound = true) =>
     lines.map(
       (line) => new CashEntryRawDataModel(line as any, 'Freight', inbound),
     );
@@ -161,23 +158,34 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect(customer.INVOICE).toBe('5564/مطالبة نولون محصلة لصالح الغير');
 
     const built = (processor as any).buildLines('466669', processed);
-    expect(built).toHaveLength(2);
+    expect(built).toHaveLength(3);
 
-    const pairLine = built.find(
-      (line: any) =>
-        line.CreditAmount === 730 && line.CurrencyCode === 'USD',
+    const customerLine = built.find(
+      (line: any) => line.CreditAmount === 730 && line.CurrencyCode === 'USD',
     );
-    expect(pairLine).toBeDefined();
-    expect(pairLine.AccountDisplayValue).toBe('101000543');
-    expect(pairLine.OffsetAccountDisplayValue).toContain('ALEXHO US');
-
-    const residual = built.find((line: any) => line !== pairLine);
-    expect(residual.ErrorCount).toBeGreaterThan(0);
+    expect(customerLine).toBeDefined();
+    expect(customerLine.AccountDisplayValue).toBe('101000543');
+    expect(customerLine.MarkedLines).toEqual([
+      expect.objectContaining({ InvoiceNumber: '000005564/OF-FW' }),
+    ]);
     expect(
-      residual.GetErrors().some((error: string) =>
-        error.includes('InvalidMapping'),
+      built.every(
+        (line: any) =>
+          line.OffsetAccountType === '' &&
+          line.OffsetAccountDisplayValue === '',
       ),
     ).toBe(true);
+    expect(
+      built.map((line: any) => ({
+        account: line.AccountDisplayValue,
+        debit: line.DebitAmount,
+        credit: line.CreditAmount,
+      })),
+    ).toEqual([
+      { account: 'ALEXHO US', debit: 730, credit: 0 },
+      { account: 'ALEXHO EG', debit: 360, credit: 0 },
+      { account: '101000543', debit: 0, credit: 730 },
+    ]);
   });
 
   it('assigns multiple customers to multiple debits one-to-one by currency', async () => {
@@ -265,7 +273,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect(eurCust.CURRENCYCODE).toBe('EUR');
 
     const built = (processor as any).buildLines('100', processed);
-    expect(built).toHaveLength(2);
+    expect(built).toHaveLength(4);
     expect(
       built.map((line: any) => ({
         credit: line.CreditAmount,
@@ -274,10 +282,15 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       })),
     ).toEqual(
       expect.arrayContaining([
+        { credit: 0, currency: 'USD', account: 'BANK-USD' },
+        { credit: 0, currency: 'EUR', account: 'BANK-EUR' },
         { credit: 100, currency: 'USD', account: 'C-USD' },
         { credit: 200, currency: 'EUR', account: 'C-EUR' },
       ]),
     );
+    expect(
+      built.every((line: any) => line.OffsetAccountDisplayValue === ''),
+    ).toBe(true);
   });
 
   it('does not refresh exchange rate when currency already matches', async () => {
@@ -388,9 +401,11 @@ describe('Cash-In customer FX + Ledger 421103', () => {
 
   it('blocks the full UniqueId when exchange rate is missing after currency change', async () => {
     const processor = createCashInProcessor();
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(() => {
-      throw new Error('missing rate');
-    });
+    jest
+      .spyOn(processor as any, 'fetchExchangeRates')
+      .mockImplementation(() => {
+        throw new Error('missing rate');
+      });
 
     const lines = toModels([
       {
@@ -565,9 +580,9 @@ describe('Cash-In customer FX + Ledger 421103', () => {
 
     const marked = (processor as any).formatInvoiceInbound(lines[1].INVOICE);
     // Existing FTI path still uses the primary token only.
-    expect(marked.startsWith('000INV') || marked.includes('1001') || marked === '').toBe(
-      true,
-    );
+    expect(
+      marked.startsWith('000INV') || marked.includes('1001') || marked === '',
+    ).toBe(true);
   });
 
   it('does not apply customer multi-invoice parsing to non-Cust lines', () => {
@@ -795,8 +810,12 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect((processor as any).cashInCustomerFxResults.has('500')).toBe(false);
 
     const built = (processor as any).buildLines('500', processed);
-    expect(built).toHaveLength(1);
-    expect(built[0].CreditAmount).toBe(730);
+    expect(built).toHaveLength(2);
+    expect(built[0].DebitAmount).toBe(730);
+    expect(built[1].CreditAmount).toBe(737);
+    expect(
+      built.every((line: any) => line.OffsetAccountDisplayValue === ''),
+    ).toBe(true);
   });
 
   it('does not apply Cash-In special rules on Cash-Out processors', async () => {

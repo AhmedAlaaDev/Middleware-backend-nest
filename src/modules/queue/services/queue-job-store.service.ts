@@ -260,11 +260,7 @@ export class QueueJobStoreService {
 
   /** Most recent durable job recorded for a batch, in any status. */
   async findLatestForBatch(batchId: string) {
-    return this.jobs
-      .findOne({ batchId })
-      .sort({ createdAt: -1 })
-      .lean()
-      .exec();
+    return this.jobs.findOne({ batchId }).sort({ createdAt: -1 }).lean().exec();
   }
 
   /**

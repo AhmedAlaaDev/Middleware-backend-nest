@@ -141,12 +141,13 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       expect(rows).toHaveLength(4134);
       // Vendor Payment emits one FO line per vendor debit (payment as offset)
       // plus one FO line per matched 223304 withholding credit.
-      const sourceWithholdingLines = sourceVendorPayments.filter((row) =>
-        String(row.ACCOUNTTYPE).toLowerCase() === 'ledger' &&
-        String(row.ACCOUNTDISPLAYVALUE ?? '')
-          .split('|')[0]
-          .startsWith('223304') &&
-        Number(row.CREDITAMOUNT) > 0,
+      const sourceWithholdingLines = sourceVendorPayments.filter(
+        (row) =>
+          String(row.ACCOUNTTYPE).toLowerCase() === 'ledger' &&
+          String(row.ACCOUNTDISPLAYVALUE ?? '')
+            .split('|')[0]
+            .startsWith('223304') &&
+          Number(row.CREDITAMOUNT) > 0,
       );
       expect(vendorPayments.length).toBeGreaterThanOrEqual(
         sourceVendorDebitLines.length + sourceWithholdingLines.length,

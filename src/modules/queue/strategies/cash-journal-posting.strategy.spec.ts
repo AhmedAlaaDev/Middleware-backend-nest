@@ -47,6 +47,11 @@ describe('CashJournalPostingStrategy', () => {
       failed: [],
     }),
     extractHeaderIdFromResponse: jest.fn(),
+    headerExists: jest.fn().mockResolvedValue(true),
+    getHeaderIdentity: jest.fn().mockResolvedValue({
+      JournalBatchNumber: journalBatchNumber,
+      Description: 'Cash journal identity',
+    }),
     listLinesForHeader: jest
       .fn()
       .mockResolvedValue([{ LineNumber: existingLineNumber }]),
@@ -60,6 +65,7 @@ describe('CashJournalPostingStrategy', () => {
       postCashOutLinesForHeader: jest
         .fn()
         .mockResolvedValue([{ headerId: 'OUT-0001', lineNumber: 1 }]),
+      repairDuplicatedUnmarkedFallbackLines: jest.fn().mockResolvedValue(false),
     };
     const customerPaymentStrategy = {
       ...createHeaderStrategyMock('AR-0001', 31),
@@ -242,6 +248,23 @@ describe('CashJournalPostingStrategy', () => {
         JournalBatchNumber: 'Mesco-000020045',
       }),
     ).toBe('Mesco-000020045');
+  });
+
+  it('reads header existence and line count from the routed D365 entity', async () => {
+    const { strategy, vendorPaymentStrategy } = buildStrategy();
+    strategy.setRouteContext(apRoute);
+
+    await expect(
+      strategy.getJournalIntegrityState('AP-0001', 'm-p'),
+    ).resolves.toEqual({
+      headerExists: true,
+      lineCount: 1,
+      headerDescription: 'Cash journal identity',
+    });
+    expect(vendorPaymentStrategy.getHeaderIdentity).toHaveBeenCalledWith(
+      'AP-0001',
+      'm-p',
+    );
   });
 
   it('rejects a delegated header response with a blank generated journal number', async () => {

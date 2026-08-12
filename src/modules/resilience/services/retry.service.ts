@@ -152,10 +152,7 @@ export class RetryService {
     const retryConfig: IAxiosRetryConfig = {
       retries: options?.retries || 3,
       retryDelay: (retryCount, error: AxiosError) => {
-        if (
-          error?.response?.status === 429 ||
-          this.isFoThrottleError(error)
-        ) {
+        if (error?.response?.status === 429 || this.isFoThrottleError(error)) {
           return DELAY_MS_429;
         }
         const baseDelay = options?.retryDelay || 1000;

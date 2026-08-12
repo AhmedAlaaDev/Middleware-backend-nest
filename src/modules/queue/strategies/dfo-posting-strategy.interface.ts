@@ -14,12 +14,32 @@ export interface DeleteLinesResult {
   failed: Array<{ headerId: string; lineNumber: number; error: string }>;
 }
 
+export interface DfoHeaderIdentity {
+  JournalBatchNumber: string;
+  Description?: string;
+}
+
 /**
  * Strategy interface for posting different types of documents to D365FO
  * This allows the processor to work with different posting types (vendor journals, free text invoices, etc.)
  * while maintaining a consistent interface
  */
 export interface IDfoPostingStrategy {
+  /**
+   * Load the authoritative header identity from D365FO. The description carries
+   * the middleware integration marker used to reject a reused journal number.
+   */
+  getHeaderIdentity?(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<DfoHeaderIdentity | null>;
+
+  /**
+   * Verify that a journal header still exists in D365FO. Cash posting uses
+   * this authoritative read-back before it resumes or completes a journal.
+   */
+  headerExists?(headerKey: string, dataAreaId: string): Promise<boolean>;
+
   /**
    * Post headers in batches
    * @param headers Array of header requests

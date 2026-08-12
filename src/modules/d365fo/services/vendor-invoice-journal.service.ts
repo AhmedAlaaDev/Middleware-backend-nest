@@ -37,34 +37,74 @@ export class VendorInvoiceJournalService {
 
   /**
    * Build map key for invoice + vendor account pair (case-insensitive).
+   * D365/Excel values can contain non-printing direction marks.
    */
   public static pairKey(invoice: string, vendorAccount: string): string {
-    return `${invoice.trim().toLowerCase()}|${vendorAccount.trim().toLowerCase()}`;
+    return `${this.normalizeLookupValue(invoice)}|${this.normalizeLookupValue(vendorAccount)}`;
+  }
+
+  private static cleanLookupValue(value?: string): string {
+    return this.preserveLookupValue(value).trim();
+  }
+
+  private static preserveLookupValue(value?: string): string {
+    return String(value ?? '')
+      .replace(
+        /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
+        '',
+      )
+      .replace(/\u00a0/g, ' ')
+      .normalize('NFKC');
+  }
+
+  private static normalizeLookupValue(value?: string): string {
+    return this.cleanLookupValue(value).toLowerCase();
   }
 
   /**
-   * Batch-lookup existing invoice/vendor pairs on VendInvoiceJournalLines.
+   * Batch-lookup existing invoice/vendor pairs on posted vendor invoices.
    * D365FO OData does not support `in`; uses
    * `(Invoice eq 'a' or Invoice eq 'b' or …)` chunks, then matches
-   * AccountDisplayValue in memory. Returns a Set of pair keys that exist.
+   * InvoiceAccount/OrderAccount in memory. Returns a Set of pair keys that exist.
    */
   public async findExistingInvoiceVendorPairs(
     company: string,
     invoices: string[],
     options?: { chunkSize?: number; concurrency?: number },
   ): Promise<Set<VendorInvoiceVendorPairKey>> {
+    const invoiceIds = await this.findExistingInvoiceVendorPairInvoiceIds(
+      company,
+      invoices,
+      options,
+    );
+
+    return new Set(invoiceIds.keys());
+  }
+
+  /**
+   * Resolve each normalized invoice/vendor pair to the exact InvoiceId stored
+   * in D365. Surrounding spaces matter to the settlement custom service even
+   * though validation deliberately matches the normalized pair.
+   */
+  public async findExistingInvoiceVendorPairInvoiceIds(
+    company: string,
+    invoices: string[],
+    options?: { chunkSize?: number; concurrency?: number },
+  ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
     const uniqueInvoices = [
       ...new Set(
         invoices
-          .map((invoice) => invoice?.trim())
-          .filter((invoice): invoice is string => Boolean(invoice)),
+          .map((invoice) =>
+            VendorInvoiceJournalService.preserveLookupValue(invoice),
+          )
+          .filter((invoice) => Boolean(invoice.trim())),
       ),
     ];
 
-    const existingPairs = new Set<VendorInvoiceVendorPairKey>();
+    const existingInvoiceIds = new Map<VendorInvoiceVendorPairKey, string>();
 
     if (uniqueInvoices.length === 0) {
-      return existingPairs;
+      return existingInvoiceIds;
     }
 
     const chunkSize = Math.min(
@@ -79,7 +119,7 @@ export class VendorInvoiceJournalService {
     const totalChunks = chunks.length;
 
     this.logger.log(
-      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against VendInvoiceJournalLines for company '${company}' in ${totalChunks} chunk(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
+      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against posted D365 vendor invoices for company '${company}' in ${totalChunks} chunk(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
     );
 
     const startMs = Date.now();
@@ -97,18 +137,20 @@ export class VendorInvoiceJournalService {
         ),
       );
 
-      for (const pairs of waveResults) {
-        for (const key of pairs) {
-          existingPairs.add(key);
+      for (const invoiceIds of waveResults) {
+        for (const [key, invoiceId] of invoiceIds) {
+          if (!existingInvoiceIds.has(key)) {
+            existingInvoiceIds.set(key, invoiceId);
+          }
         }
       }
     }
 
     this.logger.log(
-      `[LOOKUP] Found ${existingPairs.size} invoice/vendor pair(s) for ${uniqueInvoices.length} invoice(s) in ${Date.now() - startMs}ms`,
+      `[LOOKUP] Found ${existingInvoiceIds.size} invoice/vendor pair(s) for ${uniqueInvoices.length} invoice(s) in ${Date.now() - startMs}ms`,
     );
 
-    return existingPairs;
+    return existingInvoiceIds;
   }
 
   private async fetchInvoiceVendorPairsChunk(
@@ -116,11 +158,29 @@ export class VendorInvoiceJournalService {
     invoices: string[],
     chunkIndex: number,
     totalChunks: number,
-  ): Promise<Set<VendorInvoiceVendorPairKey>> {
-    const pairs = new Set<VendorInvoiceVendorPairKey>();
-
+  ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
+    // OData equality does not trim InvoiceId. Query the source value exactly,
+    // plus normalized leading/trailing-space variants, while preserving the
+    // original value for the eventual posting payload.
+    const invoiceLookupValues = [
+      ...new Set(
+        invoices.flatMap((invoice) => {
+          const normalized =
+            VendorInvoiceJournalService.cleanLookupValue(invoice);
+          return [
+            invoice,
+            normalized,
+            ` ${normalized}`,
+            `${normalized} `,
+            ` ${normalized} `,
+          ];
+        }),
+      ),
+    ];
     const invoiceOrFilter = `(${this.queryBuilder.or(
-      ...invoices.map((invoice) => this.queryBuilder.eq('Invoice', invoice)),
+      ...invoiceLookupValues.map((invoice) =>
+        this.queryBuilder.eq('InvoiceId', invoice),
+      ),
     )})`;
 
     const filter = this.queryBuilder.and(
@@ -128,18 +188,19 @@ export class VendorInvoiceJournalService {
       invoiceOrFilter,
     );
 
-    let endpoint = this.queryBuilder.buildQuery(
-      '/data/VendInvoiceJournalLines',
+    const endpoint = this.queryBuilder.buildQuery(
+      '/data/VendInvoiceJourBiEntities',
       {
         filter,
-        select: ['Invoice', 'AccountDisplayValue'],
+        select: ['InvoiceId', 'InvoiceAccount', 'OrderAccount'],
         crossCompany: true,
       },
     );
 
     type RawLine = {
-      Invoice?: string;
-      AccountDisplayValue?: string;
+      InvoiceId?: string;
+      InvoiceAccount?: string;
+      OrderAccount?: string;
     };
 
     try {
@@ -147,7 +208,7 @@ export class VendorInvoiceJournalService {
         async () => {
           let pageEndpoint = endpoint;
           let pages = 0;
-          const pagePairs = new Set<VendorInvoiceVendorPairKey>();
+          const pageInvoiceIds = new Map<VendorInvoiceVendorPairKey, string>();
 
           while (true) {
             pages += 1;
@@ -159,11 +220,12 @@ export class VendorInvoiceJournalService {
             );
 
             for (const row of response.value ?? []) {
-              const invoice = row.Invoice?.trim();
-              const vendorAccount = row.AccountDisplayValue?.trim();
-              if (!invoice || !vendorAccount) continue;
-              pagePairs.add(
+              const invoice = row.InvoiceId;
+              const vendorAccount = row.InvoiceAccount || row.OrderAccount;
+              if (!invoice?.trim() || !vendorAccount?.trim()) continue;
+              pageInvoiceIds.set(
                 VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
+                invoice,
               );
             }
 
@@ -173,10 +235,10 @@ export class VendorInvoiceJournalService {
           }
 
           this.logger.debug(
-            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pagePairs.size} pair(s) in ${pages} page(s)`,
+            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
           );
 
-          return pagePairs;
+          return pageInvoiceIds;
         },
         {
           retries: VENDOR_INVOICE_LOOKUP_CHUNK_RETRIES,

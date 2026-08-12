@@ -34,7 +34,9 @@ import type {
 import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response.decorator';
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { Auth } from '@/modules/auth/decorators/auth.decorator';
+import { Public } from '@/modules/auth/decorators/public.decorator';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
+
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
@@ -49,10 +51,13 @@ import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-
 import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
+import { GetBatchResponseBodyQuery } from '@/modules/data-batch/queries/get-batch-response-body.query';
+import { GetJournalIntegrityQuery } from '@/modules/data-batch/queries/get-journal-integrity.query';
 import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-batch-by-id.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
+
 import { DataBatchReprocessSubmission } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
 import { BatchPostingPauseState } from '@/modules/queue/services/batch-posting-control.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
@@ -414,6 +419,87 @@ export class DataBatchController {
   ): Promise<BatchPostingPauseState> {
     return this.commandBus.execute(
       new SetBatchPostingPauseCommand(batchId, false, this.actorFrom(user)),
+    );
+  }
+
+  /**
+   * Get full response body, D365FO HTTP request/response payloads, and application logs for a batch ID or journal number
+   */
+  @Get(':batchId/response-body')
+  @Public()
+  @ApiOperation({
+    summary: 'Get full response body and application logs for a batch',
+    description:
+      'Retrieves full application logs, captured D365FO HTTP request/response bodies, posting errors, and batch status for the specified batch ID or journal number.',
+  })
+  @ApiParam({
+    name: 'batchId',
+    description:
+      'The batch ID or journal batch number (e.g. 6a781281bca6423be5cc93c6 or Mesco-000013814)',
+    type: String,
+    example: '6a781281bca6423be5cc93c6',
+  })
+  public async getBatchResponseBody(
+    @Param('batchId') batchId: string,
+  ): Promise<any> {
+    return this.queryBus.execute(new GetBatchResponseBodyQuery(batchId));
+  }
+
+  /**
+   * Alias endpoint for getting batch response body and logs
+   */
+  @Get(':batchId/logs')
+  @Public()
+  @ApiOperation({
+    summary: 'Get application logs and response bodies for a batch (alias)',
+  })
+  public async getBatchLogs(@Param('batchId') batchId: string): Promise<any> {
+    return this.queryBus.execute(new GetBatchResponseBodyQuery(batchId));
+  }
+
+  /**
+   * Get live D365FO headers, line items, and logs for a journal batch number (e.g. Mesco-000013814)
+   */
+  @Get('journal-batch/:journalBatchNumber')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Get live D365FO headers, line items, and logs for a journal batch number',
+    description:
+      'Queries Dynamics 365 FO live OData API directly for the specified JournalBatchNumber (e.g. Mesco-000013814) and returns full header, line items, and logs.',
+  })
+  @ApiParam({
+    name: 'journalBatchNumber',
+    description: 'The D365FO journal batch number (e.g. Mesco-000013814)',
+    type: String,
+    example: 'Mesco-000013814',
+  })
+  public async getJournalBatchDfoResponse(
+    @Param('journalBatchNumber') journalBatchNumber: string,
+  ): Promise<any> {
+    return this.queryBus.execute(
+      new GetBatchResponseBodyQuery(journalBatchNumber),
+    );
+  }
+
+  @Get('journal-batch/:journalBatchNumber/integrity')
+  @Public()
+  @ApiOperation({
+    summary: 'Validate a D365FO journal amount, line count, and duplication',
+    description:
+      'Returns the complete live D365FO header and lines, compares Finance debit/credit totals and line count with the durable middleware request, and reports duplicate line numbers or potential duplicated business rows.',
+  })
+  @ApiParam({
+    name: 'journalBatchNumber',
+    description: 'The D365FO journal batch number',
+    type: String,
+    example: 'Mesco-000014742',
+  })
+  public async getJournalIntegrity(
+    @Param('journalBatchNumber') journalBatchNumber: string,
+  ): Promise<any> {
+    return this.queryBus.execute(
+      new GetJournalIntegrityQuery(journalBatchNumber),
     );
   }
 

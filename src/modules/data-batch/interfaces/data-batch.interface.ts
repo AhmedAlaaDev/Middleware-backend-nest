@@ -18,6 +18,8 @@ export interface ICreateDataBatch {
   billingCodeId: string | undefined;
   expectedGroupCount?: number;
   activeValidationRunId?: string;
+  /** SHA-256 of the canonical uploaded source rows, used for idempotency. */
+  sourceFingerprint?: string;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
   createdByUserId?: string;
@@ -59,6 +61,8 @@ export class IDataBatch {
   billingCodeId?: string;
   expectedGroupCount?: number;
   activeValidationRunId?: string;
+  /** SHA-256 of the canonical uploaded source rows, used for idempotency. */
+  sourceFingerprint?: string;
   dfoIds?: string[];
   dfoPostingErrors?: string[];
   createdByUserId?: string;

@@ -137,6 +137,63 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     );
   }
 
+  public async getJournalIntegrityState(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<{
+    headerExists: boolean;
+    lineCount: number;
+    headerDescription?: string;
+  }> {
+    const active = this.activeHeaderStrategy();
+    if (!active.getHeaderIdentity) {
+      throw new Error(
+        `The ${this.requireRoute().headerApi} strategy cannot verify journal identity`,
+      );
+    }
+
+    const header = await active.getHeaderIdentity(headerKey, dataAreaId);
+    if (!header) return { headerExists: false, lineCount: 0 };
+    const lines = await active.listLinesForHeader(headerKey, dataAreaId);
+    return {
+      headerExists: true,
+      lineCount: lines.length,
+      headerDescription: header.Description,
+    };
+  }
+
+  public repairDuplicatedUnmarkedFallbackLines(
+    headerKey: string,
+    expectedLineCount: number,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    const route = this.requireRoute();
+    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
+      return Promise.resolve(false);
+    }
+    return this.customerPaymentJournalService.repairDuplicatedUnmarkedFallbackLines(
+      headerKey,
+      expectedLineCount,
+      dataAreaId,
+    );
+  }
+
+  public assertJournalSettlementIntegrity(
+    headerKey: string,
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const route = this.requireRoute();
+    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
+      return Promise.resolve();
+    }
+    return this.customerPaymentJournalService.assertCashOutSettlementIntegrity(
+      headerKey,
+      lines as D365FOCustomerPaymentJournalLineRequest[],
+      dataAreaId,
+    );
+  }
+
   private activeHeaderStrategy(): IDfoPostingStrategy {
     const route = this.requireRoute();
     switch (route.kind) {

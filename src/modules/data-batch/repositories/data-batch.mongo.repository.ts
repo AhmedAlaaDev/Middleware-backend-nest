@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import {
@@ -38,6 +38,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      sourceFingerprint: doc.sourceFingerprint,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
@@ -73,6 +74,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
@@ -95,6 +97,18 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
     };
+  }
+
+  public async findBySourceFingerprint(
+    company: string,
+    entryProcessorType: number,
+    sourceFingerprint: string,
+  ): Promise<IDataBatch | null> {
+    const doc = await this.model
+      .findOne({ company, entryProcessorType, sourceFingerprint })
+      .lean();
+
+    return doc ? this.mapDocument(doc) : null;
   }
 
   public async updateOne(
@@ -211,7 +225,16 @@ export class DataBatchMongoRepository extends DataBatchRepository {
     }
 
     if (filter?.batchNumberIds && filter.batchNumberIds.length > 0) {
-      q['_id'] = { $in: filter.batchNumberIds } as unknown;
+      const validObjectIds = filter.batchNumberIds.filter((id) =>
+        Types.ObjectId.isValid(id),
+      );
+      const conditions: Record<string, unknown>[] = [
+        { dfoIds: { $in: filter.batchNumberIds } },
+      ];
+      if (validObjectIds.length > 0) {
+        conditions.push({ _id: { $in: validObjectIds } });
+      }
+      q['$or'] = conditions;
     }
     const skip = options?.skipCount ?? 0;
     const limit = options?.maxCount ?? 150;
@@ -239,6 +262,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
@@ -273,7 +297,16 @@ export class DataBatchMongoRepository extends DataBatchRepository {
     }
 
     if (filter?.batchNumberIds && filter.batchNumberIds.length > 0) {
-      q['_id'] = { $in: filter.batchNumberIds } as unknown;
+      const validObjectIds = filter.batchNumberIds.filter((id) =>
+        Types.ObjectId.isValid(id),
+      );
+      const conditions: Record<string, unknown>[] = [
+        { dfoIds: { $in: filter.batchNumberIds } },
+      ];
+      if (validObjectIds.length > 0) {
+        conditions.push({ _id: { $in: validObjectIds } });
+      }
+      q['$or'] = conditions;
     }
     return this.model.countDocuments(q).exec();
   }
@@ -295,6 +328,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,

@@ -175,4 +175,41 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
       LineNumber: l.LineNumber ?? 0,
     }));
   }
+
+  public async headerExists(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    const headers = await this.generalJournalService.getJournalHeaders(
+      dataAreaId,
+      {
+        filters: `JournalBatchNumber eq '${headerKey.replace(/'/g, "''")}'`,
+        maxCount: 1,
+        select: ['JournalBatchNumber'],
+        useCache: false,
+      },
+    );
+    return headers.some((header) => header.JournalBatchNumber === headerKey);
+  }
+
+  public async getHeaderIdentity(headerKey: string, dataAreaId: string) {
+    const headers = await this.generalJournalService.getJournalHeaders(
+      dataAreaId,
+      {
+        filters: `JournalBatchNumber eq '${headerKey.replace(/'/g, "''")}'`,
+        maxCount: 1,
+        select: ['JournalBatchNumber', 'Description'],
+        useCache: false,
+      },
+    );
+    const header = headers.find(
+      (candidate) => candidate.JournalBatchNumber === headerKey,
+    );
+    return header
+      ? {
+          JournalBatchNumber: header.JournalBatchNumber,
+          Description: header.Description,
+        }
+      : null;
+  }
 }

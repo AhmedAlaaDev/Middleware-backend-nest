@@ -356,12 +356,12 @@ export class BatchPostingControlService {
   ): BatchPostingPauseState {
     const stopping = Boolean(
       batch.postingPaused &&
-        job &&
-        [
-          DurableQueueJobStatus.ACTIVE,
-          DurableQueueJobStatus.RETRYING,
-          DurableQueueJobStatus.QUEUED,
-        ].includes(job.status),
+      job &&
+      [
+        DurableQueueJobStatus.ACTIVE,
+        DurableQueueJobStatus.RETRYING,
+        DurableQueueJobStatus.QUEUED,
+      ].includes(job.status),
     );
 
     return {

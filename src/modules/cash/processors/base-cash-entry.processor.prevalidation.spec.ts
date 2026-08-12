@@ -449,7 +449,9 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(formatted).toHaveLength(2);
     expect(formatted.map((line: any) => line.DebitAmount)).toEqual([60, 40]);
     expect(
-      formatted.every((line: any) => line.OffsetAccountDisplayValue === 'BANK-1'),
+      formatted.every(
+        (line: any) => line.OffsetAccountDisplayValue === 'BANK-1',
+      ),
     ).toBe(true);
     expect(formatted[0].MarkedLines).toEqual([
       {
@@ -468,7 +470,9 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
       },
     ]);
     expect(
-      formatted.every((line: any) => line.SettlementTargetType === 'CustodyLedger'),
+      formatted.every(
+        (line: any) => line.SettlementTargetType === 'CustodyLedger',
+      ),
     ).toBe(true);
   });
 

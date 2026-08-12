@@ -16,6 +16,8 @@ import { DataBatchController } from '@/modules/data-batch/data-batch.controller'
 import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-or-admin.guard';
 import {
   GetBatchErrorListHandler,
+  GetBatchResponseBodyHandler,
+  GetJournalIntegrityHandler,
   GetDataBatchByIdHandler,
   GetDataBatchListHandler,
   GetMissingMasterDataHandler,
@@ -48,8 +50,13 @@ import {
   DataBatchMissingMasterDataSchema,
 } from '@/modules/data-batch/schemas';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
+import {
+  QueueJobGroup,
+  QueueJobGroupSchema,
+} from '@/modules/queue/schemas/queue-job-group.schema';
 
 const CommandHandlers = [
   AddDfoIdsHandler,
@@ -68,6 +75,8 @@ const QueryHandlers = [
   GetBatchErrorListHandler,
   GetMissingMasterDataHandler,
   GetRemediationSummaryHandler,
+  GetBatchResponseBodyHandler,
+  GetJournalIntegrityHandler,
 ];
 
 @Module({
@@ -75,11 +84,13 @@ const QueryHandlers = [
     CqrsModule.forRoot(),
     ExcelModule,
     EntryProcessorsModule,
+    D365FOModule,
     MongooseModule.forFeature([
       { name: DataBatch.name, schema: DataBatchSchema },
       { name: DataBatchError.name, schema: DataBatchErrorSchema },
       { name: DataSourceRecord.name, schema: DataSourceRecordSchema },
       { name: DataEnhancedRecord.name, schema: DataEnhancedRecordSchema },
+      { name: QueueJobGroup.name, schema: QueueJobGroupSchema },
       {
         name: DataBatchMissingMasterData.name,
         schema: DataBatchMissingMasterDataSchema,

@@ -1,12 +1,7 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Query,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+import { Public } from '@/modules/auth/decorators/public.decorator';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import { ApplicationLogFiltersDto } from '@/modules/observability/dto/application-log-filters.dto';
 import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
@@ -30,6 +25,13 @@ export class ObservabilityLogsController {
     return this.logs.deleteMatchingExplorer(rest, confirmAll);
   }
 
+  @Get('batch/:batchId')
+  @Public()
+  getLogsByBatchId(@Param('batchId') batchId: string) {
+    return this.logs.getLogsByBatchId(batchId);
+  }
+
+
   @Get(':eventId')
   get(@Param('eventId') eventId: string) {
     return this.logs.get(eventId);
@@ -40,3 +42,4 @@ export class ObservabilityLogsController {
     return this.logs.delete(eventId);
   }
 }
+

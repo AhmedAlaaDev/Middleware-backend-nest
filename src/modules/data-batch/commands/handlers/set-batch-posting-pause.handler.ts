@@ -9,9 +9,7 @@ import {
 } from '@/modules/queue/services/batch-posting-control.service';
 
 @CommandHandler(SetBatchPostingPauseCommand)
-export class SetBatchPostingPauseHandler
-  implements ICommandHandler<SetBatchPostingPauseCommand>
-{
+export class SetBatchPostingPauseHandler implements ICommandHandler<SetBatchPostingPauseCommand> {
   constructor(private readonly control: BatchPostingControlService) {}
 
   async execute(

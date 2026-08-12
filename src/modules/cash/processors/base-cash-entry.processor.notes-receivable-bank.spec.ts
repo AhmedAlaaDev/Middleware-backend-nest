@@ -4,7 +4,7 @@ import { CashInFreightEntryProcessor } from '@/modules/cash/processors/cash-in-f
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
-describe('Cash-In notes-receivable Bank offset', () => {
+describe('Cash-In notes-receivable standalone lines', () => {
   const utilsService = new EntryProcessorUtilsService();
 
   /** 20 segments; bankAccount (index 19) empty — mirrors FO BankAccountTable miss. */
@@ -75,29 +75,40 @@ describe('Cash-In notes-receivable Bank offset', () => {
       },
     ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', true));
 
-  it('falls back to Ledger offset when bankAccount dimension is empty', () => {
+  it('keeps the customer and ledger rows as separate primary lines', () => {
     const processor = createProcessor();
-    const [formatted] = (processor as any).buildLines(
+    const formatted = (processor as any).buildLines(
       '468100',
       buildNrPair(nrLedgerEmptyBank),
     );
 
-    // With empty bankAccount, the processor must NOT force Bank.
-    // It should keep the original Ledger type and use the ledger display value.
-    expect(formatted.OffsetAccountType).toBe('Ledger');
-    expect(formatted.OffsetAccountDisplayValue).toContain('122201');
-    expect(formatted.OffsetAccountDisplayValue).toContain('|');
+    expect(formatted).toHaveLength(2);
+    expect(formatted.map((line: any) => line.AccountType)).toEqual([
+      'Cust',
+      'Ledger',
+    ]);
+    expect(formatted[1].AccountDisplayValue).toContain('122201');
+    expect(
+      formatted.every(
+        (line: any) =>
+          line.OffsetAccountType === '' &&
+          line.OffsetAccountDisplayValue === '',
+      ),
+    ).toBe(true);
   });
 
-  it('uses the bankAccount dimension segment when present', () => {
+  it('does not convert a standalone ledger row into a Bank offset', () => {
     const processor = createProcessor();
-    const [formatted] = (processor as any).buildLines(
+    const formatted = (processor as any).buildLines(
       '468100',
       buildNrPair(nrLedgerWithBank),
     );
 
-    expect(formatted.OffsetAccountType).toBe('Bank');
-    expect(formatted.OffsetAccountDisplayValue).toBe('AAIB-EG-CA');
+    expect(formatted).toHaveLength(2);
+    expect(formatted[1].AccountType).toBe('Ledger');
+    expect(formatted[1].AccountDisplayValue).toContain('122201');
+    expect(formatted[1].OffsetAccountType).toBe('');
+    expect(formatted[1].OffsetAccountDisplayValue).toBe('');
   });
 
   it('passes validateAsync when NR falls back to Ledger (no bank segment)', () => {
@@ -147,4 +158,5 @@ describe('Cash-In notes-receivable Bank offset', () => {
         .some((e: string) => e.includes('ledger dimension value')),
     ).toBe(true);
   });
+
 });

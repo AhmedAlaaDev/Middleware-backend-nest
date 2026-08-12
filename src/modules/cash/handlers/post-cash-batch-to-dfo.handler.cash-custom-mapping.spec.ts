@@ -73,6 +73,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             SafeType: 'Spec',
             TransactionText: 'Customer payment',
             MarkedInvoice: 'INV-0001',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-0001',
+                OperationNumber: 'OP-0001',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
             Voucher: '',
           },
         },
@@ -88,6 +96,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('AccountNum', 'CUST001');
     expect(body).toHaveProperty('accountTypeStr', 'Cust');
     expect(body).toHaveProperty('TaxGroup', 'Taxable');
+    expect(body).toHaveProperty('ITEMWITHHOLDINGTAXGROUP', '');
     expect(body).toHaveProperty('PostingProfile', 'Custom-PP');
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
@@ -99,6 +108,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.REPORTINGEXCHANGERATE).toBe(100);
     expect(body.ExchRateSecond).toBe(100);
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-0001',
+        OperationNumber: 'OP-0001',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    expect(body.MARKEDINVOICE).toBe('INV-0001');
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
@@ -142,8 +160,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'REF456',
             SafeType: 'Vendor Payment',
             TransactionText: 'Vendor payment',
-            Invoice: 'INV-0002',
-            MarkedInvoice: 'INV-0002',
+             Invoice: ' INV-0002 ',
+             MarkedInvoice: ' INV-0002 ',
             Voucher: '',
           },
         },
@@ -162,13 +180,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('PostingProfile', 'V-PP');
     expect(body).toHaveProperty('MarkedLines', [
       {
-        InvoiceNumber: 'INV-0002',
+         InvoiceNumber: ' INV-0002 ',
         OperationNumber: 'TAG1',
         DocumentNumber: '',
         HasWithHoldingLine: false,
       },
     ]);
     expect(body).toHaveProperty('TaxGroup', 'Non-Taxabl');
+    expect(body).toHaveProperty('ITEMWITHHOLDINGTAXGROUP', '');
     expect(body).toHaveProperty('debitAmount', 1000);
     expect(body).toHaveProperty('creditAmount', 0);
     expect(body).toHaveProperty('transDate', '2026-04-21T00:00:00');
@@ -435,6 +454,54 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect((handler as any).validateLine(result[0])).not.toContain(
       'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
     );
+  });
+
+  it('omits every offset field for a standalone Cash-In source line', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Cust',
+            AccountDisplayValue: 'CUST001',
+            DefaultDimensionDisplayValue: 'BU|CC',
+            TransactionDate: '2026-04-21T00:00:00.000Z',
+            CreditAmount: 1000,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            SafeType: 'Customer Collection',
+            SalesTaxGroup: '',
+            PostingProfile: 'Cust-PP',
+            MarkedInvoice: '000008898/OR-TR',
+            MarkedLines: [
+              {
+                InvoiceNumber: '000008898/OR-TR',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'in',
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(
+      Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
+    ).toEqual([]);
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '000008898/OR-TR',
+        OperationNumber: '',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    expect((handler as any).validateLine(result[0])).toEqual([]);
   });
 
   it('rejects invalid TaxGroup values', () => {

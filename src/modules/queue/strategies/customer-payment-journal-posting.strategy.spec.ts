@@ -6,11 +6,13 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
       deleteHeader: jest.fn().mockResolvedValue(undefined),
       deleteLine: jest.fn().mockResolvedValue(undefined),
       listLinesForHeader: jest.fn().mockResolvedValue([]),
+      headerExists: jest.fn().mockResolvedValue(true),
     };
     const vendorPaymentJournalService = {
       deleteHeader: jest.fn().mockResolvedValue(undefined),
       deleteLine: jest.fn().mockResolvedValue(undefined),
       listLinesForHeader: jest.fn().mockResolvedValue([{ LineNumber: 1 }]),
+      headerExists: jest.fn().mockResolvedValue(true),
     };
 
     const strategy = new CustomerPaymentJournalPostingStrategy(

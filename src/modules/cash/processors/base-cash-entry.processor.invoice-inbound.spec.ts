@@ -22,7 +22,9 @@ describe('Cash-In free-text invoice normalization', () => {
     (processor as any).company = 'm-p';
     (processor as any).dimensionsMap = new Map();
     (processor as any).accountNumberSet = new Set();
-    jest.spyOn(processor as any, 'validateDimensionsForLine').mockImplementation(() => undefined);
+    jest
+      .spyOn(processor as any, 'validateDimensionsForLine')
+      .mockImplementation(() => undefined);
     return processor;
   };
 
@@ -30,27 +32,21 @@ describe('Cash-In free-text invoice normalization', () => {
     it('strips comma-glued secondary numbers so FO FreeTextNumber can match', () => {
       const processor = createProcessor();
 
+      expect((processor as any).formatInvoiceInbound('8898/OR-TR,8932')).toBe(
+        '000008898/OR-TR',
+      );
       expect(
-        (processor as any).formatInvoiceInbound('8898/OR-TR,8932'),
-      ).toBe('000008898/OR-TR');
-      expect(
-        (processor as any).formatInvoiceInbound(
-          '000008020/OR-FW,000008207',
-        ),
+        (processor as any).formatInvoiceInbound('000008020/OR-FW,000008207'),
       ).toBe('000008020/OR-FW');
       expect(
-        (processor as any).formatInvoiceInbound(
-          '000005037/OF-FW,000005152',
-        ),
+        (processor as any).formatInvoiceInbound('000005037/OF-FW,000005152'),
       ).toBe('000005037/OF-FW');
     });
 
     it('clears DRAFT document fallbacks that are not FreeTextInvoiceHeaders', () => {
       const processor = createProcessor();
 
-      expect((processor as any).formatInvoiceInbound('31906/DRAFT')).toBe(
-        '',
-      );
+      expect((processor as any).formatInvoiceInbound('31906/DRAFT')).toBe('');
       expect((processor as any).formatInvoiceInbound('000031906/draft')).toBe(
         '',
       );

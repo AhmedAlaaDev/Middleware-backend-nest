@@ -43,7 +43,11 @@ export class DataBatch {
   @Prop({ default: 0 })
   withholdingRemovedAmount: number;
 
-  @Prop({ type: Number, enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
+  @Prop({
+    type: Number,
+    enum: DataBatchStatus,
+    default: DataBatchStatus.PendingPosting,
+  })
   status: DataBatchStatus;
 
   @Prop()
@@ -54,6 +58,10 @@ export class DataBatch {
 
   @Prop()
   activeValidationRunId?: string;
+
+  /** SHA-256 of canonical source rows. Identical uploads reuse one batch. */
+  @Prop()
+  sourceFingerprint?: string;
 
   @Prop({ type: [String], default: [] })
   dfoIds?: string[];
@@ -123,6 +131,13 @@ export class DataBatch {
 }
 export const DataBatchSchema = SchemaFactory.createForClass(DataBatch);
 DataBatchSchema.index({ company: 1, entryProcessorType: 1 });
+DataBatchSchema.index(
+  { company: 1, entryProcessorType: 1, sourceFingerprint: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { sourceFingerprint: { $type: 'string' } },
+  },
+);
 DataBatchSchema.index({ status: 1, createdAt: -1 });
 DataBatchSchema.index({ postingPaused: 1, status: 1 });
 DataBatchSchema.index({ createdAt: -1 });

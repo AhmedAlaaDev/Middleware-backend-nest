@@ -22,6 +22,7 @@ function createService(options?: {
   claimBatch?: boolean;
   processorFails?: boolean;
   cleanupFails?: boolean;
+  duplicateBatch?: boolean;
 }) {
   const batch = {
     id: 'batch-1',
@@ -38,6 +39,9 @@ function createService(options?: {
   };
   const dataBatchRepo = {
     create: jest.fn().mockResolvedValue(batch),
+    findBySourceFingerprint: jest
+      .fn()
+      .mockResolvedValue(options?.duplicateBatch ? batch : null),
     claimForRevalidation: jest
       .fn()
       .mockResolvedValue(options?.claimBatch === false ? null : batch),
@@ -99,7 +103,9 @@ function createService(options?: {
       enhancedRepo,
       missingRepo,
       processorFactory,
-      {} as CommandBus,
+      {
+        execute: jest.fn().mockResolvedValue(undefined),
+      } as unknown as CommandBus,
       {
         get: jest.fn().mockReturnValue(undefined),
       } as unknown as TraceContextService,
@@ -112,6 +118,90 @@ function createService(options?: {
 }
 
 describe(DataBatchService.name, () => {
+  it('stores a source fingerprint on a newly uploaded batch', async () => {
+    const harness = createService();
+    const dynData = [
+      {
+        ErrorCount: 0,
+        SourceIds: ['1'],
+        GetErrors: () => [],
+        GetMissingMasterData: () => [],
+      },
+    ];
+
+    await harness.service.createAsync(
+      EntryProcessorTypes.CashOutFreight,
+      'Cash Out Freight',
+      'm-p',
+      'upload',
+      [{ UniqueId: 1, Invoice: 'INV-1' }] as unknown as RawDataModel[],
+      dynData as any,
+    );
+
+    expect(harness.dataBatchRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
+    expect(harness.sourceRepo.insertMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the existing batch without inserting duplicate source rows', async () => {
+    const harness = createService({ duplicateBatch: true });
+
+    const result = await harness.service.createAsync(
+      EntryProcessorTypes.CashOutFreight,
+      'Cash Out Freight',
+      'm-p',
+      'duplicate upload',
+      [{ UniqueId: 1, Invoice: 'INV-1' }] as unknown as RawDataModel[],
+      [
+        {
+          ErrorCount: 0,
+          SourceIds: ['1'],
+          GetErrors: () => [],
+          GetMissingMasterData: () => [],
+        },
+      ] as any,
+    );
+
+    expect(result.id).toBe('batch-1');
+    expect(harness.dataBatchRepo.create).not.toHaveBeenCalled();
+    expect(harness.sourceRepo.insertMany).not.toHaveBeenCalled();
+    expect(harness.enhancedRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('resolves a concurrent duplicate-key race to the winning batch', async () => {
+    const harness = createService();
+    const winningBatch = await harness.dataBatchRepo.findById('batch-1');
+    (harness.dataBatchRepo.findBySourceFingerprint as jest.Mock)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winningBatch);
+    (harness.dataBatchRepo.create as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key'), { code: 11000 }),
+    );
+
+    const result = await harness.service.createAsync(
+      EntryProcessorTypes.CashOutFreight,
+      'Cash Out Freight',
+      'm-p',
+      'concurrent duplicate',
+      [{ UniqueId: 1, Invoice: 'INV-1' }] as unknown as RawDataModel[],
+      [
+        {
+          ErrorCount: 0,
+          SourceIds: ['1'],
+          GetErrors: () => [],
+          GetMissingMasterData: () => [],
+        },
+      ] as any,
+    );
+
+    expect(result.id).toBe('batch-1');
+    expect(harness.sourceRepo.insertMany).not.toHaveBeenCalled();
+    expect(harness.enhancedRepo.insertMany).not.toHaveBeenCalled();
+  });
+
   it('stores pre-format errors by source location for the existing error page', async () => {
     const harness = createService();
     const errors = [
