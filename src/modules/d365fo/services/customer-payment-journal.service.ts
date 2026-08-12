@@ -1969,12 +1969,18 @@ export class CustomerPaymentJournalService {
       this.logger.warn(
         `[CASH-CUSTOM] SpecTrans cites the journal being posted (${headerKey}); deleting it to clear SpecTrans so the header can be recreated and rematched with MarkedLines`,
       );
+      let deleted = false;
       if (company) {
-        await this.tryDeleteBlockingJournalHeader(company, headerKey);
+        deleted = await this.tryDeleteBlockingJournalHeader(company, headerKey);
       }
-      // Queue processor recreates the header when it sees this shape, then
-      // retries postLinesForHeader with the original MarkedLines intact.
-      throw new Error(`Journal ${headerKey} was not found.`);
+      if (deleted) {
+        // Queue processor recreates the header when it sees this shape, then
+        // retries postLinesForHeader with the original MarkedLines intact.
+        throw new Error(`Journal ${headerKey} was not found.`);
+      }
+      this.logger.warn(
+        `[CASH-CUSTOM] SpecTrans cites journal ${headerKey}, but header delete returned false (ghost or already posted journal); falling back to unmarked retry`,
+      );
     }
 
     if (selfCited) {
