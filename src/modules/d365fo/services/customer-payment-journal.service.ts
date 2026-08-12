@@ -2563,6 +2563,27 @@ export class CustomerPaymentJournalService {
     }
   }
 
+  private deduplicateMarkedLinesInRequest(
+    lines: TSLedgerJournalTransCustomRequestBody[],
+  ): TSLedgerJournalTransCustomRequestBody[] {
+    const seenInvoices = new Set<string>();
+    return lines.map((line) => {
+      if (!Array.isArray(line.MarkedLines) || line.MarkedLines.length === 0) {
+        return line;
+      }
+      const uniqueMarkedLines = line.MarkedLines.filter((marked) => {
+        const inv = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
+        if (!inv) return true;
+        if (seenInvoices.has(inv)) {
+          return false;
+        }
+        seenInvoices.add(inv);
+        return true;
+      });
+      return { ...line, MarkedLines: uniqueMarkedLines };
+    });
+  }
+
   private async postCustomCashLines(
     endpoint: string,
     lines: TSLedgerJournalTransCustomRequestBody[],
@@ -2573,10 +2594,11 @@ export class CustomerPaymentJournalService {
       batch: CashBulkBatch;
     },
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
-    this.ensureCashOutBulkLineDates(lines);
+    const deduplicatedLines = this.deduplicateMarkedLinesInRequest(lines);
+    this.ensureCashOutBulkLineDates(deduplicatedLines);
     const requestBody: TSLedgerJournalTransCustomBulkRequest = {
       _contract: {
-        Lines: lines.map((line) =>
+        Lines: deduplicatedLines.map((line) =>
           this.withoutDeferredLedgerTax(this.toD365BulkCashLine(line)),
         ),
       },
