@@ -227,6 +227,14 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             );
             linesAlreadyComplete = true;
           }
+        } else if (headerId && postingStrategy.headerExists) {
+          const exists = await postingStrategy.headerExists(
+            headerId,
+            job.data.company,
+          );
+          if (!exists) {
+            headerId = undefined;
+          }
         }
         if (!headerId) {
           headerId = await this.createAndTrackHeader(

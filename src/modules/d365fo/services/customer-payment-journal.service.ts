@@ -2058,6 +2058,31 @@ export class CustomerPaymentJournalService {
       }
     }
 
+    if (
+      await this.customerPaymentJournalHeaderExists(company, journalBatchNumber)
+    ) {
+      try {
+        await this.deleteCustomerPaymentJournalWithDependentLines(
+          journalBatchNumber,
+          company,
+        );
+        this.logger.log(
+          `[CASH-CUSTOM] Deleted customer payment journal ${journalBatchNumber} in ${company}`,
+        );
+        return true;
+      } catch (error) {
+        if (this.isODataResourceMissingError(error)) {
+          this.logger.debug(
+            `[CASH-CUSTOM] Customer payment journal ${journalBatchNumber} in ${company} already gone`,
+          );
+          return false;
+        }
+        throw new Error(
+          `[CASH-CUSTOM] Could not safely delete customer payment journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
+        );
+      }
+    }
+
     this.logger.debug(
       `[CASH-CUSTOM] No FO journal header ${journalBatchNumber} in ${company} to delete (SpecTrans ghost)`,
     );
@@ -2212,6 +2237,46 @@ export class CustomerPaymentJournalService {
       );
       return false;
     }
+  }
+
+  private async customerPaymentJournalHeaderExists(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    try {
+      return await this.headerExists(journalBatchNumber, company);
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not probe customer payment journal ${journalBatchNumber} in ${company}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /** Delete dependent AR lines before the Customer Payment header. */
+  private async deleteCustomerPaymentJournalWithDependentLines(
+    journalBatchNumber: string,
+    company: string,
+  ): Promise<void> {
+    await this.deleteJournalHeaderWithLineCleanup({
+      journalBatchNumber,
+      listLines: () =>
+        this.listLinesForHeader(
+          journalBatchNumber,
+          company,
+        ),
+      deleteLine: (lineNumber) =>
+        this.deleteLine(
+          journalBatchNumber,
+          lineNumber,
+          company,
+        ),
+      deleteHeader: () =>
+        this.deleteHeader(
+          journalBatchNumber,
+          company,
+        ),
+    });
   }
 
   private async vendorPaymentJournalHeaderExists(
