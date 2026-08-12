@@ -13,10 +13,7 @@ import {
 } from '@/modules/queue/contracts/post-vendor-journal-dfo-job.contract';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
 import { BatchPostingControlService } from '@/modules/queue/services/batch-posting-control.service';
-import {
-  CreatedHeader,
-  DfoRollbackService,
-} from '@/modules/queue/services/dfo-rollback.service';
+import { CreatedHeader } from '@/modules/queue/services/dfo-rollback.service';
 import { PostingErrorCollector } from '@/modules/queue/services/posting-error-collector.service';
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
 import { IDfoPostingStrategy } from '@/modules/queue/strategies/dfo-posting-strategy.interface';
@@ -24,7 +21,6 @@ import { VendorJournalPostingStrategy } from '@/modules/queue/strategies/vendor-
 import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/vendor-payment-journal-posting.strategy';
 
 const LINE_CHUNK_SIZE = 20;
-const ROLLBACK_CHUNK_SIZE = 20;
 
 /** Why the worker stopped walking the journals of a batch. */
 type PostGroupsOutcome = 'completed' | 'paused';
@@ -35,7 +31,6 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
     private readonly invoiceStrategy: VendorJournalPostingStrategy,
     private readonly paymentStrategy: VendorPaymentJournalPostingStrategy,
     private readonly batches: DataBatchService,
-    private readonly rollback: DfoRollbackService,
     private readonly jobs: QueueJobStoreService,
     private readonly logs: OperationalLoggerService,
     private readonly trace: TraceContextService,
@@ -88,7 +83,7 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
     await this.emit('queue.job.active', 'active');
 
     try {
-      if ((await this.postGroups(job, strategy, collector)) === 'paused') {
+      if ((await this.postGroups(job, strategy)) === 'paused') {
         return;
       }
       await this.jobs.markCompleted(jobId);
@@ -115,33 +110,43 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
   private async postGroups(
     job: Job<PostVendorJournalDFOJobPayload>,
     strategy: IDfoPostingStrategy,
-    collector: PostingErrorCollector,
   ): Promise<PostGroupsOutcome> {
     const jobId = String(job.id);
     const groups = await this.jobs.listGroups<VendorJournalPostingGroup>(jobId);
     if (!groups.length) throw new Error('No durable vendor groups found');
+    // Headers created in this attempt (or reused from a prior attempt). Finance
+    // owns FO cleanup on failure; the IDs are kept so a retry can resume from
+    // the failed journal instead of re-posting the whole batch from the start.
     const created: CreatedHeader[] = [];
     let completedGroups = groups.filter(
       (record) => record.status === QueueJobGroupStatus.COMPLETED,
     ).length;
 
-    try {
-      for (const record of groups) {
-        if (record.status === QueueJobGroupStatus.COMPLETED) continue;
-        // Checked between journals, never inside one: a half-written journal
-        // cannot be left behind, and stopping here needs no rollback.
-        if (await this.pauseControl.isPaused(job.data.batchId)) {
-          await this.pauseControl.recordWorkerStopped({
-            batchId: job.data.batchId,
-            jobId,
-            queueName: QUEUES.DFO_VENDOR_JOURNAL,
-            completedGroups,
-            totalGroups: groups.length,
-          });
-          return 'paused';
-        }
-        await this.jobs.markGroupActive(jobId, record.index);
+    for (const record of groups) {
+      if (record.status === QueueJobGroupStatus.COMPLETED) continue;
+      // Checked between journals, never inside one: a half-written journal
+      // cannot be left behind, and stopping here needs no rollback.
+      if (await this.pauseControl.isPaused(job.data.batchId)) {
+        await this.pauseControl.recordWorkerStopped({
+          batchId: job.data.batchId,
+          jobId,
+          queueName: QUEUES.DFO_VENDOR_JOURNAL,
+          completedGroups,
+          totalGroups: groups.length,
+        });
+        return 'paused';
+      }
+      await this.jobs.markGroupActive(jobId, record.index);
+      try {
         let headerId = record.createdHeaderId;
+        // The journal may have been deleted (or its number reused) by Finance
+        // since the last attempt. Reuse the number only when the header still
+        // holds our data; otherwise create a fresh header.
+        if (headerId && strategy.headerExists) {
+          if (!(await strategy.headerExists(headerId, job.data.company))) {
+            headerId = undefined;
+          }
+        }
         if (!headerId) {
           const result = await strategy.postHeadersInBatches(
             [record.payload.header],
@@ -166,39 +171,27 @@ export class PostVendorJournalDFOProcessor extends WorkerHost {
           completedGroups: record.index + 1,
           totalGroups: groups.length,
         });
-      }
-
-      await this.completeBatch(job.data.batchId, [
-        ...groups
-          .map((group) => group.createdHeaderId)
-          .filter((id): id is string => Boolean(id)),
-        ...created.map((header) => header.headerKey),
-      ]);
-      return 'completed';
-    } catch (error) {
-      if (created.length) {
-        const result = await this.rollback.rollbackAll(
-          strategy,
-          created,
-          ROLLBACK_CHUNK_SIZE,
-          collector,
-        );
-        if (result.failedToDeleteHeaders.length) {
+      } catch (error) {
+        // No rollback on failure: the finance backend owns FO cleanup. Keep
+        // completed groups and persisted header IDs so the next attempt resumes
+        // from this journal and skips lines that already posted.
+        if (created.length) {
           await this.storeHeaderIds(
             job.data.batchId,
-            result.failedToDeleteHeaders,
+            created.map((header) => header.headerKey),
           );
         }
-        await this.jobs.resetAfterRollback(
-          jobId,
-          created.map((header) => header.headerKey),
-          result.failedToDeleteHeaders,
-        );
-      } else {
-        await this.jobs.resetAfterRollback(jobId, []);
+        throw error;
       }
-      throw error;
     }
+
+    await this.completeBatch(job.data.batchId, [
+      ...groups
+        .map((group) => group.createdHeaderId)
+        .filter((id): id is string => Boolean(id)),
+      ...created.map((header) => header.headerKey),
+    ]);
+    return 'completed';
   }
 
   private async completeBatch(
