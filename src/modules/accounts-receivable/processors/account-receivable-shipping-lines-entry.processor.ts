@@ -10,6 +10,7 @@ import {
   AccountReceivableShippingLinesFileModel,
   DynAccountReceivableLineModel,
 } from '@/modules/accounts-receivable/models';
+import { validateTermsOfPayment } from '@/modules/accounts-receivable/processors/validate-terms-of-payment';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
@@ -75,6 +76,7 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
     await this.warmupProcessorData({
       exchangeRates: false,
       taxItemGroupCodes: true,
+      paymentTerms: true,
       billingCodes: true,
       billingClassifications: true,
       customers: true,
@@ -106,6 +108,7 @@ export class AccountReceivableShippingLinesEntryProcessor extends EntryProcessor
       if (line.SalesTaxItemGroup?.trim()) {
         this.validateSalesTaxItemGroupForLine(line);
       }
+      validateTermsOfPayment(line, this.getValidPaymentTermNames());
     }
     // this.validateHeaderConsistency(lines);
     return lines;

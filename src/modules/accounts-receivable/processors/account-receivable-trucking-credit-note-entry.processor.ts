@@ -4,6 +4,7 @@ import {
   AccountReceivableFileModel,
   DynAccountReceivableLineModel,
 } from '@/modules/accounts-receivable/models';
+import { validateTermsOfPayment } from '@/modules/accounts-receivable/processors/validate-terms-of-payment';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
 import {
@@ -51,7 +52,10 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
     _billingClassId?: string,
   ): Promise<DynDataModel[]> {
     this.company = company;
-    await this.warmupProcessorData({ taxItemGroupCodes: true });
+    await this.warmupProcessorData({
+      taxItemGroupCodes: true,
+      paymentTerms: true,
+    });
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
     );
@@ -223,6 +227,7 @@ export class AccountReceivableTruckingCreditNoteEntryProcessor extends EntryProc
         chargeTypeDims: uniqueChargeTypeDims,
       });
       this.validateSalesTaxItemGroupForLine(arLine);
+      validateTermsOfPayment(arLine, this.getValidPaymentTermNames());
     }
     this.procLogger.debug('data Validated');
     return data;

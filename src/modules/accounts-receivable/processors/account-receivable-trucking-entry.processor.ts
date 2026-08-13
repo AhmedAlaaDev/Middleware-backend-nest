@@ -4,6 +4,7 @@ import {
   AccountReceivableFileModel,
   DynAccountReceivableLineModel,
 } from '@/modules/accounts-receivable/models';
+import { validateTermsOfPayment } from '@/modules/accounts-receivable/processors/validate-terms-of-payment';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
@@ -56,7 +57,10 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
     billingClassId?: string,
   ): Promise<DynDataModel[]> {
     this.company = company;
-    await this.warmupProcessorData({ taxItemGroupCodes: true });
+    await this.warmupProcessorData({
+      taxItemGroupCodes: true,
+      paymentTerms: true,
+    });
     // Load customer-account mappings for the Trucking service
     const accounts = await this.getAccountCustomerInvoiceMappings(
       ServiceTypes.Trucking,
@@ -332,6 +336,7 @@ export class AccountReceivableTruckingEntryProcessor extends EntryProcessorBase 
         chargeTypeDims: uniqueChargeTypeDims,
       });
       this.validateSalesTaxItemGroupForLine(arLine);
+      validateTermsOfPayment(arLine, this.getValidPaymentTermNames());
     }
 
     return data;

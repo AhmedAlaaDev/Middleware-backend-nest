@@ -12,6 +12,7 @@ import {
   AccountReceivableYardFileModel,
   DynAccountReceivableLineModel,
 } from '@/modules/accounts-receivable/models';
+import { validateTermsOfPayment } from '@/modules/accounts-receivable/processors/validate-terms-of-payment';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
@@ -102,6 +103,7 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
     this.company = company;
     await this.warmupProcessorData({
       taxItemGroupCodes: true,
+      paymentTerms: true,
       billingCodeVersions: true,
       billingCodes: true,
       billingClassifications: true,
@@ -131,6 +133,7 @@ export class AccountReceivableYardEntryProcessor extends EntryProcessorBase {
     for (const arLine of data as DynAccountReceivableLineModel[]) {
       this.validateDimensionsForLine(arLine);
       this.validateSalesTaxItemGroupForLine(arLine);
+      validateTermsOfPayment(arLine, this.getValidPaymentTermNames());
     }
 
     return data;

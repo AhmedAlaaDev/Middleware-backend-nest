@@ -54,6 +54,7 @@ import {
   ExchangeRateMap,
   ExchangeRateService,
 } from '@/modules/master-data/services/exchange-rate.service';
+import { PaymentTermService } from '@/modules/master-data/services/payment-term.service';
 import { TaxGroupService } from '@/modules/master-data/services/tax-group.service';
 
 export interface WarmupProcessorDataOptions {
@@ -92,6 +93,11 @@ export interface WarmupProcessorDataOptions {
    * @default false
    */
   taxItemGroupCodes?: boolean;
+  /**
+   * Whether to fetch synced payment term names for this.company (for sync validation).
+   * @default false
+   */
+  paymentTerms?: boolean;
   billingCodeVersions?: boolean;
   billingCodes?: boolean;
   billingClassifications?: boolean;
@@ -106,6 +112,7 @@ const DEFAULT_WARMUP_OPTIONS: Required<WarmupProcessorDataOptions> = {
   vendorNames: false,
   vendorTaxNumberAndTermsOfPayment: false,
   taxItemGroupCodes: false,
+  paymentTerms: false,
   billingCodeVersions: false,
   billingCodes: false,
   billingClassifications: false,
@@ -154,6 +161,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     FreeTextInvoiceLookupResult[]
   > | null = null;
   protected validTaxItemGroupCodes: Set<string> | null = null;
+  protected validPaymentTermNames: Map<string, string> | null = null;
   protected unbalancedUniqueIds: Set<string> = new Set();
 
   protected readonly queryBus: QueryBus;
@@ -161,6 +169,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   protected readonly utilsService: EntryProcessorUtilsService;
   protected readonly dimensionService: DimensionValidationService;
   protected readonly taxGroupService: TaxGroupService;
+  protected readonly paymentTermService: PaymentTermService;
   protected readonly freeTextInvoiceService: FreeTextInvoiceService;
   protected readonly vendorInvoiceJournalService: VendorInvoiceJournalService;
   protected readonly d365DimensionService?: DimensionService;
@@ -177,6 +186,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     this.utilsService = options.dependencies.utilsService;
     this.dimensionService = options.dependencies.dimensionService;
     this.taxGroupService = options.dependencies.taxGroupService;
+    this.paymentTermService = options.dependencies.paymentTermService;
     this.freeTextInvoiceService = options.dependencies.freeTextInvoiceService;
     this.vendorInvoiceJournalService =
       options.dependencies.vendorInvoiceJournalService;
@@ -325,6 +335,15 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
         await this.taxGroupService.getTaxItemGroupCodes(this.company);
       this.baseLogger.debug(
         `[${processorName}] Tax item group codes loaded in ${Date.now() - taxStart}ms, count: ${this.validTaxItemGroupCodes.size}`,
+      );
+    }
+
+    if (options.paymentTerms) {
+      const paymentTermStart = Date.now();
+      this.validPaymentTermNames =
+        await this.paymentTermService.getPaymentTermNames(this.company);
+      this.baseLogger.debug(
+        `[${processorName}] Payment terms loaded in ${Date.now() - paymentTermStart}ms, count: ${new Set(this.validPaymentTermNames.values()).size}`,
       );
     }
 
@@ -765,6 +784,16 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     }
 
     return this.customersList;
+  }
+
+  protected getValidPaymentTermNames(): Map<string, string> {
+    if (!this.validPaymentTermNames) {
+      throw new Error(
+        'warmupProcessorData({ paymentTerms: true }) must be called before getValidPaymentTermNames',
+      );
+    }
+
+    return this.validPaymentTermNames;
   }
 
   protected async fetchAllPaginated<T>(

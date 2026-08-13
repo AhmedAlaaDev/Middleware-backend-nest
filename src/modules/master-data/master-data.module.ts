@@ -110,6 +110,7 @@ import { DimensionValidationService } from '@/modules/master-data/services/dimen
 import { ExchangeRateService } from '@/modules/master-data/services/exchange-rate.service';
 import { InlineCustomerCreationService } from '@/modules/master-data/services/inline-customer-creation.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
+import { PaymentTermService } from '@/modules/master-data/services/payment-term.service';
 import { TaxGroupService } from '@/modules/master-data/services/tax-group.service';
 
 const CommandHandlers = [
@@ -192,6 +193,7 @@ const QueryHandlers = [
     DimensionValidationService,
     ExchangeRateService,
     TaxGroupService,
+    PaymentTermService,
     MasterDataService,
     InlineCustomerCreationService,
     { provide: VendorRepository, useClass: VendorMongoRepository },
@@ -243,6 +245,7 @@ const QueryHandlers = [
     MasterDataService,
     ExchangeRateService,
     TaxGroupService,
+    PaymentTermService,
     SyncJobRepository,
   ],
 })
