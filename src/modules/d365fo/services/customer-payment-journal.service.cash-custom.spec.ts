@@ -41,6 +41,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       deleteLine: jest.fn().mockResolvedValue(undefined),
       listSettledInvoicesForHeader: jest.fn().mockResolvedValue([]),
       listSettlementOwnersForInvoices: jest.fn().mockResolvedValue([]),
+      listOpenInvoiceCandidatesForInvoices: jest.fn().mockResolvedValue([]),
       addSettledInvoice: jest.fn().mockResolvedValue(undefined),
       getHeaderIdentity: jest.fn().mockResolvedValue(null),
     };
@@ -2485,6 +2486,63 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).toHaveProperty('MarkedLines', [
       expect.objectContaining({ InvoiceNumber: '2025001409' }),
     ]);
+  });
+
+  it('defers an ambiguous duplicate invoice mark until exact settlement repair', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listOpenInvoiceCandidatesForInvoices.mockResolvedValue(
+      [
+        {
+          Invoice: '102260',
+          AccountNum: 'RP-000003',
+          AmountCur: -19248.9,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2025-12-21T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+        {
+          Invoice: '102260',
+          AccountNum: 'RP-000003',
+          AmountCur: -19562.4,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2026-04-22T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+      ],
+    );
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success! JN-DUP-INV',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'JN-DUP-INV',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 50,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'RP-000003',
+            accountTypeStr: 'Vendor',
+            currency: 'EGP',
+            debitAmount: 19562.4,
+            creditAmount: 0,
+            MarkedLines: [{ InvoiceNumber: '102260' }],
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0],
+    ).not.toHaveProperty('MarkedLines');
   });
 
   it('does not apply the cash-out invoice fallback to cash-in lines', async () => {

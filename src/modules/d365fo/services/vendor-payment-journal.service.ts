@@ -31,6 +31,16 @@ export interface VendorPaymentJournalHeaderIdentity {
   IsPosted?: string;
 }
 
+export interface VendorOpenInvoiceCandidate {
+  Invoice: string;
+  AccountNum: string;
+  AmountCur: number;
+  SettleAmountCur: number;
+  CurrencyCode: string;
+  DueDate: string;
+  Closed: string;
+}
+
 /**
  * Service for managing vendor payment journals in D365FO
  * (VendorPaymentJournalHeaders / VendorPaymentJournalLines)
@@ -349,6 +359,65 @@ export class VendorPaymentJournalService {
       );
     }
     return [...uniqueResults.values()];
+  }
+
+  /** Load open vendor-transaction candidates so duplicate invoice IDs can be handled safely. */
+  public async listOpenInvoiceCandidatesForInvoices(
+    dataAreaId: string,
+    invoiceNumbers: string[],
+  ): Promise<VendorOpenInvoiceCandidate[]> {
+    const uniqueInvoices = [
+      ...new Set(
+        invoiceNumbers
+          .map((value) => String(value ?? ''))
+          .filter((value) => Boolean(value.trim())),
+      ),
+    ];
+    const results: VendorOpenInvoiceCandidate[] = [];
+    for (let index = 0; index < uniqueInvoices.length; index += 8) {
+      const invoiceValues = [
+        ...new Set(
+          uniqueInvoices.slice(index, index + 8).flatMap((value) => {
+            const trimmed = value.trim();
+            return [
+              value,
+              trimmed,
+              ` ${trimmed}`,
+              `${trimmed} `,
+              ` ${trimmed} `,
+            ];
+          }),
+        ),
+      ];
+      const filter = this.queryBuilder.and(
+        this.queryBuilder.eq('dataAreaId', dataAreaId),
+        `(${this.queryBuilder.or(
+          ...invoiceValues.map((invoice) =>
+            this.queryBuilder.eq('Invoice', invoice),
+          ),
+        )})`,
+      );
+      const query = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
+        filter,
+        select: [
+          'Invoice',
+          'AccountNum',
+          'AmountCur',
+          'SettleAmountCur',
+          'CurrencyCode',
+          'DueDate',
+          'Closed',
+        ],
+        top: 10000,
+        crossCompany: true,
+      });
+      const response = await this.d365foClient.get<VendorOpenInvoiceCandidate>(
+        query,
+        { useCache: false },
+      );
+      results.push(...(response.value ?? []));
+    }
+    return results;
   }
 
   /** Add only the settlement child record; no payment amount line is reposted. */

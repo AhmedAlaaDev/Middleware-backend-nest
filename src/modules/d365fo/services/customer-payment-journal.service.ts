@@ -348,6 +348,10 @@ export class CustomerPaymentJournalService {
         normalizedLines,
         dataAreaId,
       );
+      normalizedLines = await this.deferAmbiguousVendorInvoiceMarks(
+        normalizedLines,
+        dataAreaId,
+      );
     }
 
     let existingLines: Set<number> = new Set();
@@ -463,6 +467,90 @@ export class CustomerPaymentJournalService {
     }
 
     return resolvedLines;
+  }
+
+  /**
+   * The custom X++ endpoint can self-lock a VendTrans when one vendor has
+   * multiple open transactions with the same invoice number. Omit only those
+   * ambiguous marks from the custom request; post-success integrity repair
+   * then selects the exact amount/due-date through the standard child entity.
+   * The durable/original lines remain unchanged and still require the mark.
+   */
+  private async deferAmbiguousVendorInvoiceMarks(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    dataAreaId?: string,
+  ): Promise<D365FOCustomerPaymentJournalLineRequest[]> {
+    const company = String(dataAreaId ?? '').trim();
+    if (!company) return lines;
+    const requestedInvoices = lines.flatMap((line) => {
+      const marked = line.customLineApiBody?.MarkedLines;
+      return Array.isArray(marked)
+        ? marked.map((item) => String(item?.InvoiceNumber ?? ''))
+        : [];
+    });
+    if (!requestedInvoices.some((invoice) => Boolean(invoice.trim()))) {
+      return lines;
+    }
+
+    const candidates =
+      await this.vendorPaymentJournalService.listOpenInvoiceCandidatesForInvoices(
+        company,
+        requestedInvoices,
+      );
+    const byInvoiceVendor = new Map<
+      string,
+      Array<(typeof candidates)[number] & { available: number }>
+    >();
+    for (const candidate of candidates) {
+      const available = Math.abs(
+        (Number(candidate.AmountCur) || 0) -
+          (Number(candidate.SettleAmountCur) || 0),
+      );
+      if (available <= 0.01) continue;
+      const key = `${this.normalizeSettlementInvoice(candidate.Invoice)}|${this.normalizeIntegrityValue(candidate.AccountNum)}`;
+      const item = { ...candidate, available };
+      const group = byInvoiceVendor.get(key);
+      if (group) group.push(item);
+      else byInvoiceVendor.set(key, [item]);
+    }
+
+    let deferred = 0;
+    const result = lines.map((line) => {
+      const body = line.customLineApiBody;
+      if (!body || !Array.isArray(body.MarkedLines)) return line;
+      const vendor = this.normalizeIntegrityValue(body.AccountNum);
+      const requested = Math.abs(
+        (Number(body.creditAmount) || 0) - (Number(body.debitAmount) || 0),
+      );
+      const currency = String(body.currency ?? '').trim().toUpperCase();
+      const kept = body.MarkedLines.filter((marked) => {
+        const invoice = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
+        if (!invoice) return true;
+        const matches = (byInvoiceVendor.get(`${invoice}|${vendor}`) ?? []).filter(
+          (candidate) =>
+            (!currency ||
+              !candidate.CurrencyCode ||
+              candidate.CurrencyCode.trim().toUpperCase() === currency) &&
+            candidate.available + 0.01 >= requested,
+        );
+        if (matches.length === 0) return true;
+        const allCandidates = byInvoiceVendor.get(`${invoice}|${vendor}`) ?? [];
+        if (allCandidates.length <= 1) return true;
+        deferred += 1;
+        return false;
+      });
+      if (kept.length === body.MarkedLines.length) return line;
+      return {
+        ...line,
+        customLineApiBody: { ...body, MarkedLines: kept },
+      };
+    });
+    if (deferred > 0) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Deferred ${deferred} ambiguous vendor invoice mark(s) to exact post-success settlement repair`,
+      );
+    }
+    return result;
   }
 
   /**
