@@ -522,11 +522,15 @@ export class CustomerPaymentJournalService {
       const requested = Math.abs(
         (Number(body.creditAmount) || 0) - (Number(body.debitAmount) || 0),
       );
-      const currency = String(body.currency ?? '').trim().toUpperCase();
+      const currency = String(body.currency ?? '')
+        .trim()
+        .toUpperCase();
       const kept = body.MarkedLines.filter((marked) => {
         const invoice = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
         if (!invoice) return true;
-        const matches = (byInvoiceVendor.get(`${invoice}|${vendor}`) ?? []).filter(
+        const matches = (
+          byInvoiceVendor.get(`${invoice}|${vendor}`) ?? []
+        ).filter(
           (candidate) =>
             (!currency ||
               !candidate.CurrencyCode ||
@@ -728,12 +732,21 @@ export class CustomerPaymentJournalService {
       if (result.matches) return;
     }
 
+    const duplicateTransactionJoinFailure = result.repairErrors.some((error) =>
+      /Matching record for the read only data source ['"]?VendTransOpen/i.test(
+        error.message,
+      ),
+    );
     const lockedBySettlement = result.repairErrors.some((error) =>
       /no longer available for payment|might have been settled|VendTrans|Matching record for the read only data source/i.test(
         error.message,
       ),
     );
-    if (result.missing.length > 0 && lockedBySettlement) {
+    if (
+      result.missing.length > 0 &&
+      lockedBySettlement &&
+      !duplicateTransactionJoinFailure
+    ) {
       this.logger.warn(
         `[CASH-CUSTOM] Settlement integrity on ${headerKey} cannot repair locked invoices; deleting the journal so a fresh header can rematch with MarkedLines`,
       );
@@ -745,6 +758,11 @@ export class CustomerPaymentJournalService {
         // Queue processor recreates the header and retries with MarkedLines.
         throw new Error(`Journal ${headerKey} was not found.`);
       }
+    }
+    if (result.missing.length > 0 && duplicateTransactionJoinFailure) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Preserving journal ${headerKey}: Finance could not uniquely join duplicate open vendor transactions. Monetary lines remain available for exact manual settlement.`,
+      );
     }
 
     const details: string[] = [];
@@ -792,7 +810,8 @@ export class CustomerPaymentJournalService {
       for (const marked of markedLines) {
         const invoiceNumber = String(marked?.InvoiceNumber ?? '');
         if (!invoiceNumber.trim()) continue;
-        const normalizedInvoice = this.normalizeSettlementInvoice(invoiceNumber);
+        const normalizedInvoice =
+          this.normalizeSettlementInvoice(invoiceNumber);
         if (normalizedInvoice && seenInvoices.has(normalizedInvoice)) {
           continue;
         }
@@ -1145,7 +1164,9 @@ export class CustomerPaymentJournalService {
       });
     } catch (error) {
       const message = this.dfoErrorExtractor.extractMessage(error);
-      if (/VendTrans|Matching record for the read only data source/i.test(message)) {
+      if (
+        /VendTrans|Matching record for the read only data source/i.test(message)
+      ) {
         throw new Error(
           `Finance rejected settlement child write for invoice ${missing.invoiceNumber} on line ${targetLineNumber}: ${message}`,
         );
@@ -1184,7 +1205,9 @@ export class CustomerPaymentJournalService {
     });
     const pool = unmarkedOrSame.length > 0 ? unmarkedOrSame : candidates;
     return (
-      pool.find((line) => Number(line.LineNumber) === Number(missing.lineNumber)) ??
+      pool.find(
+        (line) => Number(line.LineNumber) === Number(missing.lineNumber),
+      ) ??
       pool.sort(
         (left, right) => Number(left.LineNumber) - Number(right.LineNumber),
       )[0]
@@ -1815,7 +1838,9 @@ export class CustomerPaymentJournalService {
       const lineNumber = Number(line.LineNumber);
       return lineNumber >= 1 && lineNumber <= expectedLineCount;
     });
-    const twins = lines.filter((line) => Number(line.LineNumber) > expectedLineCount);
+    const twins = lines.filter(
+      (line) => Number(line.LineNumber) > expectedLineCount,
+    );
     if (
       originals.length !== expectedLineCount ||
       twins.length !== expectedLineCount
@@ -1828,10 +1853,9 @@ export class CustomerPaymentJournalService {
     );
     if (
       originalNumbers.size !== expectedLineCount ||
-      !Array.from(
-        { length: expectedLineCount },
-        (_, index) => index + 1,
-      ).every((lineNumber) => originalNumbers.has(lineNumber))
+      !Array.from({ length: expectedLineCount }, (_, index) => index + 1).every(
+        (lineNumber) => originalNumbers.has(lineNumber),
+      )
     ) {
       return null;
     }
@@ -1850,9 +1874,7 @@ export class CustomerPaymentJournalService {
     const twinCounts = counts(twins);
     if (
       originalCounts.size !== twinCounts.size ||
-      [...originalCounts].some(
-        ([key, count]) => twinCounts.get(key) !== count,
-      )
+      [...originalCounts].some(([key, count]) => twinCounts.get(key) !== count)
     ) {
       return null;
     }
@@ -2630,7 +2652,9 @@ export class CustomerPaymentJournalService {
       );
     }
 
-    const attemptMarkedRematch = async (): Promise<CashBulkLineFailure[] | null> => {
+    const attemptMarkedRematch = async (): Promise<
+      CashBulkLineFailure[] | null
+    > => {
       const missingLines = await this.filterPendingLinesMissingFromJournal(
         headerKey,
         dataAreaId,
@@ -2644,7 +2668,11 @@ export class CustomerPaymentJournalService {
         return [];
       }
 
-      await this.refreshSettledInvoicesFromFO(headerKey, dataAreaId, settledInvoices);
+      await this.refreshSettledInvoicesFromFO(
+        headerKey,
+        dataAreaId,
+        settledInvoices,
+      );
 
       const strippedLines = this.stripAlreadySettledMarkedLines(
         missingLines,
@@ -2699,7 +2727,10 @@ export class CustomerPaymentJournalService {
     if (otherBlockers.length > 0 && !selfCited) {
       const rematchFailures = await attemptMarkedRematch();
       if (rematchFailures && rematchFailures.length === 0) return [];
-      if (rematchFailures && !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
+      if (
+        rematchFailures &&
+        !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)
+      ) {
         return rematchFailures;
       }
     }
@@ -2708,7 +2739,10 @@ export class CustomerPaymentJournalService {
       if (preserveAcceptedPatches) {
         const rematchFailures = await attemptMarkedRematch();
         if (rematchFailures && rematchFailures.length === 0) return [];
-        if (rematchFailures && !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
+        if (
+          rematchFailures &&
+          !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)
+        ) {
           return rematchFailures;
         }
         this.logger.warn(
@@ -2869,10 +2903,7 @@ export class CustomerPaymentJournalService {
   ): Promise<boolean> {
     try {
       if (
-        !(await this.isSafeToDeleteBlockingJournal(
-          company,
-          journalBatchNumber,
-        ))
+        !(await this.isSafeToDeleteBlockingJournal(company, journalBatchNumber))
       ) {
         this.logger.warn(
           `[CASH-CUSTOM] Keeping posted journal ${journalBatchNumber} in ${company}; it owns a settlement required by another journal`,
@@ -2937,8 +2968,9 @@ export class CustomerPaymentJournalService {
     );
     const ledgerHeader = (ledgerHeaders ?? []).find(
       (header) =>
-        String(header?.JournalBatchNumber ?? '').trim().toLowerCase() ===
-        journalBatchNumber.trim().toLowerCase(),
+        String(header?.JournalBatchNumber ?? '')
+          .trim()
+          .toLowerCase() === journalBatchNumber.trim().toLowerCase(),
     );
     if (ledgerHeader) {
       return !this.isPostedHeaderValue(ledgerHeader.IsPosted);

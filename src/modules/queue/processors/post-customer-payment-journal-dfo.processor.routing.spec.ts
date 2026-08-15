@@ -182,6 +182,41 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
   });
 
+  it('continues later independent groups after a settlement integrity failure', async () => {
+    const first = makeGroup(apRoute, 1);
+    const second = makeGroup(apRoute, 2);
+    const { processor, job, cashStrategy, jobs, batches } = buildProcessor([
+      first,
+      second,
+    ]);
+    cashStrategy.assertJournalSettlementIntegrity
+      .mockRejectedValueOnce(
+        new Error(
+          '[DATA INTEGRITY] Journal D365-RET-001 invoice settlement mismatch (0/1 expected mark(s) confirmed). No monetary journal lines were reposted.',
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'Remaining independent journal groups were processed',
+    );
+
+    expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(2);
+    expect(cashStrategy.postLinesForHeader).toHaveBeenNthCalledWith(
+      2,
+      'D365-RET-002',
+      second.lines,
+      'm-p',
+      20,
+    );
+    expect(jobs.completeGroup).toHaveBeenCalledTimes(1);
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 1);
+    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      DataBatchStatus.Canceled,
+    );
+  });
+
   it('replaces stale recovery IDs with the final verified group IDs', async () => {
     const group = makeGroup(apRoute);
     const { processor, job, cashStrategy, batches } = buildProcessor([group]);

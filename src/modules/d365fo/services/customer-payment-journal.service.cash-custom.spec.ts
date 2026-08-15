@@ -2143,9 +2143,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const posted = d365foClient.post.mock.calls[0][1]._contract.Lines;
     expect(posted).toHaveLength(2);
     expect(posted.every((line: any) => line.DocumentNum === '')).toBe(true);
-    expect(posted.map((line: any) => line.MarkedLines[0].InvoiceNumber)).toEqual(
-      ['67', '68'],
-    );
+    expect(
+      posted.map((line: any) => line.MarkedLines[0].InvoiceNumber),
+    ).toEqual(['67', '68']);
   });
 
   it('deletes vendor payment lines before the self-cited header so retry cannot leave an orphan journal', async () => {
@@ -2255,9 +2255,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         20,
         'm-p',
       ),
-    ).rejects.toThrow(
-      'Could not safely delete journal Mesco-000014718',
-    );
+    ).rejects.toThrow('Could not safely delete journal Mesco-000014718');
 
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
@@ -2769,10 +2767,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     });
 
     await expect(
-      (service as any).tryDeleteBlockingJournalHeader(
-        'm-p',
-        'Mesco-000014793',
-      ),
+      (service as any).tryDeleteBlockingJournalHeader('m-p', 'Mesco-000014793'),
     ).resolves.toBe(false);
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
@@ -2855,5 +2850,74 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       }),
     );
     expect(d365foClient.post).not.toHaveBeenCalled();
+  });
+
+  it('preserves monetary lines when duplicate open transactions defeat the Finance child join', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
+      {
+        LineNumber: 50,
+        AccountDisplayValue: 'RP-000003',
+        DebitAmount: 19562.4,
+        CreditAmount: 0,
+        MarkedInvoice: '',
+      },
+    ]);
+    vendorPaymentJournalService.listSettledInvoicesForHeader.mockResolvedValue(
+      [],
+    );
+    vendorPaymentJournalService.addSettledInvoice.mockRejectedValue(
+      new Error(
+        "Matching record for the read only data source 'VendTransOpen' does not exist.",
+      ),
+    );
+    d365foClient.get.mockResolvedValue({
+      value: [
+        {
+          Invoice: '102260',
+          AccountNum: 'RP-000003',
+          AmountCur: -19248.9,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2025-12-21T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+        {
+          Invoice: '102260',
+          AccountNum: 'RP-000003',
+          AmountCur: -19562.4,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2026-04-22T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+      ],
+    });
+
+    await expect(
+      service.assertCashOutSettlementIntegrity(
+        'Mesco-000014833',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 50,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'EGP',
+              debitAmount: 19562.4,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: '102260' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('invoice settlement mismatch');
+
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
 });

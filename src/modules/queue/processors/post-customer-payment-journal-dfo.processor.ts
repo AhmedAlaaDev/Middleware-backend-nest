@@ -113,6 +113,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     // Headers created in this attempt (or reused from a prior attempt). Finance
     // owns FO cleanup on failure; we keep these IDs so retry can resume.
     const created: RoutedCreatedHeader[] = [];
+    const deferredSettlementErrors: Error[] = [];
     let completedGroups = groups.filter(
       (record) => record.status === QueueJobGroupStatus.COMPLETED,
     ).length;
@@ -316,8 +317,25 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             created.map((header) => header.headerKey),
           );
         }
+        if (this.isIndependentSettlementIntegrityError(error)) {
+          deferredSettlementErrors.push(
+            error instanceof Error ? error : new Error(dfoErrorMessage(error)),
+          );
+          continue;
+        }
         throw error;
       }
+    }
+    if (deferredSettlementErrors.length > 0) {
+      if (created.length) {
+        await this.storeHeaderIds(
+          job.data.batchId,
+          created.map((header) => header.headerKey),
+        );
+      }
+      throw new Error(
+        `${deferredSettlementErrors.map((error) => error.message).join(' | ')} Remaining independent journal groups were processed; retry will revisit only unresolved groups.`,
+      );
     }
     await this.completeBatch(job.data.batchId, [
       ...groups
@@ -326,6 +344,14 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       ...created.map((header) => header.headerKey),
     ]);
     return 'completed';
+  }
+
+  private isIndependentSettlementIntegrityError(error: unknown): boolean {
+    const message = dfoErrorMessage(error);
+    return (
+      message.includes('[DATA INTEGRITY]') &&
+      message.includes('invoice settlement mismatch')
+    );
   }
 
   private async createAndTrackHeader(
