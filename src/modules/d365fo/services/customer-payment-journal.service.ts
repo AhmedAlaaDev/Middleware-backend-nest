@@ -1609,40 +1609,47 @@ export class CustomerPaymentJournalService {
     ).sort((left, right) => Number(left.LineNumber) - Number(right.LineNumber));
     if (lines.length <= expectedLineCount) return false;
 
-    const groups = new Map<
-      string,
-      Array<Record<string, unknown> & { LineNumber: number }>
-    >();
-    for (const line of lines) {
-      const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
-      const group = groups.get(key);
-      if (group) group.push(line);
-      else groups.set(key, [line]);
-    }
+    let deleteLineNumbers =
+      this.findExactOriginalRangeTwinLineNumbers(lines, expectedLineCount) ??
+      [];
+    let keptCount = deleteLineNumbers.length ? expectedLineCount : 0;
 
-    const deleteLineNumbers: number[] = [];
-    let keptCount = 0;
-    for (const group of groups.values()) {
-      const ranked = [...group].sort((left, right) => {
-        const rank = (line: Record<string, unknown> & { LineNumber: number }) => {
-          const lineNumber = Number(line.LineNumber);
-          const inOriginalRange =
-            Number.isFinite(lineNumber) && lineNumber <= expectedLineCount;
-          const marked = this.integrityLineHasSettlementMark(line);
-          // Prefer settled rows first. Among equals, prefer original 1..N
-          // LineNumbers so payload settlement checks stay aligned.
-          if (marked && inOriginalRange) return 0;
-          if (marked) return 1;
-          if (inOriginalRange) return 2;
-          return 3;
-        };
-        const rankDelta = rank(left) - rank(right);
-        if (rankDelta !== 0) return rankDelta;
-        return Number(left.LineNumber) - Number(right.LineNumber);
-      });
-      keptCount += 1;
-      for (const duplicate of ranked.slice(1)) {
-        deleteLineNumbers.push(Number(duplicate.LineNumber));
+    if (deleteLineNumbers.length === 0) {
+      const groups = new Map<
+        string,
+        Array<Record<string, unknown> & { LineNumber: number }>
+      >();
+      for (const line of lines) {
+        const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
+        const group = groups.get(key);
+        if (group) group.push(line);
+        else groups.set(key, [line]);
+      }
+
+      deleteLineNumbers = [];
+      keptCount = 0;
+      for (const group of groups.values()) {
+        const ranked = [...group].sort((left, right) => {
+          const rank = (
+            line: Record<string, unknown> & { LineNumber: number },
+          ) => {
+            const lineNumber = Number(line.LineNumber);
+            const inOriginalRange =
+              Number.isFinite(lineNumber) && lineNumber <= expectedLineCount;
+            const marked = this.integrityLineHasSettlementMark(line);
+            if (marked && inOriginalRange) return 0;
+            if (marked) return 1;
+            if (inOriginalRange) return 2;
+            return 3;
+          };
+          const rankDelta = rank(left) - rank(right);
+          if (rankDelta !== 0) return rankDelta;
+          return Number(left.LineNumber) - Number(right.LineNumber);
+        });
+        keptCount += 1;
+        for (const duplicate of ranked.slice(1)) {
+          deleteLineNumbers.push(Number(duplicate.LineNumber));
+        }
       }
     }
 
@@ -1680,6 +1687,66 @@ export class CustomerPaymentJournalService {
       );
     }
     return true;
+  }
+
+  /**
+   * Prove a clean N+N retry duplication while preserving canonical line
+   * numbers 1..N. Legitimate payloads may contain repeated business
+   * signatures, so compare signature multisets rather than unique keys.
+   */
+  private findExactOriginalRangeTwinLineNumbers(
+    lines: Array<Record<string, unknown> & { LineNumber: number }>,
+    expectedLineCount: number,
+  ): number[] | null {
+    if (lines.length !== expectedLineCount * 2) return null;
+
+    const originals = lines.filter((line) => {
+      const lineNumber = Number(line.LineNumber);
+      return lineNumber >= 1 && lineNumber <= expectedLineCount;
+    });
+    const twins = lines.filter((line) => Number(line.LineNumber) > expectedLineCount);
+    if (
+      originals.length !== expectedLineCount ||
+      twins.length !== expectedLineCount
+    ) {
+      return null;
+    }
+
+    const originalNumbers = new Set(
+      originals.map((line) => Number(line.LineNumber)),
+    );
+    if (
+      originalNumbers.size !== expectedLineCount ||
+      !Array.from(
+        { length: expectedLineCount },
+        (_, index) => index + 1,
+      ).every((lineNumber) => originalNumbers.has(lineNumber))
+    ) {
+      return null;
+    }
+
+    const counts = (
+      source: Array<Record<string, unknown> & { LineNumber: number }>,
+    ) => {
+      const result = new Map<string, number>();
+      for (const line of source) {
+        const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
+        result.set(key, (result.get(key) ?? 0) + 1);
+      }
+      return result;
+    };
+    const originalCounts = counts(originals);
+    const twinCounts = counts(twins);
+    if (
+      originalCounts.size !== twinCounts.size ||
+      [...originalCounts].some(
+        ([key, count]) => twinCounts.get(key) !== count,
+      )
+    ) {
+      return null;
+    }
+
+    return twins.map((line) => Number(line.LineNumber));
   }
 
   private integrityLineHasSettlementMark(

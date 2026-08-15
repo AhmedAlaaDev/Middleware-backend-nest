@@ -160,7 +160,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
-  it('deletes interleaved signature twins when the second half is not positional', async () => {
+  it('keeps canonical line numbers when the two ranges are exact signature multisets', async () => {
     const { service, vendorPaymentJournalService } = buildService();
     const row = (
       lineNumber: number,
@@ -210,7 +210,55 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const deleted = vendorPaymentJournalService.deleteLine.mock.calls.map(
       (call: unknown[]) => call[1],
     );
-    expect(deleted.sort((a: number, b: number) => a - b)).toEqual([2, 3]);
+    expect(deleted.sort((a: number, b: number) => a - b)).toEqual([3, 4]);
+  });
+
+  it('repairs an exact twin range when legitimate source rows share a signature', async () => {
+    const { service, vendorPaymentJournalService } = buildService();
+    const row = (lineNumber: number, paymentId: string) => ({
+      LineNumber: lineNumber,
+      AccountDisplayValue: 'RP-000003',
+      AccountType: 'Vend',
+      OffsetAccountDisplayValue: 'PSD EG',
+      OffsetAccountType: 'RCash',
+      CurrencyCode: 'EGP',
+      DebitAmount: 100,
+      CreditAmount: 0,
+      PaymentId: paymentId,
+      PaymentReference: 'CashOut - PSD EG-203 - Freight',
+      MarkedInvoice: lineNumber <= 3 ? `INV-${lineNumber}` : '',
+      TransactionText: 'Vendor Payment - Freight - unmarked',
+      FinTagDisplayValue: 'TAG',
+      OffsetFinTagDisplayValue: 'TAG',
+      PostingProfile: 'V-PP',
+      TransactionDate: '2026-03-01T00:00:00Z',
+    });
+    vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
+      row(1, 'SAME'),
+      row(2, 'SAME'),
+      row(3, 'OTHER'),
+      row(4, 'SAME'),
+      row(5, 'SAME'),
+      row(6, 'OTHER'),
+    ]);
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValue([
+      { LineNumber: 1 },
+      { LineNumber: 2 },
+      { LineNumber: 3 },
+    ]);
+
+    await expect(
+      service.repairDuplicatedUnmarkedFallbackLines(
+        'Mesco-000014794',
+        3,
+        'm-p',
+      ),
+    ).resolves.toBe(true);
+    expect(vendorPaymentJournalService.deleteLine.mock.calls).toEqual([
+      ['Mesco-000014794', 4, 'm-p'],
+      ['Mesco-000014794', 5, 'm-p'],
+      ['Mesco-000014794', 6, 'm-p'],
+    ]);
   });
 
   it('does not delete extra Finance rows that are not proven fallback twins', async () => {
