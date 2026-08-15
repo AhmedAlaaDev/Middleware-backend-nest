@@ -381,11 +381,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     headerId: string,
   ): boolean {
     const message = dfoErrorMessage(error).toLowerCase();
-    return (
-      message.includes('journal') &&
-      message.includes(headerId.toLowerCase()) &&
-      (message.includes('was not found') || message.includes('does not exist'))
-    );
+    return message.includes(`journal ${headerId.toLowerCase()} was not found`);
   }
 
   private async verifyRoutedJournalIntegrity(

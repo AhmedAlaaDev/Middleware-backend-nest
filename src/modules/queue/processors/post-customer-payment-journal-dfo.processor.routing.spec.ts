@@ -192,7 +192,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     cashStrategy.assertJournalSettlementIntegrity
       .mockRejectedValueOnce(
         new Error(
-          '[DATA INTEGRITY] Journal D365-RET-001 invoice settlement mismatch (0/1 expected mark(s) confirmed). No monetary journal lines were reposted.',
+          '[DATA INTEGRITY] Journal D365-RET-001 invoice settlement mismatch (0/1 expected mark(s) confirmed): repair failed because matching VendTransOpen does not exist. No monetary journal lines were reposted.',
         ),
       )
       .mockResolvedValueOnce(undefined);
