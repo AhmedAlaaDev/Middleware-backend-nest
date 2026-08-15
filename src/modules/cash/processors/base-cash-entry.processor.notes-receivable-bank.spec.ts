@@ -158,5 +158,4 @@ describe('Cash-In notes-receivable standalone lines', () => {
         .some((e: string) => e.includes('ledger dimension value')),
     ).toBe(true);
   });
-
 });

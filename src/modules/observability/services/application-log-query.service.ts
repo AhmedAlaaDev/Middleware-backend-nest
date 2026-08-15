@@ -212,13 +212,8 @@ export class ApplicationLogQueryService {
         { message: { $regex: escaped, $options: 'i' } },
       ],
     };
-    return this.model
-      .find(query)
-      .sort({ timestamp: 1, _id: 1 })
-      .lean()
-      .exec();
+    return this.model.find(query).sort({ timestamp: 1, _id: 1 }).lean().exec();
   }
-
 
   private buildQuery(filters: ApplicationLogFilters): Record<string, any> {
     const query: Record<string, any> = {};

@@ -35,8 +35,9 @@ import { ApiPaginatedResponse } from '@/common/decorators/api-paginated-response
 import { IPaginatedRes } from '@/common/interfaces/paginated-res.interface';
 import { Auth } from '@/modules/auth/decorators/auth.decorator';
 import { Public } from '@/modules/auth/decorators/public.decorator';
+import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
-
+import { DeleteDfoJournalCommand } from '@/modules/data-batch/commands/delete-dfo-journal.command';
 import { DownloadBatchEnhancedRecordCommand } from '@/modules/data-batch/commands/download-batch-enhanced-record.command';
 import { DownloadBatchErrorCommand } from '@/modules/data-batch/commands/download-batch-error.command';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
@@ -52,15 +53,15 @@ import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-erro
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { GetBatchErrorListQuery } from '@/modules/data-batch/queries/get-batch-error-list.query';
 import { GetBatchResponseBodyQuery } from '@/modules/data-batch/queries/get-batch-response-body.query';
-import { GetJournalIntegrityQuery } from '@/modules/data-batch/queries/get-journal-integrity.query';
 import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-batch-by-id.query';
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
+import { GetJournalIntegrityQuery } from '@/modules/data-batch/queries/get-journal-integrity.query';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
-
 import { DataBatchReprocessSubmission } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
 import { BatchPostingPauseState } from '@/modules/queue/services/batch-posting-control.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
+import { UserRole } from '@/modules/user/schemas/user.schema';
 
 /**
  * Data Migration - Data Batches
@@ -500,6 +501,47 @@ export class DataBatchController {
   ): Promise<any> {
     return this.queryBus.execute(
       new GetJournalIntegrityQuery(journalBatchNumber),
+    );
+  }
+
+  @Delete('journal-batch/:journalBatchNumber')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a D365FO journal by JournalBatchNumber',
+    description:
+      'Finds the journal in Finance (Vendor Payment, Ledger, Customer Payment, or Vendor Invoice), deletes dependent lines, then deletes the header. Use this to clear SpecTrans blockers left by failed cash-out posts. Posted journals may be rejected by Finance.',
+  })
+  @ApiParam({
+    name: 'journalBatchNumber',
+    description: 'The D365FO journal batch number (e.g. Mesco-000014781)',
+    type: String,
+    example: 'Mesco-000014781',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Journal deleted from Finance',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No journal header found for that number/company',
+  })
+  public async deleteDfoJournal(
+    @Param('journalBatchNumber') journalBatchNumber: string,
+    @Query('company') company: string | undefined,
+    @Auth() user: Omit<IUser, 'passwordHash'>,
+  ): Promise<{
+    deleted: boolean;
+    entityType?: string;
+    company: string;
+    journalBatchNumber: string;
+  }> {
+    return this.commandBus.execute(
+      new DeleteDfoJournalCommand(
+        journalBatchNumber,
+        company?.trim() || 'm-p',
+        this.actorFrom(user),
+      ),
     );
   }
 

@@ -1,6 +1,6 @@
-import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
-
 import { VendorInvoiceJournalService } from './vendor-invoice-journal.service';
+
+import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 
 describe('VendorInvoiceJournalService invoice lookup', () => {
   it('finds an invoice that is already posted in Finance', async () => {

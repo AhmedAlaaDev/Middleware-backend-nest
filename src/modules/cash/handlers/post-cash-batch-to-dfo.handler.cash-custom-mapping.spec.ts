@@ -160,8 +160,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'REF456',
             SafeType: 'Vendor Payment',
             TransactionText: 'Vendor payment',
-             Invoice: ' INV-0002 ',
-             MarkedInvoice: ' INV-0002 ',
+            Invoice: ' INV-0002 ',
+            MarkedInvoice: ' INV-0002 ',
             Voucher: '',
           },
         },
@@ -180,7 +180,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('PostingProfile', 'V-PP');
     expect(body).toHaveProperty('MarkedLines', [
       {
-         InvoiceNumber: ' INV-0002 ',
+        InvoiceNumber: ' INV-0002 ',
         OperationNumber: 'TAG1',
         DocumentNumber: '',
         HasWithHoldingLine: false,

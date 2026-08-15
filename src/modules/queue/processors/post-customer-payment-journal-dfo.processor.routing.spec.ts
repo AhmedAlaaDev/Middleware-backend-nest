@@ -58,7 +58,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       assertJournalSettlementIntegrity: jest.fn().mockResolvedValue(undefined),
     };
     cashStrategy.getJournalIntegrityState.mockImplementation(
-      async (headerId: string) => ({
+      (headerId: string) => ({
         headerExists: true,
         lineCount:
           headerId.includes('COMPLETED') ||
@@ -108,7 +108,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     };
     const processor = new PostCustomerPaymentJournalDFOProcessor(
       legacyStrategy as any,
-      cashStrategy as any,
+      cashStrategy,
       batches as any,
       jobs as any,
       logs as any,
@@ -349,7 +349,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       },
     ]);
     cashStrategy.getJournalIntegrityState.mockImplementation(
-      async (headerId: string) =>
+      (headerId: string) =>
         headerId === 'Mesco-000014742'
           ? {
               headerExists: true,

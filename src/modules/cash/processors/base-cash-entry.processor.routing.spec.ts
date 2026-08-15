@@ -1024,7 +1024,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         ),
       ).toBe(true);
       expect(
-        withholdingLines.map((line: any) => line.MarkedLines[0].InvoiceNumber).sort(),
+        withholdingLines
+          .map((line: any) => line.MarkedLines[0].InvoiceNumber)
+          .sort(),
       ).toEqual(['3829', '3844']);
     });
 
@@ -1397,12 +1399,18 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       const processor = createProcessor();
       const workbook = new Workbook();
       await workbook.xlsx.load(
-        (await readFile(join(process.cwd(), 'cashout_settel_test.xlsx'))) as any,
+        (await readFile(
+          join(process.cwd(), 'cashout_settel_test.xlsx'),
+        )) as any,
       );
       const worksheet = workbook.worksheets[0];
       const headers: string[] = [];
       worksheet.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => {
-        headers[col - 1] = String(cell.value ?? '').trim();
+        const value = cell.value;
+        headers[col - 1] =
+          typeof value === 'string' || typeof value === 'number'
+            ? String(value).trim()
+            : '';
       });
       const rawLines = [] as CashEntryRawDataModel[];
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {

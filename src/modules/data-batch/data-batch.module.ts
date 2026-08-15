@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import {
   AddDfoIdsHandler,
   CreateDataBatchHandler,
   DeleteBatchHandler,
+  DeleteDfoJournalHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,
@@ -50,7 +52,6 @@ import {
   DataBatchMissingMasterDataSchema,
 } from '@/modules/data-batch/schemas';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
-import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
 import {
@@ -62,6 +63,7 @@ const CommandHandlers = [
   AddDfoIdsHandler,
   CreateDataBatchHandler,
   DeleteBatchHandler,
+  DeleteDfoJournalHandler,
   DownloadBatchEnhancedRecordHandler,
   DownloadBatchErrorHandler,
   DownloadBatchSourceRecordHandler,

@@ -494,6 +494,7 @@ export class CustomerPaymentJournalService {
     let actual = await this.loadActualVendorInvoiceSettlements(
       headerKey,
       dataAreaId,
+      expected.map((item) => item.invoiceNumber),
     );
     let comparison = this.compareVendorInvoiceSettlements(
       headerKey,
@@ -519,10 +520,22 @@ export class CustomerPaymentJournalService {
           this.settlementKey(blocker.expectedLineNumber, blocker.invoiceNumber),
         ),
       );
+      const alreadyOnThisJournal = new Set(
+        actual.map((item) =>
+          this.normalizeSettlementInvoice(item.InvoiceNumber),
+        ),
+      );
       for (const missing of comparison.missing) {
         if (
           blockedKeys.has(
             this.settlementKey(missing.lineNumber, missing.invoiceNumber),
+          )
+        ) {
+          continue;
+        }
+        if (
+          alreadyOnThisJournal.has(
+            this.normalizeSettlementInvoice(missing.invoiceNumber),
           )
         ) {
           continue;
@@ -549,6 +562,7 @@ export class CustomerPaymentJournalService {
       actual = await this.loadActualVendorInvoiceSettlements(
         headerKey,
         dataAreaId,
+        expected.map((item) => item.invoiceNumber),
       );
       comparison = this.compareVendorInvoiceSettlements(
         headerKey,
@@ -580,13 +594,70 @@ export class CustomerPaymentJournalService {
     lines: D365FOCustomerPaymentJournalLineRequest[],
     dataAreaId: string,
   ): Promise<void> {
-    const result = await this.verifyCashOutSettlementIntegrity(
+    let result = await this.verifyCashOutSettlementIntegrity(
       headerKey,
       lines,
       dataAreaId,
       true,
     );
     if (result.matches) return;
+
+    // The custom X++ bulk endpoint can return Success while a subset of
+    // invoice marks remains owned by a previous, unposted journal. In that
+    // case the normal bulk-error recovery is never entered; the conflict is
+    // discovered only by this post-success integrity check. Release only
+    // those stale journals, then repair the missing child rows in this
+    // journal. Monetary lines are not reposted.
+    const blockerJournals = [
+      ...new Map(
+        result.blockers
+          .filter(
+            (blocker) =>
+              blocker.journalBatchNumber.trim().toLowerCase() !==
+              headerKey.trim().toLowerCase(),
+          )
+          .map((blocker) => [
+            `${blocker.journalLineCompany}|${blocker.journalBatchNumber}`,
+            blocker,
+          ]),
+      ).values(),
+    ];
+    let releasedBlocker = false;
+    for (const blocker of blockerJournals) {
+      const deleted = await this.tryDeleteBlockingJournalHeader(
+        blocker.journalLineCompany,
+        blocker.journalBatchNumber,
+      );
+      releasedBlocker = releasedBlocker || deleted;
+    }
+    if (releasedBlocker) {
+      result = await this.verifyCashOutSettlementIntegrity(
+        headerKey,
+        lines,
+        dataAreaId,
+        true,
+      );
+      if (result.matches) return;
+    }
+
+    const lockedBySettlement = result.repairErrors.some((error) =>
+      /no longer available for payment|might have been settled|VendTrans|Matching record for the read only data source/i.test(
+        error.message,
+      ),
+    );
+    if (result.missing.length > 0 && lockedBySettlement) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Settlement integrity on ${headerKey} cannot repair locked invoices; deleting the journal so a fresh header can rematch with MarkedLines`,
+      );
+      const deleted = await this.tryDeleteBlockingJournalHeader(
+        dataAreaId,
+        headerKey,
+      );
+      if (deleted) {
+        // Queue processor recreates the header and retries with MarkedLines.
+        throw new Error(`Journal ${headerKey} was not found.`);
+      }
+    }
 
     const details: string[] = [];
     for (const missing of result.missing) {
@@ -607,6 +678,11 @@ export class CustomerPaymentJournalService {
         `line ${unexpected.lineNumber} unexpectedly marks invoice ${unexpected.invoiceNumber}`,
       );
     }
+    for (const repairError of result.repairErrors) {
+      details.push(
+        `repair failed for line ${repairError.lineNumber} invoice ${repairError.invoiceNumber}: ${repairError.message}`,
+      );
+    }
     throw new Error(
       `[DATA INTEGRITY] Journal ${headerKey} invoice settlement mismatch (${result.actualCount}/${result.expectedCount} expected mark(s) confirmed): ${details.join('; ')}. No monetary journal lines were reposted.`,
     );
@@ -616,6 +692,11 @@ export class CustomerPaymentJournalService {
     lines: D365FOCustomerPaymentJournalLineRequest[],
   ): ExpectedVendorInvoiceSettlement[] {
     const expected = new Map<string, ExpectedVendorInvoiceSettlement>();
+    // Mirror the deduplication applied by deduplicateMarkedLinesInRequest:
+    // only the first line referencing a given invoice actually marks it in
+    // D365FO SpecTrans; subsequent lines with the same invoice have their
+    // MarkedLines stripped before the request is sent.
+    const seenInvoices = new Set<string>();
     for (const line of lines) {
       const body = line.customLineApiBody;
       const markedLines = body?.MarkedLines;
@@ -623,6 +704,13 @@ export class CustomerPaymentJournalService {
       for (const marked of markedLines) {
         const invoiceNumber = String(marked?.InvoiceNumber ?? '');
         if (!invoiceNumber.trim()) continue;
+        const normalizedInvoice = this.normalizeSettlementInvoice(invoiceNumber);
+        if (normalizedInvoice && seenInvoices.has(normalizedInvoice)) {
+          continue;
+        }
+        if (normalizedInvoice) {
+          seenInvoices.add(normalizedInvoice);
+        }
         const item: ExpectedVendorInvoiceSettlement = {
           lineNumber: Number(line.LineNumber),
           invoiceNumber,
@@ -640,10 +728,11 @@ export class CustomerPaymentJournalService {
     return [...expected.values()];
   }
 
-  /** Combine the two settlement representations exposed by this D365FO build. */
+  /** Combine the three settlement representations exposed by this D365FO build. */
   private async loadActualVendorInvoiceSettlements(
     headerKey: string,
     dataAreaId: string,
+    expectedInvoices: string[] = [],
   ): Promise<
     Array<{
       JournalLineNumber: number;
@@ -651,7 +740,7 @@ export class CustomerPaymentJournalService {
       JournalBatchNumber: string;
     }>
   > {
-    const [journalLines, childRows] = await Promise.all([
+    const [journalLines, childRows, owners] = await Promise.all([
       this.vendorPaymentJournalService.listIntegrityLinesForHeader(
         headerKey,
         dataAreaId,
@@ -660,6 +749,12 @@ export class CustomerPaymentJournalService {
         headerKey,
         dataAreaId,
       ),
+      expectedInvoices.length > 0
+        ? this.vendorPaymentJournalService.listSettlementOwnersForInvoices(
+            dataAreaId,
+            expectedInvoices,
+          )
+        : Promise.resolve([]),
     ]);
     const actual = new Map<
       string,
@@ -673,7 +768,7 @@ export class CustomerPaymentJournalService {
     // The custom cash X++ service stores successful selections directly on
     // the journal line (MarkedInvoice + SettleVoucher).
     for (const line of journalLines) {
-      const invoiceNumber = String(line.MarkedInvoice ?? '');
+      const invoiceNumber = this.primitiveString(line.MarkedInvoice);
       if (!invoiceNumber.trim()) continue;
       const item = {
         JournalLineNumber: Number(line.LineNumber),
@@ -699,6 +794,31 @@ export class CustomerPaymentJournalService {
         item,
       );
     }
+
+    // Unmarked rematch can leave MarkedInvoice blank while SpecTrans on this
+    // same journal still holds the invoice. Treat that as settled so we do not
+    // POST VendorPaymentJournalLineSettledInvoices against a locked VendTrans.
+    const headerKeyNorm = headerKey.trim().toLowerCase();
+    for (const owner of owners) {
+      if (
+        String(owner.JournalBatchNumber ?? '')
+          .trim()
+          .toLowerCase() !== headerKeyNorm
+      ) {
+        continue;
+      }
+      const invoiceNumber = String(owner.InvoiceNumber ?? '');
+      if (!invoiceNumber.trim()) continue;
+      const item = {
+        JournalLineNumber: Number(owner.JournalLineNumber) || 0,
+        InvoiceNumber: invoiceNumber,
+        JournalBatchNumber: headerKey,
+      };
+      actual.set(
+        this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
+        item,
+      );
+    }
     return [...actual.values()];
   }
 
@@ -718,36 +838,52 @@ export class CustomerPaymentJournalService {
       journalBatchNumber: string;
     }>;
   } {
-    const expectedKeys = new Set(
-      expected.map((item) =>
-        this.settlementKey(item.lineNumber, item.invoiceNumber),
-      ),
-    );
-    const actualKeys = new Set(
-      actual.map((item) =>
-        this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
-      ),
-    );
-    return {
-      missing: expected.filter(
-        (item) =>
-          !actualKeys.has(
-            this.settlementKey(item.lineNumber, item.invoiceNumber),
-          ),
-      ),
-      unexpected: actual
-        .filter(
-          (item) =>
-            !expectedKeys.has(
-              this.settlementKey(item.JournalLineNumber, item.InvoiceNumber),
-            ),
-        )
-        .map((item) => ({
+    // Match by invoice number (not LineNumber). After duplicate-line repair the
+    // surviving FO LineNumbers may no longer equal the middleware payload
+    // LineNumbers, but SpecTrans is invoice-keyed.
+    const actualByInvoice = new Map<
+      string,
+      Array<{
+        JournalLineNumber: number;
+        InvoiceNumber: string;
+        JournalBatchNumber: string;
+      }>
+    >();
+    for (const item of actual) {
+      const key = this.normalizeSettlementInvoice(item.InvoiceNumber);
+      if (!key) continue;
+      const group = actualByInvoice.get(key);
+      if (group) group.push(item);
+      else actualByInvoice.set(key, [item]);
+    }
+
+    const missing: ExpectedVendorInvoiceSettlement[] = [];
+    for (const item of expected) {
+      const key = this.normalizeSettlementInvoice(item.invoiceNumber);
+      const group = actualByInvoice.get(key);
+      if (!group || group.length === 0) {
+        missing.push(item);
+        continue;
+      }
+      group.shift();
+    }
+
+    const unexpected: Array<{
+      lineNumber: number;
+      invoiceNumber: string;
+      journalBatchNumber: string;
+    }> = [];
+    for (const group of actualByInvoice.values()) {
+      for (const item of group) {
+        unexpected.push({
           lineNumber: Number(item.JournalLineNumber),
           invoiceNumber: String(item.InvoiceNumber ?? ''),
           journalBatchNumber: String(item.JournalBatchNumber ?? headerKey),
-        })),
-    };
+        });
+      }
+    }
+
+    return { missing, unexpected };
   }
 
   private async findVendorInvoiceSettlementBlockers(
@@ -791,6 +927,30 @@ export class CustomerPaymentJournalService {
     dataAreaId: string,
     missing: ExpectedVendorInvoiceSettlement,
   ): Promise<void> {
+    const journalLines =
+      await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+        headerKey,
+        dataAreaId,
+      );
+    const targetLine = this.resolveJournalLineForSettlementRepair(
+      journalLines,
+      missing,
+    );
+    if (!targetLine) {
+      throw new Error(
+        `no Finance journal line on ${headerKey} matches vendor ${missing.vendorAccount} amount ${missing.settlementAmount} for invoice ${missing.invoiceNumber}`,
+      );
+    }
+    const targetLineNumber = Number(targetLine.LineNumber);
+    if (
+      this.normalizeSettlementInvoice(targetLine.MarkedInvoice) ===
+      this.normalizeSettlementInvoice(missing.invoiceNumber)
+    ) {
+      // Line already carries the mark via MarkedInvoice; child-entity POST is
+      // unnecessary and often fails when VendTrans cannot be joined.
+      return;
+    }
+
     const variants = [
       missing.invoiceNumber,
       missing.invoiceNumber.trim(),
@@ -860,17 +1020,64 @@ export class CustomerPaymentJournalService {
       );
     }
 
-    await this.vendorPaymentJournalService.addSettledInvoice({
-      JournalLineCompany: dataAreaId,
-      JournalBatchNumber: headerKey,
-      JournalLineNumber: missing.lineNumber,
-      InvoiceNumber: invoice.Invoice,
-      InvoiceCompany: dataAreaId,
-      InvoiceDueDate: invoice.DueDate,
-      InvoiceToPaymentCrossRate: 0,
-      SettlementAmountInInvoiceCurrency: missing.settlementAmount,
-      CashDiscountToTakeInInvoiceCurrency: 0,
+    try {
+      await this.vendorPaymentJournalService.addSettledInvoice({
+        JournalLineCompany: dataAreaId,
+        JournalBatchNumber: headerKey,
+        JournalLineNumber: targetLineNumber,
+        InvoiceNumber: invoice.Invoice,
+        InvoiceCompany: dataAreaId,
+        InvoiceDueDate: invoice.DueDate,
+        InvoiceToPaymentCrossRate: 0,
+        SettlementAmountInInvoiceCurrency: missing.settlementAmount,
+        CashDiscountToTakeInInvoiceCurrency: 0,
+      });
+    } catch (error) {
+      const message = this.dfoErrorExtractor.extractMessage(error);
+      if (/VendTrans|Matching record for the read only data source/i.test(message)) {
+        throw new Error(
+          `Finance rejected settlement child write for invoice ${missing.invoiceNumber} on line ${targetLineNumber}: ${message}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private resolveJournalLineForSettlementRepair(
+    journalLines: Array<Record<string, unknown> & { LineNumber: number }>,
+    missing: ExpectedVendorInvoiceSettlement,
+  ): (Record<string, unknown> & { LineNumber: number }) | undefined {
+    const vendor = this.normalizeIntegrityValue(missing.vendorAccount);
+    const requested = Math.abs(missing.settlementAmount);
+    const exactLine = journalLines.find(
+      (line) => Number(line.LineNumber) === Number(missing.lineNumber),
+    );
+    const candidates = journalLines.filter((line) => {
+      if (this.normalizeIntegrityValue(line.AccountDisplayValue) !== vendor) {
+        return false;
+      }
+      const debit = Math.abs(Number(line.DebitAmount) || 0);
+      const credit = Math.abs(Number(line.CreditAmount) || 0);
+      const lineAmount = Math.max(debit, credit);
+      return Math.abs(lineAmount - requested) <= 0.01;
     });
+    if (candidates.length === 0) {
+      return exactLine;
+    }
+    const unmarkedOrSame = candidates.filter((line) => {
+      const marked = this.normalizeSettlementInvoice(line.MarkedInvoice);
+      return (
+        !marked ||
+        marked === this.normalizeSettlementInvoice(missing.invoiceNumber)
+      );
+    });
+    const pool = unmarkedOrSame.length > 0 ? unmarkedOrSame : candidates;
+    return (
+      pool.find((line) => Number(line.LineNumber) === Number(missing.lineNumber)) ??
+      pool.sort(
+        (left, right) => Number(left.LineNumber) - Number(right.LineNumber),
+      )[0]
+    );
   }
 
   private settlementKey(lineNumber: number, invoiceNumber: string): string {
@@ -878,8 +1085,10 @@ export class CustomerPaymentJournalService {
   }
 
   private normalizeSettlementInvoice(value: unknown): string {
-    return String(value ?? '')
+    return this.primitiveString(value)
       .replace(
+        // Intentional removal of non-printing Unicode and ASCII controls.
+        // eslint-disable-next-line no-control-regex
         /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
         '',
       )
@@ -887,6 +1096,18 @@ export class CustomerPaymentJournalService {
       .normalize('NFKC')
       .trim()
       .toLowerCase();
+  }
+
+  private primitiveString(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      typeof value === 'boolean'
+    ) {
+      return String(value);
+    }
+    return '';
   }
 
   /**
@@ -1111,6 +1332,17 @@ export class CustomerPaymentJournalService {
       existingLines.has(line.lineNumber),
     ).length;
 
+    // Invoices already settled by earlier accepted patches (or FO lines on
+    // resume) must not be rematched again — that self-cites SpecTrans and
+    // used to delete the whole journal, forcing a full repost.
+    const settledInvoices = await this.collectSettledInvoicesForHeader(
+      headerKey,
+      dataAreaId,
+      cashDirection,
+      preparedLines,
+      existingLines,
+    );
+
     if (alreadyPostedCount > 0) {
       const resumePatch =
         uniqueIdBatches.findIndex((batchLines) =>
@@ -1124,6 +1356,7 @@ export class CustomerPaymentJournalService {
     // Walk UniqueId-group windows so already-posted FO patches stay skipped and
     // retry continues at the first window that still has pending lines. A
     // UniqueId's lines are never split across requests.
+    let acceptedPatchesInThisPost = 0;
     for (
       let batchIndex = 0;
       batchIndex < uniqueIdBatches.length;
@@ -1140,6 +1373,10 @@ export class CustomerPaymentJournalService {
         this.logger.log(
           `[CASH-CUSTOM] Skipping ${directionLabel} patch ${patchNumber}/${totalBatches} for header ${headerKey}: all ${patchLines.length} line(s) across ${uniqueIdGroupCount} UniqueId group(s) already posted`,
         );
+        // Treat FO-skipped patches as accepted so later self-cite recovery
+        // preserves them instead of deleting the journal.
+        acceptedPatchesInThisPost += 1;
+        this.addSettledInvoicesFromLines(settledInvoices, patchLines);
         continue;
       }
 
@@ -1149,13 +1386,30 @@ export class CustomerPaymentJournalService {
         );
       }
 
+      const linesForRequest = this.stripAlreadySettledMarkedLines(
+        pendingLines,
+        settledInvoices,
+      );
+
       await this.postCashOutBulkBatch(
         endpoint,
         headerKey,
-        pendingLines,
+        linesForRequest,
         allowUnmarkedInvoiceRetry,
         { number: patchNumber, total: totalBatches },
+        {
+          settledInvoices,
+          preserveAcceptedPatches:
+            acceptedPatchesInThisPost > 0 || alreadyPostedCount > 0,
+          dataAreaId,
+        },
       );
+
+      acceptedPatchesInThisPost += 1;
+      this.addSettledInvoicesFromLines(settledInvoices, linesForRequest);
+      for (const line of pendingLines) {
+        existingLines.add(line.lineNumber);
+      }
     }
 
     return lines.map((line) => ({
@@ -1333,10 +1587,13 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Repair the exact corruption produced by the D365 custom vendor-payment
-   * service when one successful request creates a marked set followed by an
-   * unmarked fallback set. No deletion occurs unless every row in the second
-   * half is proven to be the fallback twin of the corresponding first row.
+   * Repair FO line duplication on a Vendor Payment journal.
+   *
+   * SpecTrans rematch / unmarked retry often creates a second copy of each
+   * business line (interleaved, not a clean positional second half). Group by
+   * durable business signature (ignoring MarkedInvoice / unmarked text suffix),
+   * keep the best row per group (prefer settled), delete the extras. Only
+   * mutates Finance when the kept set size equals {@link expectedLineCount}.
    */
   public async repairDuplicatedUnmarkedFallbackLines(
     headerKey: string,
@@ -1350,27 +1607,58 @@ export class CustomerPaymentJournalService {
         dataAreaId,
       )
     ).sort((left, right) => Number(left.LineNumber) - Number(right.LineNumber));
-    if (lines.length !== expectedLineCount * 2) return false;
+    if (lines.length <= expectedLineCount) return false;
 
-    const retained = lines.slice(0, expectedLineCount);
-    const fallback = lines.slice(expectedLineCount);
-    for (let index = 0; index < expectedLineCount; index++) {
-      if (
-        Number(fallback[index].LineNumber) !==
-          Number(retained[index].LineNumber) + expectedLineCount ||
-        !this.isProvenUnmarkedFallbackTwin(retained[index], fallback[index])
-      ) {
-        return false;
+    const groups = new Map<
+      string,
+      Array<Record<string, unknown> & { LineNumber: number }>
+    >();
+    for (const line of lines) {
+      const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
+      const group = groups.get(key);
+      if (group) group.push(line);
+      else groups.set(key, [line]);
+    }
+
+    const deleteLineNumbers: number[] = [];
+    let keptCount = 0;
+    for (const group of groups.values()) {
+      const ranked = [...group].sort((left, right) => {
+        const rank = (line: Record<string, unknown> & { LineNumber: number }) => {
+          const lineNumber = Number(line.LineNumber);
+          const inOriginalRange =
+            Number.isFinite(lineNumber) && lineNumber <= expectedLineCount;
+          const marked = this.integrityLineHasSettlementMark(line);
+          // Prefer settled rows first. Among equals, prefer original 1..N
+          // LineNumbers so payload settlement checks stay aligned.
+          if (marked && inOriginalRange) return 0;
+          if (marked) return 1;
+          if (inOriginalRange) return 2;
+          return 3;
+        };
+        const rankDelta = rank(left) - rank(right);
+        if (rankDelta !== 0) return rankDelta;
+        return Number(left.LineNumber) - Number(right.LineNumber);
+      });
+      keptCount += 1;
+      for (const duplicate of ranked.slice(1)) {
+        deleteLineNumbers.push(Number(duplicate.LineNumber));
       }
     }
 
-    const fallbackLineNumbers = fallback.map((line) => Number(line.LineNumber));
+    if (keptCount !== expectedLineCount || deleteLineNumbers.length === 0) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Journal ${headerKey} has ${lines.length} line(s) (expected ${expectedLineCount}) but signature repair would keep ${keptCount} unique business row(s) / delete ${deleteLineNumbers.length}; leaving Finance unchanged`,
+      );
+      return false;
+    }
+
     this.logger.warn(
-      `[CASH-CUSTOM] Repairing D365 successful-response duplication on journal ${headerKey}: retaining ${expectedLineCount} original line(s) and deleting ${fallbackLineNumbers.length} proven unmarked fallback twin(s).`,
+      `[CASH-CUSTOM] Repairing D365 duplication on journal ${headerKey}: retaining ${expectedLineCount} business line(s) and deleting ${deleteLineNumbers.length} duplicate twin(s).`,
     );
-    for (let start = 0; start < fallbackLineNumbers.length; start += 5) {
+    for (let start = 0; start < deleteLineNumbers.length; start += 5) {
       await Promise.all(
-        fallbackLineNumbers
+        deleteLineNumbers
           .slice(start, start + 5)
           .map((lineNumber) =>
             this.vendorPaymentJournalService.deleteLine(
@@ -1388,64 +1676,230 @@ export class CustomerPaymentJournalService {
     );
     if (remaining.length !== expectedLineCount) {
       throw new Error(
-        `[DATA INTEGRITY] Journal ${headerKey} fallback cleanup was incomplete: expected ${expectedLineCount} retained line(s), found ${remaining.length}.`,
+        `[DATA INTEGRITY] Journal ${headerKey} duplicate cleanup was incomplete: expected ${expectedLineCount} retained line(s), found ${remaining.length}.`,
       );
     }
     return true;
   }
 
-  private isProvenUnmarkedFallbackTwin(
-    retained: Record<string, unknown> & { LineNumber: number },
-    fallback: Record<string, unknown> & { LineNumber: number },
+  private integrityLineHasSettlementMark(
+    line: Record<string, unknown>,
   ): boolean {
-    const retainedLineNumber = Number(retained.LineNumber);
-    const fallbackLineNumber = Number(fallback.LineNumber);
-    if (
-      !Number.isFinite(retainedLineNumber) ||
-      !Number.isFinite(fallbackLineNumber)
-    ) {
-      return false;
-    }
-    if (fallbackLineNumber <= retainedLineNumber) return false;
-    if (this.integrityString(fallback.MarkedInvoice).trim()) return false;
+    if (this.normalizeSettlementInvoice(line.MarkedInvoice)) return true;
+    const settle = this.normalizeIntegrityValue(line.SettleVoucher);
+    return settle === 'selectedtransact' || settle === 'selected';
+  }
 
-    const comparableFields = [
-      'AccountDisplayValue',
-      'AccountType',
-      'OffsetAccountDisplayValue',
-      'OffsetAccountType',
-      'CurrencyCode',
-      'DebitAmount',
-      'CreditAmount',
-      'PaymentId',
-      'PaymentReference',
-      'FinTagDisplayValue',
-      'OffsetFinTagDisplayValue',
-      'PostingProfile',
-      'TransactionDate',
-    ];
-    if (
-      comparableFields.some(
-        (field) =>
-          this.normalizeIntegrityValue(retained[field]) !==
-          this.normalizeIntegrityValue(fallback[field]),
-      )
-    ) {
-      return false;
+  private cashOutDuplicateCoreKeyFromIntegrityLine(
+    line: Record<string, unknown>,
+  ): string {
+    return [
+      this.normalizeIntegrityValue(line.AccountDisplayValue),
+      this.normalizeIntegrityValue(line.AccountType),
+      this.normalizeIntegrityValue(line.OffsetAccountDisplayValue),
+      this.normalizeIntegrityValue(line.OffsetAccountType),
+      this.normalizeIntegrityValue(line.CurrencyCode),
+      this.normalizeIntegrityValue(line.DebitAmount),
+      this.normalizeIntegrityValue(line.CreditAmount),
+      this.normalizeIntegrityValue(line.PaymentId),
+      this.normalizeIntegrityValue(line.PaymentReference),
+      this.normalizeIntegrityValue(line.FinTagDisplayValue),
+      this.normalizeIntegrityValue(line.OffsetFinTagDisplayValue),
+      this.normalizeIntegrityValue(line.PostingProfile),
+      this.normalizeIntegrityDate(line.TransactionDate),
+      this.normalizeIntegrityTransactionText(line.TransactionText),
+    ].join('|');
+  }
+
+  private cashOutDuplicateCoreKeyFromPendingBody(
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): string {
+    const debit = Number(body.debitAmount ?? 0);
+    const credit = Number(body.creditAmount ?? 0);
+    return [
+      this.normalizeIntegrityValue(body.AccountNum),
+      this.normalizeIntegrityValue(body.accountTypeStr),
+      this.normalizeIntegrityValue(body.offsetAccountDisplayValue),
+      this.normalizeIntegrityValue(body.OffsetAccountTypeStr),
+      this.normalizeIntegrityValue(body.currency),
+      this.normalizeIntegrityValue(debit),
+      this.normalizeIntegrityValue(credit),
+      this.normalizeIntegrityValue(body.PAYMENTID),
+      this.normalizeIntegrityValue(body.PAYMENTREFERENCE),
+      this.normalizeIntegrityValue(body.FinTagStr),
+      this.normalizeIntegrityValue(body.OFFSETFINTAGDISPLAYVALUE),
+      this.normalizeIntegrityValue(body.PostingProfile),
+      this.normalizeIntegrityDate(body.transDate),
+      this.normalizeIntegrityTransactionText(
+        body.TRANSACTIONTEXT ?? body.PAYMENTNOTES,
+      ),
+    ].join('|');
+  }
+
+  /**
+   * Drop pending bulk lines that already exist on the Finance journal by
+   * business signature (not LineNumber). SpecTrans rematch / unmarked retry
+   * otherwise re-POSTs lines FO already wrote and doubles the journal.
+   */
+  private async filterPendingLinesMissingFromJournal(
+    headerKey: string,
+    dataAreaId: string | undefined,
+    pendingLines: CashBulkPendingLine[],
+  ): Promise<CashBulkPendingLine[]> {
+    if (!dataAreaId || pendingLines.length === 0) return pendingLines;
+    const existing =
+      await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+        headerKey,
+        dataAreaId,
+      );
+    const remaining = new Map<string, number>();
+    for (const line of existing) {
+      const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
+      remaining.set(key, (remaining.get(key) ?? 0) + 1);
     }
 
-    const retainedText = this.integrityString(retained.TransactionText).trim();
-    const fallbackText = this.integrityString(fallback.TransactionText).trim();
-    const retainedInvoice = this.integrityString(retained.MarkedInvoice).trim();
-    return retainedInvoice
-      ? fallbackText === `${retainedText} unmarked with ${retainedInvoice}`
-      : fallbackText === retainedText &&
-          fallbackText.includes(' unmarked with ');
+    const missing: CashBulkPendingLine[] = [];
+    let skipped = 0;
+    for (const pending of pendingLines) {
+      const key = this.cashOutDuplicateCoreKeyFromPendingBody(pending.body);
+      const available = remaining.get(key) ?? 0;
+      if (available > 0) {
+        remaining.set(key, available - 1);
+        skipped += 1;
+        continue;
+      }
+      missing.push(pending);
+    }
+    if (skipped > 0) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Journal ${headerKey}: skipping ${skipped}/${pendingLines.length} line(s) already present in Finance before rematch/unmarked retry (${missing.length} still missing)`,
+      );
+    }
+    return missing;
+  }
+
+  /**
+   * Expand missing lines to complete UniqueId groups. If some members of those
+   * groups already exist in Finance (partial SpecTrans write), delete those
+   * FO rows first so the unmarked retry can post a balanced group once.
+   */
+  private async prepareCompleteUnmarkedRetryLines(
+    headerKey: string,
+    dataAreaId: string | undefined,
+    activeLines: CashBulkPendingLine[],
+    missingLines: CashBulkPendingLine[],
+    batch: CashBulkBatch,
+  ): Promise<CashBulkPendingLine[]> {
+    const neededGroups = new Set(
+      missingLines.map((line) => this.resolveCashOutUniqueIdGroupKey(line)),
+    );
+    const completeGroupLines = activeLines.filter((line) =>
+      neededGroups.has(this.resolveCashOutUniqueIdGroupKey(line)),
+    );
+    this.assertCompleteUniqueIdGroupSelection(
+      activeLines,
+      completeGroupLines,
+      `retry request ${batch.number}/${batch.total} for journal ${headerKey} without invoice marks`,
+    );
+
+    if (dataAreaId) {
+      const stillPresent = await this.filterPendingLinesMissingFromJournal(
+        headerKey,
+        dataAreaId,
+        completeGroupLines,
+      );
+      const presentCount = completeGroupLines.length - stillPresent.length;
+      if (presentCount > 0) {
+        const presentLines = completeGroupLines.filter(
+          (line) => !stillPresent.includes(line),
+        );
+        await this.deleteJournalLinesMatchingPendingBodies(
+          headerKey,
+          dataAreaId,
+          presentLines,
+        );
+      }
+    }
+
+    return completeGroupLines.map((pendingLine) => ({
+      ...pendingLine,
+      body: this.buildUnmarkedCashLine(pendingLine.body),
+    }));
+  }
+
+  private async deleteJournalLinesMatchingPendingBodies(
+    headerKey: string,
+    dataAreaId: string,
+    pendingLines: CashBulkPendingLine[],
+  ): Promise<void> {
+    if (pendingLines.length === 0) return;
+    const existing =
+      await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+        headerKey,
+        dataAreaId,
+      );
+    const remaining = new Map<
+      string,
+      Array<Record<string, unknown> & { LineNumber: number }>
+    >();
+    for (const line of existing) {
+      const key = this.cashOutDuplicateCoreKeyFromIntegrityLine(line);
+      const group = remaining.get(key);
+      if (group) group.push(line);
+      else remaining.set(key, [line]);
+    }
+
+    const deleteNumbers: number[] = [];
+    for (const pending of pendingLines) {
+      const key = this.cashOutDuplicateCoreKeyFromPendingBody(pending.body);
+      const group = remaining.get(key);
+      if (!group || group.length === 0) continue;
+      const victim = group.shift()!;
+      deleteNumbers.push(Number(victim.LineNumber));
+    }
+    if (deleteNumbers.length === 0) return;
+
+    this.logger.warn(
+      `[CASH-CUSTOM] Journal ${headerKey}: deleting ${deleteNumbers.length} Finance line(s) before unmarked UniqueId-group retry to avoid partial duplicates`,
+    );
+    for (let start = 0; start < deleteNumbers.length; start += 5) {
+      await Promise.all(
+        deleteNumbers
+          .slice(start, start + 5)
+          .map((lineNumber) =>
+            this.vendorPaymentJournalService.deleteLine(
+              headerKey,
+              lineNumber,
+              dataAreaId,
+            ),
+          ),
+      );
+    }
+  }
+
+  private normalizeIntegrityDate(value: unknown): string {
+    const raw = this.integrityString(value).trim();
+    if (!raw) return '';
+    const isoDay = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (isoDay) return isoDay[1];
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString().slice(0, 10);
+    }
+    return this.normalizeIntegrityValue(raw);
+  }
+
+  private normalizeIntegrityTransactionText(value: unknown): string {
+    return this.normalizeIntegrityValue(value)
+      .replace(/\s+-\s+unmarked$/i, '')
+      .replace(/\s+unmarked with .+$/i, '')
+      .trim();
   }
 
   private normalizeIntegrityValue(value: unknown): string {
     if (typeof value === 'number') return value.toFixed(6);
     return this.integrityString(value)
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
       .trim()
       .replace(/\s+/g, ' ')
       .toLowerCase();
@@ -1471,6 +1925,14 @@ export class CustomerPaymentJournalService {
     pendingLines: CashBulkPendingLine[],
     allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
+    recoveryContext: {
+      settledInvoices: Set<string>;
+      preserveAcceptedPatches: boolean;
+      dataAreaId?: string;
+    } = {
+      settledInvoices: new Set(),
+      preserveAcceptedPatches: false,
+    },
   ): Promise<void> {
     if (pendingLines.length === 0) return;
 
@@ -1510,6 +1972,9 @@ export class CustomerPaymentJournalService {
         pendingLines: activeLines,
         batch,
         failures,
+        settledInvoices: recoveryContext.settledInvoices,
+        preserveAcceptedPatches: recoveryContext.preserveAcceptedPatches,
+        dataAreaId: recoveryContext.dataAreaId,
       });
       if (failures.length === 0) {
         return this.applyDeferredLedgerTax(headerKey, activeLines);
@@ -1535,17 +2000,26 @@ export class CustomerPaymentJournalService {
       failures.every((failure) => failure.correlated);
 
     if (canUnmarkedRetry) {
-      const retryLines = retryableFailures.map((failure) => {
-        const pendingLine = activeLines[failure.requestIndex];
-        return {
-          ...pendingLine,
-          body: this.buildUnmarkedCashLine(pendingLine.body),
-        };
-      });
-      this.assertCompleteUniqueIdGroupSelection(
+      const retryCandidates = retryableFailures.map(
+        (failure) => activeLines[failure.requestIndex],
+      );
+      const missingLines = await this.filterPendingLinesMissingFromJournal(
+        headerKey,
+        recoveryContext.dataAreaId,
+        retryCandidates,
+      );
+      if (missingLines.length === 0) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Journal ${headerKey}: unmarked retry skipped — all failed line(s) already exist in Finance`,
+        );
+        return this.applyDeferredLedgerTax(headerKey, activeLines);
+      }
+      const retryLines = await this.prepareCompleteUnmarkedRetryLines(
+        headerKey,
+        recoveryContext.dataAreaId,
         activeLines,
-        retryLines,
-        `retry request ${batch.number}/${batch.total} for journal ${headerKey} without invoice marks`,
+        missingLines,
+        batch,
       );
       activeLines = retryLines;
       const retryResult = await this.postCustomCashLines(
@@ -1892,13 +2366,47 @@ export class CustomerPaymentJournalService {
    * Recovery:
    * 1. Delete every *other* journal FO cites (if it still exists), rematch
    *    with MarkedLines.
-   * 2. If marks cite *this* journal and the request still carries settlement
-   *    MarkedLines: delete this journal (releases SpecTrans) and throw a
-   *    missing-header error so the queue processor recreates a fresh journal
-   *    and retries with MarkedLines. Do **not** fall back to unmarked — that
-   *    posts the journal without settlement.
-   * 3. If marks cite *this* journal but the lines have no settlement marks,
+   * 2. If marks cite *this* journal and earlier patches of this post (or FO
+   *    lines on resume) already succeeded: do **not** delete the journal.
+   *    Strip MarkedLines for invoices already settled by those patches and
+   *    rematch the failed patch only. Deleting would destroy accepted lines
+   *    and force a full rematch that often re-hits ghost SpecTrans.
+   * 3. If marks cite *this* journal, no accepted patches yet, and the request
+   *    still carries settlement MarkedLines: delete this journal (releases
+   *    SpecTrans) and throw a missing-header error so the queue processor
+   *    recreates a fresh journal and retries with MarkedLines. Do **not**
+   *    fall back to unmarked — that posts the journal without settlement.
+   * 4. If marks cite *this* journal but the lines have no settlement marks,
    *    fall through so the caller can unmarked-retry on the existing header.
+   *
+   * @returns remaining failures after rematch (empty = recovered).
+   */
+  private async refreshSettledInvoicesFromFO(
+    headerKey: string,
+    dataAreaId: string | undefined,
+    settledInvoices: Set<string>,
+  ): Promise<void> {
+    if (!dataAreaId) return;
+    try {
+      const integrityLines =
+        await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+          headerKey,
+          dataAreaId,
+        );
+      for (const line of integrityLines) {
+        const invoice = this.normalizeSettlementInvoice(line.MarkedInvoice);
+        if (invoice) settledInvoices.add(invoice);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not refresh settled invoices from FO lines for ${headerKey}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Clear SpecTrans locks from other journals (or handle self-citations) and
+   * retry cash-out lines with MarkedLines.
    *
    * @returns remaining failures after rematch (empty = recovered).
    */
@@ -1908,8 +2416,20 @@ export class CustomerPaymentJournalService {
     pendingLines: CashBulkPendingLine[];
     batch: CashBulkBatch;
     failures: CashBulkLineFailure[];
+    settledInvoices: Set<string>;
+    preserveAcceptedPatches: boolean;
+    dataAreaId?: string;
   }): Promise<CashBulkLineFailure[]> {
-    const { endpoint, headerKey, pendingLines, batch, failures } = args;
+    const {
+      endpoint,
+      headerKey,
+      pendingLines,
+      batch,
+      failures,
+      settledInvoices,
+      preserveAcceptedPatches,
+      dataAreaId,
+    } = args;
     const headerKeyNorm = headerKey.trim().toLowerCase();
     const blockers = this.collectMarkedSettlementBlockers(failures);
     const otherBlockers = blockers.filter(
@@ -1932,37 +2452,93 @@ export class CustomerPaymentJournalService {
       );
     }
 
-    if (otherBlockers.length > 0 && !selfCited) {
+    const attemptMarkedRematch = async (): Promise<CashBulkLineFailure[] | null> => {
+      const missingLines = await this.filterPendingLinesMissingFromJournal(
+        headerKey,
+        dataAreaId,
+        pendingLines,
+      );
+      if (missingLines.length === 0) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Journal ${headerKey}: all ${pendingLines.length} line(s) of patch ${batch.number}/${batch.total} already exist in Finance; skipping rematch`,
+        );
+        this.addSettledInvoicesFromLines(settledInvoices, pendingLines);
+        return [];
+      }
+
+      await this.refreshSettledInvoicesFromFO(headerKey, dataAreaId, settledInvoices);
+
+      const strippedLines = this.stripAlreadySettledMarkedLines(
+        missingLines,
+        settledInvoices,
+      );
+      const strippedCount = missingLines.reduce((count, line, index) => {
+        const before = Array.isArray(line.body.MarkedLines)
+          ? line.body.MarkedLines.length
+          : 0;
+        const strippedMarkedLines = strippedLines[index]?.body.MarkedLines;
+        const after = Array.isArray(strippedMarkedLines)
+          ? strippedMarkedLines.length
+          : 0;
+        return count + Math.max(0, before - after);
+      }, 0);
+
+      this.logger.log(
+        `[CASH-CUSTOM] Rematching patch ${batch.number}/${batch.total} for header ${headerKey}: posting ${missingLines.length}/${pendingLines.length} missing line(s) (${strippedCount} duplicate MarkedLines removed)`,
+      );
+
       const rematchResult = await this.postCustomCashLines(
         endpoint,
-        pendingLines.map((line) => line.body),
+        strippedLines.map((line) => line.body),
         {
           headerKey,
-          pendingLines,
+          pendingLines: strippedLines,
           attempt: 'marked-retry-after-clear',
           batch,
         },
       );
       const rematchFailures = this.extractCashBulkFailures(
         rematchResult,
-        pendingLines,
+        strippedLines,
       );
       await this.logCashBulkOutcome({
         endpoint,
         headerKey,
-        pendingLines,
+        pendingLines: strippedLines,
         attempt: 'marked-retry-after-clear',
         batch,
         result: rematchResult,
         failures: rematchFailures,
       });
-      if (rematchFailures.length === 0) return [];
-      if (!this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
+
+      if (rematchFailures.length === 0) {
+        this.addSettledInvoicesFromLines(settledInvoices, strippedLines);
+        return [];
+      }
+      return rematchFailures;
+    };
+
+    if (otherBlockers.length > 0 && !selfCited) {
+      const rematchFailures = await attemptMarkedRematch();
+      if (rematchFailures && rematchFailures.length === 0) return [];
+      if (rematchFailures && !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
         return rematchFailures;
       }
     }
 
     if (selfCited && this.bulkLinesHaveSettlementMarks(pendingLines)) {
+      if (preserveAcceptedPatches) {
+        const rematchFailures = await attemptMarkedRematch();
+        if (rematchFailures && rematchFailures.length === 0) return [];
+        if (rematchFailures && !this.areAllFailuresAlreadyMarkedForSettlement(rematchFailures)) {
+          return rematchFailures;
+        }
+        this.logger.warn(
+          `[CASH-CUSTOM] SpecTrans still cites journal ${headerKey} after preserving accepted patches; falling through without deleting the journal`,
+        );
+        return rematchFailures ?? failures;
+      }
+
       const company =
         selfCitedBlocker?.company ||
         String(pendingLines[0]?.body?.company ?? '').trim();
@@ -2005,6 +2581,103 @@ export class CustomerPaymentJournalService {
   }
 
   /**
+   * Delete a Finance journal by number. Probes Vendor Payment, Ledger,
+   * Customer Payment, then Vendor Invoice headers; deletes dependent lines
+   * first so FO accepts the header DELETE (same cleanup used for SpecTrans
+   * recovery). Returns which entity family was removed, or deleted=false
+   * when no header exists (SpecTrans ghost).
+   */
+  public async deleteFinanceJournalByNumber(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<{
+    deleted: boolean;
+    entityType?:
+      | 'LedgerJournalHeaders'
+      | 'VendorPaymentJournalHeaders'
+      | 'CustomerPaymentJournalHeaders'
+      | 'VendInvoiceJournalHeaders';
+    company: string;
+    journalBatchNumber: string;
+  }> {
+    const dataAreaId = company.trim();
+    const journal = journalBatchNumber.trim();
+    if (!dataAreaId || !journal) {
+      throw new Error('company and journalBatchNumber are required');
+    }
+
+    if (await this.ledgerJournalHeaderExists(dataAreaId, journal)) {
+      await this.deleteLedgerJournalWithDependentLines(dataAreaId, journal);
+      this.logger.log(
+        `[CASH-CUSTOM] Deleted ledger journal ${journal} in ${dataAreaId}`,
+      );
+      return {
+        deleted: true,
+        entityType: 'LedgerJournalHeaders',
+        company: dataAreaId,
+        journalBatchNumber: journal,
+      };
+    }
+
+    if (await this.vendorPaymentJournalHeaderExists(dataAreaId, journal)) {
+      await this.deleteVendorPaymentJournalWithDependentLines(
+        journal,
+        dataAreaId,
+      );
+      this.logger.log(
+        `[CASH-CUSTOM] Deleted vendor payment journal ${journal} in ${dataAreaId}`,
+      );
+      return {
+        deleted: true,
+        entityType: 'VendorPaymentJournalHeaders',
+        company: dataAreaId,
+        journalBatchNumber: journal,
+      };
+    }
+
+    if (await this.customerPaymentJournalHeaderExists(dataAreaId, journal)) {
+      await this.deleteCustomerPaymentJournalWithDependentLines(
+        journal,
+        dataAreaId,
+      );
+      this.logger.log(
+        `[CASH-CUSTOM] Deleted customer payment journal ${journal} in ${dataAreaId}`,
+      );
+      return {
+        deleted: true,
+        entityType: 'CustomerPaymentJournalHeaders',
+        company: dataAreaId,
+        journalBatchNumber: journal,
+      };
+    }
+
+    if (await this.vendorInvoiceJournalHeaderExists(dataAreaId, journal)) {
+      await this.deleteVendorInvoiceJournalWithDependentLines(
+        journal,
+        dataAreaId,
+      );
+      this.logger.log(
+        `[CASH-CUSTOM] Deleted vendor invoice journal ${journal} in ${dataAreaId}`,
+      );
+      return {
+        deleted: true,
+        entityType: 'VendInvoiceJournalHeaders',
+        company: dataAreaId,
+        journalBatchNumber: journal,
+      };
+    }
+
+    this.logger.debug(
+      `[CASH-CUSTOM] No FO journal header ${journal} in ${dataAreaId} to delete (SpecTrans ghost)`,
+    );
+    return {
+      deleted: false,
+      company: dataAreaId,
+      journalBatchNumber: journal,
+    };
+  }
+
+  /**
    * Delete a blocking journal only when it still exists in FO.
    * AP cash-out routes (Vendor Payment / Custody Settlement / Custody Issue)
    * live on VendorPaymentJournalHeaders; GL routes on LedgerJournalHeaders.
@@ -2016,83 +2689,90 @@ export class CustomerPaymentJournalService {
     company: string,
     journalBatchNumber: string,
   ): Promise<boolean> {
-    if (await this.ledgerJournalHeaderExists(company, journalBatchNumber)) {
-      try {
-        await this.deleteLedgerJournalWithDependentLines(
+    try {
+      if (
+        !(await this.isSafeToDeleteBlockingJournal(
           company,
           journalBatchNumber,
+        ))
+      ) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Keeping posted journal ${journalBatchNumber} in ${company}; it owns a settlement required by another journal`,
         );
-        this.logger.log(
-          `[CASH-CUSTOM] Deleted ledger journal ${journalBatchNumber} in ${company}`,
+        return false;
+      }
+      const result = await this.deleteFinanceJournalByNumber(
+        company,
+        journalBatchNumber,
+      );
+      return result.deleted;
+    } catch (error) {
+      if (this.isODataResourceMissingError(error)) {
+        this.logger.debug(
+          `[CASH-CUSTOM] Journal ${journalBatchNumber} in ${company} already gone`,
         );
-        return true;
-      } catch (error) {
-        if (this.isODataResourceMissingError(error)) {
-          this.logger.debug(
-            `[CASH-CUSTOM] Ledger journal ${journalBatchNumber} in ${company} already gone`,
-          );
-          return false;
-        }
-        throw new Error(
-          `[CASH-CUSTOM] Could not safely delete ledger journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
-        );
+        return false;
+      }
+      throw new Error(
+        `[CASH-CUSTOM] Could not safely delete journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+    }
+  }
+
+  /**
+   * SpecTrans blockers are normally stale draft journals. Never attempt the
+   * recovery DELETE against a posted journal: its marks represent a real
+   * Finance settlement and the journal must remain authoritative.
+   */
+  private async isSafeToDeleteBlockingJournal(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    const vendorHeaderLookup = (
+      this.vendorPaymentJournalService as VendorPaymentJournalService & {
+        getHeaderIdentity?: (
+          headerKey: string,
+          dataAreaId: string,
+        ) => Promise<{ JournalBatchNumber: string; IsPosted?: string } | null>;
+      }
+    ).getHeaderIdentity;
+
+    if (vendorHeaderLookup) {
+      const vendorHeader = await vendorHeaderLookup.call(
+        this.vendorPaymentJournalService,
+        journalBatchNumber,
+        company,
+      );
+      if (vendorHeader) {
+        return !this.isPostedHeaderValue(vendorHeader.IsPosted);
       }
     }
 
-    if (
-      await this.vendorPaymentJournalHeaderExists(company, journalBatchNumber)
-    ) {
-      try {
-        await this.deleteVendorPaymentJournalWithDependentLines(
-          journalBatchNumber,
-          company,
-        );
-        this.logger.log(
-          `[CASH-CUSTOM] Deleted vendor payment journal ${journalBatchNumber} in ${company}`,
-        );
-        return true;
-      } catch (error) {
-        if (this.isODataResourceMissingError(error)) {
-          this.logger.debug(
-            `[CASH-CUSTOM] Vendor payment journal ${journalBatchNumber} in ${company} already gone`,
-          );
-          return false;
-        }
-        throw new Error(
-          `[CASH-CUSTOM] Could not safely delete vendor payment journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
-        );
-      }
-    }
-
-    if (
-      await this.customerPaymentJournalHeaderExists(company, journalBatchNumber)
-    ) {
-      try {
-        await this.deleteCustomerPaymentJournalWithDependentLines(
-          journalBatchNumber,
-          company,
-        );
-        this.logger.log(
-          `[CASH-CUSTOM] Deleted customer payment journal ${journalBatchNumber} in ${company}`,
-        );
-        return true;
-      } catch (error) {
-        if (this.isODataResourceMissingError(error)) {
-          this.logger.debug(
-            `[CASH-CUSTOM] Customer payment journal ${journalBatchNumber} in ${company} already gone`,
-          );
-          return false;
-        }
-        throw new Error(
-          `[CASH-CUSTOM] Could not safely delete customer payment journal ${journalBatchNumber} in ${company}; no replacement journal was created: ${this.dfoErrorExtractor.extractMessage(error)}`,
-        );
-      }
-    }
-
-    this.logger.debug(
-      `[CASH-CUSTOM] No FO journal header ${journalBatchNumber} in ${company} to delete (SpecTrans ghost)`,
+    const ledgerHeaders = await this.generalJournalService.getJournalHeaders(
+      company,
+      {
+        maxCount: 1,
+        useCache: false,
+        filters: this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
+        select: ['JournalBatchNumber', 'IsPosted'],
+      },
     );
-    return false;
+    const ledgerHeader = (ledgerHeaders ?? []).find(
+      (header) =>
+        String(header?.JournalBatchNumber ?? '').trim().toLowerCase() ===
+        journalBatchNumber.trim().toLowerCase(),
+    );
+    if (ledgerHeader) {
+      return !this.isPostedHeaderValue(ledgerHeader.IsPosted);
+    }
+
+    return true;
+  }
+
+  private isPostedHeaderValue(value: unknown): boolean {
+    return ['yes', 'true', '1', 'posted'].includes(
+      this.primitiveString(value).trim().toLowerCase(),
+    );
   }
 
   /**
@@ -2266,22 +2946,10 @@ export class CustomerPaymentJournalService {
   ): Promise<void> {
     await this.deleteJournalHeaderWithLineCleanup({
       journalBatchNumber,
-      listLines: () =>
-        this.listLinesForHeader(
-          journalBatchNumber,
-          company,
-        ),
+      listLines: () => this.listLinesForHeader(journalBatchNumber, company),
       deleteLine: (lineNumber) =>
-        this.deleteLine(
-          journalBatchNumber,
-          lineNumber,
-          company,
-        ),
-      deleteHeader: () =>
-        this.deleteHeader(
-          journalBatchNumber,
-          company,
-        ),
+        this.deleteLine(journalBatchNumber, lineNumber, company),
+      deleteHeader: () => this.deleteHeader(journalBatchNumber, company),
     });
   }
 
@@ -2312,6 +2980,60 @@ export class CustomerPaymentJournalService {
       );
       return false;
     }
+  }
+
+  private async vendorInvoiceJournalHeaderExists(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<boolean> {
+    try {
+      const query = this.queryBuilder.buildQuery(
+        '/data/VendInvoiceJournalHeaders',
+        {
+          filter: this.queryBuilder.and(
+            this.queryBuilder.eq('dataAreaId', company),
+            this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
+          ),
+          top: 1,
+          select: ['JournalBatchNumber'],
+          crossCompany: true,
+        },
+      );
+      const response = await this.d365foClient.get<{ value?: unknown[] }>(
+        query,
+      );
+      return Array.isArray(response?.value) && response.value.length > 0;
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not probe vendor invoice journal ${journalBatchNumber} in ${company}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private async deleteVendorInvoiceJournalWithDependentLines(
+    journalBatchNumber: string,
+    company: string,
+  ): Promise<void> {
+    await this.deleteJournalHeaderWithLineCleanup({
+      journalBatchNumber,
+      listLines: () =>
+        this.vendorInvoiceJournalService.listLinesForHeader(
+          journalBatchNumber,
+          company,
+        ),
+      deleteLine: (lineNumber) =>
+        this.vendorInvoiceJournalService.deleteLine(
+          journalBatchNumber,
+          lineNumber,
+          company,
+        ),
+      deleteHeader: () =>
+        this.vendorInvoiceJournalService.deleteHeader(
+          journalBatchNumber,
+          company,
+        ),
+    });
   }
 
   private appendUnmarkedDescription(description: string): string {
@@ -2584,6 +3306,102 @@ export class CustomerPaymentJournalService {
     });
   }
 
+  /**
+   * Seed the settled-invoice set from lines FO already has on this journal
+   * (resume) plus any MarkedInvoice values read back from integrity lines.
+   */
+  private async collectSettledInvoicesForHeader(
+    headerKey: string,
+    dataAreaId: string | undefined,
+    cashDirection: 'in' | 'out',
+    preparedLines: CashBulkPendingLine[],
+    existingLines: Set<number>,
+  ): Promise<Set<string>> {
+    const settled = new Set<string>();
+    this.addSettledInvoicesFromLines(
+      settled,
+      preparedLines.filter((line) => existingLines.has(line.lineNumber)),
+    );
+
+    if (!dataAreaId || existingLines.size === 0 || cashDirection !== 'out') {
+      return settled;
+    }
+
+    try {
+      const integrityLines =
+        await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
+          headerKey,
+          dataAreaId,
+        );
+      for (const line of integrityLines) {
+        if (!existingLines.has(Number(line.LineNumber))) continue;
+        const invoice = this.normalizeSettlementInvoice(line.MarkedInvoice);
+        if (invoice) settled.add(invoice);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[CASH-CUSTOM] Could not seed settled invoices from FO lines for ${headerKey}: ${this.dfoErrorExtractor.extractMessage(error)}`,
+      );
+    }
+
+    return settled;
+  }
+
+  private addSettledInvoicesFromLines(
+    settledInvoices: Set<string>,
+    lines: CashBulkPendingLine[],
+  ): void {
+    for (const line of lines) {
+      const markedLines = line.body.MarkedLines;
+      if (!Array.isArray(markedLines)) continue;
+      for (const marked of markedLines) {
+        const invoice = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
+        if (invoice) settledInvoices.add(invoice);
+      }
+    }
+  }
+
+  /**
+   * Remove MarkedLines entries for invoices already settled by earlier
+   * accepted patches on this journal. Monetary lines still post.
+   */
+  private stripAlreadySettledMarkedLines(
+    lines: CashBulkPendingLine[],
+    settledInvoices: Set<string>,
+  ): CashBulkPendingLine[] {
+    if (settledInvoices.size === 0) return lines;
+
+    let stripped = 0;
+    const result = lines.map((line) => {
+      const markedLines = line.body.MarkedLines;
+      if (!Array.isArray(markedLines) || markedLines.length === 0) {
+        return line;
+      }
+
+      const kept = markedLines.filter((marked) => {
+        const invoice = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
+        if (!invoice) return true;
+        if (!settledInvoices.has(invoice)) return true;
+        stripped += 1;
+        return false;
+      });
+
+      if (kept.length === markedLines.length) return line;
+      return {
+        ...line,
+        body: { ...line.body, MarkedLines: kept },
+      };
+    });
+
+    if (stripped > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Stripped ${stripped} MarkedLines already settled by earlier accepted patch(es) on this journal`,
+      );
+    }
+
+    return result;
+  }
+
   private async postCustomCashLines(
     endpoint: string,
     lines: TSLedgerJournalTransCustomRequestBody[],
@@ -2773,7 +3591,15 @@ export class CustomerPaymentJournalService {
       CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
       company: String(line.company ?? ''),
       transDate: this.normalizeFoJsonDate(String(line.transDate ?? '')),
-      DocumentNum: String(line.DocumentNum ?? ''),
+      // Invoice-settled Vendor Payment must not send DocumentNum: FO SpecTrans
+      // is document-keyed, and many UniqueId lines share one DOCUMENT value.
+      // That self-cites the journal mid-bulk even when InvoiceNumbers are unique.
+      // Custody settlement keeps DocumentNum / MarkedLines.DocumentNumber.
+      DocumentNum: markedLines.some((marked) =>
+        Boolean(String(marked?.InvoiceNumber ?? '').trim()),
+      )
+        ? ''
+        : String(line.DocumentNum ?? ''),
       DocumentDate: this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
       creditAmount: Number(line.creditAmount ?? 0),
       currency: String(line.currency ?? ''),

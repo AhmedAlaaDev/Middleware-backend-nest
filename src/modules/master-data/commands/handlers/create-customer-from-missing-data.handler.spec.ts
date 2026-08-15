@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
 import { BadRequestException } from '@nestjs/common';
 
-import { CustomerService } from '@/modules/d365fo/services/customer.service';
-import { DfoErrorExtractorService } from '@/modules/d365fo/services/dfo-error-extractor.service';
 import { D365FOCustomer } from '@/modules/d365fo/types';
 import {
   DataBatchStatus,
@@ -14,7 +12,9 @@ import { DataBatchService } from '@/modules/data-batch/services/data-batch.servi
 import { CreateCustomerFromMissingDataCommand } from '@/modules/master-data/commands/create-customer-from-missing-data.command';
 import { CreateCustomerFromMissingDataHandler } from '@/modules/master-data/commands/handlers/create-customer-from-missing-data.handler';
 import { CreateCustomerDto } from '@/modules/master-data/dtos/create-customer.dto';
+import { InlineCustomerCreationService } from '@/modules/master-data/services/inline-customer-creation.service';
 import { MasterDataService } from '@/modules/master-data/services/master-data.service';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 
 const dto: CreateCustomerDto = {
   customerAccount: 'C-100',
@@ -66,11 +66,9 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       record = { ...record, ...update };
     }),
   } as unknown as DataBatchMissingMasterDataRepository;
-  const customerService = {
-    getCustomerByAccount: jest.fn().mockResolvedValue(null),
-    getCustomerByTaxExemptNumber: jest.fn().mockResolvedValue(null),
-    createCustomer: jest.fn().mockResolvedValue(d365Customer),
-  } as unknown as CustomerService;
+  const inlineCreation = {
+    create: jest.fn().mockResolvedValue(d365Customer),
+  } as unknown as InlineCustomerCreationService;
   const masterDataService = {
     upsertCustomersAsync: jest.fn().mockResolvedValue(undefined),
     upsertFinancialDimensionValuesAsync: jest.fn().mockResolvedValue(undefined),
@@ -84,24 +82,19 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       .fn()
       .mockRejectedValue(new Error('validation failed')),
   } as unknown as DataBatchService;
-  const dfoErrorExtractor = {
-    extractMessage: jest.fn((err: any) =>
-      err instanceof Error ? err.message : String(err),
-    ),
-    normalize: jest.fn((err: any) => ({
-      message: err instanceof Error ? err.message : String(err),
-    })),
-  } as unknown as DfoErrorExtractorService;
+  const logs = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  } as unknown as OperationalLoggerService;
 
   return {
     handler: new CreateCustomerFromMissingDataHandler(
-      customerService,
+      inlineCreation,
       masterDataService,
       dataBatchService,
       missingRepo,
-      dfoErrorExtractor,
+      logs,
     ),
-    customerService,
+    inlineCreation,
     dataBatchService,
     masterDataService,
     missingRepo,
@@ -110,7 +103,7 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
 }
 
 describe(CreateCustomerFromMissingDataHandler.name, () => {
-  it('keeps creation successful when reprocessing fails and refreshes both caches', async () => {
+  it('keeps reprocessing pending after creation and refreshes both caches', async () => {
     const harness = createHarness();
 
     const result = await harness.handler.execute(
@@ -119,12 +112,11 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
 
     expect(result).toMatchObject({
       creationStatus: 'created',
-      reprocessStatus: 'failed',
-      reprocessErrorMessage: 'validation failed',
+      reprocessStatus: 'pending',
     });
     expect(harness.getRecord()).toMatchObject({
       creationStatus: 'created',
-      reprocessStatus: 'failed',
+      reprocessStatus: 'pending',
     });
     expect(
       harness.masterDataService.upsertCustomersAsync,
@@ -139,15 +131,16 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
     ]);
   });
 
-  it('retries reprocessing without posting a duplicate customer', async () => {
+  it('retries local persistence without posting a duplicate customer', async () => {
     const harness = createHarness();
     const command = new CreateCustomerFromMissingDataCommand('missing-1', dto);
 
     await harness.handler.execute(command);
     await harness.handler.execute(command);
 
-    expect(harness.customerService.createCustomer).toHaveBeenCalledTimes(1);
-    expect(harness.dataBatchService.reprocessBatchAsync).toHaveBeenCalledTimes(
+    expect(harness.inlineCreation.create).toHaveBeenCalledTimes(1);
+    expect(harness.dataBatchService.reprocessBatchAsync).not.toHaveBeenCalled();
+    expect(harness.masterDataService.upsertCustomersAsync).toHaveBeenCalledTimes(
       2,
     );
   });
@@ -164,6 +157,6 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(harness.customerService.createCustomer).not.toHaveBeenCalled();
+    expect(harness.inlineCreation.create).not.toHaveBeenCalled();
   });
 });

@@ -20,5 +20,15 @@
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "[dockerfile]": {
     "editor.defaultFormatter": "ms-azuretools.vscode-containers"
+  },
+  "git.ignoredRepositories": [
+    "**/.codex-run/**",
+    "**/.codex-run"
+  ],
+  "files.exclude": {
+    "**/.codex-run": true
+  },
+  "search.exclude": {
+    "**/.codex-run": true
   }
 }

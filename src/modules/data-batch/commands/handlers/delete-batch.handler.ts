@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';

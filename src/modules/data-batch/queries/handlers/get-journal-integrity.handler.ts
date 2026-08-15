@@ -3,14 +3,14 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { GetJournalIntegrityQuery } from '@/modules/data-batch/queries/get-journal-integrity.query';
-import { DataBatchRepository } from '@/modules/data-batch/repositories/interfaces';
-import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
 import {
   CashOutSettlementIntegrityResult,
   CustomerPaymentJournalService,
 } from '@/modules/d365fo/services/customer-payment-journal.service';
+import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
 import { D365FOCustomerPaymentJournalLineRequest } from '@/modules/d365fo/types/d365fo-customer-payment-journal.type';
+import { GetJournalIntegrityQuery } from '@/modules/data-batch/queries/get-journal-integrity.query';
+import { DataBatchRepository } from '@/modules/data-batch/repositories/interfaces';
 import { QueueJobGroup } from '@/modules/queue/schemas/queue-job-group.schema';
 
 type JsonRecord = Record<string, any>;
@@ -315,9 +315,9 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
         ? ((sourceLine.customLineApiBody as JsonRecord | undefined) ??
           sourceLine)
         : sourceLine;
-      const currency = String(
-        this.firstValue(line, ['CurrencyCode', 'currency', 'Currency']) ??
-          'UNKNOWN',
+      const currency = this.primitiveString(
+        this.firstValue(line, ['CurrencyCode', 'currency', 'Currency']),
+        'UNKNOWN',
       )
         .trim()
         .toUpperCase();
@@ -476,6 +476,18 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
       if (record[key] !== undefined && record[key] !== null) return record[key];
     }
     return undefined;
+  }
+
+  private primitiveString(value: unknown, fallback = ''): string {
+    if (typeof value === 'string') return value;
+    if (
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      typeof value === 'boolean'
+    ) {
+      return String(value);
+    }
+    return fallback;
   }
 
   private round(value: number): number {

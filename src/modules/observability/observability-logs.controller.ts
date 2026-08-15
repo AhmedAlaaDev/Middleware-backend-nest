@@ -31,7 +31,6 @@ export class ObservabilityLogsController {
     return this.logs.getLogsByBatchId(batchId);
   }
 
-
   @Get(':eventId')
   get(@Param('eventId') eventId: string) {
     return this.logs.get(eventId);
@@ -42,4 +41,3 @@ export class ObservabilityLogsController {
     return this.logs.delete(eventId);
   }
 }
-

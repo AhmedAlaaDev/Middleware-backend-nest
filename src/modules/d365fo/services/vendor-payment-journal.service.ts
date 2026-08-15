@@ -25,6 +25,12 @@ export interface VendorPaymentJournalSettledInvoice {
   AccountDisplayValue?: string;
 }
 
+export interface VendorPaymentJournalHeaderIdentity {
+  JournalBatchNumber: string;
+  Description?: string;
+  IsPosted?: string;
+}
+
 /**
  * Service for managing vendor payment journals in D365FO
  * (VendorPaymentJournalHeaders / VendorPaymentJournalLines)
@@ -365,7 +371,7 @@ export class VendorPaymentJournalService {
   public async getHeaderIdentity(
     headerKey: string,
     dataAreaId: string,
-  ): Promise<{ JournalBatchNumber: string; Description?: string } | null> {
+  ): Promise<VendorPaymentJournalHeaderIdentity | null> {
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', dataAreaId),
       this.queryBuilder.eq('JournalBatchNumber', headerKey),
@@ -374,7 +380,7 @@ export class VendorPaymentJournalService {
       '/data/VendorPaymentJournalHeaders',
       {
         filter,
-        select: ['JournalBatchNumber', 'Description'],
+        select: ['JournalBatchNumber', 'Description', 'IsPosted'],
         top: 1,
         crossCompany: true,
       },
@@ -382,6 +388,7 @@ export class VendorPaymentJournalService {
     const response = await this.d365foClient.get<{
       JournalBatchNumber: string;
       Description?: string;
+      IsPosted?: string;
     }>(query, { useCache: false });
     return (
       (response.value ?? []).find(

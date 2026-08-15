@@ -1,6 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
-import { GetBatchResponseBodyHandler } from './get-batch-response-body.handler';
+
 import { GetBatchResponseBodyQuery } from '../get-batch-response-body.query';
+
+import { GetBatchResponseBodyHandler } from './get-batch-response-body.handler';
 
 describe('GetBatchResponseBodyHandler', () => {
   let handler: GetBatchResponseBodyHandler;
@@ -74,7 +76,9 @@ describe('GetBatchResponseBodyHandler', () => {
 
     mockDataBatchErrorRepository.getList.mockResolvedValue([]);
 
-    const result = await handler.execute(new GetBatchResponseBodyQuery(batchId));
+    const result = await handler.execute(
+      new GetBatchResponseBodyQuery(batchId),
+    );
 
     expect(result.batchId).toBe(batchId);
     expect(result.batch.company).toBe('m-p');

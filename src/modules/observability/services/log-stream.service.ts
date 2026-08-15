@@ -32,10 +32,21 @@ export class LogStreamService implements OnApplicationShutdown {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
       lazyConnect: false,
+      retryStrategy(times) {
+        return Math.min(times * 100, 3000);
+      },
     });
   }
 
   async publish(input: NewOperationalLogEvent): Promise<OperationalLogEvent> {
+    if (this.redis.status === 'end' || this.redis.status === 'close') {
+      try {
+        await this.redis.connect();
+      } catch {
+        // Silent catch; xadd below will either succeed or be caught by OperationalLoggerService
+      }
+    }
+
     const trace = this.traceContext.get();
     const event: OperationalLogEvent = {
       ...input,

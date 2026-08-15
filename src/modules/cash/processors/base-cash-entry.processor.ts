@@ -262,7 +262,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       processedLines =
         await this.routeCashInCustodySettlementToCashOut(processedLines);
       processedLines =
-        await this.applyCashInCustomerForeignCurrencyRules(processedLines);
+        this.applyCashInCustomerForeignCurrencyRules(processedLines);
     }
 
     this.logger.debug(
@@ -3060,9 +3060,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * 421103 get one-to-one debit→customer amount/currency copy, Ledger skip,
    * and consumed-pair metadata for the inbound build path.
    */
-  protected async applyCashInCustomerForeignCurrencyRules(
+  protected applyCashInCustomerForeignCurrencyRules(
     lines: CashEntryRawDataModel[],
-  ): Promise<CashEntryRawDataModel[]> {
+  ): CashEntryRawDataModel[] {
     this.cashInCustomerFxResults.clear();
 
     if (!this.isInbound() || lines.length === 0) {
@@ -3317,8 +3317,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * number/text formatting.
    */
   protected sanitizeInvoiceOutbound(invoice?: string | number): string {
-    const sourceValue = String(invoice ?? '')
-      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    const sourceValue = String(invoice ?? '').replace(
+      /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g,
+      '',
+    );
     const comparisonValue = sourceValue.trim();
     if (!comparisonValue) return '';
     if (/^0+$/.test(comparisonValue)) return '';

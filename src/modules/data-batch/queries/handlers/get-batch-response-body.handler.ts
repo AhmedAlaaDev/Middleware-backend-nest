@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Types } from 'mongoose';
 
+import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
 import { GetBatchResponseBodyQuery } from '@/modules/data-batch/queries/get-batch-response-body.query';
 import {
   DataBatchErrorRepository,
@@ -9,13 +10,12 @@ import {
   DataEnhancedRecordRepository,
 } from '@/modules/data-batch/repositories/interfaces';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
-import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
 import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
 
 export interface IBatchResponseBodyResult {
   journalBatchNumber?: string;
   batchId: string;
-  batch: any | null;
+  batch: unknown;
   inputContract?: any;
   enhancedRecords?: any[];
   dfoResponse?: Record<string, any>;
@@ -28,9 +28,7 @@ export interface IBatchResponseBodyResult {
 
 @Injectable()
 @QueryHandler(GetBatchResponseBodyQuery)
-export class GetBatchResponseBodyHandler
-  implements IQueryHandler<GetBatchResponseBodyQuery>
-{
+export class GetBatchResponseBodyHandler implements IQueryHandler<GetBatchResponseBodyQuery> {
   private readonly logger = new Logger(GetBatchResponseBodyHandler.name);
 
   constructor(
@@ -81,11 +79,14 @@ export class GetBatchResponseBodyHandler
     }
 
     // 3. Fetch logs from observability logs database
-    const rawLogs = await this.applicationLogQueryService.getLogsByBatchId(batchId);
+    const rawLogs =
+      await this.applicationLogQueryService.getLogsByBatchId(batchId);
 
     let allLogs = rawLogs;
     if (batch && batch.id !== batchId) {
-      const extraLogs = await this.applicationLogQueryService.getLogsByBatchId(batch.id);
+      const extraLogs = await this.applicationLogQueryService.getLogsByBatchId(
+        batch.id,
+      );
       const logMap = new Map();
       for (const log of [...rawLogs, ...extraLogs]) {
         logMap.set(log.eventId || (log as any)._id?.toString(), log);
@@ -101,14 +102,17 @@ export class GetBatchResponseBodyHandler
     if (Types.ObjectId.isValid(actualBatchId)) {
       [batchErrors, enhancedRecords] = await Promise.all([
         this.dataBatchErrorRepository.getList({ batchId: actualBatchId }),
-        this.dataEnhancedRecordRepository.getList(actualBatchId).catch(() => []),
+        this.dataEnhancedRecordRepository
+          .getList(actualBatchId)
+          .catch(() => []),
       ]);
     }
 
     // Extract posted _contract input payload from operational log payloads if available
     let inputContract: any = null;
     for (const log of allLogs) {
-      const reqBody = (log as any)?.payload?.request?.body || (log as any)?.payload?.request;
+      const reqBody =
+        (log as any)?.payload?.request?.body || (log as any)?.payload?.request;
       if (reqBody && reqBody._contract) {
         inputContract = reqBody._contract;
         break;
@@ -116,7 +120,12 @@ export class GetBatchResponseBodyHandler
     }
 
     const hasDfoData = Object.keys(dfoResponse).length > 0;
-    if (!batch && !hasDfoData && allLogs.length === 0 && batchErrors.length === 0) {
+    if (
+      !batch &&
+      !hasDfoData &&
+      allLogs.length === 0 &&
+      batchErrors.length === 0
+    ) {
       throw new NotFoundException(
         `No D365FO records, batch details, logs, or response bodies found for '${batchId}'`,
       );
@@ -140,28 +149,40 @@ export class GetBatchResponseBodyHandler
   /**
    * Fetch live response from D365FO for a journal batch number (headers + lines)
    */
-  private async fetchDfoResponse(journalBatchNumber: string): Promise<Record<string, any>> {
+  private async fetchDfoResponse(
+    journalBatchNumber: string,
+  ): Promise<Record<string, any>> {
     const results: Record<string, any> = {};
     const entityPairs = [
-      { header: 'VendorPaymentJournalHeaders', lines: 'VendorPaymentJournalLines' },
+      {
+        header: 'VendorPaymentJournalHeaders',
+        lines: 'VendorPaymentJournalLines',
+      },
       { header: 'LedgerJournalHeaders', lines: 'LedgerJournalLines' },
-      { header: 'CustomerPaymentJournalHeaders', lines: 'CustomerPaymentJournalLines' },
+      {
+        header: 'CustomerPaymentJournalHeaders',
+        lines: 'CustomerPaymentJournalLines',
+      },
       { header: 'VendorInvoiceHeaders', lines: 'VendorInvoiceLines' },
     ];
 
     for (const pair of entityPairs) {
       try {
         const headerEndpoint = `/data/${pair.header}?cross-company=true&$filter=JournalBatchNumber eq '${journalBatchNumber}'`;
-        const headerRes = await this.d365foClient.get<any>(headerEndpoint, { useCache: false });
+        const headerRes = await this.d365foClient.get<any>(headerEndpoint, {
+          useCache: false,
+        });
 
         if (headerRes && headerRes.value && headerRes.value.length > 0) {
           results[pair.header] = headerRes.value;
 
           try {
             const linesEndpoint = `/data/${pair.lines}?cross-company=true&$filter=JournalBatchNumber eq '${journalBatchNumber}'`;
-            const linesRes = await this.d365foClient.get<any>(linesEndpoint, { useCache: false });
+            const linesRes = await this.d365foClient.get<any>(linesEndpoint, {
+              useCache: false,
+            });
             const lines = linesRes?.value || [];
-            
+
             // Enrich lines with MarkedLines array if MarkedInvoice exists
             for (const line of lines) {
               if (line.MarkedInvoice) {
@@ -177,12 +198,16 @@ export class GetBatchResponseBodyHandler
             }
             results[pair.lines] = lines;
           } catch (lineErr: any) {
-            this.logger.warn(`Failed to fetch ${pair.lines} for ${journalBatchNumber}: ${lineErr?.message}`);
+            this.logger.warn(
+              `Failed to fetch ${pair.lines} for ${journalBatchNumber}: ${lineErr?.message}`,
+            );
             results[pair.lines] = [];
           }
         }
       } catch (err: any) {
-        this.logger.debug(`Entity ${pair.header} query skipped or failed: ${err?.message}`);
+        this.logger.debug(
+          `Entity ${pair.header} query skipped or failed: ${err?.message}`,
+        );
       }
     }
 

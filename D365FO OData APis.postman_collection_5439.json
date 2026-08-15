@@ -3654,6 +3654,55 @@
         "description": "Reads the complete live Finance header and lines, compares expected and actual line counts and debit/credit totals per currency, and reports confirmed duplication separately from review-only repeated business signatures. duplicationConclusion NO_EXTRA_FINANCE_DATA means Finance has no additional rows or amount; CONFIRMED_DUPLICATION means definite duplicate evidence; REVIEW_REQUIRED needs manual review."
       },
       "response": []
+    },
+    {
+      "name": "Delete D365FO Journal by Journal Batch Number",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3001/api/v1/DataMigration/DataBatch/journal-batch/:journalBatchNumber?company=m-p",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3001",
+          "path": [
+            "api",
+            "v1",
+            "DataMigration",
+            "DataBatch",
+            "journal-batch",
+            ":journalBatchNumber"
+          ],
+          "query": [
+            {
+              "key": "company",
+              "value": "m-p",
+              "description": "D365FO dataAreaId (defaults to m-p)"
+            }
+          ],
+          "variable": [
+            {
+              "key": "journalBatchNumber",
+              "value": "Mesco-000014781",
+              "description": "D365FO Journal Batch Number to delete (e.g. Mesco-000014781)"
+            }
+          ]
+        },
+        "description": "Finds the journal in Finance (Vendor Payment, Ledger, Customer Payment, or Vendor Invoice), deletes dependent lines, then deletes the header. Use to clear SpecTrans blockers / doubled journals before re-upload. Posted journals may be rejected by Finance. No auth required."
+      },
+      "response": []
     }
   ],
 
