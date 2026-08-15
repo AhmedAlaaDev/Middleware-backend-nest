@@ -990,35 +990,58 @@ export class CustomerPaymentJournalService {
       DueDate: string;
       Closed: string;
     }>(query, { useCache: false });
-    const invoice = (response.value ?? []).find(
+    const matchingInvoices = (response.value ?? []).filter(
       (row) =>
         this.normalizeSettlementInvoice(row.Invoice) ===
         this.normalizeSettlementInvoice(missing.invoiceNumber),
     );
-    if (!invoice) {
+    if (matchingInvoices.length === 0) {
       throw new Error(
         `posted vendor invoice ${missing.invoiceNumber} / ${missing.vendorAccount} was not found`,
       );
     }
-    const available = Math.abs(
-      (Number(invoice.AmountCur) || 0) - (Number(invoice.SettleAmountCur) || 0),
-    );
     const requested = Math.abs(missing.settlementAmount);
-    if (available + 0.01 < requested) {
+    const currencyMatches = matchingInvoices.filter(
+      (invoice) =>
+        !missing.currency ||
+        !invoice.CurrencyCode ||
+        missing.currency.trim().toUpperCase() ===
+          invoice.CurrencyCode.trim().toUpperCase(),
+    );
+    if (currencyMatches.length === 0) {
       throw new Error(
-        `invoice ${missing.invoiceNumber} has ${available} ${invoice.CurrencyCode} remaining, below requested ${requested} ${missing.currency}`,
+        `invoice ${missing.invoiceNumber} currency ${matchingInvoices[0].CurrencyCode} does not match payment currency ${missing.currency}`,
       );
     }
-    if (
-      missing.currency &&
-      invoice.CurrencyCode &&
-      missing.currency.trim().toUpperCase() !==
-        invoice.CurrencyCode.trim().toUpperCase()
-    ) {
+    const candidates = currencyMatches
+      .map((invoice) => ({
+        invoice,
+        available: Math.abs(
+          (Number(invoice.AmountCur) || 0) -
+            (Number(invoice.SettleAmountCur) || 0),
+        ),
+      }))
+      .sort(
+        (left, right) =>
+          Math.abs(left.available - requested) -
+            Math.abs(right.available - requested) ||
+          String(left.invoice.DueDate ?? '').localeCompare(
+            String(right.invoice.DueDate ?? ''),
+          ),
+      );
+    const selected = candidates.find(
+      (candidate) => candidate.available + 0.01 >= requested,
+    );
+    if (!selected) {
+      const largestAvailable = candidates.reduce(
+        (largest, candidate) => Math.max(largest, candidate.available),
+        0,
+      );
       throw new Error(
-        `invoice ${missing.invoiceNumber} currency ${invoice.CurrencyCode} does not match payment currency ${missing.currency}`,
+        `invoice ${missing.invoiceNumber} has at most ${largestAvailable} ${currencyMatches[0].CurrencyCode} remaining, below requested ${requested} ${missing.currency}`,
       );
     }
+    const invoice = selected.invoice;
 
     try {
       await this.vendorPaymentJournalService.addSettledInvoice({

@@ -2747,6 +2747,15 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         {
           Invoice: '106551',
           AccountNum: 'RP-000003',
+          AmountCur: -34000,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2025-12-21T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+        {
+          Invoice: '106551',
+          AccountNum: 'RP-000003',
           AmountCur: -34610.4,
           SettleAmountCur: 0,
           CurrencyCode: 'EGP',
@@ -2783,6 +2792,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         JournalBatchNumber: 'Mesco-000014745',
         JournalLineNumber: 16,
         InvoiceNumber: '106551',
+        InvoiceDueDate: '2026-04-30T12:00:00Z',
         SettlementAmountInInvoiceCurrency: -34610.4,
       }),
     );
