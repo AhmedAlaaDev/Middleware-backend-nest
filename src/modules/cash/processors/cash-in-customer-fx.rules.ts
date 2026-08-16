@@ -92,6 +92,22 @@ export function isCashInNotesReceivableDebitLine(
 }
 
 /**
+ * Cash / bank payment counterparts used when FX matching cannot use invoice,
+ * same-currency, amount, or Notes Receivable uniquely.
+ */
+export function isCashInPaymentDebitLine(
+  line: CashEntryRawDataModel,
+): boolean {
+  const accountType = normalizeCashInAccountType(line.ACCOUNTTYPE);
+  return (
+    accountType === 'bank' ||
+    accountType === 'petty cash' ||
+    accountType === 'cash' ||
+    accountType === 'bank account'
+  );
+}
+
+/**
  * Defensive guard: Ledger 421103 must never appear as a Cash-In customer offset.
  */
 export function isCashInForbidden421103Offset(options: {
@@ -256,10 +272,10 @@ function rankCandidatesForCustomer(
     } else if (amountMatches.length > 1) {
       candidates = amountMatches;
     } else {
-      // Cross-currency Cash-In (USD/EUR customer vs EGP Petty Cash + 122201):
-      // when no single debit equals the customer FX amount (difference sits in
-      // Ledger 421103 + residual cash), prefer the unique Notes Receivable
-      // debit so 421103 never becomes the matched counterpart.
+      // Cross-currency Cash-In (EUR/USD customer vs mixed EGP/USD debits):
+      // when no single debit equals the customer FX amount (difference often
+      // sits on a small residual Ledger line), prefer Notes Receivable first,
+      // then the unique Bank / Petty Cash / Cash payment debit.
       const crossCurrency = candidates.some(
         (debit) =>
           normalizeCurrency(debit.line.CURRENCYCODE) !== customerCurrency,
@@ -270,6 +286,13 @@ function rankCandidatesForCustomer(
         );
         if (notesReceivable.length === 1) {
           candidates = notesReceivable;
+        } else {
+          const paymentDebits = candidates.filter((debit) =>
+            isCashInPaymentDebitLine(debit.line),
+          );
+          if (paymentDebits.length === 1) {
+            candidates = paymentDebits;
+          }
         }
       }
     }

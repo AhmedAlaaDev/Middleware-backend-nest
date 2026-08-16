@@ -469,18 +469,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
   });
 
-  it('posts cash-in one Finance line per custom-service request', async () => {
+  it('posts cash-in UniqueId groups together in one CustPaym Lines request', async () => {
     const { service, d365foClient } = buildService();
     jest.spyOn(service, 'listLinesForHeader').mockResolvedValue([]);
-    d365foClient.post
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: 'Success! JN-IN-1',
-      })
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: 'Success! JN-IN-1',
-      });
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN-IN-1',
+    });
 
     await service.postCashInLinesForHeader(
       'JN-IN-1',
@@ -520,15 +515,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
     );
 
-    expect(d365foClient.post).toHaveBeenCalledTimes(2);
-    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(1);
-    expect(d365foClient.post.mock.calls[1][1]._contract.Lines).toHaveLength(1);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(2);
     expect(
-      d365foClient.post.mock.calls[0][1]._contract.Lines[0].TRANSACTIONTEXT,
-    ).toBe('line-1');
-    expect(
-      d365foClient.post.mock.calls[1][1]._contract.Lines[0].TRANSACTIONTEXT,
-    ).toBe('line-2');
+      d365foClient.post.mock.calls[0][1]._contract.Lines.map(
+        (line: any) => line.TRANSACTIONTEXT,
+      ),
+    ).toEqual(['line-1', 'line-2']);
   });
 
   it('posts the exact D365 InvoiceId when source and Finance spaces differ', async () => {

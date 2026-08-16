@@ -407,36 +407,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       this.validateBankLikeAccountDisplayValues(line);
 
-      if (this.isInbound() && this.freeTextInvoiceMap) {
-        const invoiceKey = (line.MarkedInvoice || line.Invoice || '')
-          .trim()
-          .toLowerCase();
-
-        // Empty MarkedInvoice = unmarked customer collection (allowed).
-        // formatInvoiceInbound clears DRAFT / non-FTI document fallbacks and
-        // strips comma-glued secondary numbers before lookup.
-        if (invoiceKey) {
-          const entries = this.freeTextInvoiceMap.get(invoiceKey);
-
-          const displayInvoice = line.MarkedInvoice || line.Invoice;
-
-          if (!entries?.length) {
-            line.AddError(
-              'Invoice',
-              `Free text invoice (${displayInvoice}) not exists in D365FO`,
-            );
-          } else {
-            const postedEntries = entries.filter((e) => e.isPosted);
-
-            if (postedEntries.length === 0) {
-              line.AddError(
-                'Invoice',
-                `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`,
-              );
-            }
-          }
-        }
-      }
+      // Cash-In no longer fails validation when a FreeTextInvoice is missing
+      // or unposted in FO. MarkedInvoice / MarkedLines are still formatted and
+      // attached when present; FO remains the source of settlement truth.
 
       if (!this.isInbound()) {
         let shouldValidateCashOutMarkedInvoice = true;
@@ -3311,8 +3284,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Cash-In special-case validation errors only. Successful FX transforms keep
-   * the source-line-preserving path (one journal line per Excel row, no offset).
+   * Cash-In special-case path. Successful FX transforms and failures both keep
+   * one journal line per uploaded Excel row (no collapse to a single error
+   * stub), so formatted line count stays equal to the upload.
    */
   protected buildCashInCustomerFxLines(
     sourceId: string,
@@ -3320,40 +3294,39 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     specialCase: CashInCustomerFxSpecialCaseResult,
     _exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
+    const built = lines.map((line) =>
+      this.buildSourceLineInbound(sourceId, line, lines, _exchangeRateContext),
+    );
+
     if (!specialCase.isInvalid) {
-      return lines.map((line) =>
-        this.buildSourceLineInbound(sourceId, line, lines, _exchangeRateContext),
-      );
+      return built;
     }
 
-    const errorLine = new CashEntryDynDataModel(new EntryDimensionsModel(), {
-      SourceIds: [sourceId],
-      SafeType: lines[0]?.SafeType,
-      VoucherType: lines[0]?.VoucherType,
-      OffsetAccountType: '' as any,
-      OffsetAccountDisplayValue: '',
-      OffsetDefaultDimensionDisplayValue: '',
-      DefaultDimensionsForOffsetAccountDisplayValue: '',
-    });
+    const attachError = (line: CashEntryDynDataModel) => {
+      for (const validationError of specialCase.validationErrors) {
+        const detailSuffix = validationError.details
+          ? ` ${JSON.stringify(validationError.details)}`
+          : '';
+        line.AddError(
+          validationError.field,
+          `${validationError.message}${detailSuffix}`,
+        );
+      }
+      if (specialCase.validationErrors.length === 0) {
+        line.AddError(
+          'CustomerDebitMatch',
+          'Unable to determine a unique debit line for the customer Cash-In line.',
+        );
+      }
+    };
 
-    for (const validationError of specialCase.validationErrors) {
-      const detailSuffix = validationError.details
-        ? ` ${JSON.stringify(validationError.details)}`
-        : '';
-      errorLine.AddError(
-        validationError.field,
-        `${validationError.message}${detailSuffix}`,
-      );
+    // Attach match failure to every source line so batch errors remain visible
+    // without dropping rows or inventing an empty-dimension stub line.
+    for (const line of built) {
+      attachError(line);
     }
 
-    if (specialCase.validationErrors.length === 0) {
-      errorLine.AddError(
-        'CustomerDebitMatch',
-        'Unable to determine a unique debit line for the customer Cash-In line.',
-      );
-    }
-
-    return [errorLine];
+    return built;
   }
 
   private logCashInCustomerFxResult(

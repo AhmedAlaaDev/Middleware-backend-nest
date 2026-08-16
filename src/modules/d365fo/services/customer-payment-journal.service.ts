@@ -147,10 +147,11 @@ export class CustomerPaymentJournalService {
   private readonly cashOutBulkBatchSize = 100;
 
   /**
-   * Cash-In posts one Finance line per request (line-by-line). UniqueId +
-   * money-type balance is enforced during format/validate before posting.
+   * Max UniqueId groups per cash-in bulk CustPaym request. Format stays
+   * one journal line per Excel row; posting packs complete UniqueId groups
+   * into the same Lines array (not one FO call per line).
    */
-  private readonly cashInLineByLineBatchSize = 1;
+  private readonly cashInBulkBatchSize = 100;
 
   /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
   private readonly cashOutBulkHttpTimeout: number;
@@ -338,7 +339,7 @@ export class CustomerPaymentJournalService {
 
     this.logger.log(
       cashDirection === 'in'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-in lines for header ${headerKey} as line-by-line requests`
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-in lines for header ${headerKey} in bulk requests of up to ${this.cashInBulkBatchSize} UniqueId group(s)`
         : `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`,
     );
 
@@ -1030,13 +1031,12 @@ export class CustomerPaymentJournalService {
       });
     }
 
-    const uniqueIdBatches =
+    const uniqueIdBatches = this.chunkCashLinesByUniqueIdGroups(
+      preparedLines,
       cashDirection === 'in'
-        ? this.chunkCashInLinesLineByLine(preparedLines)
-        : this.chunkCashOutLinesByUniqueIdGroups(
-            preparedLines,
-            this.cashOutBulkBatchSize,
-          );
+        ? this.cashInBulkBatchSize
+        : this.cashOutBulkBatchSize,
+    );
     const totalBatches = uniqueIdBatches.length;
     const pendingPreparedLines = preparedLines.filter(
       (line) => !existingLines.has(line.lineNumber),
@@ -1058,14 +1058,11 @@ export class CustomerPaymentJournalService {
     // A resumed post may skip an entire UniqueId group that FO already has,
     // but it must never post only the missing part of a group. That would turn
     // a source-balanced entry into an unbalanced request.
-    // Cash-In posts line-by-line by design, so completeness is not required.
-    if (cashDirection === 'out') {
-      this.assertCompleteUniqueIdGroupSelection(
-        preparedLines,
-        resumablePendingLines,
-        `resume journal ${headerKey}`,
-      );
-    }
+    this.assertCompleteUniqueIdGroupSelection(
+      preparedLines,
+      resumablePendingLines,
+      `resume journal ${headerKey}`,
+    );
     const alreadyPostedCount = preparedLines.filter((line) =>
       existingLines.has(line.lineNumber),
     ).length;
@@ -1160,15 +1157,16 @@ export class CustomerPaymentJournalService {
    * Pack prepared FO lines into bulk requests of at most `maxGroups` UniqueId
    * groups. Lines that share PAYMENTID (the source UniqueId) always travel
    * together so each request is a set of complete balanced entry groups.
+   * Used for both Cash-In (CustPaym) and Cash-Out (VendPaym).
    */
-  private chunkCashOutLinesByUniqueIdGroups(
+  private chunkCashLinesByUniqueIdGroups(
     preparedLines: CashBulkPendingLine[],
     maxGroups: number,
   ): CashBulkPendingLine[][] {
     if (preparedLines.length === 0) return [];
     if (maxGroups < 1) {
       throw new Error(
-        `cashOutBulkBatchSize must be at least 1 UniqueId group; received ${maxGroups}`,
+        `cash bulk batch size must be at least 1 UniqueId group; received ${maxGroups}`,
       );
     }
 
@@ -1177,22 +1175,6 @@ export class CustomerPaymentJournalService {
     const batches: CashBulkPendingLine[][] = [];
     for (let index = 0; index < groups.length; index += maxGroups) {
       batches.push(groups.slice(index, index + maxGroups).flat());
-    }
-    return batches;
-  }
-
-  /**
-   * Cash-In uploads one Finance journal line per custom-service request.
-   * Balance of UniqueId + money type is validated earlier in format/validate.
-   */
-  private chunkCashInLinesLineByLine(
-    preparedLines: CashBulkPendingLine[],
-  ): CashBulkPendingLine[][] {
-    if (preparedLines.length === 0) return [];
-    const size = Math.max(1, this.cashInLineByLineBatchSize);
-    const batches: CashBulkPendingLine[][] = [];
-    for (let index = 0; index < preparedLines.length; index += size) {
-      batches.push(preparedLines.slice(index, index + size));
     }
     return batches;
   }
@@ -1754,10 +1736,10 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Submit one request holding complete UniqueId groups (at most
-   * {@link cashOutBulkBatchSize} groups). Retries when FO rejects because
-   * (a) a prior journal still holds SpecTrans marks, or (b) a marked invoice
-   * no longer covers the paid amount.
+   * Submit one request holding complete UniqueId groups (at most the
+   * configured cash-in / cash-out bulk group limit). Retries when FO rejects
+   * because (a) a prior journal still holds SpecTrans marks, or (b) a marked
+   * invoice no longer covers the paid amount.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -3372,7 +3354,10 @@ export class CustomerPaymentJournalService {
         attempt: context.attempt,
         requestNumber: context.batch.number,
         requestCount: context.batch.total,
-        maxUniqueIdGroupsPerRequest: this.cashOutBulkBatchSize,
+        maxUniqueIdGroupsPerRequest:
+          direction === 'in'
+            ? this.cashInBulkBatchSize
+            : this.cashOutBulkBatchSize,
         uniqueIdGroupCount: this.countUniqueIdGroups(context.pendingLines),
         lineCount,
         lineNumbers: context.pendingLines.map((line) => line.lineNumber),

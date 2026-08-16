@@ -64,56 +64,25 @@ describe('Cash-In free-text invoice normalization', () => {
   });
 
   describe('validateAsync', () => {
-    it('looks up the normalized FreeTextNumber without comma junk', () => {
+    it('does not fail when FreeTextInvoice is present or missing in FO', () => {
       const processor = createProcessor();
-      (processor as any).freeTextInvoiceMap = new Map([
-        [
-          '000008898/or-tr',
-          [{ invoiceNumber: '000008898/OR-TR', exists: true, isPosted: true }],
-        ],
-      ]);
+      (processor as any).freeTextInvoiceMap = new Map();
 
-      const line = new CashEntryDynDataModel(null, {
+      const withInvoice = new CashEntryDynDataModel(null, {
         SourceIds: ['468229'],
         MarkedInvoice: '000008898/OR-TR',
         Invoice: '000008898/OR-TR',
         AccountType: 'Cust',
       } as any);
-
-      const [validated] = processor.validateAsync([line]);
-      expect(validated.ErrorCount).toBe(0);
-    });
-
-    it('allows unmarked cash-in when MarkedInvoice was cleared (DRAFT / blank)', () => {
-      const processor = createProcessor();
-      (processor as any).freeTextInvoiceMap = new Map();
-
-      const line = new CashEntryDynDataModel(null, {
+      const unmarked = new CashEntryDynDataModel(null, {
         SourceIds: ['466653'],
         MarkedInvoice: '',
         Invoice: '',
         AccountType: 'Cust',
       } as any);
 
-      const [validated] = processor.validateAsync([line]);
-      expect(validated.ErrorCount).toBe(0);
-      expect(validated.GetErrors()).toEqual([]);
-    });
-
-    it('still errors when a real FreeTextNumber is missing in FO', () => {
-      const processor = createProcessor();
-      (processor as any).freeTextInvoiceMap = new Map();
-
-      const line = new CashEntryDynDataModel(null, {
-        SourceIds: ['1'],
-        MarkedInvoice: '000008898/OR-TR',
-        Invoice: '000008898/OR-TR',
-        AccountType: 'Cust',
-      } as any);
-
-      const [validated] = processor.validateAsync([line]);
-      expect(validated.ErrorCount).toBeGreaterThan(0);
-      expect(validated.GetErrors()[0]).toContain('not exists in D365FO');
+      const validated = processor.validateAsync([withInvoice, unmarked]);
+      expect(validated.every((line) => line.ErrorCount === 0)).toBe(true);
     });
   });
 });
