@@ -56,6 +56,7 @@ function buildService(options?: {
     markPaused: jest.fn().mockResolvedValue(undefined),
     markQueued: jest.fn().mockResolvedValue(undefined),
     purgeJob: jest.fn().mockResolvedValue(undefined),
+    purgeByBatch: jest.fn().mockResolvedValue(1),
   };
 
   const queues = {

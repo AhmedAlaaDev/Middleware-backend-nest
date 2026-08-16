@@ -322,13 +322,20 @@ export class DataBatchController {
    * Delete a batch with all related entities
    */
   @Delete()
+  @Delete(':batchId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(BatchOwnerOrAdminGuard)
   @RequireBatchOwnerOrAdmin('delete')
   public async deleteAsync(
-    @Query() { batchId }: BatchIdDto,
+    @Query('batchId') queryBatchId: string | undefined,
+    @Param('batchId') paramBatchId: string | undefined,
+    @Body('batchId') bodyBatchId: string | undefined,
     @Auth() user: Omit<IUser, 'passwordHash'>,
   ): Promise<void> {
+    const batchId = paramBatchId || queryBatchId || bodyBatchId;
+    if (!batchId) {
+      throw new BadRequestException('Batch ID is required');
+    }
     await this.commandBus.execute(
       new DeleteBatchCommand(batchId, this.actorFrom(user)),
     );

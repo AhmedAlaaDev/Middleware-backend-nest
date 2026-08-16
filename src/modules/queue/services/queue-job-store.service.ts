@@ -298,6 +298,21 @@ export class QueueJobStoreService {
     ]);
   }
 
+  /** Permanently delete all durable jobs and their journal groups for a batch. */
+  async purgeByBatch(batchId: string): Promise<number> {
+    const docs = await this.jobs
+      .find({ batchId })
+      .select({ jobId: 1 })
+      .lean()
+      .exec();
+    const jobIds = docs.map((doc) => doc.jobId);
+    if (jobIds.length > 0) {
+      await this.groups.deleteMany({ jobId: { $in: jobIds } });
+    }
+    const result = await this.jobs.deleteMany({ batchId });
+    return result.deletedCount ?? 0;
+  }
+
   /**
    * Permanently delete durable jobs (and their journal groups) for a queue,
    * optionally limited to specific statuses.

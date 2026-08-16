@@ -277,6 +277,7 @@ export class BatchPostingControlService {
       await this.jobs.purgeJob(job.jobId);
       purgedDurableJobIds.push(job.jobId);
     }
+    await this.jobs.purgeByBatch(batchId);
 
     if (
       removedJobIds.length ||

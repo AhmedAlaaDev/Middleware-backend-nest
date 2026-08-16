@@ -32,7 +32,8 @@ export class BatchOwnerOrAdminGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     const batchId =
       (request.params?.batchId as string | undefined) ??
-      (request.query?.batchId as string | undefined);
+      (request.query?.batchId as string | undefined) ??
+      (request.body?.batchId as string | undefined);
     if (!batchId) {
       throw new NotFoundException('Batch ID is required');
     }
