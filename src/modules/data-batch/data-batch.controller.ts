@@ -15,6 +15,7 @@ import {
   Header,
   StreamableFile,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
