@@ -134,7 +134,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       },
     ]);
 
-  it('matches USD debit to customer, skips 421103, and leaves EGP debit as residual', async () => {
+  it('matches USD debit to customer and keeps Ledger 421103 as a normal source line', async () => {
     const processor = createCashInProcessor();
     const source = exampleGroup();
 
@@ -142,12 +142,12 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       processor as any
     ).applyCashInCustomerForeignCurrencyRules(source);
 
-    expect(processed).toHaveLength(3);
+    expect(processed).toHaveLength(4);
     expect(
       processed.some((line: CashEntryRawDataModel) =>
         isCashInLedger421103Line(line),
       ),
-    ).toBe(false);
+    ).toBe(true);
 
     const customer = processed.find(
       (line: CashEntryRawDataModel) => line.LINENUMBER === 69,
@@ -158,7 +158,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect(customer.INVOICE).toBe('5564/مطالبة نولون محصلة لصالح الغير');
 
     const built = (processor as any).buildLines('466669', processed);
-    expect(built).toHaveLength(3);
+    expect(built).toHaveLength(4);
 
     const customerLine = built.find(
       (line: any) => line.CreditAmount === 730 && line.CurrencyCode === 'USD',
@@ -185,7 +185,162 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       { account: 'ALEXHO US', debit: 730, credit: 0 },
       { account: 'ALEXHO EG', debit: 360, credit: 0 },
       { account: '101000543', debit: 0, credit: 730 },
+      {
+        account:
+          '421103|1301|013|001|001|101000543|||||KEYACCOUNT|3336||||IMPORT||||',
+        debit: 0,
+        credit: 26.45,
+      },
     ]);
+  });
+
+  it('uniquely matches Notes Receivable debit when customer FX amount equals 122201', async () => {
+    const processor = createCashInProcessor();
+    const lines = toModels([
+      {
+        UniqueId: 468971,
+        LINENUMBER: 2017,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Petty Cash',
+        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
+        DEBITAMOUNT: 75.5,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 468971,
+        LINENUMBER: 2018,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '122201|1301|013|001|001|||RP-000001|RP-000001||3038|3208||||IMPORT||||',
+        DEBITAMOUNT: 6194.5,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 468971,
+        LINENUMBER: 2019,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Cust',
+        ACCOUNTDISPLAYVALUE: '101000046',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 130,
+        CURRENCYCODE: 'USD',
+        EXCHANGERATE: 4765,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      },
+      {
+        UniqueId: 468971,
+        LINENUMBER: 2020,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '421103|1301|013|001|001|101000046|||||3038|3208||||IMPORT||||',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 75.5,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      },
+    ]);
+
+    const processed = await (
+      processor as any
+    ).applyCashInCustomerForeignCurrencyRules(lines);
+    const customer = processed.find(
+      (line: CashEntryRawDataModel) => line.LINENUMBER === 2019,
+    );
+
+    expect(customer.CREDITAMOUNT).toBe(6194.5);
+    expect(customer.CURRENCYCODE).toBe('EGP');
+    expect(
+      processed.some((line: CashEntryRawDataModel) =>
+        isCashInLedger421103Line(line),
+      ),
+    ).toBe(true);
+
+    const built = (processor as any).buildLines('468971', processed);
+    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
+  });
+
+  it('skips FX rewrite for same-currency groups that already balance', async () => {
+    const processor = createCashInProcessor();
+    const lines = toModels([
+      {
+        UniqueId: 473668,
+        LINENUMBER: 4648,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Petty Cash',
+        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
+        DEBITAMOUNT: 100000,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Deposit',
+      },
+      {
+        UniqueId: 473668,
+        LINENUMBER: 4649,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'CIB-EG-CA',
+        DEBITAMOUNT: 53870,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Deposit',
+      },
+      {
+        UniqueId: 473668,
+        LINENUMBER: 4650,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Cust',
+        ACCOUNTDISPLAYVALUE: '101001506',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 153870.06,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Deposit',
+      },
+      {
+        UniqueId: 473668,
+        LINENUMBER: 4651,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '421103|1302|013|001|001|101001506|||||3042|3336||||IMPORT||||',
+        DEBITAMOUNT: 0.06,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Deposit',
+      },
+    ]);
+
+    const processed = await (
+      processor as any
+    ).applyCashInCustomerForeignCurrencyRules(lines);
+
+    expect(processed).toHaveLength(4);
+    expect(processed.find((l: any) => l.LINENUMBER === 4650).CREDITAMOUNT).toBe(
+      153870.06,
+    );
+    expect(
+      (processor as any).cashInCustomerFxResults.has('473668'),
+    ).toBe(false);
   });
 
   it('assigns multiple customers to multiple debits one-to-one by currency', async () => {
@@ -273,7 +428,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect(eurCust.CURRENCYCODE).toBe('EUR');
 
     const built = (processor as any).buildLines('100', processed);
-    expect(built).toHaveLength(4);
+    expect(built).toHaveLength(5);
     expect(
       built.map((line: any) => ({
         credit: line.CreditAmount,
@@ -286,6 +441,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
         { credit: 0, currency: 'EUR', account: 'BANK-EUR' },
         { credit: 100, currency: 'USD', account: 'C-USD' },
         { credit: 200, currency: 'EUR', account: 'C-EUR' },
+        { credit: 1, currency: 'EGP', account: '421103|001' },
       ]),
     );
     expect(
@@ -466,7 +622,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     ).toBe(true);
   });
 
-  it('skips Ledger lines only when AccountType is Ledger and main account starts with 421103', () => {
+  it('detects Ledger lines only when AccountType is Ledger and main account is exactly 421103', () => {
     expect(
       isCashInLedger421103Line(
         toModels([
@@ -493,8 +649,63 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       isCashInLedger421103Line(
         toModels([
           {
+            ACCOUNTTYPE: 'LEDGER',
+            ACCOUNTDISPLAYVALUE: '421103',
+          },
+        ])[0],
+      ),
+    ).toBe(true);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
+            ACCOUNTTYPE: 'Ledger',
+            ACCOUNTDISPLAYVALUE: '421103-001-002',
+          },
+        ])[0],
+      ),
+    ).toBe(true);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
             ACCOUNTTYPE: 'Ledger',
             ACCOUNTDISPLAYVALUE: '223304|1301|013',
+          },
+        ])[0],
+      ),
+    ).toBe(false);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
+            ACCOUNTTYPE: 'Ledger',
+            ACCOUNTDISPLAYVALUE: '4211039|1301|013',
+          },
+        ])[0],
+      ),
+    ).toBe(false);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
+            ACCOUNTTYPE: 'Ledger',
+            ACCOUNTDISPLAYVALUE: '1421103',
+          },
+        ])[0],
+      ),
+    ).toBe(false);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
+            ACCOUNTTYPE: 'Ledger',
+            ACCOUNTDISPLAYVALUE: '42110',
           },
         ])[0],
       ),
@@ -515,6 +726,28 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       isCashInLedger421103Line(
         toModels([
           {
+            ACCOUNTTYPE: 'Vend',
+            ACCOUNTDISPLAYVALUE: '421103',
+          },
+        ])[0],
+      ),
+    ).toBe(false);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
+            ACCOUNTTYPE: 'Bank',
+            ACCOUNTDISPLAYVALUE: '421103',
+          },
+        ])[0],
+      ),
+    ).toBe(false);
+
+    expect(
+      isCashInLedger421103Line(
+        toModels([
+          {
             ACCOUNTTYPE: 'Ledger',
             ACCOUNTDISPLAYVALUE: '223304|1301|421103|001',
           },
@@ -523,6 +756,125 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     ).toBe(false);
 
     expect(extractCashInMainAccount('223304|1301|421103|001')).toBe('223304');
+    expect(extractCashInMainAccount('421103-001-002')).toBe('421103');
+  });
+
+  it('matches EUR customer to Notes Receivable when Petty Cash + 122201 remain after excluding 421103', async () => {
+    const processor = createCashInProcessor();
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
+      (_date: string, currencyCode: string) => {
+        const currency = String(currencyCode ?? '')
+          .trim()
+          .toUpperCase();
+        if (currency === 'EUR') {
+          return { exchangeRate: 5580, reportingRate: 100 };
+        }
+        if (currency === 'USD') {
+          return { exchangeRate: 4765, reportingRate: 100 };
+        }
+        return { exchangeRate: 100, reportingRate: 100 };
+      },
+    );
+
+    const lines = toModels([
+      {
+        UniqueId: 469310,
+        LINENUMBER: 2315,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Petty Cash',
+        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
+        DEBITAMOUNT: 18.1,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cheque',
+      },
+      {
+        UniqueId: 469310,
+        LINENUMBER: 2316,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '122201|1301|013|001|001|||RP-000001|RP-000001||3038|3208||||IMPORT||||',
+        DEBITAMOUNT: 911.9,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cheque',
+      },
+      {
+        UniqueId: 469310,
+        LINENUMBER: 2317,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Cust',
+        ACCOUNTDISPLAYVALUE: '101000046',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 16.55,
+        CURRENCYCODE: 'EUR',
+        EXCHANGERATE: 5580,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cheque',
+      },
+      {
+        UniqueId: 469310,
+        LINENUMBER: 2318,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '421103|1301|013|001|001|101000046|||||3038|3208||||IMPORT||||',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 6.51,
+        CURRENCYCODE: 'EGP',
+        EXCHANGERATE: 100,
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cheque',
+      },
+    ]);
+
+    const processed = await (
+      processor as any
+    ).applyCashInCustomerForeignCurrencyRules(lines);
+
+    expect(
+      processed.some((line: CashEntryRawDataModel) =>
+        isCashInLedger421103Line(line),
+      ),
+    ).toBe(true);
+
+    const customer = processed.find(
+      (line: CashEntryRawDataModel) => line.LINENUMBER === 2317,
+    );
+    expect(customer.CREDITAMOUNT).toBe(911.9);
+    expect(customer.CURRENCYCODE).toBe('EGP');
+
+    const built = (processor as any).buildLines('469310', processed);
+    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
+    expect(
+      built.some((line: any) =>
+        String(line.AccountDisplayValue ?? '').startsWith('421103'),
+      ),
+    ).toBe(true);
+  });
+
+  it('posts Ledger 421103 as a normal Cash-In source line with empty offsets', async () => {
+    const processor = createCashInProcessor();
+    const source = exampleGroup();
+    const processed = await (
+      processor as any
+    ).applyCashInCustomerForeignCurrencyRules(source);
+    const built = (processor as any).buildLines('466669', processed);
+
+    expect(
+      processed.some((line: CashEntryRawDataModel) =>
+        isCashInLedger421103Line(line),
+      ),
+    ).toBe(true);
+    for (const line of built) {
+      expect(line.OffsetAccountType || '').toBe('');
+      expect(line.OffsetAccountDisplayValue || '').toBe('');
+    }
   });
 
   it('parses comma-separated customer invoices without mutating INVOICE or splitting amount', async () => {
@@ -723,7 +1075,7 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     expect(built[0].ErrorCount).toBeGreaterThan(0);
   });
 
-  it('fails when debit amounts are invalid and no valid match remains', async () => {
+  it('does not enter Cash-In FX matching for same-currency groups even when Ledger 421103 exists', async () => {
     const processor = createCashInProcessor();
     const lines = toModels([
       {
@@ -764,13 +1116,17 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       },
     ]);
 
-    // Group still qualifies via Ledger 421103 debit, but that debit is excluded
-    // from candidates, leaving no valid match.
     const processed = await (
       processor as any
     ).applyCashInCustomerForeignCurrencyRules(lines);
-    const built = (processor as any).buildLines('402', processed);
-    expect(built[0].ErrorCount).toBeGreaterThan(0);
+    expect(processed).toHaveLength(3);
+    expect((processor as any).cashInCustomerFxResults.has('402')).toBe(false);
+    expect(
+      processed.some((line: CashEntryRawDataModel) =>
+        isCashInLedger421103Line(line),
+      ),
+    ).toBe(true);
+    expect(processed[1].CREDITAMOUNT).toBe(100);
   });
 
   it('does not apply the special transform when Ledger 421103 is absent', async () => {

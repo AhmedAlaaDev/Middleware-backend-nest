@@ -767,9 +767,49 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     };
 
     expect((handler as any).validateLine(line)).toEqual([]);
+    // Cash-In is always main-account-only (no offset counterpart), so partial
+    // offset fields must not become validation failures for cash-in lines.
     expect(
       (handler as any).validateLine({ ...line, cashDirection: 'in' }),
-    ).toContain('customLineApiBody.OffsetAccountTypeStr');
+    ).toEqual([]);
+  });
+
+  it('omits all offset fields for Cash-In mapped lines', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Customer Collection',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Cust',
+            AccountDisplayValue: '101000001',
+            OffsetAccountType: 'Bank',
+            OffsetAccountDisplayValue: 'BANK-001',
+            OffsetCompany: 'm-p',
+            OffsetDefaultDimensionDisplayValue: 'BANK-001',
+            TransactionDate: '2026-01-15T00:00:00.000Z',
+            CreditAmount: 100,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            SafeType: 'Customer Collection',
+            DefaultDimensionDisplayValue:
+              '|1301|013|001|001||||||||Payable|||IMPORT||||',
+          },
+        },
+      ],
+      'm-p',
+      'in',
+      route,
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.OffsetAccountTypeStr).toBeUndefined();
+    expect(body.offsetAccountDisplayValue).toBeUndefined();
+    expect(body.offsetDEFAULTDIMENSIONDISPLAYVALUE).toBeUndefined();
+    expect(body.OffsetCompany).toBeUndefined();
   });
 
   it('keeps offset fields for a standard Cash Out ledger line', () => {

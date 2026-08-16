@@ -146,6 +146,12 @@ export class CustomerPaymentJournalService {
    */
   private readonly cashOutBulkBatchSize = 100;
 
+  /**
+   * Cash-In posts one Finance line per request (line-by-line). UniqueId +
+   * money-type balance is enforced during format/validate before posting.
+   */
+  private readonly cashInLineByLineBatchSize = 1;
+
   /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
   private readonly cashOutBulkHttpTimeout: number;
 
@@ -331,7 +337,9 @@ export class CustomerPaymentJournalService {
         : this.cashOutLineEndpoint;
 
     this.logger.log(
-      `[CASH-CUSTOM] Preparing ${lines.length} cash-${cashDirection} lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`,
+      cashDirection === 'in'
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-in lines for header ${headerKey} as line-by-line requests`
+        : `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} UniqueId group(s)`,
     );
 
     // Older batches can already contain WCA-US / WCA-EUR or Ledger 125901/125902
@@ -344,10 +352,6 @@ export class CustomerPaymentJournalService {
 
     if (cashDirection === 'out') {
       normalizedLines = await this.resolveCashCustomMarkedInvoiceIds(
-        normalizedLines,
-        dataAreaId,
-      );
-      normalizedLines = await this.deferAmbiguousVendorInvoiceMarks(
         normalizedLines,
         dataAreaId,
       );
@@ -494,123 +498,15 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * The custom X++ endpoint can self-lock a VendTrans when one vendor has
-   * multiple open transactions with the same invoice number. Omit only those
-   * ambiguous marks from the custom request; post-success integrity repair
-   * then selects the exact amount/due-date through the standard child entity.
-   * The durable/original lines remain unchanged and still require the mark.
-   */
-  private async deferAmbiguousVendorInvoiceMarks(
-    lines: D365FOCustomerPaymentJournalLineRequest[],
-    dataAreaId?: string,
-  ): Promise<D365FOCustomerPaymentJournalLineRequest[]> {
-    const company = String(dataAreaId ?? '').trim();
-    if (!company) return lines;
-    const requestedInvoices = lines.flatMap((line) => {
-      const marked = line.customLineApiBody?.MarkedLines;
-      return Array.isArray(marked)
-        ? marked.map((item) => String(item?.InvoiceNumber ?? ''))
-        : [];
-    });
-    if (!requestedInvoices.some((invoice) => Boolean(invoice.trim()))) {
-      return lines;
-    }
-
-    const vendorAccounts = [
-      ...new Set(
-        lines
-          .map((line) => String(line.customLineApiBody?.AccountNum ?? ''))
-          .filter((vendor) => Boolean(vendor.trim())),
-      ),
-    ];
-    const candidates =
-      await this.vendorPaymentJournalService.listOpenInvoiceCandidatesForInvoices(
-        company,
-        requestedInvoices,
-        vendorAccounts,
-        lines.flatMap((line) => {
-          const vendorAccount = String(line.customLineApiBody?.AccountNum ?? '');
-          const marked = line.customLineApiBody?.MarkedLines;
-          if (!vendorAccount.trim() || !Array.isArray(marked)) return [];
-          return marked
-            .map((item) => ({
-              invoice: String(item?.InvoiceNumber ?? ''),
-              vendorAccount,
-            }))
-            .filter((pair) => Boolean(pair.invoice.trim()));
-        }),
-      );
-    const byInvoiceVendor = new Map<
-      string,
-      Array<(typeof candidates)[number] & { available: number }>
-    >();
-    for (const candidate of candidates) {
-      const available = Math.abs(
-        (Number(candidate.AmountCur) || 0) -
-          (Number(candidate.SettleAmountCur) || 0),
-      );
-      if (available <= 0.01) continue;
-      const key = `${this.normalizeSettlementInvoice(candidate.Invoice)}|${this.normalizeIntegrityValue(candidate.AccountNum)}`;
-      const item = { ...candidate, available };
-      const group = byInvoiceVendor.get(key);
-      if (group) group.push(item);
-      else byInvoiceVendor.set(key, [item]);
-    }
-
-    let deferred = 0;
-    const result = lines.map((line) => {
-      const body = line.customLineApiBody;
-      if (!body || !Array.isArray(body.MarkedLines)) return line;
-      const vendor = this.normalizeIntegrityValue(body.AccountNum);
-      const requested = Math.abs(
-        (Number(body.creditAmount) || 0) - (Number(body.debitAmount) || 0),
-      );
-      const currency = String(body.currency ?? '')
-        .trim()
-        .toUpperCase();
-      const kept = body.MarkedLines.filter((marked) => {
-        const invoice = this.normalizeSettlementInvoice(marked?.InvoiceNumber);
-        if (!invoice) return true;
-        const matches = (
-          byInvoiceVendor.get(`${invoice}|${vendor}`) ?? []
-        ).filter(
-          (candidate) =>
-            (!currency ||
-              !candidate.CurrencyCode ||
-              candidate.CurrencyCode.trim().toUpperCase() === currency) &&
-            candidate.available + 0.01 >= requested,
-        );
-        if (matches.length === 0) return true;
-        const allCandidates = byInvoiceVendor.get(`${invoice}|${vendor}`) ?? [];
-        if (allCandidates.length <= 1) return true;
-        deferred += 1;
-        return false;
-      });
-      if (kept.length === body.MarkedLines.length) return line;
-      return {
-        ...line,
-        customLineApiBody: { ...body, MarkedLines: kept },
-      };
-    });
-    if (deferred > 0) {
-      this.logger.warn(
-        `[CASH-CUSTOM] Deferred ${deferred} ambiguous vendor invoice mark(s) to exact post-success settlement repair`,
-      );
-    }
-    return result;
-  }
-
-  /**
-   * Verify the authoritative Finance settlement child rows against the marks
-   * requested by middleware. If the custom X++ service silently leaves a mark
-   * out and no other journal owns it, repair only that child record. Monetary
-   * journal lines are never reposted by this method.
+   * Verify Finance settlement marks against the MarkedLines sent on the
+   * primary custom cash-out API (`addLedgerJournalTransVendPaym`). Settlement
+   * is never written here via VendorPaymentJournalLineSettledInvoices — that
+   * child POST is intentionally unused.
    */
   public async verifyCashOutSettlementIntegrity(
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
     dataAreaId: string,
-    repairMissing = true,
   ): Promise<CashOutSettlementIntegrityResult> {
     const expected = this.expectedVendorInvoiceSettlements(lines);
     if (expected.length === 0) {
@@ -626,109 +522,21 @@ export class CustomerPaymentJournalService {
       };
     }
 
-    let actual = await this.loadActualVendorInvoiceSettlements(
+    const actual = await this.loadActualVendorInvoiceSettlements(
       headerKey,
       dataAreaId,
       expected.map((item) => item.invoiceNumber),
     );
-    let comparison = this.compareVendorInvoiceSettlements(
+    const comparison = this.compareVendorInvoiceSettlements(
       headerKey,
       expected,
       actual,
     );
-    const repaired: Array<{ lineNumber: number; invoiceNumber: string }> = [];
-    const repairErrors: Array<{
-      lineNumber: number;
-      invoiceNumber: string;
-      message: string;
-    }> = [];
-
-    let blockers = await this.findVendorInvoiceSettlementBlockers(
+    const blockers = await this.findVendorInvoiceSettlementBlockers(
       headerKey,
       dataAreaId,
       comparison.missing,
     );
-
-    if (repairMissing && comparison.missing.length > 0) {
-      const blockedKeys = new Set(
-        blockers.map((blocker) =>
-          this.settlementKey(blocker.expectedLineNumber, blocker.invoiceNumber),
-        ),
-      );
-      const alreadyOnThisJournal = new Set(
-        actual.map((item) =>
-          this.normalizeSettlementInvoice(item.InvoiceNumber),
-        ),
-      );
-      for (const missing of comparison.missing) {
-        if (
-          blockedKeys.has(
-            this.settlementKey(missing.lineNumber, missing.invoiceNumber),
-          )
-        ) {
-          continue;
-        }
-        if (
-          alreadyOnThisJournal.has(
-            this.normalizeSettlementInvoice(missing.invoiceNumber),
-          )
-        ) {
-          continue;
-        }
-        try {
-          await this.repairMissingVendorInvoiceSettlement(
-            headerKey,
-            dataAreaId,
-            missing,
-          );
-          repaired.push({
-            lineNumber: missing.lineNumber,
-            invoiceNumber: missing.invoiceNumber,
-          });
-        } catch (error) {
-          const message = this.dfoErrorExtractor.extractMessage(error);
-          if (
-            this.isAlreadySettledInvoiceRepairError(message) &&
-            (await this.isSettlementOwnedByJournal(
-              headerKey,
-              dataAreaId,
-              missing.invoiceNumber,
-            ))
-          ) {
-            // The invoice can disappear from VendTransOpen between the
-            // availability check and the child POST. Treat that race as
-            // successful only when Finance proves that this same journal now
-            // owns the mark; an external settlement remains a hard failure.
-            repaired.push({
-              lineNumber: missing.lineNumber,
-              invoiceNumber: missing.invoiceNumber,
-            });
-            continue;
-          }
-          repairErrors.push({
-            lineNumber: missing.lineNumber,
-            invoiceNumber: missing.invoiceNumber,
-            message,
-          });
-        }
-      }
-
-      actual = await this.loadActualVendorInvoiceSettlements(
-        headerKey,
-        dataAreaId,
-        expected.map((item) => item.invoiceNumber),
-      );
-      comparison = this.compareVendorInvoiceSettlements(
-        headerKey,
-        expected,
-        actual,
-      );
-      blockers = await this.findVendorInvoiceSettlementBlockers(
-        headerKey,
-        dataAreaId,
-        comparison.missing,
-      );
-    }
 
     return {
       matches:
@@ -738,240 +546,9 @@ export class CustomerPaymentJournalService {
       missing: comparison.missing,
       unexpected: comparison.unexpected,
       blockers,
-      repaired,
-      repairErrors,
+      repaired: [],
+      repairErrors: [],
     };
-  }
-
-  public async assertCashOutSettlementIntegrity(
-    headerKey: string,
-    lines: D365FOCustomerPaymentJournalLineRequest[],
-    dataAreaId: string,
-  ): Promise<void> {
-    const result = await this.verifyCashOutSettlementIntegrity(
-      headerKey,
-      lines,
-      dataAreaId,
-      true,
-    );
-    if (result.matches) return;
-
-    const details: string[] = [];
-    for (const missing of result.missing) {
-      const blocker = result.blockers.find(
-        (candidate) =>
-          candidate.expectedLineNumber === missing.lineNumber &&
-          this.normalizeSettlementInvoice(candidate.invoiceNumber) ===
-            this.normalizeSettlementInvoice(missing.invoiceNumber),
-      );
-      details.push(
-        blocker
-          ? `line ${missing.lineNumber} expected invoice ${missing.invoiceNumber}, but it is already marked by ${blocker.journalBatchNumber} line ${blocker.journalLineNumber} in ${blocker.journalLineCompany}`
-          : `line ${missing.lineNumber} expected invoice ${missing.invoiceNumber}, but Finance left it unmarked`,
-      );
-    }
-    for (const unexpected of result.unexpected) {
-      details.push(
-        `line ${unexpected.lineNumber} unexpectedly marks invoice ${unexpected.invoiceNumber}`,
-      );
-    }
-    for (const repairError of result.repairErrors) {
-      details.push(
-        `repair failed for line ${repairError.lineNumber} invoice ${repairError.invoiceNumber}: ${repairError.message}`,
-      );
-    }
-    throw new Error(
-      `[DATA INTEGRITY] Journal ${headerKey} invoice settlement mismatch (${result.actualCount}/${result.expectedCount} expected mark(s) confirmed): ${details.join('; ')}. No monetary journal lines were reposted.`,
-    );
-  }
-
-  /**
-   * Refuse to create a new monetary journal when Finance already owns one of
-   * the requested invoice marks. This preflight is intentionally strict: an
-   * invoice owned by a different journal is not equivalent to a successful
-   * settlement on the new upload and must be resolved before posting.
-   */
-  public async assertNoExternalSettlementOwners(
-    lines: D365FOCustomerPaymentJournalLineRequest[],
-    dataAreaId: string,
-  ): Promise<void> {
-    const expected = this.expectedVendorInvoiceSettlements(lines);
-    if (expected.length === 0) return;
-
-    const owners =
-      await this.vendorPaymentJournalService.listSettlementOwnersForInvoices(
-        dataAreaId,
-        expected.map((item) => item.invoiceNumber),
-      );
-    const expectedByInvoice = new Map(
-      expected.map((item) => [
-        this.normalizeSettlementInvoice(item.invoiceNumber),
-        item,
-      ]),
-    );
-    const blockers = owners.filter((owner) =>
-      expectedByInvoice.has(
-        this.normalizeSettlementInvoice(owner.InvoiceNumber),
-      ),
-    );
-    if (blockers.length > 0) {
-      const details = [
-        ...new Set(
-          blockers.map(
-            (owner) =>
-              `invoice ${owner.InvoiceNumber} is already owned by journal ${owner.JournalBatchNumber} line ${owner.JournalLineNumber} in ${owner.JournalLineCompany}`,
-          ),
-        ),
-      ];
-      throw new Error(
-        `[DATA INTEGRITY] Cannot create a new cash journal because Finance already owns requested settlement mark(s): ${details.join('; ')}. No monetary journal was created.`,
-      );
-    }
-  }
-
-  /**
-   * Drop UniqueId groups whose invoices are confirmed in VendTrans with too
-   * little remaining vendor amount. Those invoices are already settled (or
-   * otherwise closed) and creating a monetary journal for them would pay the
-   * vendor twice. A missed VendTrans lookup is not treated as settled.
-   * Sibling lines that share PAYMENTID are omitted together so the remaining
-   * request stays a set of complete balanced groups.
-   */
-  public async omitAlreadySettledInvoiceGroups(
-    lines: D365FOCustomerPaymentJournalLineRequest[],
-    dataAreaId: string,
-  ): Promise<D365FOCustomerPaymentJournalLineRequest[]> {
-    const expected = this.expectedVendorInvoiceSettlements(lines);
-    if (expected.length === 0) return lines;
-
-    const unavailable = await this.findUnavailableInvoiceSettlements(
-      expected,
-      dataAreaId,
-    );
-    if (unavailable.length === 0) return lines;
-
-    const unavailableInvoices = new Set(
-      unavailable.map((item) =>
-        this.normalizeSettlementInvoice(item.invoiceNumber),
-      ),
-    );
-    const skipKeys = new Set(
-      lines
-        .filter((line) => this.lineMarksInvoices(line, unavailableInvoices))
-        .map((line) => this.cashOutUniqueIdKeyFromRequestLine(line)),
-    );
-    const remaining = lines.filter(
-      (line) => !skipKeys.has(this.cashOutUniqueIdKeyFromRequestLine(line)),
-    );
-    const details = unavailable.map(
-      (item) =>
-        `invoice ${item.invoiceNumber} for vendor ${item.vendorAccount} does not have ${Math.abs(item.settlementAmount)} ${item.currency} remaining`,
-    );
-    this.logger.warn(
-      `[CASH-CUSTOM] Skipping ${lines.length - remaining.length} line(s) across ${skipKeys.size} UniqueId group(s) because invoice(s) are no longer available for payment: ${details.join('; ')}. ${
-        remaining.length === 0
-          ? 'No monetary journal will be created.'
-          : `Creating a journal for the remaining ${remaining.length} line(s).`
-      }`,
-    );
-    return remaining;
-  }
-
-  private async findUnavailableInvoiceSettlements(
-    expected: ExpectedVendorInvoiceSettlement[],
-    dataAreaId: string,
-  ): Promise<ExpectedVendorInvoiceSettlement[]> {
-    const openCandidates =
-      await this.vendorPaymentJournalService.listOpenInvoiceCandidatesForInvoices(
-        dataAreaId,
-        expected.map((item) => item.invoiceNumber),
-        expected.map((item) => item.vendorAccount),
-        expected.map((item) => ({
-          invoice: item.invoiceNumber,
-          vendorAccount: item.vendorAccount,
-        })),
-      );
-    return expected.filter((item) => {
-      const requested = Math.abs(item.settlementAmount);
-      const invoice = this.normalizeSettlementInvoice(item.invoiceNumber);
-      const vendor = this.normalizeIntegrityValue(item.vendorAccount);
-      const currency = item.currency.trim().toUpperCase();
-      const matches = openCandidates.filter((candidate) => {
-        return (
-          this.normalizeSettlementInvoice(candidate.Invoice) === invoice &&
-          this.normalizeIntegrityValue(candidate.AccountNum) === vendor &&
-          (!currency ||
-            !candidate.CurrencyCode ||
-            candidate.CurrencyCode.trim().toUpperCase() === currency)
-        );
-      });
-      // No VendTrans row is a lookup miss (short invoice IDs, paging, field
-      // mismatch), not proof the invoice is settled. Keep the payment group
-      // and let Finance accept or reject the mark.
-      if (matches.length === 0) {
-        this.logger.warn(
-          `[CASH-CUSTOM] VendTrans lookup returned no remaining-amount rows for invoice ${item.invoiceNumber} vendor ${item.vendorAccount}; keeping the payment group`,
-        );
-        return false;
-      }
-      const available = matches.reduce(
-        (sum, candidate) =>
-          sum +
-          Math.abs(
-            (Number(candidate.AmountCur) || 0) -
-              (Number(candidate.SettleAmountCur) || 0),
-          ),
-        0,
-      );
-      return available + 0.01 < requested;
-    });
-  }
-
-  private lineMarksInvoices(
-    line: D365FOCustomerPaymentJournalLineRequest,
-    invoices: Set<string>,
-  ): boolean {
-    const markedLines = line.customLineApiBody?.MarkedLines;
-    if (!Array.isArray(markedLines)) return false;
-    return markedLines.some((marked) =>
-      invoices.has(
-        this.normalizeSettlementInvoice(String(marked?.InvoiceNumber ?? '')),
-      ),
-    );
-  }
-
-  private cashOutUniqueIdKeyFromRequestLine(
-    line: D365FOCustomerPaymentJournalLineRequest,
-  ): string {
-    const body = line.customLineApiBody;
-    const paymentId = String(
-      body?.PAYMENTID ??
-        (body as { PaymentId?: string } | undefined)?.PaymentId ??
-        '',
-    ).trim();
-    return paymentId || `__line:${Number(line.LineNumber)}`;
-  }
-
-  private async isSettlementOwnedByJournal(
-    headerKey: string,
-    dataAreaId: string,
-    invoiceNumber: string,
-  ): Promise<boolean> {
-    const owners =
-      await this.vendorPaymentJournalService.listSettlementOwnersForInvoices(
-        dataAreaId,
-        [invoiceNumber],
-      );
-    const expectedHeader = headerKey.trim().toLowerCase();
-    const expectedInvoice = this.normalizeSettlementInvoice(invoiceNumber);
-    return owners.some(
-      (owner) =>
-        String(owner.JournalBatchNumber ?? '')
-          .trim()
-          .toLowerCase() === expectedHeader &&
-        this.normalizeSettlementInvoice(owner.InvoiceNumber) ===
-          expectedInvoice,
-    );
   }
 
   private expectedVendorInvoiceSettlements(
@@ -1088,8 +665,8 @@ export class CustomerPaymentJournalService {
     }
 
     // Unmarked rematch can leave MarkedInvoice blank while SpecTrans on this
-    // same journal still holds the invoice. Treat that as settled so we do not
-    // POST VendorPaymentJournalLineSettledInvoices against a locked VendTrans.
+    // same journal still holds the invoice. Treat that as settled so integrity
+    // does not report a false missing mark after primary MarkedLines posting.
     const headerKeyNorm = headerKey.trim().toLowerCase();
     for (const owner of owners) {
       if (
@@ -1212,191 +789,6 @@ export class CustomerPaymentJournalService {
       }
     }
     return blockers;
-  }
-
-  private async repairMissingVendorInvoiceSettlement(
-    headerKey: string,
-    dataAreaId: string,
-    missing: ExpectedVendorInvoiceSettlement,
-  ): Promise<void> {
-    const journalLines =
-      await this.vendorPaymentJournalService.listIntegrityLinesForHeader(
-        headerKey,
-        dataAreaId,
-      );
-    const targetLine = this.resolveJournalLineForSettlementRepair(
-      journalLines,
-      missing,
-    );
-    if (!targetLine) {
-      throw new Error(
-        `no Finance journal line on ${headerKey} matches vendor ${missing.vendorAccount} amount ${missing.settlementAmount} for invoice ${missing.invoiceNumber}`,
-      );
-    }
-    const targetLineNumber = Number(targetLine.LineNumber);
-    if (
-      this.normalizeSettlementInvoice(targetLine.MarkedInvoice) ===
-      this.normalizeSettlementInvoice(missing.invoiceNumber)
-    ) {
-      // Line already carries the mark via MarkedInvoice; child-entity POST is
-      // unnecessary and often fails when VendTrans cannot be joined.
-      return;
-    }
-
-    const variants = [
-      missing.invoiceNumber,
-      missing.invoiceNumber.trim(),
-      ` ${missing.invoiceNumber.trim()}`,
-      `${missing.invoiceNumber.trim()} `,
-      ` ${missing.invoiceNumber.trim()} `,
-    ];
-    const filter = this.queryBuilder.and(
-      this.queryBuilder.eq('dataAreaId', dataAreaId),
-      this.queryBuilder.eq('AccountNum', missing.vendorAccount),
-      `(${this.queryBuilder.or(
-        ...[...new Set(variants)].map((invoice) =>
-          this.queryBuilder.eq('Invoice', invoice),
-        ),
-      )})`,
-    );
-    const query = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
-      filter,
-      select: [
-        'Invoice',
-        'AccountNum',
-        'AmountCur',
-        'SettleAmountCur',
-        'CurrencyCode',
-        'DueDate',
-        'Closed',
-      ],
-      top: 20,
-      crossCompany: true,
-    });
-    const response = await this.d365foClient.get<{
-      Invoice: string;
-      AccountNum: string;
-      AmountCur: number;
-      SettleAmountCur: number;
-      CurrencyCode: string;
-      DueDate: string;
-      Closed: string;
-    }>(query, { useCache: false });
-    const matchingInvoices = (response.value ?? []).filter(
-      (row) =>
-        this.normalizeSettlementInvoice(row.Invoice) ===
-        this.normalizeSettlementInvoice(missing.invoiceNumber),
-    );
-    if (matchingInvoices.length === 0) {
-      throw new Error(
-        `posted vendor invoice ${missing.invoiceNumber} / ${missing.vendorAccount} was not found`,
-      );
-    }
-    const requested = Math.abs(missing.settlementAmount);
-    const currencyMatches = matchingInvoices.filter(
-      (invoice) =>
-        !missing.currency ||
-        !invoice.CurrencyCode ||
-        missing.currency.trim().toUpperCase() ===
-          invoice.CurrencyCode.trim().toUpperCase(),
-    );
-    if (currencyMatches.length === 0) {
-      throw new Error(
-        `invoice ${missing.invoiceNumber} currency ${matchingInvoices[0].CurrencyCode} does not match payment currency ${missing.currency}`,
-      );
-    }
-    const candidates = currencyMatches
-      .map((invoice) => ({
-        invoice,
-        available: Math.abs(
-          (Number(invoice.AmountCur) || 0) -
-            (Number(invoice.SettleAmountCur) || 0),
-        ),
-      }))
-      .sort(
-        (left, right) =>
-          Math.abs(left.available - requested) -
-            Math.abs(right.available - requested) ||
-          String(left.invoice.DueDate ?? '').localeCompare(
-            String(right.invoice.DueDate ?? ''),
-          ),
-      );
-    const selected = candidates.find(
-      (candidate) => candidate.available + 0.01 >= requested,
-    );
-    if (!selected) {
-      const largestAvailable = candidates.reduce(
-        (largest, candidate) => Math.max(largest, candidate.available),
-        0,
-      );
-      throw new Error(
-        `invoice ${missing.invoiceNumber} has at most ${largestAvailable} ${currencyMatches[0].CurrencyCode} remaining, below requested ${requested} ${missing.currency}`,
-      );
-    }
-    const invoice = selected.invoice;
-
-    try {
-      await this.vendorPaymentJournalService.addSettledInvoice({
-        JournalLineCompany: dataAreaId,
-        JournalBatchNumber: headerKey,
-        JournalLineNumber: targetLineNumber,
-        InvoiceNumber: invoice.Invoice,
-        InvoiceCompany: dataAreaId,
-        InvoiceDueDate: invoice.DueDate,
-        InvoiceToPaymentCrossRate: 0,
-        SettlementAmountInInvoiceCurrency: missing.settlementAmount,
-        CashDiscountToTakeInInvoiceCurrency: 0,
-      });
-    } catch (error) {
-      const message = this.dfoErrorExtractor.extractMessage(error);
-      if (
-        /VendTrans|Matching record for the read only data source/i.test(message)
-      ) {
-        throw new Error(
-          `Finance rejected settlement child write for invoice ${missing.invoiceNumber} on line ${targetLineNumber}: ${message}`,
-        );
-      }
-      throw error;
-    }
-  }
-
-  private resolveJournalLineForSettlementRepair(
-    journalLines: Array<Record<string, unknown> & { LineNumber: number }>,
-    missing: ExpectedVendorInvoiceSettlement,
-  ): (Record<string, unknown> & { LineNumber: number }) | undefined {
-    const vendor = this.normalizeIntegrityValue(missing.vendorAccount);
-    const requested = Math.abs(missing.settlementAmount);
-    const exactLine = journalLines.find(
-      (line) => Number(line.LineNumber) === Number(missing.lineNumber),
-    );
-    const candidates = journalLines.filter((line) => {
-      if (this.normalizeIntegrityValue(line.AccountDisplayValue) !== vendor) {
-        return false;
-      }
-      const debit = Math.abs(Number(line.DebitAmount) || 0);
-      const credit = Math.abs(Number(line.CreditAmount) || 0);
-      const lineAmount = Math.max(debit, credit);
-      return Math.abs(lineAmount - requested) <= 0.01;
-    });
-    if (candidates.length === 0) {
-      return exactLine;
-    }
-    const unmarkedOrSame = candidates.filter((line) => {
-      const marked = this.normalizeSettlementInvoice(line.MarkedInvoice);
-      return (
-        !marked ||
-        marked === this.normalizeSettlementInvoice(missing.invoiceNumber)
-      );
-    });
-    const pool = unmarkedOrSame.length > 0 ? unmarkedOrSame : candidates;
-    return (
-      pool.find(
-        (line) => Number(line.LineNumber) === Number(missing.lineNumber),
-      ) ??
-      pool.sort(
-        (left, right) => Number(left.LineNumber) - Number(right.LineNumber),
-      )[0]
-    );
   }
 
   private settlementKey(lineNumber: number, invoiceNumber: string): string {
@@ -1638,10 +1030,13 @@ export class CustomerPaymentJournalService {
       });
     }
 
-    const uniqueIdBatches = this.chunkCashOutLinesByUniqueIdGroups(
-      preparedLines,
-      this.cashOutBulkBatchSize,
-    );
+    const uniqueIdBatches =
+      cashDirection === 'in'
+        ? this.chunkCashInLinesLineByLine(preparedLines)
+        : this.chunkCashOutLinesByUniqueIdGroups(
+            preparedLines,
+            this.cashOutBulkBatchSize,
+          );
     const totalBatches = uniqueIdBatches.length;
     const pendingPreparedLines = preparedLines.filter(
       (line) => !existingLines.has(line.lineNumber),
@@ -1663,11 +1058,14 @@ export class CustomerPaymentJournalService {
     // A resumed post may skip an entire UniqueId group that FO already has,
     // but it must never post only the missing part of a group. That would turn
     // a source-balanced entry into an unbalanced request.
-    this.assertCompleteUniqueIdGroupSelection(
-      preparedLines,
-      resumablePendingLines,
-      `resume journal ${headerKey}`,
-    );
+    // Cash-In posts line-by-line by design, so completeness is not required.
+    if (cashDirection === 'out') {
+      this.assertCompleteUniqueIdGroupSelection(
+        preparedLines,
+        resumablePendingLines,
+        `resume journal ${headerKey}`,
+      );
+    }
     const alreadyPostedCount = preparedLines.filter((line) =>
       existingLines.has(line.lineNumber),
     ).length;
@@ -1779,6 +1177,22 @@ export class CustomerPaymentJournalService {
     const batches: CashBulkPendingLine[][] = [];
     for (let index = 0; index < groups.length; index += maxGroups) {
       batches.push(groups.slice(index, index + maxGroups).flat());
+    }
+    return batches;
+  }
+
+  /**
+   * Cash-In uploads one Finance journal line per custom-service request.
+   * Balance of UniqueId + money type is validated earlier in format/validate.
+   */
+  private chunkCashInLinesLineByLine(
+    preparedLines: CashBulkPendingLine[],
+  ): CashBulkPendingLine[][] {
+    if (preparedLines.length === 0) return [];
+    const size = Math.max(1, this.cashInLineByLineBatchSize);
+    const batches: CashBulkPendingLine[][] = [];
+    for (let index = 0; index < preparedLines.length; index += size) {
+      batches.push(preparedLines.slice(index, index + size));
     }
     return batches;
   }
@@ -2719,32 +2133,6 @@ export class CustomerPaymentJournalService {
       .replace(/\s+/g, ' ')
       .trim();
     return normalized.includes('has been marked for settlement');
-  }
-
-  /**
-   * FO settlement child POST failed because VendTransOpen has no matching
-   * open vendor transaction. Typical causes: the invoice is already settled,
-   * or duplicate open trans prevent a unique join.
-   */
-  private isMissingOpenVendorTransactionError(message: string): boolean {
-    return /Matching record for the read only data source ['"]?VendTransOpen/i.test(
-      String(message ?? ''),
-    );
-  }
-
-  private isAlreadySettledInvoiceRepairError(message: string): boolean {
-    const text = String(message ?? '');
-    return (
-      this.isMissingOpenVendorTransactionError(text) ||
-      this.isAlreadyMarkedForSettlementError(text) ||
-      this.isInvoiceAmountGreaterThanRemainingError(text) ||
-      /already marked by/i.test(text) ||
-      /has at most 0\b/i.test(text) ||
-      /at most 0\s+\w+\s+remaining/i.test(text) ||
-      /below requested/i.test(text) ||
-      /no longer available for payment/i.test(text) ||
-      /might have been settled/i.test(text)
-    );
   }
 
   private isCashOutSettlementRetryableError(message: string): boolean {

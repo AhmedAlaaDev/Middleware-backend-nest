@@ -492,16 +492,6 @@ export class VendorPaymentJournalService {
     return chunks.length > 0 ? chunks : [[]];
   }
 
-  /** Add only the settlement child record; no payment amount line is reposted. */
-  public async addSettledInvoice(
-    settlement: VendorPaymentJournalSettledInvoice,
-  ): Promise<unknown> {
-    return this.d365foClient.post<VendorPaymentJournalSettledInvoice, unknown>(
-      '/data/VendorPaymentJournalLineSettledInvoices',
-      settlement,
-    );
-  }
-
   public async headerExists(
     headerKey: string,
     dataAreaId: string,

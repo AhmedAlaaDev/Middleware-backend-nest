@@ -102,7 +102,6 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
             journalBatchNumber,
             expectedLines as D365FOCustomerPaymentJournalLineRequest[],
             company,
-            false,
           );
       } catch (error) {
         settlementCheckError =

@@ -3,10 +3,8 @@ import { CommandBus } from '@nestjs/cqrs';
 
 import {
   CashInCustomerFxSpecialCaseResult,
-  cashInLineStableId,
   evaluateCashInCustomerFxGroup,
   extractCashInMainAccount,
-  isCashInLedger421103Line,
   normalizeCashInAccountType,
   parseCashInCustomerInvoices,
 } from './cash-in-customer-fx.rules';
@@ -114,6 +112,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * not enter Cash-In or Cash-Out journal construction.
    */
   private cashInSafeTypeRoutingFailures: CashInSafeTypeRoutingFailure[] = [];
+
+  /**
+   * Cash-In balance failures keyed as `uniqueId|moneyType` (VoucherType).
+   * Used so only the unbalanced money-type lines of a UniqueId are blocked.
+   */
+  private unbalancedCashInMoneyTypeKeys: Set<string> = new Set();
 
   protected readonly NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
     '122201',
@@ -376,7 +380,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
-      if (this.unbalancedUniqueIds.has(line.SourceIds[0])) {
+      if (this.isInbound()) {
+        const moneyTypeKey = this.cashInMoneyTypeBalanceKey(
+          line.SourceIds[0],
+          line.VoucherType,
+        );
+        if (this.unbalancedCashInMoneyTypeKeys.has(moneyTypeKey)) {
+          line.AddError(
+            'UnbalancedInvoice',
+            `UniqueId ${line.SourceIds[0]} money type ${line.VoucherType || 'unknown'} is unbalanced after FX`,
+          );
+        }
+      } else if (this.unbalancedUniqueIds.has(line.SourceIds[0])) {
         line.AddError('UnbalancedInvoice', 'Invoice is unbalanced after FX');
       }
 
@@ -1096,15 +1111,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Cash-Out balance validation uses the same official per-file D365 snapshot
-   * as journal creation. If any source line has no period, the specific
-   * ExchangeRate validation is emitted later and a misleading secondary
-   * UnbalancedInvoice error is suppressed.
+   * Cash-Out: balance each UniqueId with the official D365 FX snapshot.
+   * Cash-In: balance each UniqueId + money type (VoucherType) subgroup so a
+   * Cash entry is never mixed with Cheque/Transfer of the same UniqueId.
    */
   protected checkInvoiceBalancedAfterFx(
     invoiceMap: Map<string, EntryRawDataModel[]>,
     exchangeRateContext?: CashOutExchangeRateContext,
   ): Set<string> {
+    if (this.isInbound()) {
+      return this.checkCashInBalancedByUniqueIdAndMoneyType(
+        invoiceMap,
+        exchangeRateContext,
+      );
+    }
+
     if (!exchangeRateContext) {
       return super.checkInvoiceBalancedAfterFx(invoiceMap);
     }
@@ -1140,6 +1161,121 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     return this.unbalancedUniqueIds;
+  }
+
+  /**
+   * Cash-In balance unit: same UniqueId AND same money type (VoucherType).
+   * Example: UniqueId 100 Cash must balance on its own; UniqueId 100 Transfer
+   * is a separate group and is never netted against the Cash lines.
+   */
+  private checkCashInBalancedByUniqueIdAndMoneyType(
+    invoiceMap: Map<string, EntryRawDataModel[]>,
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): Set<string> {
+    this.unbalancedUniqueIds.clear();
+    this.unbalancedCashInMoneyTypeKeys.clear();
+
+    for (const [uniqueId, lines] of invoiceMap) {
+      // Successful customer-FX transforms intentionally leave residual debit
+      // lines after skipping 421103. Do not treat that residual as unbalanced.
+      const fxResult = this.cashInCustomerFxResults.get(uniqueId);
+      if (
+        fxResult &&
+        !fxResult.isInvalid &&
+        fxResult.matchedPairs.length > 0
+      ) {
+        continue;
+      }
+
+      const byMoneyType = new Map<string, EntryRawDataModel[]>();
+      for (const line of lines) {
+        const moneyType = this.normalizeCashInMoneyType(line.VoucherType);
+        const group = byMoneyType.get(moneyType);
+        if (group) group.push(line);
+        else byMoneyType.set(moneyType, [line]);
+      }
+
+      for (const [moneyType, groupLines] of byMoneyType) {
+        const balanced = exchangeRateContext
+          ? this.isCashGroupBalancedWithOfficialFx(
+              groupLines,
+              exchangeRateContext,
+            )
+          : this.isCashGroupBalancedWithExcelFx(groupLines);
+        if (balanced === false) {
+          this.unbalancedUniqueIds.add(uniqueId);
+          this.unbalancedCashInMoneyTypeKeys.add(
+            this.cashInMoneyTypeBalanceKey(uniqueId, moneyType),
+          );
+        }
+      }
+    }
+
+    return this.unbalancedUniqueIds;
+  }
+
+  private normalizeCashInMoneyType(voucherType: unknown): string {
+    const normalized = String(voucherType ?? '')
+      .trim()
+      .toLowerCase();
+    return normalized || 'unknown';
+  }
+
+  private cashInMoneyTypeBalanceKey(
+    uniqueId: unknown,
+    voucherType: unknown,
+  ): string {
+    return `${String(uniqueId ?? '').trim()}|${this.normalizeCashInMoneyType(voucherType)}`;
+  }
+
+  /** `false` = unbalanced, `true` = balanced, `null` = skip (missing FX). */
+  private isCashGroupBalancedWithOfficialFx(
+    lines: EntryRawDataModel[],
+    exchangeRateContext: CashOutExchangeRateContext,
+  ): boolean | null {
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    for (const line of lines) {
+      const resolution = this.resolveCashOutExchangeRate(
+        exchangeRateContext,
+        line.TRANSDATE,
+        line.CURRENCYCODE,
+      );
+      if (resolution.kind === 'missing') {
+        return null;
+      }
+      const fxRate =
+        resolution.kind === 'not-required' ? 1 : resolution.rate / 100;
+      totalDebit += Number(line.DEBITAMOUNT || 0) * fxRate;
+      totalCredit += Number(line.CREDITAMOUNT || 0) * fxRate;
+    }
+
+    return Math.abs(totalDebit - totalCredit) <= 0.01;
+  }
+
+  private isCashGroupBalancedWithExcelFx(lines: EntryRawDataModel[]): boolean {
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    for (const line of lines) {
+      const currencyCode = String(line.CURRENCYCODE ?? '')
+        .trim()
+        .toUpperCase();
+      let fxRate = 1;
+
+      if (currencyCode && currencyCode !== 'EGP') {
+        let rate = Number(line.EXCHANGERATE) || 0;
+        if (rate >= 1000) rate = rate / 100;
+        else if (rate > 0 && rate < 0.1) rate = rate * 100;
+        fxRate = rate || 1;
+      }
+
+      totalDebit += Number(line.DEBITAMOUNT || 0) * fxRate;
+      totalCredit += Number(line.CREDITAMOUNT || 0) * fxRate;
+    }
+
+    return Math.abs(totalDebit - totalCredit) <= 0.01;
   }
 
   protected buildInvoiceLines(
@@ -1200,8 +1336,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     // Cash-In is source-line preserving: every surviving Excel row becomes
-    // one D365 journal line. A sibling row must never be consumed as Offset.
-    // Customer invoice settlement stays on the customer row via MarkedLines.
+    // one D365 journal line with empty offsets. A sibling row must never be
+    // consumed as Offset. Customer invoice settlement stays on the customer
+    // row via MarkedLines.
     return lines.map((line) =>
       this.buildSourceLineInbound(sourceId, line, lines, exchangeRateContext),
     );
@@ -2761,6 +2898,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         markedLine.OperationNumber),
     );
     const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
+    // Mirror the paired vendor-payment formatter: when this line could settle
+    // but has no invoice/doc/operation mark, tag the FO line description.
+    if (
+      supportsSettlementMarking &&
+      sourceLine.IsVendor &&
+      !hasSettlementTarget &&
+      !description.toLowerCase().includes('unmarked')
+    ) {
+      description = `${description} - unmarked`;
+    }
     const markedInvoice =
       supportsSettlementMarking && sourceLine.IsVendor && !isCustodyVendor
         ? this.sanitizeInvoiceOutbound(
@@ -2770,7 +2917,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           )
         : '';
 
-    const transactionText = sourceLine.TEXT || description;
+    let transactionText = sourceLine.TEXT || description;
+    if (
+      description.toLowerCase().includes('unmarked') &&
+      !transactionText.toLowerCase().includes('unmarked')
+    ) {
+      transactionText = `${transactionText} - unmarked`;
+    }
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
@@ -3157,77 +3310,50 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return output;
   }
 
+  /**
+   * Cash-In special-case validation errors only. Successful FX transforms keep
+   * the source-line-preserving path (one journal line per Excel row, no offset).
+   */
   protected buildCashInCustomerFxLines(
     sourceId: string,
     lines: CashEntryRawDataModel[],
     specialCase: CashInCustomerFxSpecialCaseResult,
-    exchangeRateContext?: CashOutExchangeRateContext,
+    _exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    if (specialCase.isInvalid) {
-      const errorLine = new CashEntryDynDataModel(new EntryDimensionsModel(), {
-        SourceIds: [sourceId],
-        SafeType: lines[0]?.SafeType,
-        VoucherType: lines[0]?.VoucherType,
-      });
-
-      for (const validationError of specialCase.validationErrors) {
-        const detailSuffix = validationError.details
-          ? ` ${JSON.stringify(validationError.details)}`
-          : '';
-        errorLine.AddError(
-          validationError.field,
-          `${validationError.message}${detailSuffix}`,
-        );
-      }
-
-      if (specialCase.validationErrors.length === 0) {
-        errorLine.AddError(
-          'CustomerDebitMatch',
-          'Unable to determine a unique debit line for the customer Cash-In line.',
-        );
-      }
-
-      return [errorLine];
-    }
-
-    const built: CashEntryDynDataModel[] = [];
-
-    for (const pair of specialCase.matchedPairs) {
-      // Exact pair only — never fan the customer across residual offsets.
-      built.push(
-        this.buildLineInbound(
-          sourceId,
-          pair.customerLine,
-          pair.debitLine,
-          'OFFSET',
-          exchangeRateContext,
-        ),
+    if (!specialCase.isInvalid) {
+      return lines.map((line) =>
+        this.buildSourceLineInbound(sourceId, line, lines, _exchangeRateContext),
       );
     }
 
-    const residualLines = specialCase.residualLines.filter((line) =>
-      lines.includes(line),
-    );
+    const errorLine = new CashEntryDynDataModel(new EntryDimensionsModel(), {
+      SourceIds: [sourceId],
+      SafeType: lines[0]?.SafeType,
+      VoucherType: lines[0]?.VoucherType,
+      OffsetAccountType: '' as any,
+      OffsetAccountDisplayValue: '',
+      OffsetDefaultDimensionDisplayValue: '',
+      DefaultDimensionsForOffsetAccountDisplayValue: '',
+    });
 
-    if (residualLines.length === 0) {
-      return built;
-    }
-
-    if (residualLines.length === 2) {
-      built.push(
-        ...this.caseTwoLines(sourceId, residualLines, exchangeRateContext),
-      );
-    } else {
-      built.push(
-        ...this.caseMoreThanTwoLines(
-          sourceId,
-          residualLines,
-          exchangeRateContext,
-        ),
+    for (const validationError of specialCase.validationErrors) {
+      const detailSuffix = validationError.details
+        ? ` ${JSON.stringify(validationError.details)}`
+        : '';
+      errorLine.AddError(
+        validationError.field,
+        `${validationError.message}${detailSuffix}`,
       );
     }
 
-    return built;
+    if (specialCase.validationErrors.length === 0) {
+      errorLine.AddError(
+        'CustomerDebitMatch',
+        'Unable to determine a unique debit line for the customer Cash-In line.',
+      );
+    }
+
+    return [errorLine];
   }
 
   private logCashInCustomerFxResult(
@@ -3271,29 +3397,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         )}`,
       );
     }
-
-    for (const [index, line] of groupLines.entries()) {
-      const lineId = cashInLineStableId(line, index);
-      if (!result.skippedLedgerLineIds.has(lineId)) continue;
-
-      this.logger.log(
-        `Cash-In Ledger line skipped because AccountType is Ledger and the main account starts with 421103. ${JSON.stringify(
-          {
-            uniqueId: result.uniqueId,
-            voucher: line.VOUCHER || voucher,
-            ledgerLineNumber: line.LINENUMBER,
-            accountDisplayValue: line.ACCOUNTDISPLAYVALUE,
-            extractedMainAccount: extractCashInMainAccount(
-              line.ACCOUNTDISPLAYVALUE,
-            ),
-            debitAmount: line.DEBITAMOUNT,
-            creditAmount: line.CREDITAMOUNT,
-            currency: line.CURRENCYCODE,
-            invoice: line.INVOICE,
-          },
-        )}`,
-      );
-    }
   }
 
   protected isNotesReceivableLine(
@@ -3314,10 +3417,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     line: CashEntryRawDataModel,
     dimensions: EntryDimensionsModel,
   ): boolean {
-    // Keep residual Cash-In settlement filtering aligned with the special-case
-    // Ledger 421103 rule (case-insensitive AccountType + startsWith).
-    if (isCashInLedger421103Line(line)) {
-      return true;
+    // Cash-In no longer treats Ledger 421103 as a special settlement/exclusion
+    // line. Keep settlement filtering for Cash-Out only.
+    if (this.isInbound()) {
+      return false;
     }
 
     const accountType = normalizeCashInAccountType(line.ACCOUNTTYPE);
@@ -3328,8 +3431,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     if (accountType !== 'ledger') return false;
     if (!mainAccount) return false;
 
-    return this.SETTLEMENT_MAIN_ACCOUNTS.some((account) =>
-      mainAccount.startsWith(account),
+    return this.SETTLEMENT_MAIN_ACCOUNTS.some(
+      (account) => mainAccount === account,
     );
   }
 
@@ -3488,8 +3591,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   /**
    * Bank / Petty cash / RCash account ids must be BankAccountTable (or RCash)
    * ids — never a ledger dimension string like `122201|1301|013|001|`.
-   * Notes-receivable Cash-In forces OffsetAccountType=Bank; missing bank
-   * segment must fail at format/validate, not at FO post.
+   * Cash-In posts without offsets; still validate AccountDisplayValue when the
+   * primary account is bank-like.
    */
   protected validateBankLikeAccountDisplayValues(
     line: CashEntryDynDataModel,

@@ -187,50 +187,6 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     );
   }
 
-  public assertJournalSettlementIntegrity(
-    headerKey: string,
-    lines: unknown[],
-    dataAreaId: string,
-  ): Promise<void> {
-    const route = this.requireRoute();
-    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
-      return Promise.resolve();
-    }
-    return this.customerPaymentJournalService.assertCashOutSettlementIntegrity(
-      headerKey,
-      lines as D365FOCustomerPaymentJournalLineRequest[],
-      dataAreaId,
-    );
-  }
-
-  public assertNoExternalSettlementOwners(
-    lines: unknown[],
-    dataAreaId: string,
-  ): Promise<void> {
-    const route = this.requireRoute();
-    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
-      return Promise.resolve();
-    }
-    return this.customerPaymentJournalService.assertNoExternalSettlementOwners(
-      lines as D365FOCustomerPaymentJournalLineRequest[],
-      dataAreaId,
-    );
-  }
-
-  public omitAlreadySettledInvoiceGroups(
-    lines: unknown[],
-    dataAreaId: string,
-  ): Promise<unknown[]> {
-    const route = this.requireRoute();
-    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
-      return Promise.resolve(lines);
-    }
-    return this.customerPaymentJournalService.omitAlreadySettledInvoiceGroups(
-      lines as D365FOCustomerPaymentJournalLineRequest[],
-      dataAreaId,
-    );
-  }
-
   private activeHeaderStrategy(): IDfoPostingStrategy {
     const route = this.requireRoute();
     switch (route.kind) {

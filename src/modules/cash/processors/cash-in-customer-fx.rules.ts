@@ -38,19 +38,73 @@ export function normalizeCashInAccountType(value?: string | null): string {
     .toLowerCase();
 }
 
+/** Main accounts treated as Notes Receivable payment counterparts in Cash-In FX. */
+export const CASH_IN_NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
+  '122201',
+  '122202',
+  '122203',
+  '122204',
+  '123510',
+] as const;
+
+export const CASH_IN_LEDGER_421103_MAIN_ACCOUNT = '421103';
+
+/**
+ * Resolve the main-account token from ACCOUNTDISPLAYVALUE.
+ * Supports FO pipe dimensions (`421103|1301|…`) and dash forms (`421103-001-002`).
+ * Exact token only — never substring search.
+ */
 export function extractCashInMainAccount(
   accountDisplayValue?: string | null,
 ): string {
-  return String(accountDisplayValue ?? '')
-    .trim()
-    .split('|')[0]
-    .trim();
+  const raw = String(accountDisplayValue ?? '').trim();
+  if (!raw) return '';
+
+  let token = raw;
+  if (raw.includes('|')) {
+    token = raw.split('|')[0] ?? '';
+  } else if (raw.includes('-')) {
+    token = raw.split('-')[0] ?? '';
+  }
+
+  return token.trim();
 }
 
+/**
+ * Authoritative Cash-In Ledger 421103 detector.
+ * Requires AccountType = Ledger (case-insensitive) AND main account exactly 421103.
+ */
 export function isCashInLedger421103Line(line: CashEntryRawDataModel): boolean {
   const accountType = normalizeCashInAccountType(line.ACCOUNTTYPE);
+  if (accountType !== 'ledger') return false;
+
   const mainAccount = extractCashInMainAccount(line.ACCOUNTDISPLAYVALUE);
-  return accountType === 'ledger' && mainAccount.startsWith('421103');
+  return mainAccount === CASH_IN_LEDGER_421103_MAIN_ACCOUNT;
+}
+
+export function isCashInNotesReceivableDebitLine(
+  line: CashEntryRawDataModel,
+): boolean {
+  const mainAccount = extractCashInMainAccount(line.ACCOUNTDISPLAYVALUE);
+  return (CASH_IN_NOTES_RECEIVABLE_MAIN_ACCOUNTS as readonly string[]).includes(
+    mainAccount,
+  );
+}
+
+/**
+ * Defensive guard: Ledger 421103 must never appear as a Cash-In customer offset.
+ */
+export function isCashInForbidden421103Offset(options: {
+  offsetAccountType?: string | null;
+  offsetAccountDisplayValue?: string | null;
+}): boolean {
+  if (normalizeCashInAccountType(options.offsetAccountType) !== 'ledger') {
+    return false;
+  }
+  return (
+    extractCashInMainAccount(options.offsetAccountDisplayValue) ===
+    CASH_IN_LEDGER_421103_MAIN_ACCOUNT
+  );
 }
 
 export function isCashInCustomerAccountType(value?: string | null): boolean {
@@ -126,8 +180,8 @@ function invoicesOverlap(
 export function isCashInSpecialCustomerFxCase(
   lines: CashEntryRawDataModel[],
 ): boolean {
-  // Detection uses any positive debit. Matching candidates still exclude
-  // Ledger 421103 so its amount is never copied to the customer.
+  // Multi-currency Cash-In FX rewrite: debit + customer credit across more
+  // than one currency. Ledger 421103 is no longer a gate or exclusion target.
   const hasDebit = lines.some(
     (line) => toPositiveNumber(line.DEBITAMOUNT) !== null,
   );
@@ -136,13 +190,18 @@ export function isCashInSpecialCustomerFxCase(
       (isCashInCustomerAccountType(line.ACCOUNTTYPE) || line.IsCustomer) &&
       toPositiveNumber(line.CREDITAMOUNT) !== null,
   );
-  const hasLedger421103 = lines.some((line) => isCashInLedger421103Line(line));
-  return hasDebit && hasCustomerCredit && hasLedger421103;
+  if (!hasDebit || !hasCustomerCredit) return false;
+
+  const currencies = new Set(
+    lines
+      .map((line) => normalizeCurrency(line.CURRENCYCODE))
+      .filter((currency) => Boolean(currency)),
+  );
+  return currencies.size > 1;
 }
 
 function collectDebitCandidates(lines: IndexedLine[]): IndexedLine[] {
   return lines.filter((entry) => {
-    if (isCashInLedger421103Line(entry.line)) return false;
     if (toPositiveNumber(entry.line.DEBITAMOUNT) === null) return false;
     if (!normalizeCurrency(entry.line.CURRENCYCODE)) return false;
     return true;
@@ -185,12 +244,111 @@ function rankCandidatesForCustomer(
     }
   }
 
+  // When several debits remain (typical Petty Cash + 122201 Notes Receivable),
+  // pick the debit whose amount equals the customer credit in the same currency
+  // or after FX conversion to base. That uniquely resolves IST Cash-In FX groups.
+  if (candidates.length > 1) {
+    const amountMatches = candidates.filter((debit) =>
+      debitAmountMatchesCustomerCredit(customer.line, debit.line),
+    );
+    if (amountMatches.length === 1) {
+      candidates = amountMatches;
+    } else if (amountMatches.length > 1) {
+      candidates = amountMatches;
+    } else {
+      // Cross-currency Cash-In (USD/EUR customer vs EGP Petty Cash + 122201):
+      // when no single debit equals the customer FX amount (difference sits in
+      // Ledger 421103 + residual cash), prefer the unique Notes Receivable
+      // debit so 421103 never becomes the matched counterpart.
+      const crossCurrency = candidates.some(
+        (debit) =>
+          normalizeCurrency(debit.line.CURRENCYCODE) !== customerCurrency,
+      );
+      if (crossCurrency) {
+        const notesReceivable = candidates.filter((debit) =>
+          isCashInNotesReceivableDebitLine(debit.line),
+        );
+        if (notesReceivable.length === 1) {
+          candidates = notesReceivable;
+        }
+      }
+    }
+  }
+
   return candidates.sort((a, b) => {
     const aLine = Number(a.line.LINENUMBER ?? a.index);
     const bLine = Number(b.line.LINENUMBER ?? b.index);
     return aLine - bLine;
   });
 }
+
+/** Excel/FO percentage rates: EGP=100, USD≈4765 → multiplier vs EGP is rate/100. */
+function fxMultiplierToBase(currency: string, exchangeRate: unknown): number {
+  if (!currency || currency === 'EGP') return 1;
+  let rate = Number(exchangeRate) || 0;
+  if (rate >= 1000) rate = rate / 100;
+  else if (rate > 0 && rate < 0.1) rate = rate * 100;
+  else if (rate >= 100) rate = rate / 100;
+  return rate > 0 ? rate : 0;
+}
+
+function amountInBaseCurrency(
+  amount: number,
+  currency: string,
+  exchangeRate: unknown,
+): number | null {
+  const multiplier = fxMultiplierToBase(currency, exchangeRate);
+  if (multiplier <= 0) return null;
+  return amount * multiplier;
+}
+
+function debitAmountMatchesCustomerCredit(
+  customer: CashEntryRawDataModel,
+  debit: CashEntryRawDataModel,
+): boolean {
+  const credit = toPositiveNumber(customer.CREDITAMOUNT);
+  const debitAmount = toPositiveNumber(debit.DEBITAMOUNT);
+  if (credit === null || debitAmount === null) return false;
+
+  const customerCurrency = normalizeCurrency(customer.CURRENCYCODE);
+  const debitCurrency = normalizeCurrency(debit.CURRENCYCODE);
+  if (!customerCurrency || !debitCurrency) return false;
+
+  if (customerCurrency === debitCurrency) {
+    return Math.abs(credit - debitAmount) <= 0.05;
+  }
+
+  const creditBase = amountInBaseCurrency(
+    credit,
+    customerCurrency,
+    customer.EXCHANGERATE,
+  );
+  const debitBase = amountInBaseCurrency(
+    debitAmount,
+    debitCurrency,
+    debit.EXCHANGERATE,
+  );
+  if (creditBase === null || debitBase === null) return false;
+  return Math.abs(creditBase - debitBase) <= 0.05;
+}
+
+function isSingleCurrencyBalancedGroup(lines: CashEntryRawDataModel[]): boolean {
+  const currencies = new Set(
+    lines
+      .map((line) => normalizeCurrency(line.CURRENCYCODE))
+      .filter((currency) => Boolean(currency)),
+  );
+  if (currencies.size !== 1) return false;
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const line of lines) {
+    totalDebit += Number(line.DEBITAMOUNT || 0);
+    totalCredit += Number(line.CREDITAMOUNT || 0);
+  }
+  return Math.abs(totalDebit - totalCredit) <= 0.05;
+}
+
 
 function findAllPerfectMatchings(
   customers: IndexedLine[],
@@ -305,11 +463,15 @@ export function evaluateCashInCustomerFxGroup(options: {
     return { result: emptyResult(), outputLines: lines };
   }
 
+  // Same-currency groups that already balance do not need customer↔debit FX
+  // rewriting. Leaving them on the normal path avoids false CustomerDebitMatch
+  // ambiguity when multiple debit accounts exist.
+  if (isSingleCurrencyBalancedGroup(lines)) {
+    return { result: emptyResult(), outputLines: lines };
+  }
+
   const customers = collectCustomerCredits(indexed);
   const debits = collectDebitCandidates(indexed);
-  const ledger421103 = indexed.filter((entry) =>
-    isCashInLedger421103Line(entry.line),
-  );
 
   const fail = (reason: string) => {
     const validationError = buildFailureDetails(
@@ -480,21 +642,16 @@ export function evaluateCashInCustomerFxGroup(options: {
     };
   }
 
-  const skippedLedgerLineIds = new Set<string>(
-    ledger421103.map((entry) => entry.id),
-  );
+  const skippedLedgerLineIds = new Set<string>();
   const residualEntries = indexed.filter(
-    (entry) =>
-      !consumedLineIds.has(entry.id) && !skippedLedgerLineIds.has(entry.id),
+    (entry) => !consumedLineIds.has(entry.id),
   );
   const residualLineIds = new Set<string>(
     residualEntries.map((entry) => entry.id),
   );
   const residualLines = residualEntries.map((entry) => entry.line);
 
-  const outputLines = indexed
-    .filter((entry) => !skippedLedgerLineIds.has(entry.id))
-    .map((entry) => entry.line);
+  const outputLines = indexed.map((entry) => entry.line);
 
   return {
     result: {

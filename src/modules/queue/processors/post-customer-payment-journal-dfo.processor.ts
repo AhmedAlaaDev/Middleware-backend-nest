@@ -113,7 +113,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     // Headers created in this attempt (or reused from a prior attempt). Finance
     // owns FO cleanup on failure; we keep these IDs so retry can resume.
     const created: RoutedCreatedHeader[] = [];
-    const deferredSettlementErrors: Error[] = [];
     let completedGroups = groups.filter(
       (record) => record.status === QueueJobGroupStatus.COMPLETED,
     ).length;
@@ -130,17 +129,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         job.data.cashDirection ?? 'in',
       );
       if (record.status === QueueJobGroupStatus.COMPLETED) {
-        // A deployment may stop after a group is durably completed but before
-        // the batch is finalized. Re-read Finance on resume instead of blindly
-        // trusting the old journal number.
-        if (routedGroup && record.createdHeaderId) {
-          await this.verifyRoutedJournalIntegrity(
-            record.createdHeaderId,
-            job.data.company,
-            record.payload.lines,
-            routedGroup.integrationMarker,
-          );
-        }
         continue;
       }
       // Checked between journals, never inside one: completed journals and any
@@ -158,13 +146,12 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       await this.jobs.markGroupActive(jobId, record.index);
 
       try {
-        const persistedHeaderId = record.createdHeaderId;
-        let headerId = persistedHeaderId;
+        let headerId = record.createdHeaderId;
         let linesAlreadyComplete = false;
+        const linesToPost = record.payload.lines;
 
         // Recover from a crash between Finance header creation and Mongo
-        // persistence by the exact upload marker. Never guess when Finance
-        // contains more than one header for the same marker.
+        // persistence by the exact upload marker when unambiguous.
         if (routedGroup?.integrationMarker) {
           const markerHeaders = postingStrategy.findHeadersByIntegrationMarker
             ? await postingStrategy.findHeadersByIntegrationMarker(
@@ -172,11 +159,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
                 job.data.company,
               )
             : [];
-          if (markerHeaders.length > 1) {
-            throw new Error(
-              `[DATA INTEGRITY] Integration marker ${routedGroup.integrationMarker} exists on multiple Finance journals (${markerHeaders.join(', ')}). No journal was selected and no new journal was created.`,
-            );
-          }
           if (markerHeaders.length === 1) {
             headerId = markerHeaders[0];
             if (record.createdHeaderId !== headerId) {
@@ -200,8 +182,10 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             )
           ) {
             // The number was deleted and later reused by Finance. Never post
-            // into or delete that unrelated journal; create a fresh header.
+            // into that unrelated journal; create a fresh header.
             headerId = undefined;
+          } else if (state.lineCount >= linesToPost.length) {
+            linesAlreadyComplete = true;
           }
         } else if (headerId && postingStrategy.headerExists) {
           const exists = await postingStrategy.headerExists(
@@ -212,52 +196,8 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             headerId = undefined;
           }
         }
-        let linesToPost = record.payload.lines;
-        if (routedGroup && postingStrategy.omitAlreadySettledInvoiceGroups) {
-          linesToPost = (await postingStrategy.omitAlreadySettledInvoiceGroups(
-            record.payload.lines,
-            job.data.company,
-          )) as CashJournalPostingGroup['lines'];
-        }
-        if (headerId && routedGroup) {
-          const state = await this.cashJournalStrategy.getJournalIntegrityState(
-            headerId,
-            job.data.company,
-          );
-          if (
-            state.headerExists &&
-            (!routedGroup.integrationMarker ||
-              this.hasIntegrationMarker(
-                state.headerDescription,
-                routedGroup.integrationMarker,
-              )) &&
-            state.lineCount >= linesToPost.length
-          ) {
-            await this.verifyRoutedJournalIntegrity(
-              headerId,
-              job.data.company,
-              linesToPost,
-              routedGroup.integrationMarker,
-            );
-            linesAlreadyComplete = true;
-          }
-        }
+
         if (!headerId) {
-          if (routedGroup && postingStrategy.assertNoExternalSettlementOwners) {
-            await postingStrategy.assertNoExternalSettlementOwners(
-              record.payload.lines,
-              job.data.company,
-            );
-          }
-          if (linesToPost.length === 0) {
-            await this.jobs.completeGroup(jobId, record.index);
-            completedGroups += 1;
-            await job.updateProgress({
-              completedGroups: record.index + 1,
-              totalGroups: groups.length,
-            });
-            continue;
-          }
           headerId = await this.createAndTrackHeader(
             postingStrategy,
             record.payload.header,
@@ -287,14 +227,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
               job.data.company,
               LINE_CHUNK_SIZE,
             );
-            if (routedGroup) {
-              await this.verifyRoutedJournalIntegrity(
-                headerId,
-                job.data.company,
-                linesToPost,
-                routedGroup.integrationMarker,
-              );
-            }
             break;
           } catch (error) {
             if (
@@ -337,25 +269,8 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             created.map((header) => header.headerKey),
           );
         }
-        if (this.isIndependentSettlementIntegrityError(error)) {
-          deferredSettlementErrors.push(
-            error instanceof Error ? error : new Error(dfoErrorMessage(error)),
-          );
-          continue;
-        }
         throw error;
       }
-    }
-    if (deferredSettlementErrors.length > 0) {
-      if (created.length) {
-        await this.storeHeaderIds(
-          job.data.batchId,
-          created.map((header) => header.headerKey),
-        );
-      }
-      throw new Error(
-        `${deferredSettlementErrors.map((error) => error.message).join(' | ')} Remaining independent journal groups were processed; retry will revisit only unresolved groups.`,
-      );
     }
     await this.completeBatch(job.data.batchId, [
       ...groups
@@ -364,14 +279,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       ...created.map((header) => header.headerKey),
     ]);
     return 'completed';
-  }
-
-  private isIndependentSettlementIntegrityError(error: unknown): boolean {
-    const message = dfoErrorMessage(error);
-    return (
-      message.includes('[DATA INTEGRITY]') &&
-      message.includes('invoice settlement mismatch')
-    );
   }
 
   private async createAndTrackHeader(
@@ -404,77 +311,11 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     return message.includes(`journal ${headerId.toLowerCase()} was not found`);
   }
 
-  private async verifyRoutedJournalIntegrity(
-    headerId: string,
-    dataAreaId: string,
-    expectedLines: unknown[],
-    integrationMarker?: string,
-  ): Promise<void> {
-    const expectedLineCount = expectedLines.length;
-    let actualLineCount = 0;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const state = await this.cashJournalStrategy.getJournalIntegrityState(
-        headerId,
-        dataAreaId,
-      );
-      actualLineCount = state.lineCount;
-      if (
-        state.headerExists &&
-        integrationMarker &&
-        !this.hasIntegrationMarker(state.headerDescription, integrationMarker)
-      ) {
-        throw new Error(
-          `[DATA INTEGRITY] Journal ${headerId} belongs to a different Finance transaction: expected integration marker [${integrationMarker}], found description "${state.headerDescription ?? ''}". No lines were posted to that journal.`,
-        );
-      }
-      if (
-        state.headerExists &&
-        actualLineCount > expectedLineCount &&
-        this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines
-      ) {
-        const repaired =
-          await this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines(
-            headerId,
-            expectedLineCount,
-            dataAreaId,
-          );
-        if (repaired) {
-          const repairedState =
-            await this.cashJournalStrategy.getJournalIntegrityState(
-              headerId,
-              dataAreaId,
-            );
-          actualLineCount = repairedState.lineCount;
-        }
-      }
-      if (state.headerExists && actualLineCount === expectedLineCount) {
-        await this.cashJournalStrategy.assertJournalSettlementIntegrity(
-          headerId,
-          expectedLines,
-          dataAreaId,
-        );
-        return;
-      }
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw this.integrityError(headerId, expectedLineCount, actualLineCount);
-  }
-
   private hasIntegrationMarker(
     description: string | undefined,
     integrationMarker: string,
   ): boolean {
     return String(description ?? '').includes(`[${integrationMarker}]`);
-  }
-
-  private integrityError(
-    headerId: string,
-    expectedLineCount: number,
-    actualLineCount: number,
-  ): Error {
-    return new Error(
-      `[DATA INTEGRITY] Journal ${headerId} was not confirmed in D365FO exactly once: expected ${expectedLineCount} line(s), found ${actualLineCount}. The batch was not marked Posted and no new journal was created.`,
-    );
   }
 
   private asRoutedGroup(

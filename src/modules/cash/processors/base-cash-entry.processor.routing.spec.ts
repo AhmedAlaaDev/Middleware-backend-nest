@@ -522,6 +522,77 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(formatted.Description).not.toContain(' - unmarked');
     });
 
+    it('appends - unmarked to Description and TransactionText when vendor payment has no settlement mark', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2048,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-001',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 500,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 2048,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          CREDITAMOUNT: 500,
+          DEBITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const [formatted] = (processor as any).buildLines('2048', rawLines);
+
+      expect(
+        (formatted.MarkedLines ?? []).every(
+          (mark: any) =>
+            !String(mark.InvoiceNumber ?? '').trim() &&
+            !String(mark.DocumentNumber ?? '').trim() &&
+            !String(mark.OperationNumber ?? '').trim(),
+        ),
+      ).toBe(true);
+      expect(formatted.MarkedInvoice || '').toBe('');
+      expect(formatted.Description).toContain(' - unmarked');
+      expect(formatted.TransactionText).toContain(' - unmarked');
+    });
+
+    it('appends - unmarked on standalone custody vendor lines without a settlement target', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 2049,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-CUST',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 250,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+          VendorGroup: 'Custody',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const [formatted] = (processor as any).buildLines('2049', rawLines);
+
+      expect(formatted.MarkedLines ?? []).toEqual([]);
+      expect(formatted.Description).toContain(' - unmarked');
+      expect(formatted.TransactionText).toContain(' - unmarked');
+    });
+
     it('PBI 2055: keeps 223304 withholding lines and does not reduce vendor amount', () => {
       const processor = createProcessor();
       const rawLines = [

@@ -715,11 +715,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
   private isMainAccountOnlyLine(
     line: CashEntryDynDataModel,
-    _cashDirection: 'in' | 'out',
+    cashDirection: 'in' | 'out',
     _route: CashJournalRoute | undefined,
   ): boolean {
-    // Both Cash-In and Cash-Out accept primary-account-only lines. Detect the
-    // shape from blank offset fields and never invent an offset in the body.
+    // Cash-In is always one FO line per source row with no offset counterpart.
+    if (cashDirection === 'in') {
+      return true;
+    }
+
+    // Cash-Out accepts primary-account-only lines when offset fields are blank.
     return (
       !this.toOptionalTrimmedString(line.OffsetAccountType) &&
       !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
@@ -989,9 +993,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
     const isMainAccountOnlyCashLine =
-      !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
-      !body.offsetAccountDisplayValue?.trim() &&
-      !body.OffsetAccountTypeStr?.trim();
+      line.cashDirection === 'in' ||
+      (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
+        !body.offsetAccountDisplayValue?.trim() &&
+        !body.OffsetAccountTypeStr?.trim());
     if (!isMainAccountOnlyCashLine) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
