@@ -154,6 +154,16 @@ export class DataBatchService {
     );
   }
 
+  private isCashInProcessor(type: EntryProcessorTypes): boolean {
+    return (
+      type === EntryProcessorTypes.CashInFreight ||
+      type === EntryProcessorTypes.CashInTrucking ||
+      type === EntryProcessorTypes.LedgerCashIn ||
+      type === EntryProcessorTypes.LedgerBankIn ||
+      type === EntryProcessorTypes.LedgerVisaIn
+    );
+  }
+
   /**
    * Stores Cash Out source-validation failures as a regular batch so the
    * existing batch summary and dedicated error page remain the single UI flow.
@@ -171,7 +181,9 @@ export class DataBatchService {
     const validationRunId = randomUUID();
     const actor = this.traceContext.get();
     const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
-    const sourceFingerprint = this.createSourceFingerprint(rawData);
+    const sourceFingerprint = this.isCashInProcessor(entryProcessorType)
+      ? undefined
+      : this.createSourceFingerprint(rawData);
     const { batch: dataBatch, created } = await this.createIdempotentDataBatch({
       company: companyId,
       entryProcessorType,
@@ -257,7 +269,9 @@ export class DataBatchService {
     );
 
     const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
-    const sourceFingerprint = this.createSourceFingerprint(rawData);
+    const sourceFingerprint = this.isCashInProcessor(entryProcessorType)
+      ? undefined
+      : this.createSourceFingerprint(rawData);
 
     // Create batch
     const { batch: dataBatch, created } = await this.createIdempotentDataBatch({

@@ -1,7 +1,7 @@
 # docker-compose.production.yml
 services:
   app:
-    image: moatazali/middleware-app:1.0.60
+    image: moatazali/middleware-app:1.0.61
     container_name: d365fo-middleware-production
     restart: unless-stopped
     # D365FO bulk calls can run for up to 10 minutes. Let Nest/BullMQ finish
