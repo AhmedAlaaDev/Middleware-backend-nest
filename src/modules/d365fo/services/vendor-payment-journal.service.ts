@@ -365,7 +365,26 @@ export class VendorPaymentJournalService {
   public async listOpenInvoiceCandidatesForInvoices(
     dataAreaId: string,
     invoiceNumbers: string[],
+    _vendorAccounts: string[] = [],
+    pairs: Array<{ invoice: string; vendorAccount: string }> = [],
   ): Promise<VendorOpenInvoiceCandidate[]> {
+    const uniquePairs = [
+      ...new Map(
+        pairs
+          .filter(
+            (pair) =>
+              String(pair.invoice ?? '').trim() &&
+              String(pair.vendorAccount ?? '').trim(),
+          )
+          .map((pair) => [
+            `${pair.vendorAccount.trim().toLowerCase()}|${pair.invoice.trim().toLowerCase()}`,
+            {
+              invoice: String(pair.invoice),
+              vendorAccount: String(pair.vendorAccount),
+            },
+          ]),
+      ).values(),
+    ];
     const uniqueInvoices = [
       ...new Set(
         invoiceNumbers
@@ -374,50 +393,103 @@ export class VendorPaymentJournalService {
       ),
     ];
     const results: VendorOpenInvoiceCandidate[] = [];
+    if (uniquePairs.length > 0) {
+      for (let index = 0; index < uniquePairs.length; index += 8) {
+        const pairFilters = uniquePairs.slice(index, index + 8).map((pair) => {
+          const vendorFilter = `(${this.queryBuilder.or(
+            ...this.lookupValueVariants([pair.vendorAccount]).map((vendor) =>
+              this.queryBuilder.eq('AccountNum', vendor),
+            ),
+          )})`;
+          const invoiceFilter = `(${this.queryBuilder.or(
+            ...this.lookupValueVariants([pair.invoice]).map((invoice) =>
+              this.queryBuilder.eq('Invoice', invoice),
+            ),
+          )})`;
+          return `(${vendorFilter} and ${invoiceFilter})`;
+        });
+        const filter = this.queryBuilder.and(
+          this.queryBuilder.eq('dataAreaId', dataAreaId),
+          `(${pairFilters.join(' or ')})`,
+        );
+        results.push(
+          ...(await this.fetchOpenInvoiceCandidates(filter)),
+        );
+      }
+      return results;
+    }
+
     for (let index = 0; index < uniqueInvoices.length; index += 8) {
-      const invoiceValues = [
-        ...new Set(
-          uniqueInvoices.slice(index, index + 8).flatMap((value) => {
-            const trimmed = value.trim();
-            return [
-              value,
-              trimmed,
-              ` ${trimmed}`,
-              `${trimmed} `,
-              ` ${trimmed} `,
-            ];
-          }),
-        ),
-      ];
+      const invoiceFilter = `(${this.queryBuilder.or(
+        ...this.lookupValueVariants(
+          uniqueInvoices.slice(index, index + 8),
+        ).map((invoice) => this.queryBuilder.eq('Invoice', invoice)),
+      )})`;
       const filter = this.queryBuilder.and(
         this.queryBuilder.eq('dataAreaId', dataAreaId),
-        `(${this.queryBuilder.or(
-          ...invoiceValues.map((invoice) =>
-            this.queryBuilder.eq('Invoice', invoice),
-          ),
-        )})`,
+        invoiceFilter,
       );
-      const query = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
-        filter,
-        select: [
-          'Invoice',
-          'AccountNum',
-          'AmountCur',
-          'SettleAmountCur',
-          'CurrencyCode',
-          'DueDate',
-          'Closed',
-        ],
-        top: 10000,
-        crossCompany: true,
-      });
-      const response = await this.d365foClient.get<VendorOpenInvoiceCandidate>(
-        query,
-        { useCache: false },
-      );
-      results.push(...(response.value ?? []));
+      results.push(...(await this.fetchOpenInvoiceCandidates(filter)));
     }
     return results;
+  }
+
+  private async fetchOpenInvoiceCandidates(
+    filter: string,
+  ): Promise<VendorOpenInvoiceCandidate[]> {
+    const query = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
+      filter,
+      select: [
+        'Invoice',
+        'AccountNum',
+        'AmountCur',
+        'SettleAmountCur',
+        'CurrencyCode',
+        'DueDate',
+        'Closed',
+      ],
+      top: 10000,
+      crossCompany: true,
+    });
+    const response = await this.d365foClient.get<VendorOpenInvoiceCandidate>(
+      query,
+      { useCache: false },
+    );
+    return response.value ?? [];
+  }
+
+  private lookupValueVariants(values: string[]): string[] {
+    return [
+      ...new Set(
+        values.flatMap((value) => {
+          const cleaned = String(value ?? '')
+            .replace(
+              // Intentional removal of non-printing Unicode and ASCII controls.
+              // eslint-disable-next-line no-control-regex
+              /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
+              '',
+            )
+            .replace(/\u00a0/g, ' ')
+            .normalize('NFKC')
+            .trim();
+          return [
+            value,
+            cleaned,
+            ` ${cleaned}`,
+            `${cleaned} `,
+            ` ${cleaned} `,
+          ];
+        }),
+      ),
+    ];
+  }
+
+  private chunkLookupValues(values: string[], size: number): string[][] {
+    const chunks: string[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+      chunks.push(values.slice(index, index + size));
+    }
+    return chunks.length > 0 ? chunks : [[]];
   }
 
   /** Add only the settlement child record; no payment amount line is reposted. */

@@ -50,6 +50,15 @@ export interface IDfoPostingStrategy {
   ): Promise<void>;
 
   /**
+   * Drop UniqueId groups whose invoices are already settled so a new journal
+   * is created only for amounts that are still payable.
+   */
+  omitAlreadySettledInvoiceGroups?(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<unknown[]>;
+
+  /**
    * Verify that a journal header still exists in D365FO. Cash posting uses
    * this authoritative read-back before it resumes or completes a journal.
    */

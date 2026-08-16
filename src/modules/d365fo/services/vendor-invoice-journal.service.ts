@@ -21,6 +21,18 @@ const VENDOR_INVOICE_LOOKUP_CHUNK_RETRIES = 5;
 
 export type VendorInvoiceVendorPairKey = string;
 
+export type VendorInvoiceLookupPair = {
+  invoice: string;
+  vendorAccount: string;
+};
+
+export type VendorInvoiceLookupOptions = {
+  chunkSize?: number;
+  concurrency?: number;
+  vendorAccounts?: string[];
+  pairs?: VendorInvoiceLookupPair[];
+};
+
 /**
  * Service for managing vendor invoice journals in D365FO
  */
@@ -63,14 +75,13 @@ export class VendorInvoiceJournalService {
 
   /**
    * Batch-lookup existing invoice/vendor pairs on posted vendor invoices.
-   * D365FO OData does not support `in`; uses
-   * `(Invoice eq 'a' or Invoice eq 'b' or …)` chunks, then matches
-   * InvoiceAccount/OrderAccount in memory. Returns a Set of pair keys that exist.
+   * Look up from vendor account to invoice (never invoice-only): short invoice
+   * numbers like "386" collide across vendors and truncate the FO page.
    */
   public async findExistingInvoiceVendorPairs(
     company: string,
     invoices: string[],
-    options?: { chunkSize?: number; concurrency?: number },
+    options?: VendorInvoiceLookupOptions,
   ): Promise<Set<VendorInvoiceVendorPairKey>> {
     const invoiceIds = await this.findExistingInvoiceVendorPairInvoiceIds(
       company,
@@ -89,7 +100,7 @@ export class VendorInvoiceJournalService {
   public async findExistingInvoiceVendorPairInvoiceIds(
     company: string,
     invoices: string[],
-    options?: { chunkSize?: number; concurrency?: number },
+    options?: VendorInvoiceLookupOptions,
   ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
     const uniqueInvoices = [
       ...new Set(
@@ -115,14 +126,19 @@ export class VendorInvoiceJournalService {
       5,
       Math.max(1, options?.concurrency ?? VENDOR_INVOICE_LOOKUP_CONCURRENCY),
     );
-    const chunks = this.chunkArray(uniqueInvoices, chunkSize);
-    const totalChunks = chunks.length;
+    const pairs = this.uniqueLookupPairs(options?.pairs ?? []);
+    const pairChunks =
+      pairs.length > 0 ? this.chunkArray(pairs, Math.min(8, chunkSize)) : [];
+    const invoiceChunks =
+      pairChunks.length > 0 ? [] : this.chunkArray(uniqueInvoices, chunkSize);
+    const totalLookups = Math.max(pairChunks.length, invoiceChunks.length);
 
     this.logger.log(
-      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against posted D365 vendor invoices for company '${company}' in ${totalChunks} chunk(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
+      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against posted D365 vendor invoices for company '${company}' from ${pairs.length} vendor-invoice pair(s) in ${totalLookups} lookup(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
     );
 
     const startMs = Date.now();
+    const chunks = pairChunks.length > 0 ? pairChunks : invoiceChunks;
 
     for (let i = 0; i < chunks.length; i += concurrency) {
       const wave = chunks.slice(i, i + concurrency);
@@ -130,9 +146,12 @@ export class VendorInvoiceJournalService {
         wave.map((chunk, j) =>
           this.fetchInvoiceVendorPairsChunk(
             company,
-            chunk,
+            pairChunks.length > 0 ? [] : (chunk as string[]),
             i + j + 1,
-            totalChunks,
+            totalLookups,
+            pairChunks.length > 0
+              ? (chunk as VendorInvoiceLookupPair[])
+              : [],
           ),
         ),
       );
@@ -153,38 +172,58 @@ export class VendorInvoiceJournalService {
     return existingInvoiceIds;
   }
 
+  private uniqueLookupPairs(
+    pairs: VendorInvoiceLookupPair[],
+  ): VendorInvoiceLookupPair[] {
+    const unique = new Map<string, VendorInvoiceLookupPair>();
+    for (const pair of pairs) {
+      const invoice = VendorInvoiceJournalService.preserveLookupValue(
+        pair.invoice,
+      );
+      const vendorAccount = VendorInvoiceJournalService.preserveLookupValue(
+        pair.vendorAccount,
+      );
+      if (!invoice.trim() || !vendorAccount.trim()) continue;
+      const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
+      if (!unique.has(key)) unique.set(key, { invoice, vendorAccount });
+    }
+    return [...unique.values()];
+  }
+
   private async fetchInvoiceVendorPairsChunk(
     company: string,
     invoices: string[],
     chunkIndex: number,
     totalChunks: number,
+    pairs: VendorInvoiceLookupPair[] = [],
   ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
-    // OData equality does not trim InvoiceId. Query the source value exactly,
-    // plus normalized leading/trailing-space variants, while preserving the
-    // original value for the eventual posting payload.
-    const invoiceLookupValues = [
-      ...new Set(
-        invoices.flatMap((invoice) => {
-          const normalized =
-            VendorInvoiceJournalService.cleanLookupValue(invoice);
-          return [
-            invoice,
-            normalized,
-            ` ${normalized}`,
-            `${normalized} `,
-            ` ${normalized} `,
-          ];
-        }),
-      ),
-    ];
-    const invoiceOrFilter = `(${this.queryBuilder.or(
-      ...invoiceLookupValues.map((invoice) =>
-        this.queryBuilder.eq('InvoiceId', invoice),
-      ),
-    )})`;
-
+    const pairFilters = pairs.map((pair) => {
+      const invoiceFilter = `(${this.queryBuilder.or(
+        ...this.lookupValueVariants(pair.invoice).map((invoice) =>
+          this.queryBuilder.eq('InvoiceId', invoice),
+        ),
+      )})`;
+      const vendorFilter = `(${this.queryBuilder.or(
+        ...this.lookupValueVariants(pair.vendorAccount).flatMap((vendor) => [
+          this.queryBuilder.eq('InvoiceAccount', vendor),
+          this.queryBuilder.eq('OrderAccount', vendor),
+        ]),
+      )})`;
+      return `(${vendorFilter} and ${invoiceFilter})`;
+    });
+    const invoiceOrFilter =
+      invoices.length > 0
+        ? `(${this.queryBuilder.or(
+            ...invoices.flatMap((invoice) =>
+              this.lookupValueVariants(invoice).map((value) =>
+                this.queryBuilder.eq('InvoiceId', value),
+              ),
+            ),
+          )})`
+        : '';
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
+      pairFilters.length > 0 ? `(${pairFilters.join(' or ')})` : '',
       invoiceOrFilter,
     );
 
@@ -235,7 +274,7 @@ export class VendorInvoiceJournalService {
           }
 
           this.logger.debug(
-            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
+            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${pairs.length || invoices.length} lookup(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
           );
 
           return pageInvoiceIds;
@@ -264,6 +303,19 @@ export class VendorInvoiceJournalService {
         `Vendor invoice lookup failed (chunk ${chunkIndex}/${totalChunks}): ${errorDetails}`,
       );
     }
+  }
+
+  private lookupValueVariants(value: string): string[] {
+    const normalized = VendorInvoiceJournalService.cleanLookupValue(value);
+    return [
+      ...new Set([
+        value,
+        normalized,
+        ` ${normalized}`,
+        `${normalized} `,
+        ` ${normalized} `,
+      ]),
+    ];
   }
 
   private chunkArray<T>(arr: T[], size: number): T[][] {

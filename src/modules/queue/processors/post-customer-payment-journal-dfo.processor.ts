@@ -202,14 +202,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             // The number was deleted and later reused by Finance. Never post
             // into or delete that unrelated journal; create a fresh header.
             headerId = undefined;
-          } else if (state.lineCount >= record.payload.lines.length) {
-            await this.verifyRoutedJournalIntegrity(
-              headerId,
-              job.data.company,
-              record.payload.lines,
-              routedGroup.integrationMarker,
-            );
-            linesAlreadyComplete = true;
           }
         } else if (headerId && postingStrategy.headerExists) {
           const exists = await postingStrategy.headerExists(
@@ -220,12 +212,51 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             headerId = undefined;
           }
         }
+        let linesToPost = record.payload.lines;
+        if (routedGroup && postingStrategy.omitAlreadySettledInvoiceGroups) {
+          linesToPost = (await postingStrategy.omitAlreadySettledInvoiceGroups(
+            record.payload.lines,
+            job.data.company,
+          )) as CashJournalPostingGroup['lines'];
+        }
+        if (headerId && routedGroup) {
+          const state = await this.cashJournalStrategy.getJournalIntegrityState(
+            headerId,
+            job.data.company,
+          );
+          if (
+            state.headerExists &&
+            (!routedGroup.integrationMarker ||
+              this.hasIntegrationMarker(
+                state.headerDescription,
+                routedGroup.integrationMarker,
+              )) &&
+            state.lineCount >= linesToPost.length
+          ) {
+            await this.verifyRoutedJournalIntegrity(
+              headerId,
+              job.data.company,
+              linesToPost,
+              routedGroup.integrationMarker,
+            );
+            linesAlreadyComplete = true;
+          }
+        }
         if (!headerId) {
           if (routedGroup && postingStrategy.assertNoExternalSettlementOwners) {
             await postingStrategy.assertNoExternalSettlementOwners(
               record.payload.lines,
               job.data.company,
             );
+          }
+          if (linesToPost.length === 0) {
+            await this.jobs.completeGroup(jobId, record.index);
+            completedGroups += 1;
+            await job.updateProgress({
+              completedGroups: record.index + 1,
+              totalGroups: groups.length,
+            });
+            continue;
           }
           headerId = await this.createAndTrackHeader(
             postingStrategy,
@@ -252,7 +283,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           try {
             await postingStrategy.postLinesForHeader(
               headerId,
-              record.payload.lines,
+              linesToPost,
               job.data.company,
               LINE_CHUNK_SIZE,
             );
@@ -260,7 +291,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
               await this.verifyRoutedJournalIntegrity(
                 headerId,
                 job.data.company,
-                record.payload.lines,
+                linesToPost,
                 routedGroup.integrationMarker,
               );
             }
@@ -395,6 +426,26 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         throw new Error(
           `[DATA INTEGRITY] Journal ${headerId} belongs to a different Finance transaction: expected integration marker [${integrationMarker}], found description "${state.headerDescription ?? ''}". No lines were posted to that journal.`,
         );
+      }
+      if (
+        state.headerExists &&
+        actualLineCount > expectedLineCount &&
+        this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines
+      ) {
+        const repaired =
+          await this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines(
+            headerId,
+            expectedLineCount,
+            dataAreaId,
+          );
+        if (repaired) {
+          const repairedState =
+            await this.cashJournalStrategy.getJournalIntegrityState(
+              headerId,
+              dataAreaId,
+            );
+          actualLineCount = repairedState.lineCount;
+        }
       }
       if (state.headerExists && actualLineCount === expectedLineCount) {
         await this.cashJournalStrategy.assertJournalSettlementIntegrity(

@@ -744,6 +744,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
         this.company,
         invoices,
+        {
+          vendorAccounts,
+          pairs: normalVendorLines
+            .map((line) => ({
+              invoice: this.sanitizeInvoiceOutbound(
+                line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
+              ),
+              vendorAccount: String(line.ACCOUNTDISPLAYVALUE ?? '').trim(),
+            }))
+            .filter((pair) => pair.invoice && pair.vendorAccount),
+        },
       );
     for (const line of normalVendorLines) {
       const invoice = this.sanitizeInvoiceOutbound(
@@ -3415,23 +3426,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected async fetchVendorInvoiceExistsMap(
     lines: CashEntryDynDataModel[],
   ): Promise<void> {
+    const vendorPaymentLines = lines.filter((line) => {
+      try {
+        return (
+          this.cashJournalRoutingService.resolve({
+            safeType: line.SafeType,
+            targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+            voucherType: line.VoucherType,
+          }).safeType === 'Vendor Payment'
+        );
+      } catch {
+        return false;
+      }
+    });
     const invoices = [
       ...new Set(
-        lines
-          .filter((line) => {
-            try {
-              return (
-                this.cashJournalRoutingService.resolve({
-                  safeType: line.SafeType,
-                  targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
-                  voucherType: line.VoucherType,
-                }).safeType === 'Vendor Payment'
-              );
-            } catch {
-              // Unsupported Safe Types are reported by validateAsync.
-              return false;
-            }
-          })
+        vendorPaymentLines
           .flatMap((line) =>
             (line.MarkedLines?.length
               ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
@@ -3450,10 +3460,28 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       return;
     }
 
+    const pairs = vendorPaymentLines.flatMap((line) => {
+      const vendorAccount = String(line.AccountDisplayValue ?? '').trim();
+      const lineInvoices = (
+        line.MarkedLines?.length
+          ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
+          : [line.MarkedInvoice || line.Invoice || '']
+      )
+        .map((invoice) => this.sanitizeInvoiceOutbound(invoice))
+        .filter((invoice) => Boolean(invoice));
+      if (!vendorAccount) return [];
+      return lineInvoices.map((invoice) => ({ invoice, vendorAccount }));
+    });
     this.vendorInvoiceExistsMap =
       await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
         this.company,
         invoices,
+        {
+          pairs,
+          vendorAccounts: [
+            ...new Set(pairs.map((pair) => pair.vendorAccount)),
+          ],
+        },
       );
   }
 

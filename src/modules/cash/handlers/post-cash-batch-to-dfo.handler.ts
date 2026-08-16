@@ -435,12 +435,18 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         line.PaymentId || line.SourceIds?.[0] || '',
       ).trim();
       const isWithholdingCompanion =
-        accountTypeStr === 'Vendor' &&
-        String(line.OffsetAccountDisplayValue ?? '')
-          .trim()
-          .split('|')[0]
-          .trim()
-          .startsWith('223304');
+        (accountTypeStr === 'Vendor' &&
+          String(line.OffsetAccountDisplayValue ?? '')
+            .trim()
+            .split('|')[0]
+            .trim()
+            .startsWith('223304')) ||
+        (accountTypeStr === 'Ledger' &&
+          String(line.AccountDisplayValue ?? '')
+            .trim()
+            .split('|')[0]
+            .trim()
+            .startsWith('223304'));
       const sourceMarkedLines =
         line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines
@@ -479,7 +485,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                 : '',
               HasWithHoldingLine:
                 Boolean(markedLine.HasWithHoldingLine) ||
-                hasAssociatedWithholding,
+                hasAssociatedWithholding ||
+                isWithholdingCompanion,
             }))
           : this.synthesizeCashOutMarkedLines({
               isCustodyVendor,
@@ -493,7 +500,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                   : '',
               operationNumber,
               documentNumber,
-              hasWithholdingLine: hasAssociatedWithholding,
+              hasWithholdingLine:
+                hasAssociatedWithholding || isWithholdingCompanion,
             })
         : [];
       const cashInMarkedLines =

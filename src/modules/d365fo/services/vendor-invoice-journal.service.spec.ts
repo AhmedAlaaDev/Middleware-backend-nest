@@ -52,6 +52,38 @@ describe('VendorInvoiceJournalService invoice lookup', () => {
     );
   });
 
+  it('looks up posted invoices from the vendor account, not invoice-only', async () => {
+    const d365foClient = {
+      get: jest.fn().mockResolvedValue({
+        value: [
+          {
+            InvoiceId: '386',
+            InvoiceAccount: 'RP-000003',
+          },
+        ],
+      }),
+    };
+    const service = new VendorInvoiceJournalService(
+      d365foClient as any,
+      new ODataQueryBuilderService(),
+      {
+        executeWithRetry: jest.fn((operation: () => Promise<unknown>) =>
+          operation(),
+        ),
+        isFoThrottleError: jest.fn().mockReturnValue(false),
+      } as any,
+      { extractMessage: jest.fn() } as any,
+    );
+
+    await service.findExistingInvoiceVendorPairs('m-p', ['386'], {
+      pairs: [{ invoice: '386', vendorAccount: 'RP-000003' }],
+    });
+
+    const query = decodeURIComponent(d365foClient.get.mock.calls[0][0]);
+    expect(query).toContain("InvoiceAccount eq 'RP-000003'");
+    expect(query).toContain("InvoiceId eq '386'");
+  });
+
   it('returns the exact D365 InvoiceId for a normalized invoice/vendor pair', async () => {
     const d365foClient = {
       get: jest.fn().mockResolvedValue({
