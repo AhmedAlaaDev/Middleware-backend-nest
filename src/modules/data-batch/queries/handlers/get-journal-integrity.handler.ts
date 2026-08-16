@@ -132,16 +132,19 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
     if (duplicates.duplicateLineNumbers.length > 0) {
       issues.push('Finance contains repeated LineNumber values.');
     }
+    const alreadyMarkedElsewhere = this.summarizeAlreadyMarkedElsewhere(
+      journalBatchNumber,
+      actualLines,
+      settlementAnalysis,
+    );
     if (settlementAnalysis && !settlementAnalysis.matches) {
-      const blockerDetails = settlementAnalysis.blockers
-        .map(
-          (item) =>
-            `invoice ${item.invoiceNumber} is marked by ${item.journalBatchNumber} line ${item.journalLineNumber}`,
-        )
-        .join('; ');
-      issues.push(
-        `Invoice settlement mismatch: Finance confirmed ${settlementAnalysis.actualCount}/${settlementAnalysis.expectedCount} expected mark(s).${blockerDetails ? ` ${blockerDetails}.` : ''}`,
-      );
+      if (alreadyMarkedElsewhere.journals.length > 0) {
+        warnings.push(alreadyMarkedElsewhere.description);
+      } else {
+        issues.push(
+          `Invoice settlement mismatch: Finance confirmed ${settlementAnalysis.actualCount}/${settlementAnalysis.expectedCount} expected mark(s) on ${journalBatchNumber}.`,
+        );
+      }
     }
     if (settlementCheckError) {
       issues.push(
@@ -191,6 +194,7 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
         amountComparisonByCurrency: amountComparison,
       },
       duplicationAnalysis: duplicates,
+      alreadyMarkedElsewhere,
       settlementAnalysis,
       middleware: expected
         ? {
@@ -244,11 +248,14 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
           { useCache: false },
         );
         fullResponseByEntity[pair.lines] = lineResponse;
+        const lines = lineResponse.value ?? [];
+        this.enrichFinanceLineMarks(lines);
+        await this.applySettledInvoiceChildren(journalBatchNumber, lines);
         matches.push({
           headerEntity: pair.header,
           lineEntity: pair.lines,
           headers,
-          lines: lineResponse.value ?? [],
+          lines,
         });
       } catch (error) {
         fullResponseByEntity[pair.header] = {
@@ -258,6 +265,136 @@ export class GetJournalIntegrityHandler implements IQueryHandler<GetJournalInteg
     }
 
     return { matches, fullResponseByEntity };
+  }
+
+  /**
+   * FO OData leaves VendorPaymentJournalLines.MarkedLines as [] unless the
+   * navigation is expanded. The mark actually lives on MarkedInvoice /
+   * SettleVoucher / VendorPaymentJournalLineSettledInvoices. Copy those into
+   * MarkedLines so Postman and the UI show the real invoices.
+   */
+  private enrichFinanceLineMarks(lines: JsonRecord[]): void {
+    for (const line of lines) {
+      const existing = Array.isArray(line.MarkedLines) ? line.MarkedLines : [];
+      const hasInvoice = existing.some((marked) =>
+        Boolean(String(marked?.InvoiceNumber ?? '').trim()),
+      );
+      if (hasInvoice) continue;
+      const invoice = String(line.MarkedInvoice ?? '').trim();
+      line.MarkedLines = invoice
+        ? [
+            {
+              InvoiceNumber: invoice,
+              SettleVoucher: line.SettleVoucher || 'SelectedTransact',
+            },
+          ]
+        : [];
+    }
+  }
+
+  private async applySettledInvoiceChildren(
+    journalBatchNumber: string,
+    lines: JsonRecord[],
+  ): Promise<void> {
+    if (!lines.length) return;
+    const escaped = journalBatchNumber.replace(/'/g, "''");
+    const filter = encodeURIComponent(`JournalBatchNumber eq '${escaped}'`);
+    try {
+      const response = await this.d365foClient.get<JsonRecord>(
+        `/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=${filter}&$top=10000`,
+        { useCache: false },
+      );
+      const children = response.value ?? [];
+      if (!children.length) return;
+      const invoicesByLine = new Map<string, string[]>();
+      for (const child of children) {
+        const lineNumber = String(
+          child.JournalLineNumber ?? child.LineNumber ?? '',
+        ).trim();
+        const invoice = String(child.InvoiceNumber ?? '').trim();
+        if (!lineNumber || !invoice) continue;
+        invoicesByLine.set(lineNumber, [
+          ...(invoicesByLine.get(lineNumber) ?? []),
+          invoice,
+        ]);
+      }
+      for (const line of lines) {
+        const extras = invoicesByLine.get(String(line.LineNumber ?? '').trim());
+        if (!extras?.length) continue;
+        const markedLines = Array.isArray(line.MarkedLines)
+          ? [...line.MarkedLines]
+          : [];
+        const seen = new Set(
+          markedLines.map((marked) =>
+            String(marked?.InvoiceNumber ?? '')
+              .trim()
+              .toLowerCase(),
+          ),
+        );
+        for (const invoice of extras) {
+          if (seen.has(invoice.toLowerCase())) continue;
+          seen.add(invoice.toLowerCase());
+          markedLines.push({
+            InvoiceNumber: invoice,
+            SettleVoucher: 'SelectedTransact',
+          });
+        }
+        line.MarkedLines = markedLines;
+        if (!String(line.MarkedInvoice ?? '').trim() && markedLines[0]) {
+          line.MarkedInvoice = markedLines[0].InvoiceNumber;
+        }
+      }
+    } catch {
+      // Child entity is optional; MarkedInvoice enrichment still applies.
+    }
+  }
+
+  private summarizeAlreadyMarkedElsewhere(
+    journalBatchNumber: string,
+    actualLines: JsonRecord[],
+    settlementAnalysis: CashOutSettlementIntegrityResult | null,
+  ): {
+    thisJournalMarkedLineCount: number;
+    journals: Array<{ journalBatchNumber: string; invoiceCount: number }>;
+    description: string;
+  } {
+    const thisJournalNorm = journalBatchNumber.trim().toLowerCase();
+    const thisJournalMarkedLineCount = actualLines.filter((line) =>
+      this.lineHasInvoiceMark(line),
+    ).length;
+    const counts = new Map<string, number>();
+    for (const blocker of settlementAnalysis?.blockers ?? []) {
+      const owner = String(blocker.journalBatchNumber ?? '').trim();
+      if (!owner || owner.toLowerCase() === thisJournalNorm) continue;
+      counts.set(owner, (counts.get(owner) ?? 0) + 1);
+    }
+    const journals = [...counts.entries()]
+      .map(([owner, invoiceCount]) => ({
+        journalBatchNumber: owner,
+        invoiceCount,
+      }))
+      .sort((left, right) => right.invoiceCount - left.invoiceCount);
+    const journalList = journals
+      .map((item) => `${item.journalBatchNumber} (${item.invoiceCount})`)
+      .join(', ');
+    const description = journals.length
+      ? `These invoices are already marked in Finance on ${journalList}. Post those journals. ${journalBatchNumber} has payment lines, but the invoice marks belong to the earlier journals.`
+      : thisJournalMarkedLineCount === 0
+        ? `No invoice marks were found on ${journalBatchNumber}. If this file was posted more than once, the marks are on an earlier Finance journal.`
+        : `${thisJournalMarkedLineCount} line(s) on ${journalBatchNumber} already have invoice marks in Finance.`;
+    return { thisJournalMarkedLineCount, journals, description };
+  }
+
+  private lineHasInvoiceMark(line: JsonRecord): boolean {
+    if (String(line.MarkedInvoice ?? '').trim()) return true;
+    if (String(line.SettleVoucher ?? '') === 'SelectedTransact') return true;
+    const markedLines = line.MarkedLines;
+    return (
+      Array.isArray(markedLines) &&
+      markedLines.some((marked) =>
+        Boolean(String(marked?.InvoiceNumber ?? '').trim()),
+      )
+    );
   }
 
   private async findExpectedPosting(journalBatchNumber: string): Promise<{

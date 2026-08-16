@@ -66,6 +66,10 @@ export class DataBatch {
   @Prop({ type: [String], default: [] })
   dfoIds?: string[];
 
+  /** Finance journals created by a failed/in-progress attempt; never user-facing links. */
+  @Prop({ type: [String], default: [] })
+  dfoAttemptedIds?: string[];
+
   @Prop({ type: [String], default: [] })
   dfoPostingErrors?: string[];
 

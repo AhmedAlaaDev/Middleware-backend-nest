@@ -466,6 +466,39 @@ export class VendorPaymentJournalService {
     );
   }
 
+  public async findHeadersByIntegrationMarker(
+    integrationMarker: string,
+    dataAreaId: string,
+  ): Promise<string[]> {
+    const marker = String(integrationMarker ?? '').trim();
+    if (!marker) return [];
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.contains('Description', marker),
+    );
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalHeaders',
+      {
+        filter,
+        select: ['JournalBatchNumber', 'Description'],
+        top: 100,
+        crossCompany: true,
+      },
+    );
+    const response = await this.d365foClient.get<{
+      JournalBatchNumber: string;
+      Description?: string;
+    }>(query, { useCache: false });
+    return [
+      ...new Set(
+        (response.value ?? [])
+          .filter((header) => String(header.Description ?? '').includes(marker))
+          .map((header) => String(header.JournalBatchNumber ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
   /**
    * Post a single vendor payment journal line (with retry for concurrency conflicts)
    */

@@ -15,6 +15,8 @@ describe('GetJournalIntegrityHandler', () => {
         DebitAmount: 100.25,
         CreditAmount: 0,
         FinTagDisplayValue: 'OP-1',
+        MarkedInvoice: 'INV-742',
+        SettleVoucher: 'SelectedTransact',
       },
       {
         dataAreaId: 'm-p',
@@ -133,10 +135,17 @@ describe('GetJournalIntegrityHandler', () => {
       }),
     ]);
     expect(result.finance.matches[0].lines).toHaveLength(2);
+    expect(result.finance.matches[0].lines[0].MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-742',
+        SettleVoucher: 'SelectedTransact',
+      },
+    ]);
+    expect(result.alreadyMarkedElsewhere.thisJournalMarkedLineCount).toBe(1);
     expect(result.middleware.expectedLines).toHaveLength(2);
   });
 
-  it('fails when a requested invoice mark is missing or owned by another journal', async () => {
+  it('warns with the owning Finance journals when marks already exist elsewhere', async () => {
     const { handler, customerPaymentJournalService } = buildHandler();
     customerPaymentJournalService.verifyCashOutSettlementIntegrity.mockResolvedValue(
       {
@@ -163,11 +172,16 @@ describe('GetJournalIntegrityHandler', () => {
       new GetJournalIntegrityQuery('Mesco-000014745'),
     );
 
-    expect(result.status).toBe('FAIL');
+    expect(result.status).toBe('WARNING');
     expect(result.isSettlementCorrect).toBe(false);
-    expect(result.issues).toContain(
-      'Invoice settlement mismatch: Finance confirmed 250/251 expected mark(s). invoice 106551 is marked by Mesco-000014711 line 133.',
+    expect(result.alreadyMarkedElsewhere.journals).toEqual([
+      { journalBatchNumber: 'Mesco-000014711', invoiceCount: 1 },
+    ]);
+    expect(result.alreadyMarkedElsewhere.description).toContain(
+      'Mesco-000014711',
     );
+    expect(result.warnings[0]).toContain('already marked in Finance');
+    expect(result.issues).toEqual([]);
     expect(result.settlementAnalysis.blockers).toHaveLength(1);
   });
 

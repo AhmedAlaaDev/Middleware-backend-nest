@@ -35,6 +35,21 @@ export interface IDfoPostingStrategy {
   ): Promise<DfoHeaderIdentity | null>;
 
   /**
+   * Find headers stamped with one middleware integration marker. A marker is
+   * the durable idempotency key for one upload journal group.
+   */
+  findHeadersByIntegrationMarker?(
+    integrationMarker: string,
+    dataAreaId: string,
+  ): Promise<string[]>;
+
+  /** Refuse a new journal when another Finance journal owns a requested mark. */
+  assertNoExternalSettlementOwners?(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void>;
+
+  /**
    * Verify that a journal header still exists in D365FO. Cash posting uses
    * this authoritative read-back before it resumes or completes a journal.
    */

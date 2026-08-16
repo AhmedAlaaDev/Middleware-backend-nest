@@ -161,6 +161,30 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         const persistedHeaderId = record.createdHeaderId;
         let headerId = persistedHeaderId;
         let linesAlreadyComplete = false;
+
+        // Recover from a crash between Finance header creation and Mongo
+        // persistence by the exact upload marker. Never guess when Finance
+        // contains more than one header for the same marker.
+        if (routedGroup?.integrationMarker) {
+          const markerHeaders = postingStrategy.findHeadersByIntegrationMarker
+            ? await postingStrategy.findHeadersByIntegrationMarker(
+                routedGroup.integrationMarker,
+                job.data.company,
+              )
+            : [];
+          if (markerHeaders.length > 1) {
+            throw new Error(
+              `[DATA INTEGRITY] Integration marker ${routedGroup.integrationMarker} exists on multiple Finance journals (${markerHeaders.join(', ')}). No journal was selected and no new journal was created.`,
+            );
+          }
+          if (markerHeaders.length === 1) {
+            headerId = markerHeaders[0];
+            if (record.createdHeaderId !== headerId) {
+              await this.jobs.setCreatedHeader(jobId, record.index, headerId);
+            }
+          }
+        }
+
         if (headerId && routedGroup) {
           const state = await this.cashJournalStrategy.getJournalIntegrityState(
             headerId,
@@ -178,48 +202,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             // The number was deleted and later reused by Finance. Never post
             // into or delete that unrelated journal; create a fresh header.
             headerId = undefined;
-          } else if (state.lineCount === record.payload.lines.length) {
-            await this.verifyRoutedJournalIntegrity(
-              headerId,
-              job.data.company,
-              record.payload.lines,
-              routedGroup.integrationMarker,
-            );
-            linesAlreadyComplete = true;
-          } else if (state.lineCount > record.payload.lines.length) {
-            const repaired =
-              await this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines(
-                headerId,
-                record.payload.lines.length,
-                job.data.company,
-              );
-            if (!repaired) {
-              throw this.integrityError(
-                headerId,
-                record.payload.lines.length,
-                state.lineCount,
-              );
-            }
-            const repairedState =
-              await this.cashJournalStrategy.getJournalIntegrityState(
-                headerId,
-                job.data.company,
-              );
-            if (
-              !repairedState.headerExists ||
-              repairedState.lineCount !== record.payload.lines.length ||
-              (routedGroup.integrationMarker &&
-                !this.hasIntegrationMarker(
-                  repairedState.headerDescription,
-                  routedGroup.integrationMarker,
-                ))
-            ) {
-              throw this.integrityError(
-                headerId,
-                record.payload.lines.length,
-                repairedState.lineCount,
-              );
-            }
+          } else if (state.lineCount >= record.payload.lines.length) {
             await this.verifyRoutedJournalIntegrity(
               headerId,
               job.data.company,
@@ -238,6 +221,12 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           }
         }
         if (!headerId) {
+          if (routedGroup && postingStrategy.assertNoExternalSettlementOwners) {
+            await postingStrategy.assertNoExternalSettlementOwners(
+              record.payload.lines,
+              job.data.company,
+            );
+          }
           headerId = await this.createAndTrackHeader(
             postingStrategy,
             record.payload.header,
@@ -415,39 +404,6 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         );
         return;
       }
-      if (actualLineCount > expectedLineCount) {
-        const repaired =
-          await this.cashJournalStrategy.repairDuplicatedUnmarkedFallbackLines(
-            headerId,
-            expectedLineCount,
-            dataAreaId,
-          );
-        if (repaired) {
-          const repairedState =
-            await this.cashJournalStrategy.getJournalIntegrityState(
-              headerId,
-              dataAreaId,
-            );
-          actualLineCount = repairedState.lineCount;
-          if (
-            repairedState.headerExists &&
-            actualLineCount === expectedLineCount &&
-            (!integrationMarker ||
-              this.hasIntegrationMarker(
-                repairedState.headerDescription,
-                integrationMarker,
-              ))
-          ) {
-            await this.cashJournalStrategy.assertJournalSettlementIntegrity(
-              headerId,
-              expectedLines,
-              dataAreaId,
-            );
-            return;
-          }
-        }
-        break;
-      }
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500));
     }
     throw this.integrityError(headerId, expectedLineCount, actualLineCount);
@@ -503,6 +459,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       ...new Set(headerIds.filter((id) => Boolean(id.trim()))),
     ]);
     await this.batches.clearDfoPostingErrorsAsync(batchId);
+    await this.batches.clearDfoAttemptedIdsAsync(batchId);
     await this.batches.updateStatusAsync(batchId, DataBatchStatus.Posted);
   }
 
@@ -523,8 +480,8 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
   ): Promise<void> {
     if (!headerIds.length) return;
     const batch = await this.batches.getByIdAsync(batchId);
-    await this.batches.updateDfoIdsAsync(batchId, [
-      ...new Set([...(batch?.dfoIds ?? []), ...headerIds]),
+    await this.batches.updateDfoAttemptedIdsAsync(batchId, [
+      ...new Set([...(batch?.dfoAttemptedIds ?? []), ...headerIds]),
     ]);
   }
 

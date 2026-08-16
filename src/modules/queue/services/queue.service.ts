@@ -13,6 +13,7 @@ import {
   DurableJobSubmissionStatus,
   DurablePostingJobPayload,
 } from '@/modules/queue/contracts/durable-posting-job.contract';
+import { DurableQueueJobStatus } from '@/modules/queue/schemas/queue-job.schema';
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -47,6 +48,30 @@ export interface DurableJobSubmission {
   status: DurableJobSubmissionStatus;
   redisState: string;
   message: string;
+}
+
+export interface RedisJobSnapshot {
+  jobId: string;
+  batchId?: string;
+  state: string;
+  timestamp?: number;
+  processedOn?: number | null;
+  finishedOn?: number | null;
+  attemptsMade: number;
+  failedReason: string | null;
+}
+
+export interface RedisQueueSnapshot {
+  active: RedisJobSnapshot[];
+  waiting: RedisJobSnapshot[];
+  delayed: RedisJobSnapshot[];
+  paused: RedisJobSnapshot[];
+}
+
+export interface ReleasedOrphanedJob {
+  jobId: string;
+  batchId?: string;
+  mongoStatus: string;
 }
 
 @Injectable()
@@ -548,6 +573,73 @@ export class QueueService {
   }
 
   /**
+   * Redis jobs currently held by BullMQ. The durable Mongo table can hide these
+   * (time filters, completed/failed Mongo status), which is why a queue can
+   * show Active: 1 with no matching in-flight batch.
+   */
+  public async listRedisJobSnapshots(
+    queueName: QueueName,
+  ): Promise<RedisQueueSnapshot> {
+    const queue = this.getQueue(queueName);
+    const [active, waiting, delayed, paused] = await Promise.all([
+      queue.getJobs(['active']),
+      queue.getJobs(['waiting']),
+      queue.getJobs(['delayed']),
+      queue.getJobs(['paused']),
+    ]);
+
+    return {
+      active: await Promise.all(active.map((job) => this.toRedisSnapshot(job))),
+      waiting: await Promise.all(
+        waiting.map((job) => this.toRedisSnapshot(job)),
+      ),
+      delayed: await Promise.all(
+        delayed.map((job) => this.toRedisSnapshot(job)),
+      ),
+      paused: await Promise.all(paused.map((job) => this.toRedisSnapshot(job))),
+    };
+  }
+
+  /**
+   * Drop Redis active locks whose Mongo durable row is missing or not actually
+   * running. Those ghost locks occupy concurrency=1 and leave new cash posts
+   * queued forever.
+   */
+  public async releaseOrphanedActiveJobs(
+    queueName: QueueName,
+  ): Promise<ReleasedOrphanedJob[]> {
+    const queue = this.getQueue(queueName);
+    const active = await queue.getJobs(['active']);
+    const released: ReleasedOrphanedJob[] = [];
+
+    for (const job of active) {
+      const jobId = String(job.id);
+      const durable = await this.jobStore.findByJobId(jobId);
+      const mongoStatus = durable?.status ?? 'missing';
+      if (
+        mongoStatus === DurableQueueJobStatus.ACTIVE ||
+        mongoStatus === DurableQueueJobStatus.RETRYING
+      ) {
+        continue;
+      }
+
+      const removed = await this.forceRemoveOneActiveJob(queue, job);
+      if (!removed) continue;
+
+      released.push({
+        jobId,
+        batchId: job.data?.batchId,
+        mongoStatus,
+      });
+      this.logger.warn(
+        `[QUEUE] Released orphaned Redis active job ${jobId} on ${queueName} (mongo=${mongoStatus}, batch=${job.data?.batchId ?? 'n/a'})`,
+      );
+    }
+
+    return released;
+  }
+
+  /**
    * Force-drop active jobs that `clean('active')` could not remove because a
    * worker still holds the lock. Moves them to failed, then removes them.
    */
@@ -557,37 +649,60 @@ export class QueueService {
     let removed = 0;
 
     for (const job of active) {
-      const jobId = String(job.id);
-      try {
-        await job.moveToFailed(
-          new Error('Force-deleted by admin'),
-          // Token is unknown outside the worker; BullMQ accepts this for admin force paths.
-          '0',
-          true,
-        );
-      } catch (error) {
-        this.logger.warn(
-          `Could not move active job ${jobId} to failed on ${queueName}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-
-      try {
-        const current = await queue.getJob(jobId);
-        if (current) {
-          await current.remove();
-        }
+      if (await this.forceRemoveOneActiveJob(queue, job)) {
         removed += 1;
-      } catch (error) {
-        this.logger.warn(
-          `Could not remove active job ${jobId} from ${queueName}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
       }
     }
 
     return removed;
+  }
+
+  private async toRedisSnapshot(job: Job): Promise<RedisJobSnapshot> {
+    return {
+      jobId: String(job.id),
+      batchId: job.data?.batchId,
+      state: await job.getState(),
+      timestamp: job.timestamp,
+      processedOn: job.processedOn,
+      finishedOn: job.finishedOn,
+      attemptsMade: job.attemptsMade,
+      failedReason: job.failedReason ?? null,
+    };
+  }
+
+  private async forceRemoveOneActiveJob(
+    queue: Queue,
+    job: Job,
+  ): Promise<boolean> {
+    const jobId = String(job.id);
+    try {
+      await job.moveToFailed(
+        new Error('Force-deleted by admin'),
+        // Token is unknown outside the worker; BullMQ accepts this for admin force paths.
+        '0',
+        true,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not move active job ${jobId} to failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    try {
+      const current = await queue.getJob(jobId);
+      if (current) {
+        await current.remove();
+      }
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Could not remove active job ${jobId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
+    }
   }
 }

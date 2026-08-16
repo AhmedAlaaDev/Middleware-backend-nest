@@ -212,4 +212,29 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
         }
       : null;
   }
+
+  public async findHeadersByIntegrationMarker(
+    integrationMarker: string,
+    dataAreaId: string,
+  ): Promise<string[]> {
+    const marker = String(integrationMarker ?? '').trim();
+    if (!marker) return [];
+    const headers = await this.generalJournalService.getJournalHeaders(
+      dataAreaId,
+      {
+        filters: `contains(Description, '${marker.replace(/'/g, "''")}')`,
+        maxCount: 100,
+        select: ['JournalBatchNumber', 'Description'],
+        useCache: false,
+      },
+    );
+    return [
+      ...new Set(
+        headers
+          .filter((header) => String(header.Description ?? '').includes(marker))
+          .map((header) => String(header.JournalBatchNumber ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
 }

@@ -104,7 +104,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     };
   }
 
-  it('deletes only a fully proven unmarked fallback half created by D365', async () => {
+  it('keeps extra Finance lines and does not roll them back', async () => {
     const { service, vendorPaymentJournalService } = buildService();
     const original = (lineNumber: number, invoice: string, amount: number) => ({
       LineNumber: lineNumber,
@@ -153,12 +153,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         2,
         'm-p',
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
-    expect(vendorPaymentJournalService.deleteLine.mock.calls).toEqual([
-      ['Mesco-000014745', 3, 'm-p'],
-      ['Mesco-000014745', 4, 'm-p'],
-    ]);
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
   it('keeps canonical line numbers when the two ranges are exact signature multisets', async () => {
@@ -207,11 +204,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         2,
         'm-p',
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
     const deleted = vendorPaymentJournalService.deleteLine.mock.calls.map(
       (call: unknown[]) => call[1],
     );
-    expect(deleted.sort((a: number, b: number) => a - b)).toEqual([3, 4]);
+    expect(deleted).toEqual([]);
   });
 
   it('repairs an exact twin range when legitimate source rows share a signature', async () => {
@@ -254,12 +251,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         3,
         'm-p',
       ),
-    ).resolves.toBe(true);
-    expect(vendorPaymentJournalService.deleteLine.mock.calls).toEqual([
-      ['Mesco-000014794', 4, 'm-p'],
-      ['Mesco-000014794', 5, 'm-p'],
-      ['Mesco-000014794', 6, 'm-p'],
-    ]);
+    ).resolves.toBe(false);
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
   it('does not delete extra Finance rows that are not proven fallback twins', async () => {
@@ -325,15 +318,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         1,
         'm-p',
       ),
-    ).resolves.toBe(true);
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenCalledWith(
-      'Mesco-000014781',
-      2,
-      'm-p',
-    );
+    ).resolves.toBe(false);
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
-  it('deletes middleware unmarked-retry twins that use the - unmarked suffix', async () => {
+  it('keeps middleware unmarked-retry twins that use the - unmarked suffix', async () => {
     const { service, vendorPaymentJournalService } = buildService();
     const original = {
       LineNumber: 1,
@@ -372,12 +361,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         1,
         'm-p',
       ),
-    ).resolves.toBe(true);
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenCalledWith(
-      'Mesco-000014781',
-      2,
-      'm-p',
-    );
+    ).resolves.toBe(false);
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
   it('posts cash-in via addLedgerJournalTransCustPaym using the bulk Lines contract', async () => {
@@ -535,7 +520,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
   });
 
   // Scenario 2: a single journal line still goes out inside Lines.
-  it('resolves WCA USD/EUR aliases to D365 ledger main accounts before posting', async () => {
+  it('resolves WCA USD/EUR aliases and retains Bank as the offset type', async () => {
     const { service, d365foClient } = buildService();
 
     d365foClient.get.mockResolvedValueOnce({
@@ -597,11 +582,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       expect.arrayContaining([
         expect.objectContaining({
           offsetAccountDisplayValue: '125901',
-          OffsetAccountTypeStr: 'Ledger',
+          OffsetAccountTypeStr: 'Bank',
         }),
         expect.objectContaining({
           offsetAccountDisplayValue: '125902',
-          OffsetAccountTypeStr: 'Ledger',
+          OffsetAccountTypeStr: 'Bank',
         }),
       ]),
     );
@@ -1134,13 +1119,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
     );
 
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenCalledWith(
-      'JN-PARTIAL',
-      1,
-      'm-p',
-    );
-    expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(2);
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+    expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
   it('logs the complete bulk request body before sending it', async () => {
@@ -1916,12 +1896,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
 
     expect(result).toEqual([{ headerId: 'Mesco-000014129', lineNumber: 1 }]);
-    expect(generalJournalService.getJournalHeaders).toHaveBeenCalled();
-    expect(generalJournalService.deleteJournalHeader).toHaveBeenCalledWith(
-      'm-p',
-      'Mesco-000014128',
-    );
-    // Blocker resolved on LedgerJournalHeaders; skip VendorPaymentJournalHeaders delete.
+    expect(generalJournalService.deleteJournalHeader).not.toHaveBeenCalled();
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
     expect(d365foClient.post).toHaveBeenCalledTimes(2);
     expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
@@ -1933,7 +1908,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
   });
 
-  it('deletes the self-cited journal and throws missing-header when SpecTrans cites it with MarkedLines', async () => {
+  it('keeps the self-cited journal and rematches missing lines without rollback', async () => {
     const {
       service,
       d365foClient,
@@ -1941,11 +1916,16 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       vendorPaymentJournalService,
     } = buildService();
 
-    d365foClient.post.mockResolvedValueOnce({
-      StatusCode: 'Failed',
-      Message:
-        'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014382 in company m-p.',
-    });
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014382 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014382',
+      });
 
     await expect(
       service.postCashOutLinesForHeader(
@@ -1976,20 +1956,12 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         20,
         'm-p',
       ),
-    ).rejects.toThrow('Journal Mesco-000014382 was not found.');
+    ).resolves.toEqual([{ headerId: 'Mesco-000014382', lineNumber: 1 }]);
 
-    expect(generalJournalService.deleteJournalHeader).toHaveBeenCalledWith(
-      'm-p',
-      'Mesco-000014382',
-    );
+    expect(generalJournalService.deleteJournalHeader).not.toHaveBeenCalled();
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
-    // Do not unmarked-retry — queue processor recreates header and rematches.
-    expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toMatchObject(
-      {
-        MarkedLines: [expect.objectContaining({ InvoiceNumber: 'INV-1' })],
-      },
-    );
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
   });
 
   it('keeps earlier accepted patches when a later patch self-cites SpecTrans', async () => {
@@ -2103,7 +2075,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).toEqual([expect.objectContaining({ InvoiceNumber: 'INV-ONLY-2' })]);
   });
 
-  it('clears DocumentNum on invoice-marked Vendor Payment lines to avoid SpecTrans self-cite', async () => {
+  it('preserves DocumentNum on invoice-marked Vendor Payment lines from the input line', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValue({
       StatusCode: 'Success',
@@ -2142,13 +2114,99 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     const posted = d365foClient.post.mock.calls[0][1]._contract.Lines;
     expect(posted).toHaveLength(2);
-    expect(posted.every((line: any) => line.DocumentNum === '')).toBe(true);
+    expect(posted.every((line: any) => line.DocumentNum === '17607')).toBe(true);
     expect(
       posted.map((line: any) => line.MarkedLines[0].InvoiceNumber),
     ).toEqual(['67', '68']);
   });
 
-  it('deletes vendor payment lines before the self-cited header so retry cannot leave an orphan journal', async () => {
+  it('preserves MarkedLines and DocumentNum on paired 223304 withholding companion lines', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'ok',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000014853',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: {
+            journalNum: '',
+            company: 'm-p',
+            AccountNum: 'Tr-000031',
+            accountTypeStr: 'Vendor',
+            PAYMENTID: '496578',
+            DocumentNum: '18369',
+            debitAmount: 13440.47,
+            offsetAccountDisplayValue: 'PSD EG',
+            OffsetAccountTypeStr: 'RCash',
+            VendorGroup: 'Truckers',
+            MarkedLines: [
+              {
+                InvoiceNumber: '120',
+                OperationNumber: 'O26-EXP-OC-1759',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        } as any,
+        {
+          LineNumber: 2,
+          customLineApiBody: {
+            journalNum: '',
+            company: 'm-p',
+            AccountNum: 'Tr-000031',
+            accountTypeStr: 'Vendor',
+            PAYMENTID: '496578',
+            DocumentNum: '18369',
+            debitAmount: 358.08,
+            offsetAccountDisplayValue: '223304|1201|012|001|005',
+            OffsetAccountTypeStr: 'Ledger',
+            VendorGroup: 'Truckers',
+            MarkedLines: [
+              {
+                InvoiceNumber: '120',
+                OperationNumber: 'O26-EXP-OC-1759',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    const posted = d365foClient.post.mock.calls[0][1]._contract.Lines;
+    expect(posted).toHaveLength(2);
+    // Both lines must keep their invoice mark for invoice 120
+    expect(posted[0].MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: '120',
+        OperationNumber: 'O26-EXP-OC-1759',
+        DocumentNumber: '',
+        HasWithHoldingLine: true,
+      }),
+    ]);
+    expect(posted[1].MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: '120',
+        OperationNumber: 'O26-EXP-OC-1759',
+        DocumentNumber: '',
+        HasWithHoldingLine: true,
+      }),
+    ]);
+    // Both lines must preserve DocumentNum from the input line
+    expect(posted[0].DocumentNum).toBe('18369');
+    expect(posted[1].DocumentNum).toBe('18369');
+    expect(posted[1].offsetAccountDisplayValue).toContain('223304');
+  });
+
+  it('keeps self-cited vendor payment lines and rematches without deleting the journal', async () => {
     const {
       service,
       d365foClient,
@@ -2159,14 +2217,16 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     d365foClient.get.mockResolvedValue({
       value: [{ JournalBatchNumber: 'Mesco-000014718' }],
     });
-    vendorPaymentJournalService.listLinesForHeader
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ LineNumber: 1 }, { LineNumber: 2 }]);
-    d365foClient.post.mockResolvedValueOnce({
-      StatusCode: 'Failed',
-      Message:
-        'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014718 in company m-p.',
-    });
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014718 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014718',
+      });
 
     await expect(
       service.postCashOutLinesForHeader(
@@ -2187,30 +2247,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         20,
         'm-p',
       ),
-    ).rejects.toThrow('Journal Mesco-000014718 was not found.');
+    ).resolves.toEqual([{ headerId: 'Mesco-000014718', lineNumber: 1 }]);
 
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenCalledTimes(2);
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenNthCalledWith(
-      1,
-      'Mesco-000014718',
-      1,
-      'm-p',
-    );
-    expect(vendorPaymentJournalService.deleteLine).toHaveBeenNthCalledWith(
-      2,
-      'Mesco-000014718',
-      2,
-      'm-p',
-    );
-    expect(vendorPaymentJournalService.deleteHeader).toHaveBeenCalledWith(
-      'Mesco-000014718',
-      'm-p',
-    );
-    expect(
-      vendorPaymentJournalService.deleteLine.mock.invocationCallOrder[1],
-    ).toBeLessThan(
-      vendorPaymentJournalService.deleteHeader.mock.invocationCallOrder[0],
-    );
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
 
   it('stops retry recreation when dependent-line cleanup fails', async () => {
@@ -2230,11 +2270,16 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     vendorPaymentJournalService.deleteLine.mockRejectedValueOnce(
       new Error('line is locked'),
     );
-    d365foClient.post.mockResolvedValueOnce({
-      StatusCode: 'Failed',
-      Message:
-        'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014718 in company m-p.',
-    });
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000014718 in company m-p.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Success! Mesco-000014718',
+      });
 
     await expect(
       service.postCashOutLinesForHeader(
@@ -2255,9 +2300,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         20,
         'm-p',
       ),
-    ).rejects.toThrow('Could not safely delete journal Mesco-000014718');
+    ).resolves.toEqual([{ headerId: 'Mesco-000014718', lineNumber: 1 }]);
 
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
   it('posts unmarked when SpecTrans cites the current journal but lines have no settlement marks', async () => {
@@ -2307,12 +2353,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       {
         journalNum: 'Mesco-000014130',
         DocumentNum: '',
-        PAYMENTNOTES: 'Custody Settlement - unmarked',
+        PAYMENTNOTES: 'Custody Settlement',
       },
     );
-    expect(
-      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
-    ).not.toHaveProperty('MarkedLines');
   });
 
   it('skips DELETE when the SpecTrans journal no longer exists in FO', async () => {
@@ -2649,7 +2692,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
-  it('fails settlement integrity when another Finance journal owns the invoice mark', async () => {
+  it('fails when another journal owns the invoice mark', async () => {
     const { service, vendorPaymentJournalService } = buildService();
     vendorPaymentJournalService.listSettlementOwnersForInvoices.mockResolvedValue(
       [
@@ -2684,14 +2727,57 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         ],
         'm-p',
       ),
-    ).rejects.toThrow('already marked by Mesco-000014711 line 133');
+    ).rejects.toThrow('already marked by Mesco-000014711');
+
+    expect(
+      vendorPaymentJournalService.addSettledInvoice,
+    ).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+  });
+
+  it('stops before header creation when the requested invoice is no longer open', async () => {
+    const { service, vendorPaymentJournalService } = buildService();
+    vendorPaymentJournalService.listOpenInvoiceCandidatesForInvoices.mockResolvedValue(
+      [
+        {
+          Invoice: '39084/2',
+          AccountNum: 'RP-000003',
+          AmountCur: -95,
+          SettleAmountCur: -95,
+          CurrencyCode: 'USD',
+          DueDate: '2026-03-14T12:00:00Z',
+          Closed: '2026-08-16T12:00:00Z',
+        },
+      ],
+    );
+
+    await expect(
+      service.assertNoExternalSettlementOwners(
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'USD',
+              debitAmount: 95,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: '39084/2' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('no longer available for payment');
 
     expect(
       vendorPaymentJournalService.addSettledInvoice,
     ).not.toHaveBeenCalled();
   });
 
-  it('recovers a silent post-success mark conflict without reposting monetary lines', async () => {
+  it('fails when another journal owns the silent mark conflict', async () => {
     const { service } = buildService();
     const expectedLine = {
       dataAreaId: 'm-p',
@@ -2753,10 +2839,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         [expectedLine],
         'm-p',
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('invoice settlement mismatch');
 
-    expect(deleteBlocker).toHaveBeenCalledWith('m-p', 'Mesco-000014793');
-    expect(verify).toHaveBeenCalledTimes(2);
+    expect(deleteBlocker).not.toHaveBeenCalled();
+    expect(verify).toHaveBeenCalledTimes(1);
   });
 
   it('does not delete a posted journal that owns a settlement mark', async () => {
@@ -2852,7 +2938,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
-  it('preserves monetary lines when duplicate open transactions defeat the Finance child join', async () => {
+  it('fails when VendTransOpen prevents settlement confirmation', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
     vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
@@ -2918,6 +3004,330 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).rejects.toThrow('invoice settlement mismatch');
 
     expect(vendorPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+    expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
+  });
+
+  it('continues repairing later settlement marks after one invoice is already settled', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
+      {
+        LineNumber: 1,
+        AccountDisplayValue: 'RP-000003',
+        DebitAmount: 100,
+        CreditAmount: 0,
+        MarkedInvoice: '',
+      },
+      {
+        LineNumber: 2,
+        AccountDisplayValue: 'RP-000003',
+        DebitAmount: 200,
+        CreditAmount: 0,
+        MarkedInvoice: '',
+      },
+    ]);
+    vendorPaymentJournalService.listSettledInvoicesForHeader
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          JournalLineCompany: 'm-p',
+          JournalBatchNumber: 'Mesco-000014745',
+          JournalLineNumber: 2,
+          InvoiceNumber: 'INV-2',
+          InvoiceCompany: 'm-p',
+        },
+      ]);
+    vendorPaymentJournalService.addSettledInvoice
+      .mockRejectedValueOnce(
+        new Error(
+          "Matching record for the read only data source 'VendTransOpen' does not exist.",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    d365foClient.get.mockResolvedValue({
+      value: [
+        {
+          Invoice: 'INV-1',
+          AccountNum: 'RP-000003',
+          AmountCur: -100,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2026-04-30T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+        {
+          Invoice: 'INV-2',
+          AccountNum: 'RP-000003',
+          AmountCur: -200,
+          SettleAmountCur: 0,
+          CurrencyCode: 'EGP',
+          DueDate: '2026-04-30T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+      ],
+    });
+
+    await expect(
+      service.assertCashOutSettlementIntegrity(
+        'Mesco-000014745',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'EGP',
+              debitAmount: 100,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: 'INV-1' }],
+            },
+          } as any,
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 2,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'EGP',
+              debitAmount: 200,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: 'INV-2' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('invoice settlement mismatch');
+
+    expect(vendorPaymentJournalService.addSettledInvoice).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      vendorPaymentJournalService.addSettledInvoice,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({ InvoiceNumber: 'INV-2' }),
+    );
+  });
+
+  it('accepts an already-settled repair race only when the same journal owns the mark', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
+      {
+        LineNumber: 1,
+        AccountDisplayValue: 'RP-000003',
+        DebitAmount: 95,
+        CreditAmount: 0,
+        MarkedInvoice: '',
+      },
+    ]);
+    vendorPaymentJournalService.listSettledInvoicesForHeader.mockResolvedValue(
+      [],
+    );
+    vendorPaymentJournalService.listSettlementOwnersForInvoices
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          JournalLineCompany: 'm-p',
+          JournalBatchNumber: 'Mesco-000014855',
+          JournalLineNumber: 1,
+          InvoiceNumber: '39084/2',
+          InvoiceCompany: 'm-p',
+        },
+      ])
+      .mockResolvedValue([
+        {
+          JournalLineCompany: 'm-p',
+          JournalBatchNumber: 'Mesco-000014855',
+          JournalLineNumber: 1,
+          InvoiceNumber: '39084/2',
+          InvoiceCompany: 'm-p',
+        },
+      ]);
+    vendorPaymentJournalService.addSettledInvoice.mockRejectedValue(
+      new Error(
+        'The invoice is no longer available for payment; it might have been settled by another user.',
+      ),
+    );
+    d365foClient.get.mockResolvedValue({
+      value: [
+        {
+          Invoice: '39084/2',
+          AccountNum: 'RP-000003',
+          AmountCur: -95,
+          SettleAmountCur: 0,
+          CurrencyCode: 'USD',
+          DueDate: '2026-03-14T12:00:00Z',
+          Closed: '1900-01-01T12:00:00Z',
+        },
+      ],
+    });
+
+    await expect(
+      service.assertCashOutSettlementIntegrity(
+        'Mesco-000014855',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'USD',
+              debitAmount: 95,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: '39084/2' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('fails when extra settlement children make the result non-exact', async () => {
+    const { service } = buildService();
+    const verify = jest
+      .spyOn(service, 'verifyCashOutSettlementIntegrity')
+      .mockResolvedValue({
+        matches: false,
+        expectedCount: 1,
+        actualCount: 2,
+        missing: [
+          {
+            lineNumber: 50,
+            invoiceNumber: '102260',
+            vendorAccount: 'RP-000003',
+            currency: 'EGP',
+            settlementAmount: -19562.4,
+          },
+        ],
+        unexpected: [
+          {
+            lineNumber: 51,
+            invoiceNumber: '102260',
+          },
+        ],
+        blockers: [],
+        repaired: [],
+        repairErrors: [
+          {
+            lineNumber: 50,
+            invoiceNumber: '102260',
+            message:
+              "Matching record for the read only data source 'VendTransOpen' does not exist.",
+          },
+        ],
+      });
+
+    await expect(
+      service.assertCashOutSettlementIntegrity(
+        'Mesco-000014836',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 50,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'EGP',
+              debitAmount: 19562.4,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: '102260' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('invoice settlement mismatch');
+
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails when 0 remaining and another journal owns a requested mark', async () => {
+    const { service } = buildService();
+    jest.spyOn(service, 'verifyCashOutSettlementIntegrity').mockResolvedValue({
+      matches: false,
+      expectedCount: 2,
+      actualCount: 0,
+      missing: [
+        {
+          lineNumber: 1,
+          invoiceNumber: '2379790',
+          vendorAccount: 'RP-000003',
+          currency: 'EGP',
+          settlementAmount: -100,
+        },
+        {
+          lineNumber: 200,
+          invoiceNumber: '18',
+          vendorAccount: 'RP-000003',
+          currency: 'EGP',
+          settlementAmount: -17922.03,
+        },
+      ],
+      unexpected: [],
+      blockers: [
+        {
+          expectedLineNumber: 1,
+          invoiceNumber: '2379790',
+          journalBatchNumber: 'Mesco-000014835',
+          journalLineNumber: 1,
+          journalLineCompany: 'm-p',
+        },
+      ],
+      repaired: [],
+      repairErrors: [
+        {
+          lineNumber: 200,
+          invoiceNumber: '18',
+          message:
+            'invoice 18 has at most 0 EGP remaining, below requested 17922.03 EGP',
+        },
+      ],
+    });
+
+    await expect(
+      service.assertCashOutSettlementIntegrity(
+        'Mesco-000014836',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'RP-000003',
+              currency: 'EGP',
+              debitAmount: 100,
+              creditAmount: 0,
+              MarkedLines: [{ InvoiceNumber: '2379790' }],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('invoice settlement mismatch');
+  });
+
+  it('does not delete an unposted journal that already has monetary lines', async () => {
+    const { service, vendorPaymentJournalService } = buildService();
+    vendorPaymentJournalService.getHeaderIdentity.mockResolvedValue({
+      JournalBatchNumber: 'Mesco-000014833',
+      IsPosted: 'No',
+    });
+    vendorPaymentJournalService.listIntegrityLinesForHeader.mockResolvedValue([
+      { LineNumber: 1, AccountDisplayValue: 'RP-000003' },
+    ]);
+
+    await expect(
+      (service as any).tryDeleteBlockingJournalHeader('m-p', 'Mesco-000014833'),
+    ).resolves.toBe(false);
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
 });

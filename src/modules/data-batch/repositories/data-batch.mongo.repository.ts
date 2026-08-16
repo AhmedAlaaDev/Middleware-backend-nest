@@ -39,6 +39,9 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
       sourceFingerprint: doc.sourceFingerprint,
+      dfoIds: doc.dfoIds,
+      dfoAttemptedIds: doc.dfoAttemptedIds,
+      dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
@@ -76,6 +79,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
+      dfoAttemptedIds: doc.dfoAttemptedIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
@@ -230,6 +234,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       );
       const conditions: Record<string, unknown>[] = [
         { dfoIds: { $in: filter.batchNumberIds } },
+        { dfoAttemptedIds: { $in: filter.batchNumberIds } },
       ];
       if (validObjectIds.length > 0) {
         conditions.push({ _id: { $in: validObjectIds } });
@@ -264,6 +269,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
+      dfoAttemptedIds: doc.dfoAttemptedIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
@@ -302,6 +308,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       );
       const conditions: Record<string, unknown>[] = [
         { dfoIds: { $in: filter.batchNumberIds } },
+        { dfoAttemptedIds: { $in: filter.batchNumberIds } },
       ];
       if (validObjectIds.length > 0) {
         conditions.push({ _id: { $in: validObjectIds } });
@@ -330,6 +337,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       activeValidationRunId: doc.activeValidationRunId,
       sourceFingerprint: doc.sourceFingerprint,
       dfoIds: doc.dfoIds,
+      dfoAttemptedIds: doc.dfoAttemptedIds,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,

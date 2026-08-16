@@ -21,6 +21,7 @@ export interface ICreateDataBatch {
   /** SHA-256 of the canonical uploaded source rows, used for idempotency. */
   sourceFingerprint?: string;
   dfoIds?: string[];
+  dfoAttemptedIds?: string[];
   dfoPostingErrors?: string[];
   createdByUserId?: string;
   createdByName?: string;
@@ -64,6 +65,7 @@ export class IDataBatch {
   /** SHA-256 of the canonical uploaded source rows, used for idempotency. */
   sourceFingerprint?: string;
   dfoIds?: string[];
+  dfoAttemptedIds?: string[];
   dfoPostingErrors?: string[];
   createdByUserId?: string;
   createdByName?: string;

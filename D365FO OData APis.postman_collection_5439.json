@@ -682,7 +682,7 @@
               }
             },
             "url": {
-              "raw": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?$top=1",
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalBatchNumber eq 'Mesco-000014834'&$select=JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue&$top=10000",
               "host": [
                 "{{baseURL}}"
               ],
@@ -692,16 +692,24 @@
               ],
               "query": [
                 {
-                  "key": "$top",
-                  "value": "1"
+                  "key": "cross-company",
+                  "value": "true"
                 },
                 {
                   "key": "$filter",
-                  "value": "JournalBatchNumber eq 'OB-000000246'",
-                  "disabled": true
+                  "value": "JournalBatchNumber eq 'Mesco-000014834'"
+                },
+                {
+                  "key": "$select",
+                  "value": "JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue"
+                },
+                {
+                  "key": "$top",
+                  "value": "10000"
                 }
               ]
-            }
+            },
+            "description": "Authoritative SpecTrans retrieve. Filter by JournalBatchNumber with cross-company=true. Do not use JournalLineCompany — FO often leaves it blank. Do not search MarkedLines on VendorPaymentJournalLines."
           },
           "response": []
         },
@@ -3603,12 +3611,12 @@
           "variable": [
             {
               "key": "journalBatchNumber",
-              "value": "Mesco-000013814",
-              "description": "D365FO Journal Batch Number (e.g. Mesco-000013814)"
+              "value": "Mesco-000014834",
+              "description": "D365FO Journal Batch Number (e.g. Mesco-000014834)"
             }
           ]
         },
-        "description": "Queries D365FO OData API live for the specified JournalBatchNumber (e.g. Mesco-000013814) and returns the full D365FO header, line items, and logs."
+        "description": "Queries D365FO OData live for the journal. Line MarkedLines is derived from MarkedInvoice only and is often empty even when SpecTrans exists. For invoice marks use the Cash-out marks (correct retrieve) folder: VendorPaymentJournalLines $select MarkedInvoice/SettleVoucher, and VendorPaymentJournalLineSettledInvoices."
       },
       "response": []
     },
@@ -3646,12 +3654,12 @@
           "variable": [
             {
               "key": "journalBatchNumber",
-              "value": "Mesco-000014742",
+              "value": "Mesco-000014834",
               "description": "D365FO Journal Batch Number to validate"
             }
           ]
         },
-        "description": "Reads the complete live Finance header and lines, compares expected and actual line counts and debit/credit totals per currency, and reports confirmed duplication separately from review-only repeated business signatures. duplicationConclusion NO_EXTRA_FINANCE_DATA means Finance has no additional rows or amount; CONFIRMED_DUPLICATION means definite duplicate evidence; REVIEW_REQUIRED needs manual review."
+        "description": "Middleware integrity for a journal. For invoice marks, read MarkedInvoice, SettleVoucher=SelectedTransact, alreadyMarkedElsewhere, and MarkedLines after enrichment. Raw FO VendorPaymentJournalLines.MarkedLines is always []. Use the Cash-out marks (correct retrieve) folder for live OData."
       },
       "response": []
     },
@@ -3700,9 +3708,682 @@
             }
           ]
         },
-        "description": "Finds the journal in Finance (Vendor Payment, Ledger, Customer Payment, or Vendor Invoice), deletes dependent lines, then deletes the header. Use to clear SpecTrans blockers / doubled journals before re-upload. Posted journals may be rejected by Finance. No auth required."
+        "description": "Finds the journal in Finance (Vendor Payment, Ledger, Customer Payment, or Vendor Invoice), deletes dependent lines, then deletes the header. Use to clear SpecTrans blockers / doubled journals before re-upload. Posted journals may be rejected by Finance. Requires an ADMIN bearer token. Re-check IsPosted=No immediately before sending."
       },
       "response": []
+    },
+    {
+      "name": "Cash-out marks (correct retrieve)",
+      "description": "WRITE is not this GET. Cash-out posts monetary lines via POST /api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym (_contract.Lines). Invoice marks are written to VendorPaymentJournalLineSettledInvoices. READ those two entities with JournalBatchNumber eq 'Mesco-000014834' (hardcoded). Line 1 MarkedInvoice is often blank; marks start later (e.g. line 31). Do not send {{journalBatchNumber}} as a literal.",
+      "item": [
+        {
+          "name": "WHERE THE WRITE IS (do not send)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"_contract\": {\n    \"Lines\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseURL}}/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "TSLedgerJournalServiceGroup",
+                "ServiceBasic",
+                "addLedgerJournalTransVendPaym"
+              ]
+            },
+            "description": "This is the cash-out WRITE. Middleware POSTs _contract.Lines here (custom X++), not POST /data/VendorPaymentJournalLines. After success, READ VendorPaymentJournalLines (amounts) and VendorPaymentJournalLineSettledInvoices (invoice marks). Do not send this request with an empty Lines array."
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve vendor payment header Mesco-000014834",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter=JournalBatchNumber eq 'Mesco-000014834'&$select=dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalHeaders"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalBatchNumber eq 'Mesco-000014834'"
+                },
+                {
+                  "key": "$select",
+                  "value": "dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted"
+                }
+              ]
+            },
+            "description": "Confirms the freight journal exists in m-p. If this is empty, the token/baseURL is wrong. It is not on LedgerJournalHeaders."
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve vendor payment lines (MarkedInvoice + SettleVoucher)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const lines = json.value || [];",
+                  "const marked = lines.filter((line) => String(line.MarkedInvoice || '').trim());",
+                  "const selected = lines.filter((line) => line.SettleVoucher === 'SelectedTransact');",
+                  "console.log('Lines=' + lines.length + ' MarkedInvoice=' + marked.length + ' SelectedTransact=' + selected.length);",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Lines=' + lines.length + ' MarkedInvoice=' + marked.length + ' SelectedTransact=' + selected.length, () => {",
+                  "  pm.expect(Array.isArray(lines)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000014834'&$select=dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode,PaymentId,PaymentReference&$top=10000",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000014834'"
+                },
+                {
+                  "key": "$select",
+                  "value": "dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode,PaymentId,PaymentReference"
+                },
+                {
+                  "key": "$top",
+                  "value": "10000"
+                }
+              ]
+            },
+            "description": "Correct line retrieve. $select omits MarkedLines (always []). Count MarkedInvoice and SettleVoucher=SelectedTransact in the Test results tab."
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve marked vendor payment lines only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const lines = json.value || [];",
+                  "console.log('Marked lines=' + lines.length);",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('MarkedInvoice lines=' + lines.length, () => {",
+                  "  pm.expect(Array.isArray(lines)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000014834' and MarkedInvoice ne ''&$select=dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode&$top=10000",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLines"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "dataAreaId eq 'm-p' and JournalBatchNumber eq 'Mesco-000014834' and MarkedInvoice ne ''"
+                },
+                {
+                  "key": "$select",
+                  "value": "dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode"
+                },
+                {
+                  "key": "$top",
+                  "value": "10000"
+                }
+              ]
+            },
+            "description": "Same as the line retrieve, filtered to rows that already have MarkedInvoice. Empty value[] means this journal has no line-level marks (marks may still exist on SpecTrans or on an earlier journal)."
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve SpecTrans settled invoices (authoritative)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const rows = json.value || [];",
+                  "console.log('SpecTrans rows=' + rows.length);",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('SpecTrans settled invoices=' + rows.length, () => {",
+                  "  pm.expect(Array.isArray(rows)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalBatchNumber eq 'Mesco-000014834'&$select=JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue&$top=10000",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "data",
+                "VendorPaymentJournalLineSettledInvoices"
+              ],
+              "query": [
+                {
+                  "key": "cross-company",
+                  "value": "true"
+                },
+                {
+                  "key": "$filter",
+                  "value": "JournalBatchNumber eq 'Mesco-000014834'"
+                },
+                {
+                  "key": "$select",
+                  "value": "JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue"
+                },
+                {
+                  "key": "$top",
+                  "value": "10000"
+                }
+              ]
+            },
+            "description": "Finance's authoritative invoice selection (SpecTrans). Filter JournalBatchNumber only, with cross-company=true. Do not filter JournalLineCompany. This is the correct retrieve when MarkedInvoice is blank but the invoice is still marked."
+          },
+          "response": []
+        },
+        {
+          "name": "Middleware integrity (enriched marks)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3001/api/v1/DataMigration/DataBatch/journal-batch/:journalBatchNumber/integrity",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3001",
+              "path": [
+                "api",
+                "v1",
+                "DataMigration",
+                "DataBatch",
+                "journal-batch",
+                ":journalBatchNumber",
+                "integrity"
+              ],
+              "variable": [
+                {
+                  "key": "journalBatchNumber",
+                  "value": "Mesco-000014834",
+                  "description": "D365FO Journal Batch Number"
+                }
+              ]
+            },
+            "description": "Uses the middleware integrity API. After the enrich change, MarkedLines is filled from MarkedInvoice and VendorPaymentJournalLineSettledInvoices. Also read alreadyMarkedElsewhere. Requires local/prod middleware that includes that enrich."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "VERIFY - Batch 6a804303edd13ac5596ee48d (all checks)",
+      "description": "Run this folder after posting. Navigation is allowed only when the batch status is Posted and every journal integrity request returns PASS. The three Finance journals for this batch are Mesco-000014839, Mesco-000014840, and Mesco-000014841.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "01 - Middleware batch status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const status = String(body.status);",
+                  "console.log('Batch status=' + status + ' dfoIds=' + JSON.stringify(body.dfoIds || []));",
+                  "pm.test('Batch status is Posted', () => pm.expect(['Posted', '3']).to.include(status));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{middlewareBaseURL}}/DataMigration/DataBatch/{{dataBatchId}}",
+            "description": "The middleware batch must be Posted. dfoIds must contain only verified final journals; dfoAttemptedIds are not navigation targets."
+          },
+          "response": []
+        },
+        {
+          "name": "02 - Middleware response body and navigation IDs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{middlewareBaseURL}}/DataMigration/DataBatch/{{dataBatchId}}/response-body",
+            "description": "Review status, dfoIds, dfoPostingErrors, and the captured Finance responses in one response. Do not navigate when dfoPostingErrors is non-empty."
+          },
+          "response": []
+        },
+        {
+          "name": "03 - Mesco-000014839 header IsPosted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "pm.test('One Finance header returned', () => pm.expect(rows.length).to.eql(1));",
+                  "pm.test('Finance header is posted', () => pm.expect(rows[0] && String(rows[0].IsPosted)).to.eql('Yes'));",
+                  "console.log(JSON.stringify(rows));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal1}}'&$select=dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted&$top=1",
+            "description": "Finance posting status for journal 1. IsPosted must be Yes."
+          },
+          "response": []
+        },
+        {
+          "name": "04 - Mesco-000014839 lines (expected 966)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal1') + ' lines=' + rows.length);",
+                  "pm.test('Exact Finance line count is 966', () => pm.expect(rows.length).to.eql(966));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal1}}'&$select=dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode,PaymentId,PaymentReference&$top=10000",
+            "description": "Exact monetary line count and visible settlement fields for journal 1."
+          },
+          "response": []
+        },
+        {
+          "name": "05 - Mesco-000014839 settlement rows",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal1') + ' settlement child rows=' + rows.length + ' expected unique invoices=520');",
+                  "pm.test('Settlement response is an array', () => pm.expect(Array.isArray(rows)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalBatchNumber%20eq%20'{{journal1}}'&$select=JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue&$top=10000",
+            "description": "Authoritative settlement child rows for journal 1. The integrity request below combines these with line-level marks."
+          },
+          "response": []
+        },
+        {
+          "name": "06 - Mesco-000014839 integrity (must PASS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const result = pm.response.json();",
+                  "console.log(JSON.stringify({ status: result.status, amount: result.isAmountCorrect, settlement: result.isSettlementCorrect, duplicates: result.hasDuplicates, summary: result.summary, issues: result.issues, warnings: result.warnings }, null, 2));",
+                  "pm.test('Integrity status is PASS', () => pm.expect(result.status).to.eql('PASS'));",
+                  "pm.test('Amounts are correct', () => pm.expect(result.isAmountCorrect).to.eql(true));",
+                  "pm.test('Settlements are correct', () => pm.expect(result.isSettlementCorrect).to.eql(true));",
+                  "pm.test('No confirmed duplicates', () => pm.expect(result.hasDuplicates).to.eql(false));",
+                  "pm.test('Exact line count', () => pm.expect(result.summary && result.summary.lineCountMatches).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{middlewareBaseURL}}/DataMigration/DataBatch/journal-batch/{{journal1}}/integrity?company=m-p",
+            "description": "Final gate for journal 1. Users must not be navigated when this returns FAIL or WARNING."
+          },
+          "response": []
+        },
+        {
+          "name": "07 - Mesco-000014840 header IsPosted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "pm.test('One Finance header returned', () => pm.expect(rows.length).to.eql(1));",
+                  "pm.test('Finance header is posted', () => pm.expect(rows[0] && String(rows[0].IsPosted)).to.eql('Yes'));",
+                  "console.log(JSON.stringify(rows));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal2}}'&$select=dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted&$top=1",
+            "description": "Finance posting status for journal 2. IsPosted must be Yes."
+          },
+          "response": []
+        },
+        {
+          "name": "08 - Mesco-000014840 lines (expected 969)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal2') + ' lines=' + rows.length);",
+                  "pm.test('Exact Finance line count is 969', () => pm.expect(rows.length).to.eql(969));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal2}}'&$select=dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode,PaymentId,PaymentReference&$top=10000",
+            "description": "Exact monetary line count and visible settlement fields for journal 2."
+          },
+          "response": []
+        },
+        {
+          "name": "09 - Mesco-000014840 settlement rows",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal2') + ' settlement child rows=' + rows.length + ' expected unique invoices=957');",
+                  "pm.test('Settlement response is an array', () => pm.expect(Array.isArray(rows)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalBatchNumber%20eq%20'{{journal2}}'&$select=JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue&$top=10000",
+            "description": "Authoritative settlement child rows for journal 2."
+          },
+          "response": []
+        },
+        {
+          "name": "10 - Mesco-000014840 integrity (must PASS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const result = pm.response.json();",
+                  "console.log(JSON.stringify({ status: result.status, amount: result.isAmountCorrect, settlement: result.isSettlementCorrect, duplicates: result.hasDuplicates, summary: result.summary, issues: result.issues, warnings: result.warnings }, null, 2));",
+                  "pm.test('Integrity status is PASS', () => pm.expect(result.status).to.eql('PASS'));",
+                  "pm.test('Amounts are correct', () => pm.expect(result.isAmountCorrect).to.eql(true));",
+                  "pm.test('Settlements are correct', () => pm.expect(result.isSettlementCorrect).to.eql(true));",
+                  "pm.test('No confirmed duplicates', () => pm.expect(result.hasDuplicates).to.eql(false));",
+                  "pm.test('Exact line count', () => pm.expect(result.summary && result.summary.lineCountMatches).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{middlewareBaseURL}}/DataMigration/DataBatch/journal-batch/{{journal2}}/integrity?company=m-p",
+            "description": "Final gate for journal 2."
+          },
+          "response": []
+        },
+        {
+          "name": "11 - Mesco-000014841 header IsPosted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "pm.test('One Finance header returned', () => pm.expect(rows.length).to.eql(1));",
+                  "pm.test('Finance header is posted', () => pm.expect(rows[0] && String(rows[0].IsPosted)).to.eql('Yes'));",
+                  "console.log(JSON.stringify(rows));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalHeaders?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal3}}'&$select=dataAreaId,JournalBatchNumber,JournalName,Description,IsPosted&$top=1",
+            "description": "Finance posting status for journal 3. IsPosted must be Yes."
+          },
+          "response": []
+        },
+        {
+          "name": "12 - Mesco-000014841 lines (expected 595)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal3') + ' lines=' + rows.length);",
+                  "pm.test('Exact Finance line count is 595', () => pm.expect(rows.length).to.eql(595));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLines?cross-company=true&$filter=dataAreaId%20eq%20'm-p'%20and%20JournalBatchNumber%20eq%20'{{journal3}}'&$select=dataAreaId,JournalBatchNumber,LineNumber,AccountDisplayValue,MarkedInvoice,SettleVoucher,DebitAmount,CreditAmount,CurrencyCode,PaymentId,PaymentReference&$top=10000",
+            "description": "Exact monetary line count and visible settlement fields for journal 3."
+          },
+          "response": []
+        },
+        {
+          "name": "13 - Mesco-000014841 settlement rows",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().value || [];",
+                  "console.log('Journal ' + pm.variables.get('journal3') + ' settlement child rows=' + rows.length + ' expected unique invoices=498');",
+                  "pm.test('Settlement response is an array', () => pm.expect(Array.isArray(rows)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseURL}}/data/VendorPaymentJournalLineSettledInvoices?cross-company=true&$filter=JournalBatchNumber%20eq%20'{{journal3}}'&$select=JournalLineCompany,JournalBatchNumber,JournalLineNumber,InvoiceNumber,InvoiceCompany,SettlementAmountInInvoiceCurrency,invoiceAccount,AccountDisplayValue&$top=10000",
+            "description": "Authoritative settlement child rows for journal 3."
+          },
+          "response": []
+        },
+        {
+          "name": "14 - Mesco-000014841 integrity (must PASS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const result = pm.response.json();",
+                  "console.log(JSON.stringify({ status: result.status, amount: result.isAmountCorrect, settlement: result.isSettlementCorrect, duplicates: result.hasDuplicates, summary: result.summary, issues: result.issues, warnings: result.warnings }, null, 2));",
+                  "pm.test('Integrity status is PASS', () => pm.expect(result.status).to.eql('PASS'));",
+                  "pm.test('Amounts are correct', () => pm.expect(result.isAmountCorrect).to.eql(true));",
+                  "pm.test('Settlements are correct', () => pm.expect(result.isSettlementCorrect).to.eql(true));",
+                  "pm.test('No confirmed duplicates', () => pm.expect(result.hasDuplicates).to.eql(false));",
+                  "pm.test('Exact line count', () => pm.expect(result.summary && result.summary.lineCountMatches).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{middlewareBaseURL}}/DataMigration/DataBatch/journal-batch/{{journal3}}/integrity?company=m-p",
+            "description": "Final gate for journal 3."
+          },
+          "response": []
+        }
+      ]
     }
   ],
 
@@ -3735,6 +4416,35 @@
     {
       "key": "baseURL",
       "value": "https://mesco.sandbox.operations.eu.dynamics.com"
+    },
+    {
+      "key": "journalBatchNumber",
+      "value": "Mesco-000014834"
+    },
+    {
+      "key": "middlewareBaseURL",
+      "value": "http://localhost:3001/api/v1",
+      "description": "Middleware API base URL, including /api/v1"
+    },
+    {
+      "key": "dataBatchId",
+      "value": "6a804303edd13ac5596ee48d",
+      "description": "Middleware DataBatch ID to verify"
+    },
+    {
+      "key": "journal1",
+      "value": "Mesco-000014839",
+      "description": "First Finance journal for the target batch"
+    },
+    {
+      "key": "journal2",
+      "value": "Mesco-000014840",
+      "description": "Second Finance journal for the target batch"
+    },
+    {
+      "key": "journal3",
+      "value": "Mesco-000014841",
+      "description": "Third Finance journal for the target batch"
     },
     {
       "key": "token",

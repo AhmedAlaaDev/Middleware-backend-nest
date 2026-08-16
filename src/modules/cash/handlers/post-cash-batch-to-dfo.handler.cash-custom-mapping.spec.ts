@@ -1176,7 +1176,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
-  it('clears Custody Settlement MarkedLines and appends Unmarked when UniqueId has 223304', () => {
+  it('keeps the Custody Settlement primary mark when UniqueId has 223304', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -1201,14 +1201,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentId: '480003',
             SourceIds: ['480003'],
             MarkedInvoice: 'INV-1',
-            MarkedLines: [
-              {
-                InvoiceNumber: 'INV-1',
-                OperationNumber: 'OP-1',
-                DocumentNumber: '',
-                HasWithHoldingLine: true,
-              },
-            ],
+            MarkedLines: [],
+            IsWithholdingCalculationEnabled: 'Yes',
             TransactionText: 'Custody Settlement - Freight January 2026 (Cash)',
           },
         },
@@ -1231,8 +1225,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       route,
     );
 
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
-    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toContain('Unmarked');
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: 'INV-1',
+        HasWithHoldingLine: true,
+      }),
+    ]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toContain(
+      'Unmarked',
+    );
     expect(result[1].customLineApiBody.MarkedLines).toBeUndefined();
   });
 
@@ -1316,9 +1317,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
                 InvoiceNumber: '3829',
                 OperationNumber: 'OP-3829',
                 DocumentNumber: '',
-                HasWithHoldingLine: true,
+                HasWithHoldingLine: false,
               },
             ],
+            IsWithholdingCalculationEnabled: 'Yes',
           },
         },
         {
@@ -1335,17 +1337,11 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             Description: 'Vendor Payment - Freight January 2026 (Transfer)',
             TransactionText: 'Vendor Payment - Freight January 2026 (Transfer)',
             SafeType: 'Vendor Payment',
-            MarkedInvoice: '3829',
+            MarkedInvoice: '',
             Invoice: '3829',
+            Document: '18369',
             SettlementTargetType: 'VendorInvoice',
-            MarkedLines: [
-              {
-                InvoiceNumber: '3829',
-                OperationNumber: 'OP-3829',
-                DocumentNumber: '',
-                HasWithHoldingLine: true,
-              },
-            ],
+            MarkedLines: [],
           },
         },
       ],
@@ -1355,8 +1351,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
 
     expect(result).toHaveLength(2);
-    // Both the normal-payment portion and the 223304 companion keep marks for
-    // the same vendor invoice (split settlement of the original vendor debit).
+    // Both portions carry the invoice mark. The companion also preserves its
+    // top-level document number from the source row.
     expect(result[0].customLineApiBody.MarkedLines).toEqual([
       expect.objectContaining({
         InvoiceNumber: '3829',
@@ -1367,11 +1363,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       /unmarked/i,
     );
     expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      expect.objectContaining({
+      {
         InvoiceNumber: '3829',
+        OperationNumber: 'OP-3829',
+        DocumentNumber: '',
         HasWithHoldingLine: true,
-      }),
+      },
     ]);
+    expect(result[1].customLineApiBody.DocumentNum).toBe('18369');
     expect(result[1].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
       /unmarked/i,
     );

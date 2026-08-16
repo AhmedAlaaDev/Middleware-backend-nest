@@ -71,6 +71,8 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     const batches = {
       getByIdAsync: jest.fn().mockResolvedValue({ dfoIds: [] }),
       updateDfoIdsAsync: jest.fn().mockResolvedValue(undefined),
+      updateDfoAttemptedIdsAsync: jest.fn().mockResolvedValue(undefined),
+      clearDfoAttemptedIdsAsync: jest.fn().mockResolvedValue(undefined),
       clearDfoPostingErrorsAsync: jest.fn().mockResolvedValue(undefined),
       updateDfoPostingErrorsAsync: jest.fn().mockResolvedValue(undefined),
       updateStatusAsync: jest.fn().mockResolvedValue(undefined),
@@ -182,7 +184,90 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     );
   });
 
-  it('continues later independent groups after a settlement integrity failure', async () => {
+  it('reuses the one Finance header found by the upload marker', async () => {
+    const integrationMarker = 'MW:ac381037eeaa:0';
+    const base = makeGroup(apRoute);
+    const group = {
+      ...base,
+      integrationMarker,
+      header: {
+        ...base.header,
+        Description: `Task 2045 test [${integrationMarker}]`,
+      },
+    };
+    const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+    cashStrategy.findHeadersByIntegrationMarker = jest
+      .fn()
+      .mockResolvedValue(['Mesco-EXISTING-001']);
+    cashStrategy.getJournalIntegrityState.mockResolvedValue({
+      headerExists: true,
+      lineCount: group.lines.length,
+      headerDescription: group.header.Description,
+    });
+
+    await processor.process(job as any);
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+    expect(jobs.setCreatedHeader).toHaveBeenCalledWith(
+      'job-2045',
+      0,
+      'Mesco-EXISTING-001',
+    );
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
+  });
+
+  it('fails closed when the upload marker exists on duplicate Finance headers', async () => {
+    const integrationMarker = 'MW:ac381037eeaa:0';
+    const base = makeGroup(apRoute);
+    const group = {
+      ...base,
+      integrationMarker,
+      header: {
+        ...base.header,
+        Description: `Task 2045 test [${integrationMarker}]`,
+      },
+    };
+    const { processor, job, cashStrategy, batches } = buildProcessor([group]);
+    cashStrategy.findHeadersByIntegrationMarker = jest
+      .fn()
+      .mockResolvedValue(['Mesco-DUP-001', 'Mesco-DUP-002']);
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'exists on multiple Finance journals',
+    );
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      DataBatchStatus.Canceled,
+    );
+  });
+
+  it('prevents a new header when Finance already owns a requested settlement', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy } = buildProcessor([group]);
+    cashStrategy.findHeadersByIntegrationMarker = jest
+      .fn()
+      .mockResolvedValue([]);
+    cashStrategy.assertNoExternalSettlementOwners = jest
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          '[DATA INTEGRITY] Cannot create a new cash journal because Finance already owns requested settlement mark(s)',
+        ),
+      );
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'already owns requested settlement mark',
+    );
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
+  });
+
+  it('does not post the batch when settlement marks are already owned in Finance', async () => {
     const first = makeGroup(apRoute, 1);
     const second = makeGroup(apRoute, 2);
     const { processor, job, cashStrategy, jobs, batches } = buildProcessor([
@@ -192,28 +277,22 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     cashStrategy.assertJournalSettlementIntegrity
       .mockRejectedValueOnce(
         new Error(
-          '[DATA INTEGRITY] Journal D365-RET-001 invoice settlement mismatch (0/1 expected mark(s) confirmed): repair failed because matching VendTransOpen does not exist. No monetary journal lines were reposted.',
+          '[DATA INTEGRITY] Journal D365-RET-001 invoice settlement mismatch (0/1 expected mark(s) confirmed): line 1 expected invoice 2379790, but it is already marked by Mesco-000014835 line 1 in m-p; repair failed for line 200 invoice 18: invoice 18 has at most 0 EGP remaining, below requested 17922.03 EGP. No monetary journal lines were reposted.',
         ),
       )
       .mockResolvedValueOnce(undefined);
 
     await expect(processor.process(job as any)).rejects.toThrow(
-      'Remaining independent journal groups were processed',
+      'invoice settlement mismatch',
     );
 
     expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(2);
-    expect(cashStrategy.postLinesForHeader).toHaveBeenNthCalledWith(
-      2,
-      'D365-RET-002',
-      second.lines,
-      'm-p',
-      20,
-    );
     expect(jobs.completeGroup).toHaveBeenCalledTimes(1);
     expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 1);
-    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+    expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 1);
+    expect(batches.updateStatusAsync).not.toHaveBeenCalledWith(
       'batch-2045',
-      DataBatchStatus.Canceled,
+      DataBatchStatus.Posted,
     );
   });
 
@@ -267,9 +346,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
-    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
-      'D365-RET-001',
-    ]);
+    expect(batches.updateDfoAttemptedIdsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      ['D365-RET-001'],
+    );
   });
 
   it('rejects a version-2 group that has no task-2045 route metadata', async () => {
@@ -312,10 +392,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
-    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
-      'D365-RET-001',
-      'D365-RET-002',
-    ]);
+    expect(batches.updateDfoAttemptedIdsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      ['D365-RET-001', 'D365-RET-002'],
+    );
   });
 
   it('reuses a persisted header on recovery without creating a second header', async () => {
@@ -442,7 +522,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(jobs.completeGroup).not.toHaveBeenCalled();
   });
 
-  it('stops without creating or posting when D365 contains extra lines', async () => {
+  it('does not complete when Finance contains extra lines', async () => {
     const group = makeGroup(apRoute);
     const { processor, job, cashStrategy, jobs, batches } = buildProcessor([
       group,
@@ -461,14 +541,18 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     });
 
     await expect(processor.process(job as any)).rejects.toThrow(
-      '[DATA INTEGRITY]',
+      'was not confirmed in D365FO exactly once',
     );
 
     expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
     expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
-    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+    expect(
+      cashStrategy.repairDuplicatedUnmarkedFallbackLines,
+    ).not.toHaveBeenCalled();
+    expect(jobs.completeGroup).not.toHaveBeenCalled();
+    expect(batches.updateStatusAsync).not.toHaveBeenCalledWith(
       'batch-2045',
-      DataBatchStatus.Canceled,
+      DataBatchStatus.Posted,
     );
   });
 
@@ -508,7 +592,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
 
     expect(
       cashStrategy.repairDuplicatedUnmarkedFallbackLines,
-    ).toHaveBeenCalledWith('Mesco-000014745', 1, 'm-p');
+    ).not.toHaveBeenCalled();
     expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
     expect(cashStrategy.postLinesForHeader).not.toHaveBeenCalled();
     expect(jobs.completeGroup).toHaveBeenCalledWith('job-2045', 0);
@@ -634,9 +718,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(cashStrategy.postHeadersInBatches).toHaveBeenCalledTimes(1);
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
-    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
-      'D365-NEW-GL',
-    ]);
+    expect(batches.updateDfoAttemptedIdsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      ['D365-NEW-GL'],
+    );
   });
 
   it('reuses the persisted header on retry without clearing completed journals', async () => {

@@ -1161,17 +1161,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       // Every non-Vendor-Payment SafeType keeps the original debit/credit
       // rows. Only Vendor Payment converts a source counterpart into Offset.
-      // Associate 223304 withholding rows so vendor MarkedLines can set
-      // HasWithHoldingLine when the related settlement line is present.
-      // Custody Settlement + any 223304 in the UniqueId → suppress marking
-      // on vendor lines and append "Unmarked" to the description.
+      // Associate 223304 withholding rows so the primary vendor MarkedLines
+      // entry sets HasWithHoldingLine while the ledger row remains separate.
       const withholdingLines = lines.filter((line) =>
         this.isWithholdingLedgerLine(line),
       );
-      const isCustodySettlementGroup =
-        lines[0]?.SafeType === 'Custody Settlement';
-      const suppressSettlementMarking =
-        isCustodySettlementGroup && withholdingLines.length > 0;
       return lines.map((line) =>
         this.buildSourceLineOutbound(
           sourceId,
@@ -1180,7 +1174,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           line.IsVendor
             ? this.findWithholdingLine(line, withholdingLines)
             : undefined,
-          { suppressSettlementMarking },
         ),
       );
     }
@@ -1243,10 +1236,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       return [invalid];
     }
 
-    // No payment offset: post each vendor debit as a single-sided
-    // (main-account-only) journal line. Withholding rows stay on MarkedLines
-    // and are not posted separately — same as the offset-merge path.
+    // No payment offset and no WHT: post each vendor debit as a single-sided
+    // (main-account-only) journal line.
     if (offsetLines.length === 0) {
+      if (withholdingLines.length > 0) {
+        return this.buildWithholdingOnlyVendorPaymentLines(
+          sourceId,
+          vendorLines,
+          withholdingLines,
+          exchangeRateContext,
+        );
+      }
       return vendorLines.map((vendorLine) =>
         this.buildSourceLineOutbound(
           sourceId,
@@ -1264,6 +1264,66 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       paymentOffset,
       withholdingLines,
       exchangeRateContext,
+    );
+  }
+
+  /**
+   * A balanced Vendor Payment group may consist entirely of vendor debit(s)
+   * and 223304 withholding credit(s), with no bank/cash payment portion. Keep
+   * every WHT row as a Vendor→223304 transaction and put the matching invoice
+   * settlement mark on every companion.
+   */
+  private buildWithholdingOnlyVendorPaymentLines(
+    sourceId: string,
+    vendorLines: CashEntryRawDataModel[],
+    withholdingLines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    const totalVendorDebit = this.roundMoney(
+      vendorLines.reduce((sum, line) => sum + Number(line.DEBITAMOUNT ?? 0), 0),
+    );
+    const totalWithholdingCredit = this.roundMoney(
+      withholdingLines.reduce(
+        (sum, line) => sum + Number(line.CREDITAMOUNT ?? line.DEBITAMOUNT ?? 0),
+        0,
+      ),
+    );
+    if (!this.areMoneyAmountsEqual(totalVendorDebit, totalWithholdingCredit)) {
+      return [
+        this.buildVendorPaymentValidationError(
+          sourceId,
+          'UnbalancedWithholding',
+          `Vendor Payment UniqueId=${sourceId}: no payment offset was supplied, but vendor debit ${totalVendorDebit} does not equal withholding credit ${totalWithholdingCredit}.`,
+        ),
+      ];
+    }
+
+    const { assignments, error } = this.allocateWhtLinesToVendors(
+      sourceId,
+      vendorLines,
+      withholdingLines,
+    );
+    if (error) {
+      return [
+        this.buildVendorPaymentValidationError(
+          sourceId,
+          'WithholdingAllocation',
+          error,
+        ),
+      ];
+    }
+
+    return vendorLines.flatMap((vendorLine) =>
+      (assignments.get(vendorLine) ?? []).map((withholdingLine) =>
+        this.buildLineOutbound(
+          sourceId,
+          vendorLine,
+          withholdingLine,
+          'OFFSET',
+          exchangeRateContext,
+          [{ vendorLine, withholdingLine }],
+        ),
+      ),
     );
   }
 
@@ -1334,11 +1394,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const vendorDebit = this.roundMoney(Number(vendorLine.DEBITAMOUNT ?? 0));
       const normalPaymentAmount = this.roundMoney(vendorDebit - vendorWhtTotal);
       const primaryWithholding = matchedWithholding[0];
+      const hasPrimaryPaymentLine =
+        normalPaymentAmount > 0 || matchedWithholding.length === 0;
 
       // Payment offset merge: always take the vendor debit amount from the
       // ACCOUNT (vendor) row — never substitute the shared payment credit.
       // Only this vendor's allocated WHT is deducted.
-      if (normalPaymentAmount > 0 || matchedWithholding.length === 0) {
+      if (hasPrimaryPaymentLine) {
         results.push(
           this.buildLineOutbound(
             sourceId,
@@ -1354,8 +1416,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       for (const withholdingLine of matchedWithholding) {
         // Separate FO line for 223304: vendor account + withholding offset.
-        // Both the payment portion and this WHT portion mark the same vendor
-        // invoice so together they settle the original vendor debit.
+        // It carries the same invoice mark as the payment portion so Finance
+        // can settle the withheld amount against the same vendor invoice.
         results.push(
           this.buildLineOutbound(
             sourceId,
@@ -2406,8 +2468,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     // `settlements === undefined` → default single mark from accountLine.
     // `settlements === []` → intentional no settlement marks.
-    // Vendor Payment WHT companions pass a settlement so both payment and WHT
-    // portions mark the same vendor invoice.
+    // Vendor Payment WHT companions carry their invoice marks explicitly.
+    // An empty array is reserved for lines that intentionally do not settle.
     const suppressSettlement =
       Array.isArray(settlements) && settlements.length === 0;
     const normalizedSettlements =
@@ -2452,8 +2514,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? ''
       : this.sanitizeInvoiceOutbound(rawInvoice);
 
-    // WHT companion lines are not unmarked settlements — they simply do not
-    // settle. Keep the payment description without a "- unmarked" suffix.
+    // Intentionally non-settling companion lines keep the payment description
+    // without a "- unmarked" suffix.
     const descriptionSuffix =
       !suppressSettlement && !sanitizedInvoice ? ' - unmarked' : '';
     let description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
@@ -2551,8 +2613,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Excel exchange-rate fields (including secondary/reporting variants)
       // are intentionally ignored for Cash-Out.
       ExchRateSecond: 0,
-      Document: accountLine.DOCUMENT,
-      DocumentDate: accountLine.DOCUMENTDATE,
+      // The separate Vendor→223304 row owns the withholding document. Keep
+      // that document on the WHT companion while the payment portion keeps
+      // the vendor row's document.
+      Document:
+        amountSource === 'OFFSET' && isWithholding
+          ? offsetLine.DOCUMENT || accountLine.DOCUMENT
+          : accountLine.DOCUMENT || offsetLine.DOCUMENT,
+      DocumentDate:
+        amountSource === 'OFFSET' && isWithholding
+          ? offsetLine.DOCUMENTDATE || accountLine.DOCUMENTDATE
+          : accountLine.DOCUMENTDATE || offsetLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: accountLine.SafeType,
@@ -2584,7 +2655,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceLine: CashEntryRawDataModel,
     exchangeRateContext?: CashOutExchangeRateContext,
     withholdingLine?: CashEntryRawDataModel,
-    options?: { suppressSettlementMarking?: boolean },
   ): CashEntryDynDataModel {
     const dimensionString =
       sourceLine.ACCOUNTTYPE === 'Ledger'
@@ -2658,9 +2728,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const isVendorPayment =
       sourceLine.IsVendorPayment || route?.safeType === 'Vendor Payment';
     const supportsSettlementMarking = isVendorPayment || isCustodySettlement;
-    const suppressSettlementMarking = Boolean(
-      options?.suppressSettlementMarking,
-    );
     const sourceHasWithholding =
       this.isWithholdingLedgerLine(sourceLine) ||
       String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
@@ -2670,13 +2737,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows.
-    // Custody Settlement UniqueIds that include a 223304 withholding credit
-    // intentionally leave vendor lines unmarked.
+    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows,
+    // including groups that carry a separate 223304 withholding transaction.
     const markedLine =
-      supportsSettlementMarking &&
-      sourceLine.IsVendor &&
-      !suppressSettlementMarking
+      supportsSettlementMarking && sourceLine.IsVendor
         ? this.buildMarkedLine(sourceLine, withholdingLine)
         : undefined;
     const hasSettlementTarget = Boolean(
@@ -2687,10 +2751,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
     const markedInvoice =
-      supportsSettlementMarking &&
-      sourceLine.IsVendor &&
-      !isCustodyVendor &&
-      !suppressSettlementMarking
+      supportsSettlementMarking && sourceLine.IsVendor && !isCustodyVendor
         ? this.sanitizeInvoiceOutbound(
             sourceLine.MARKEDINVOICE ||
               sourceLine.INVOICE ||
@@ -2698,19 +2759,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           )
         : '';
 
-    let transactionText = sourceLine.TEXT || description;
-    if (
-      isCustodySettlement &&
-      sourceLine.IsVendor &&
-      suppressSettlementMarking
-    ) {
-      if (!description.toLowerCase().includes('unmarked')) {
-        description = `${description} - Unmarked`;
-      }
-      if (!transactionText.toLowerCase().includes('unmarked')) {
-        transactionText = `${transactionText} - Unmarked`;
-      }
-    }
+    const transactionText = sourceLine.TEXT || description;
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
@@ -2792,12 +2841,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: sourceLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: route?.safeType ?? sourceLine.SafeType,
-      // Settlement targets for Vendor Payment and Custody Settlement vendor
-      // rows. Suppressed when Custody Settlement UniqueId includes 223304.
+      // Settlement targets remain present when a separate 223304 withholding
+      // transaction exists; HasWithHoldingLine links the two for Finance.
       SettlementTargetType:
-        supportsSettlementMarking &&
-        sourceLine.IsVendor &&
-        !suppressSettlementMarking
+        supportsSettlementMarking && sourceLine.IsVendor
           ? isCustodyVendor
             ? 'CustodyLedger'
             : 'VendorInvoice'

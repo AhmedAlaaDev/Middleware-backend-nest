@@ -85,9 +85,14 @@ export class QueueJobStoreService {
   }
 
   async getJob(jobId: string) {
-    const job = await this.jobs.findOne({ jobId }).lean().exec();
+    const job = await this.findByJobId(jobId);
     if (!job) throw new NotFoundException(`Durable job ${jobId} not found`);
     return job;
+  }
+
+  /** Same lookup as getJob, but missing rows are null instead of a 404. */
+  async findByJobId(jobId: string) {
+    return this.jobs.findOne({ jobId }).lean().exec();
   }
 
   async listGroups<T>(jobId: string) {

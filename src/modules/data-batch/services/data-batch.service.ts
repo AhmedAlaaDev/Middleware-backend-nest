@@ -580,6 +580,18 @@ export class DataBatchService {
     await this.dataBatchRepo.updateOne(batchId, { dfoIds });
   }
 
+  /** Keep failed-attempt journals available for cleanup, but out of user links. */
+  public async updateDfoAttemptedIdsAsync(
+    batchId: string,
+    dfoAttemptedIds: string[],
+  ): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, { dfoAttemptedIds });
+  }
+
+  public async clearDfoAttemptedIdsAsync(batchId: string): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, { dfoAttemptedIds: [] });
+  }
+
   /**
    * Update batch with DFO posting error messages
    */

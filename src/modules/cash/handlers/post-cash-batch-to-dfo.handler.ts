@@ -351,28 +351,30 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
-    // Custody Settlement UniqueIds that include a 223304 withholding ledger
-    // row leave vendor MarkedLines empty (intentionally unmarked).
-    // Vendor Payment keeps settlement marks on both the normal-payment portion
-    // and the separate Vendor→223304 WHT companion line.
-    const uniqueIdsWithWithholding = new Set<string>();
-    if (route?.safeType === 'Custody Settlement') {
-      for (const record of lines) {
-        const data = record.data;
-        const accountType = String(data.AccountType ?? '')
-          .trim()
-          .toLowerCase();
-        const mainAccount = String(data.AccountDisplayValue ?? '')
-          .trim()
-          .split('|')[0]
-          .trim();
-        if (accountType !== 'ledger' || !mainAccount.startsWith('223304')) {
-          continue;
-        }
-        const uniqueId = String(
-          data.PaymentId || data.SourceIds?.[0] || '',
-        ).trim();
-        if (uniqueId) uniqueIdsWithWithholding.add(uniqueId);
+    const withholdingGroupKeys = new Set<string>();
+    const primaryMarkedLinesByGroup = new Map<
+      string,
+      NonNullable<CashEntryDynDataModel['MarkedLines']>
+    >();
+    for (const record of lines) {
+      const data = record.data;
+      const accountMain = String(data.AccountDisplayValue ?? '')
+        .trim()
+        .split('|')[0]
+        .trim();
+      const offsetMain = String(data.OffsetAccountDisplayValue ?? '')
+        .trim()
+        .split('|')[0]
+        .trim();
+      const groupKey = String(
+        data.PaymentId || data.SourceIds?.[0] || '',
+      ).trim();
+      const isWithholdingLine =
+        accountMain.startsWith('223304') || offsetMain.startsWith('223304');
+      if (groupKey && isWithholdingLine) {
+        withholdingGroupKeys.add(groupKey);
+      } else if (groupKey && data.MarkedLines?.length) {
+        primaryMarkedLinesByGroup.set(groupKey, data.MarkedLines);
       }
     }
 
@@ -429,17 +431,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         String(line.FinTagDisplayValue ?? '').split('|')[0],
       ).trim();
       const documentNumber = String(line.Document ?? '').trim();
-      const uniqueId = String(
+      const groupKey = String(
         line.PaymentId || line.SourceIds?.[0] || '',
       ).trim();
-      // Custody Settlement UniqueIds with a 223304 ledger row stay unmarked.
-      // Vendor Payment WHT companions keep MarkedLines (same invoice as the
-      // normal-payment portion).
-      const suppressMarkingForWithholding =
-        route?.safeType === 'Custody Settlement' &&
+      const isWithholdingCompanion =
         accountTypeStr === 'Vendor' &&
-        uniqueIdsWithWithholding.has(uniqueId);
-
+        String(line.OffsetAccountDisplayValue ?? '')
+          .trim()
+          .split('|')[0]
+          .trim()
+          .startsWith('223304');
+      const sourceMarkedLines =
+        line.MarkedLines && line.MarkedLines.length > 0
+          ? line.MarkedLines
+          : isWithholdingCompanion
+            ? primaryMarkedLinesByGroup.get(groupKey)
+            : undefined;
+      const hasAssociatedWithholding = Boolean(
+        withholdingGroupKeys.has(groupKey) &&
+        (isWithholdingCompanion ||
+          String(line.IsWithholdingCalculationEnabled ?? '').toLowerCase() ===
+            'yes' ||
+          sourceMarkedLines?.some((marked) => marked.HasWithHoldingLine)),
+      );
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
       // VendorGroup / Invoice / Document / Operation when formatting left
@@ -447,40 +461,41 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const routeSupportsMarking =
         route?.safeType === 'Vendor Payment' ||
         route?.safeType === 'Custody Settlement';
-      const markedLines = suppressMarkingForWithholding
-        ? []
-        : routeSupportsMarking
-          ? line.MarkedLines && line.MarkedLines.length > 0
-            ? line.MarkedLines.map((markedLine) => ({
-                // Prefer the formatted mark; fall back to MarkedInvoice so the
-                // FO VendPaym body always carries settlement when format had it.
-                InvoiceNumber: isCustodyVendor
-                  ? ''
-                  : this.toOptionalInvoiceString(
-                      markedLine.InvoiceNumber || markedInvoice || '',
-                    ),
-                OperationNumber: this.stripBidiMarks(
-                  String(markedLine.OperationNumber ?? operationNumber),
-                ).trim(),
-                DocumentNumber: isCustodyVendor
-                  ? String(markedLine.DocumentNumber ?? documentNumber).trim()
+      const markedLines = routeSupportsMarking
+        ? sourceMarkedLines && sourceMarkedLines.length > 0
+          ? sourceMarkedLines.map((markedLine) => ({
+              // Prefer the formatted mark; fall back to MarkedInvoice so the
+              // FO VendPaym body always carries settlement when format had it.
+              InvoiceNumber: isCustodyVendor
+                ? ''
+                : this.toOptionalInvoiceString(
+                    markedLine.InvoiceNumber || markedInvoice || '',
+                  ),
+              OperationNumber: this.stripBidiMarks(
+                String(markedLine.OperationNumber ?? operationNumber),
+              ).trim(),
+              DocumentNumber: isCustodyVendor
+                ? String(markedLine.DocumentNumber ?? documentNumber).trim()
+                : '',
+              HasWithHoldingLine:
+                Boolean(markedLine.HasWithHoldingLine) ||
+                hasAssociatedWithholding,
+            }))
+          : this.synthesizeCashOutMarkedLines({
+              isCustodyVendor,
+              markedInvoice,
+              // Only Custody Settlement may fall back to Invoice when
+              // MarkedInvoice was never populated. Vendor Payment keeps
+              // intentional unmarked (cleared MarkedInvoice) as empty.
+              invoice:
+                route?.safeType === 'Custody Settlement'
+                  ? this.toOptionalInvoiceString(line.Invoice)
                   : '',
-                HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
-              }))
-            : this.synthesizeCashOutMarkedLines({
-                isCustodyVendor,
-                markedInvoice,
-                // Only Custody Settlement may fall back to Invoice when
-                // MarkedInvoice was never populated. Vendor Payment keeps
-                // intentional unmarked (cleared MarkedInvoice) as empty.
-                invoice:
-                  route?.safeType === 'Custody Settlement'
-                    ? this.toOptionalInvoiceString(line.Invoice)
-                    : '',
-                operationNumber,
-                documentNumber,
-              })
-          : [];
+              operationNumber,
+              documentNumber,
+              hasWithholdingLine: hasAssociatedWithholding,
+            })
+        : [];
       const cashInMarkedLines =
         cashDirection === 'in'
           ? line.MarkedLines && line.MarkedLines.length > 0
@@ -510,7 +525,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (suppressMarkingForWithholding || !markedInvoice) &&
+        !markedInvoice &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
         transactionTextValue = transactionTextValue
@@ -522,7 +537,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (suppressMarkingForWithholding || !markedInvoice) &&
+        !markedInvoice &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue
@@ -663,6 +678,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     invoice: string;
     operationNumber: string;
     documentNumber: string;
+    hasWithholdingLine: boolean;
   }): Array<{
     InvoiceNumber: string;
     OperationNumber: string;
@@ -684,7 +700,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         InvoiceNumber: invoiceNumber,
         OperationNumber: operationNumber,
         DocumentNumber: documentNumber,
-        HasWithHoldingLine: false,
+        HasWithHoldingLine: input.hasWithholdingLine,
       },
     ];
   }
@@ -1047,12 +1063,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       },
       payload.groupedJournals,
     );
-    if (submission.status === 'already-completed') {
-      await this.dataBatchService.updateStatusAsync(
-        batchId,
-        DataBatchStatus.Posted,
-      );
-    }
+    // A duplicate Redis submission is not proof of Finance integrity. The
+    // worker is the only component allowed to transition a batch to Posted,
+    // and it does so only after exact header, line, amount, and settlement
+    // read-back succeeds.
 
     this.logger.log(
       submission.status === 'queued' || submission.status === 'requeued'

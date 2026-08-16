@@ -28,9 +28,11 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
     }
 
-    const hasDfoJournals = (batch.dfoIds ?? []).some((id) =>
-      Boolean(id.trim()),
-    );
+    const dfoJournalIds = [
+      ...(batch.dfoIds ?? []),
+      ...(batch.dfoAttemptedIds ?? []),
+    ];
+    const hasDfoJournals = dfoJournalIds.some((id) => Boolean(id.trim()));
 
     // Warn when the batch has DFO journals but allow force-deletion
     if (
@@ -40,7 +42,7 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
     ) {
       this.logger.warn(
         `Force-deleting batch ${batchId} that has DFO state ` +
-          `(status=${DataBatchStatus[batch.status]}, dfoIds=${(batch.dfoIds ?? []).join(', ')}). ` +
+          `(status=${DataBatchStatus[batch.status]}, dfoIds=${dfoJournalIds.join(', ')}). ` +
           `DFO journals will NOT be rolled back automatically.`,
       );
     }
@@ -79,7 +81,7 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
         actorEmail: actor.email,
         deletionMode: 'force-hard-delete',
         hadDfoJournals: hasDfoJournals,
-        dfoIds: batch.dfoIds ?? [],
+        dfoIds: dfoJournalIds,
         previousStatus: DataBatchStatus[batch.status],
         removedJobIds: discarded.removedJobIds,
         purgedDurableJobIds: discarded.purgedDurableJobIds,

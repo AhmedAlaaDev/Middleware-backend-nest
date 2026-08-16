@@ -18,6 +18,7 @@ import {
   InFlightPosting,
 } from '@/modules/queue/services/batch-posting-control.service';
 import { QueueJobStoreService } from '@/modules/queue/services/queue-job-store.service';
+import { QueueRecoveryService } from '@/modules/queue/services/queue-recovery.service';
 import {
   QueueName,
   QueueService,
@@ -36,6 +37,7 @@ export class AdminQueuesController {
     private readonly jobs: QueueJobStoreService,
     private readonly redis: LogStreamService,
     private readonly postingControl: BatchPostingControlService,
+    private readonly recovery: QueueRecoveryService,
   ) {}
 
   @Get()
@@ -70,16 +72,18 @@ export class AdminQueuesController {
 
   @Get(':queueName')
   async getQueueInfo(@Param('queueName') queueName: string) {
-    if (!this.queues.getQueueNames().includes(queueName as QueueName)) {
-      throw new BadRequestException(`Unknown queue ${queueName}`);
-    }
-    const stats = await this.queues.getStats(queueName as QueueName);
-    const queue = this.queues.getQueue(queueName as QueueName);
-    const isPaused = await queue.isPaused();
+    const name = this.requireQueue(queueName);
+    const stats = await this.queues.getStats(name);
+    const queue = this.queues.getQueue(name);
+    const [isPaused, redisJobs] = await Promise.all([
+      queue.isPaused(),
+      this.queues.listRedisJobSnapshots(name),
+    ]);
     return {
       queueName,
       stats,
       isPaused,
+      redisJobs,
     };
   }
 
@@ -99,6 +103,22 @@ export class AdminQueuesController {
       false,
     );
     return { status: 'resumed', queue };
+  }
+
+  /**
+   * Drop Redis active locks that no longer match a running Mongo job, then
+   * requeue durable jobs that Redis lost. Unblocks concurrency=1 queues when
+   * a ghost lock is holding Waiting jobs.
+   */
+  @Post(':queueName/release-orphans')
+  async releaseOrphans(@Param('queueName') queueName: string) {
+    const name = this.requireQueue(queueName);
+    const result = await this.recovery.reconcile(name);
+    return {
+      status: 'reconciled',
+      ...result,
+      redisJobs: await this.queues.listRedisJobSnapshots(name),
+    };
   }
 
   /**

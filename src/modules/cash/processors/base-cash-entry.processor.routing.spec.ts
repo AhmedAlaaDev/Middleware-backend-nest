@@ -64,6 +64,90 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     },
   );
 
+  it.each([
+    ['Freight', 'P-Freight'],
+    ['Fleet', 'P-Fleet'],
+  ] as const)(
+    'processes Vendor Payment WHT identically for %s and routes it to %s',
+    (target, expectedJournal) => {
+      const processor = createProcessor(target);
+      const rawLines = [
+        {
+          UniqueId: 496578,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-03-31',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Tr-000031',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '120',
+          FINTAGDISPLAYVALUE: 'O26-EXP-OC-1759|TAG',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 496578,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-03-31',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304|1201|012|001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 25,
+          CURRENCYCODE: 'EGP',
+          INVOICE: '120',
+          DOCUMENT: '18369',
+          FINTAGDISPLAYVALUE: 'O26-EXP-OC-1759|TAG',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 496578,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-03-31',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 975,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, target));
+
+      const formatted = (processor as any).buildLines('496578', rawLines);
+      const paymentLine = formatted.find(
+        (line: any) => line.OffsetAccountDisplayValue === 'BANK-001',
+      );
+      const withholdingLine = formatted.find((line: any) =>
+        String(line.OffsetAccountDisplayValue).startsWith('223304'),
+      );
+
+      expect(formatted).toHaveLength(2);
+      expect(paymentLine).toMatchObject({
+        JournalName: expectedJournal,
+        OffsetAccountType: 'Bank',
+        DebitAmount: 975,
+        Document: '',
+      });
+      expect(withholdingLine).toMatchObject({
+        JournalName: expectedJournal,
+        OffsetAccountType: 'Ledger',
+        DebitAmount: 25,
+        MarkedInvoice: '120',
+        Document: '18369',
+      });
+      expect(
+        [paymentLine, withholdingLine].every(
+          (line: any) =>
+            line.MarkedLines[0]?.InvoiceNumber === '120' &&
+            line.MarkedLines[0]?.OperationNumber === 'O26-EXP-OC-1759' &&
+            line.MarkedLines[0]?.HasWithHoldingLine === true,
+        ),
+      ).toBe(true);
+    },
+  );
+
   it('formats outbound DownPayment as line-based AR rows (no offset conversion)', () => {
     const processor = createProcessor();
     const rawLines = [
@@ -211,6 +295,58 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted.OffsetAccountType).toBeFalsy();
     expect(formatted.SafeType).toBe('Vendor Payment');
     expect(formatted.GetErrors?.() ?? []).toEqual([]);
+  });
+
+  it('posts a withholding-only Vendor Payment as a marked Vendor-to-223304 line', () => {
+    const processor = createProcessor();
+    const rawLines = [
+      {
+        UniqueId: 480099,
+        LINENUMBER: 1,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'VEND-001',
+        DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+        DEBITAMOUNT: 50,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'INV-WHT-ONLY',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Transfer',
+      },
+      {
+        UniqueId: 480099,
+        LINENUMBER: 2,
+        TRANSDATE: '2026-01-15',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223304|1201|012|001',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 50,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'INV-WHT-ONLY',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Transfer',
+      },
+    ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+    const dfoLines = (processor as any).buildLines('480099', rawLines);
+
+    expect(dfoLines).toHaveLength(1);
+    expect(dfoLines[0]).toMatchObject({
+      AccountType: 'Vend',
+      AccountDisplayValue: 'VEND-001',
+      OffsetAccountType: 'Ledger',
+      DebitAmount: 50,
+      CreditAmount: 0,
+      MarkedInvoice: 'INV-WHT-ONLY',
+    });
+    expect(dfoLines[0].OffsetAccountDisplayValue).toContain('223304');
+    expect(dfoLines[0].MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: 'INV-WHT-ONLY',
+        HasWithHoldingLine: true,
+      }),
+    ]);
   });
 
   it('builds Ledger-only Vendor Payment UniqueIds as main-account-only lines', () => {
@@ -677,7 +813,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
-    it('keeps Custody Settlement withholding separate and leaves vendor lines unmarked', () => {
+    it('keeps Custody Settlement withholding separate and marks the primary vendor line', () => {
       const processor = createProcessor();
       jest
         .spyOn(processor as any, 'fetchExchangeRates')
@@ -736,12 +872,18 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(
         dfoLines.every((line: any) => !line.OffsetAccountDisplayValue),
       ).toBe(true);
-      expect(dfoLines.every((line: any) => line.MarkedLines.length === 0)).toBe(
-        true,
-      );
-      expect(dfoLines[0].SettlementTargetType).toBe('None');
-      expect(dfoLines[0].Description).toContain('Unmarked');
-      expect(dfoLines[0].TransactionText).toContain('Unmarked');
+      expect(dfoLines[0].MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-CS-WH',
+          HasWithHoldingLine: true,
+        }),
+      ]);
+      expect(
+        dfoLines.slice(1).every((line: any) => line.MarkedLines.length === 0),
+      ).toBe(true);
+      expect(dfoLines[0].SettlementTargetType).toBe('VendorInvoice');
+      expect(dfoLines[0].Description).not.toContain('Unmarked');
+      expect(dfoLines[0].TransactionText).not.toContain('Unmarked');
       expect(dfoLines[1].Description).not.toContain('Unmarked');
     });
 
@@ -884,7 +1026,6 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(String(withholdingLine.OffsetAccountDisplayValue)).toContain(
         '223304',
       );
-      // Both portions mark the same vendor invoice.
       expect(withholdingLine.MarkedLines).toEqual([
         expect.objectContaining({
           InvoiceNumber: 'INV-2055',
@@ -1001,7 +1142,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         true,
       );
 
-      // Marking: payment and WHT portions both mark their vendor invoice.
+      // Both payment and WHT portions carry the matching invoice so Finance
+      // can settle each portion against the same vendor invoice.
       const marksByInvoice = new Map(
         paymentLines.map((line: any) => [
           line.MarkedLines[0].InvoiceNumber,
@@ -1019,18 +1161,13 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(
         withholdingLines.every(
           (line: any) =>
-            line.MarkedLines[0]?.InvoiceNumber &&
-            line.MarkedLines[0].HasWithHoldingLine === true,
+            line.MarkedLines[0]?.InvoiceNumber === line.MarkedInvoice &&
+            line.MarkedLines[0]?.HasWithHoldingLine === true,
         ),
       ).toBe(true);
-      expect(
-        withholdingLines
-          .map((line: any) => line.MarkedLines[0].InvoiceNumber)
-          .sort(),
-      ).toEqual(['3829', '3844']);
     });
 
-    it('allocates a shared-invoice WHT once to one vendor and marks both portions', () => {
+    it('allocates a shared-invoice WHT once and marks both payment portions', () => {
       const processor = createProcessor();
       jest
         .spyOn(processor as any, 'fetchExchangeRates')
@@ -1316,7 +1453,10 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
       expect(withholdingLine.FinTagDisplayValue).toContain('O26-IMP-OC-80');
       expect(withholdingLine.MarkedLines).toEqual([
-        expect.objectContaining({ InvoiceNumber: '156' }),
+        expect.objectContaining({
+          InvoiceNumber: '156',
+          HasWithHoldingLine: true,
+        }),
       ]);
       expect(
         paymentLines.map((line: any) => line.DebitAmount).sort((a, b) => a - b),
@@ -1475,7 +1615,10 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         MarkedInvoice: '156',
       });
       expect(withholdingLines[0].MarkedLines).toEqual([
-        expect.objectContaining({ InvoiceNumber: '156' }),
+        expect.objectContaining({
+          InvoiceNumber: '156',
+          HasWithHoldingLine: true,
+        }),
       ]);
       // Exactly one vendor absorbs the full WHT; others keep original debit.
       const sourceVendorDebits = rawLines

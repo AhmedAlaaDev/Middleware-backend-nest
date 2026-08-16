@@ -155,4 +155,65 @@ describe(QueueService.name, () => {
     });
     expect(redisQueue.add).not.toHaveBeenCalled();
   });
+
+  it('releases Redis active jobs whose Mongo status is not running', async () => {
+    const orphan = {
+      id: `${QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL}--old-batch`,
+      data: { batchId: 'old-batch' },
+      timestamp: 1,
+      processedOn: 2,
+      finishedOn: null,
+      attemptsMade: 1,
+      failedReason: null,
+      getState: jest.fn().mockResolvedValue('active'),
+      moveToFailed: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    };
+    const live = {
+      id: `${QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL}--live-batch`,
+      data: { batchId: 'live-batch' },
+      getState: jest.fn().mockResolvedValue('active'),
+      moveToFailed: jest.fn(),
+    };
+    const cashQueue = {
+      getJobs: jest.fn().mockResolvedValue([orphan, live]),
+      getJob: jest.fn().mockImplementation((jobId: string) =>
+        Promise.resolve(jobId === String(orphan.id) ? orphan : live),
+      ),
+    } as unknown as Queue;
+    const jobStore = {
+      findByJobId: jest.fn((jobId: string) =>
+        Promise.resolve(
+          jobId === String(live.id)
+            ? { status: 'active' }
+            : { status: 'completed' },
+        ),
+      ),
+    };
+    const service = new QueueService(
+      {} as Queue,
+      {} as Queue,
+      cashQueue,
+      {} as Queue,
+      {} as Queue,
+      {} as Queue,
+      jobStore as never,
+      { emit: jest.fn().mockResolvedValue(undefined) } as never,
+      { get: () => undefined } as never,
+    );
+
+    const released = await service.releaseOrphanedActiveJobs(
+      QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL,
+    );
+
+    expect(released).toEqual([
+      {
+        jobId: String(orphan.id),
+        batchId: 'old-batch',
+        mongoStatus: 'completed',
+      },
+    ]);
+    expect(orphan.moveToFailed).toHaveBeenCalled();
+    expect(live.moveToFailed).not.toHaveBeenCalled();
+  });
 });

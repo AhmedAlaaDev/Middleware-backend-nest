@@ -162,6 +162,15 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     };
   }
 
+  public findHeadersByIntegrationMarker(
+    integrationMarker: string,
+    dataAreaId: string,
+  ): Promise<string[]> {
+    const active = this.activeHeaderStrategy();
+    if (!active.findHeadersByIntegrationMarker) return Promise.resolve([]);
+    return active.findHeadersByIntegrationMarker(integrationMarker, dataAreaId);
+  }
+
   public repairDuplicatedUnmarkedFallbackLines(
     headerKey: string,
     expectedLineCount: number,
@@ -189,6 +198,20 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     }
     return this.customerPaymentJournalService.assertCashOutSettlementIntegrity(
       headerKey,
+      lines as D365FOCustomerPaymentJournalLineRequest[],
+      dataAreaId,
+    );
+  }
+
+  public assertNoExternalSettlementOwners(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const route = this.requireRoute();
+    if (route.kind !== 'vendor-invoice' || route.lineDirection !== 'out') {
+      return Promise.resolve();
+    }
+    return this.customerPaymentJournalService.assertNoExternalSettlementOwners(
       lines as D365FOCustomerPaymentJournalLineRequest[],
       dataAreaId,
     );
