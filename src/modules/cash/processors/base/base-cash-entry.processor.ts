@@ -931,7 +931,24 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       inbound: this.isInbound(),
       exchangeRateContext,
       buildLine: (id, accountLine, offsetLine, amountSource, context) =>
-        this.buildLine(id, accountLine, offsetLine, amountSource, context),
+        buildCashLine({
+          inbound: this.isInbound(),
+          sourceId: id,
+          accountLine,
+          offsetLine,
+          amountSource,
+          exchangeRateContext: context,
+          buildInbound: (lineId, account, offset, source, rateContext) =>
+            this.buildLineInbound(lineId, account, offset, source, rateContext),
+          buildOutbound: (lineId, account, offset, source, rateContext) =>
+            this.buildLineOutbound(
+              lineId,
+              account,
+              offset,
+              source,
+              rateContext,
+            ),
+        }),
     });
   }
 
@@ -946,30 +963,26 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       inbound: this.isInbound(),
       exchangeRateContext,
       buildLine: (id, accountLine, offsetLine, amountSource, context) =>
-        this.buildLine(id, accountLine, offsetLine, amountSource, context),
+        buildCashLine({
+          inbound: this.isInbound(),
+          sourceId: id,
+          accountLine,
+          offsetLine,
+          amountSource,
+          exchangeRateContext: context,
+          buildInbound: (lineId, account, offset, source, rateContext) =>
+            this.buildLineInbound(lineId, account, offset, source, rateContext),
+          buildOutbound: (lineId, account, offset, source, rateContext) =>
+            this.buildLineOutbound(
+              lineId,
+              account,
+              offset,
+              source,
+              rateContext,
+            ),
+        }),
       parseDimensionString: (displayValue) =>
         this.utilsService.parseDimensionString(displayValue),
-    });
-  }
-
-  protected buildLine(
-    sourceId: string,
-    accountLine?: CashEntryRawDataModel,
-    offsetLine?: CashEntryRawDataModel,
-    amountSource?: 'ACCOUNT' | 'OFFSET',
-    exchangeRateContext?: CashOutExchangeRateContext,
-  ): CashEntryDynDataModel {
-    return buildCashLine({
-      inbound: this.isInbound(),
-      sourceId,
-      accountLine,
-      offsetLine,
-      amountSource,
-      exchangeRateContext,
-      buildInbound: (id, account, offset, source, context) =>
-        this.buildLineInbound(id, account, offset, source, context),
-      buildOutbound: (id, account, offset, source, context) =>
-        this.buildLineOutbound(id, account, offset, source, context),
     });
   }
 
