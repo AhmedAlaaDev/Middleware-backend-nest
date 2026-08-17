@@ -1274,12 +1274,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toContain(
       'Unmarked',
     );
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      expect.objectContaining({
-        InvoiceNumber: 'INV-1',
-        HasWithHoldingLine: true,
-      }),
-    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toBeUndefined();
   });
 
   it('maps Custody Settlement standard-vendor MarkedLines with InvoiceNumber only', () => {
@@ -1606,11 +1601,6 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const line3 = result[2].customLineApiBody;
     expect(line3.AccountNum).toBe('223304|1101|011|001');
     expect(line3.accountTypeStr).toBe('Ledger');
-    expect(line3.MarkedLines).toEqual([
-      expect.objectContaining({
-        InvoiceNumber: 'INV-CS-001',
-        HasWithHoldingLine: true,
-      }),
-    ]);
+    expect(line3.MarkedLines).toBeUndefined();
   });
 });

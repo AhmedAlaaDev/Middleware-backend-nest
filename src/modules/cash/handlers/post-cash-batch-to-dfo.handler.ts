@@ -505,8 +505,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // VendorGroup / Invoice / Document / Operation when formatting left
       // the array empty (e.g. older batches or missing hydrate at format).
       const routeSupportsMarking =
-        route?.safeType === 'Vendor Payment' ||
-        route?.safeType === 'Custody Settlement';
+        accountTypeStr === 'Vendor' &&
+        (route?.safeType === 'Vendor Payment' ||
+          route?.safeType === 'Custody Settlement');
       const markedLines = routeSupportsMarking
         ? sourceMarkedLines && sourceMarkedLines.length > 0
           ? sourceMarkedLines.map((markedLine) => ({
@@ -685,13 +686,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           : '';
 
       if (cashDirection === 'out') {
-        // Always send MarkedLines for any cash-out lines with markings
-        // (including Custody Settlement and Withholding lines), and empty
-        // array for AP vendor cash-out lines when unmarked.
-        if (markedLines.length > 0) {
+        // MarkedLines belong exclusively to AP Vendor lines in D365FO.
+        // Sending MarkedLines on Ledger/Bank accounts causes D365FO to treat the ledger dimension string as a vendor account and fail.
+        if (accountTypeStr === 'Vendor') {
           customLineApiBody.MarkedLines = markedLines;
-        } else if (accountTypeStr === 'Vendor') {
-          customLineApiBody.MarkedLines = [];
         }
       } else if (cashDirection === 'in') {
         // Cash-In historically used MARKEDINVOICE only. Keep that field for
@@ -701,7 +699,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         if (routeSupportsMarking || markedInvoice) {
           customLineApiBody.MARKEDINVOICE = markedInvoice;
         }
-      } else if (routeSupportsMarking || markedInvoice) {
+      } else if (routeSupportsMarking || (markedInvoice && accountTypeStr === 'Vendor')) {
         customLineApiBody.MARKEDINVOICE = markedInvoice;
       }
 
