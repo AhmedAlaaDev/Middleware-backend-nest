@@ -57,7 +57,11 @@ The following methods remain in `BaseCashEntryProcessor` as compatibility wrappe
 - `dimensionPartAsString`
 - `isNotesReceivableLine`
 - `isSettlementLine`
-- `sanitizeInvoiceOutbound`
+
+The `sanitizeInvoiceOutbound` and `firstFinancialTag` wrappers have now been
+removed from `BaseCashEntryProcessor`; all internal callers use the extracted
+policy functions directly. This is the model for removing the remaining
+compatibility wrappers in later phases.
 
 ## `cash-invoice.policy.ts`
 

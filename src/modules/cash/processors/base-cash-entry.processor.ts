@@ -605,7 +605,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const invoices = normalVendorLines
       .map((line) =>
-        this.sanitizeInvoiceOutbound(
+        sanitizeCashOutboundInvoice(
           line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
         ),
       )
@@ -616,7 +616,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         invoices,
       );
     for (const line of normalVendorLines) {
-      const invoice = this.sanitizeInvoiceOutbound(
+      const invoice = sanitizeCashOutboundInvoice(
         line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
       );
       const vendor = String(line.ACCOUNTDISPLAYVALUE ?? '').trim();
@@ -646,7 +646,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           Math.abs(Number(line.DEBITAMOUNT ?? 0)),
           Math.abs(Number(line.CREDITAMOUNT ?? 0)),
         ),
-        operationNumber: this.firstFinancialTag(line.FINTAGDISPLAYVALUE),
+        operationNumber: firstCashFinancialTag(line.FINTAGDISPLAYVALUE),
       };
       const missing = [
         !target.documentNumber ? 'Document Number' : '',
@@ -681,7 +681,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
       } else if (!line.MARKEDINVOICE) {
         const match = targetMatches[0];
-        line.MARKEDINVOICE = this.sanitizeInvoiceOutbound(
+        line.MARKEDINVOICE = sanitizeCashOutboundInvoice(
           match.Invoice || match.Voucher || match.Document || line.INVOICE,
         );
       }
@@ -996,20 +996,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     vendorLine: CashEntryRawDataModel,
     withholdingLines: CashEntryRawDataModel[],
   ): CashEntryRawDataModel | undefined {
-    const invoice = this.sanitizeInvoiceOutbound(vendorLine.INVOICE);
+    const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
     if (invoice) {
       const invoiceMatch = withholdingLines.find(
-        (line) => this.sanitizeInvoiceOutbound(line.INVOICE) === invoice,
+        (line) => sanitizeCashOutboundInvoice(line.INVOICE) === invoice,
       );
       if (invoiceMatch) return invoiceMatch;
     }
 
-    const operation = this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
+    const operation = firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
     return withholdingLines.find(
       (line) =>
         line.DOCUMENT === vendorLine.DOCUMENT &&
         line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
-        this.firstFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+        firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
     );
   }
 
@@ -1469,7 +1469,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine.INVOICE ||
       primarySettlement.vendorLine.DOCUMENT ||
       offsetLine.DOCUMENT;
-    const sanitizedInvoice = this.sanitizeInvoiceOutbound(rawInvoice);
+    const sanitizedInvoice = sanitizeCashOutboundInvoice(rawInvoice);
 
     const descriptionSuffix = !sanitizedInvoice ? ' - unmarked' : '';
     const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
@@ -1546,7 +1546,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
         '',
-      Invoice: this.sanitizeInvoiceOutbound(rawInvoice),
+      Invoice: sanitizeCashOutboundInvoice(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
       MarkedLines: markedLines,
       VendorGroup: accountLine.VendorGroup ?? '',
@@ -1702,7 +1702,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : '',
       OffsetCompany: this.company,
       PostingProfile: sourceLine.POSTINGPROFILE,
-      Invoice: this.sanitizeInvoiceOutbound(
+      Invoice: sanitizeCashOutboundInvoice(
         sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
       MarkedInvoice: '',
@@ -1920,14 +1920,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
   }
 
-  /**
-   * Cash-out invoice sanitization: trim; drop empty / all-zero placeholders
-   * (0, 00, 000, ...). Does not use cash-in number/text formatting.
-   */
-  protected sanitizeInvoiceOutbound(invoice?: string): string {
-    return sanitizeCashOutboundInvoice(invoice);
-  }
-
   protected isWithholdingLedgerLine(line: CashEntryRawDataModel): boolean {
     return (
       line.ACCOUNTTYPE === 'Ledger' &&
@@ -1935,10 +1927,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         .trim()
         .startsWith('223304')
     );
-  }
-
-  protected firstFinancialTag(value?: string): string {
-    return firstCashFinancialTag(value);
   }
 
   /**
@@ -2042,12 +2030,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return {
       InvoiceNumber: isCustody
         ? ''
-        : this.sanitizeInvoiceOutbound(
+        : sanitizeCashOutboundInvoice(
             vendorLine.MARKEDINVOICE ||
               vendorLine.INVOICE ||
               vendorLine.DOCUMENT,
           ),
-      OperationNumber: this.firstFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
+      OperationNumber: firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
       DocumentNumber: isCustody ? String(vendorLine.DOCUMENT ?? '').trim() : '',
       HasWithHoldingLine: Boolean(withholdingLine),
     };
