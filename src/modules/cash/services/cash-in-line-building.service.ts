@@ -1,6 +1,8 @@
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { isCash22420LedgerDimensionLine } from '@/modules/cash/policies/cash-account.policy';
+import { formatCashInboundInvoice } from '@/modules/cash/policies/cash-invoice.policy';
+import { toCashDefaultDimensionDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 import {
   CashOutExchangeRateContext,
@@ -56,6 +58,37 @@ export function formatCashInboundDescription(options: {
     : offsetLine.DESCRIPTION || '';
 
   return { description, paymentReference };
+}
+
+export function resolveCashInboundDerivedValues(options: {
+  accountLine: CashEntryRawDataModel;
+  offsetLine: CashEntryRawDataModel;
+  dimensions: EntryDimensionsModel;
+  amountSource?: 'ACCOUNT' | 'OFFSET';
+}): {
+  dimensionDisplayValue: string;
+  currencyCode?: string;
+  transactionDate?: string;
+  markedInvoice: string;
+} {
+  const { accountLine, offsetLine, dimensions, amountSource } = options;
+  return {
+    dimensionDisplayValue: toCashDefaultDimensionDisplayValue(
+      dimensions,
+      !isCash22420LedgerDimensionLine(accountLine, offsetLine),
+    ),
+    currencyCode:
+      amountSource === 'ACCOUNT'
+        ? accountLine.CURRENCYCODE
+        : offsetLine.CURRENCYCODE,
+    transactionDate: offsetLine.TRANSDATE || accountLine.TRANSDATE,
+    markedInvoice: formatCashInboundInvoice(
+      accountLine.INVOICE ||
+        offsetLine.INVOICE ||
+        accountLine.DOCUMENT ||
+        offsetLine.DOCUMENT,
+    ),
+  };
 }
 
 export function prepareCashInboundDimensions(options: {

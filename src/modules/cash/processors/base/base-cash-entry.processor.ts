@@ -36,6 +36,7 @@ import {
   buildCashInboundInvalidLine,
   formatCashInboundDescription,
   prepareCashInboundDimensions,
+  resolveCashInboundDerivedValues,
   resolveCashInboundRates,
 } from '@/modules/cash/services/cash-in-line-building.service';
 import {
@@ -1041,17 +1042,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       formattedDate,
     });
 
-    const dimensionStr = toCashDefaultDimensionDisplayValue(
+    const {
+      dimensionDisplayValue: dimensionStr,
+      currencyCode,
+      transactionDate,
+      markedInvoice,
+    } = resolveCashInboundDerivedValues({
+      accountLine,
+      offsetLine,
       dimensions,
-      !isCash22420LedgerDimensionLine(accountLine, offsetLine),
-    );
-
-    const currencyCode =
-      amountSource === 'ACCOUNT'
-        ? accountLine.CURRENCYCODE
-        : offsetLine.CURRENCYCODE;
-
-    const transactionDate = offsetLine.TRANSDATE || accountLine.TRANSDATE;
+      amountSource,
+    });
 
     const { exchangeRate, reportingRate } = resolveCashInboundRates({
       exchangeRateContext,
@@ -1066,13 +1067,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       fetchLegacyRates: (date, currency) =>
         this.fetchExchangeRates(date, currency),
     });
-
-    const markedInvoice = formatCashInboundInvoice(
-      accountLine.INVOICE ||
-        offsetLine.INVOICE ||
-        accountLine.DOCUMENT ||
-        offsetLine.DOCUMENT,
-    );
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
