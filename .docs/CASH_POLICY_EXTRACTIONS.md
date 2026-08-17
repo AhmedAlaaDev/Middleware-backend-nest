@@ -52,6 +52,9 @@ This file owns the cash custom API's dimension serialization and offset-account 
 The following methods remain in `BaseCashEntryProcessor` as compatibility wrappers:
 
 - `replaceFinTagShippingLineWithVendorName` (requires the base processor's vendor lookup)
+- `formatInvoiceInbound` and `formatInvoiceOutbound` (the inbound pipeline now
+  calls the extracted formatter directly; the wrappers remain temporarily for
+  subclass/test compatibility)
 
 The `sanitizeInvoiceOutbound` and `firstFinancialTag` wrappers have now been
 removed from `BaseCashEntryProcessor`; all internal callers use the extracted

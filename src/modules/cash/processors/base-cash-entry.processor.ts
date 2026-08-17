@@ -16,6 +16,7 @@ import {
 } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   firstCashFinancialTag,
+  formatCashInboundInvoice,
   replaceCashShippingLineWithVendorName,
 } from '@/modules/cash/policies/cash-invoice.policy';
 import {
@@ -1249,7 +1250,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? officialReportingResolution.rate
       : legacyRates.reportingRate;
 
-    const markedInvoice = this.formatInvoiceInbound(
+    const markedInvoice = formatCashInboundInvoice(
       accountLine.INVOICE ||
         offsetLine.INVOICE ||
         accountLine.DOCUMENT ||
