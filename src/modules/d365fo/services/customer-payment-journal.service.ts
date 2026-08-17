@@ -3491,8 +3491,16 @@ export class CustomerPaymentJournalService {
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
-      ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),
+      // Cash journals post withholding explicitly via companion lines.
+      // Always force withholding tax group empty and disable calculation across all aliases.
+      ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
+      ISWITHHOLDINGTAXCALCULATE: 'No',
+      isWithholdingTaxCalculate: 'No',
+      TaxWithholdCalculate: 'No',
+      TAXWITHHOLDCALCULATE: 'No',
+      IsWithholdingCalculationEnabled: 'No',
+      ISWITHHOLDINGCALCULATIONENABLED: 'No',
       offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
@@ -3528,9 +3536,7 @@ export class CustomerPaymentJournalService {
           : String(line.MARKEDINVOICE);
     }
 
-    // Always project settlement marks onto the FO body when present. Omitting
-    // MarkedLines here is what made Vendor Payment journals post without
-    // SpecTrans after format had already built the marks correctly.
+    // Always project settlement marks onto the FO body when present.
     if (markedLines.length > 0) {
       body.MarkedLines = markedLines.map((marked) => ({
         InvoiceNumber: String(marked.InvoiceNumber ?? ''),

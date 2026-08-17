@@ -3543,11 +3543,29 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const accountType = String(line.ACCOUNTTYPE ?? '')
       .trim()
       .toLowerCase();
+    const isLedger =
+      accountType === 'ledger' ||
+      accountType === 'led' ||
+      Boolean(line.IsLedger);
     const mainAccount = String(line.ACCOUNTDISPLAYVALUE ?? '')
       .trim()
       .split('|')[0]
       .trim();
-    return accountType === 'ledger' && mainAccount.startsWith('223304');
+
+    const offsetAccountType = String(line.OFFSETACCOUNTTYPE ?? '')
+      .trim()
+      .toLowerCase();
+    const isOffsetLedger =
+      offsetAccountType === 'ledger' || offsetAccountType === 'led';
+    const offsetMainAccount = String(line.OFFSETACCOUNTDISPLAYVALUE ?? '')
+      .trim()
+      .split('|')[0]
+      .trim();
+
+    return (
+      (isLedger && mainAccount.startsWith('223304')) ||
+      (isOffsetLedger && offsetMainAccount.startsWith('223304'))
+    );
   }
 
   /**

@@ -802,9 +802,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
     expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
-    expect(postedLine).not.toHaveProperty('Voucher');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
-    expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
+    expect(postedLine).toHaveProperty('ISWITHHOLDINGTAXCALCULATE', 'No');
+    expect(postedLine).toHaveProperty('TaxWithholdCalculate', 'No');
+    expect(postedLine).toHaveProperty('IsWithholdingCalculationEnabled', 'No');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -1385,6 +1386,12 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       ISPREPAYMENT: 'No',
       ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
+      ISWITHHOLDINGTAXCALCULATE: 'No',
+      isWithholdingTaxCalculate: 'No',
+      TaxWithholdCalculate: 'No',
+      TAXWITHHOLDCALCULATE: 'No',
+      IsWithholdingCalculationEnabled: 'No',
+      ISWITHHOLDINGCALCULATIONENABLED: 'No',
       offsetAccountDisplayValue: 'PSD EG',
       OffsetAccountTypeStr: '',
       OffsetCompany: 'm-p',
@@ -1505,7 +1512,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
     expect(postedLine).not.toHaveProperty('Voucher');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
-    expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
+    expect(postedLine).toHaveProperty('ISWITHHOLDINGTAXCALCULATE', 'No');
+    expect(postedLine).toHaveProperty('TaxWithholdCalculate', 'No');
+    expect(postedLine).toHaveProperty('IsWithholdingCalculationEnabled', 'No');
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {

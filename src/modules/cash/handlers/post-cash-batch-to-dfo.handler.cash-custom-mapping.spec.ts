@@ -1703,6 +1703,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[1].customLineApiBody.debitAmount).toBe(358.08);
     expect(result[1].customLineApiBody.creditAmount).toBe(0);
     expect(result[1].customLineApiBody.IsWithholdingTaxCalculate).toBe('No');
+    expect(result[1].customLineApiBody.ISWITHHOLDINGTAXCALCULATE).toBe('No');
+    expect(result[1].customLineApiBody.TaxWithholdCalculate).toBe('No');
+    expect(result[1].customLineApiBody.IsWithholdingCalculationEnabled).toBe('No');
     expect(result[1].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('');
     expect(result[1].customLineApiBody.MarkedLines).toEqual([
       {
@@ -1712,5 +1715,83 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: true,
       },
     ]);
+  });
+
+  it('rewrites stored Ledger 223301, 223302, and 223305 withholding lines to Vendor offsets on post', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+    });
+
+    for (const whtAccount of ['223301|1201|012|001', '223302|1201|012|001', '223305|1201|012|001']) {
+      const result = (handler as any).mapLines(
+        [
+          {
+            data: {
+              PaymentId: '469002',
+              SourceIds: ['469002'],
+              AccountType: 'Vend',
+              AccountDisplayValue: 'Tr-000031',
+              DebitAmount: 5000,
+              CreditAmount: 0,
+              CurrencyCode: 'EGP',
+              Document: '18370',
+              Invoice: '121',
+              MarkedInvoice: '121',
+              VendorGroup: 'Trade',
+              SafeType: 'Vendor Payment',
+              FinTagDisplayValue: 'O26-EXP-OC-1760|TAG',
+              SettlementTargetType: 'VendorInvoice',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '121',
+                  OperationNumber: 'O26-EXP-OC-1760',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: true,
+                },
+              ],
+            },
+          },
+          {
+            data: {
+              PaymentId: '469002',
+              SourceIds: ['469002'],
+              AccountType: 'Ledger',
+              AccountDisplayValue: whtAccount,
+              DebitAmount: 0,
+              CreditAmount: 150,
+              CurrencyCode: 'EGP',
+              Document: '18370',
+              SafeType: 'Vendor Payment',
+              FinTagDisplayValue: 'O26-EXP-OC-1760|TAG',
+            },
+          },
+        ],
+        'm-p',
+        'out',
+        route,
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[1].customLineApiBody.AccountNum).toBe('Tr-000031');
+      expect(result[1].customLineApiBody.accountTypeStr).toBe('Vendor');
+      expect(result[1].customLineApiBody.offsetAccountDisplayValue).toBe(whtAccount);
+      expect(result[1].customLineApiBody.OffsetAccountTypeStr).toBe('Ledger');
+      expect(result[1].customLineApiBody.debitAmount).toBe(150);
+      expect(result[1].customLineApiBody.creditAmount).toBe(0);
+      expect(result[1].customLineApiBody.IsWithholdingTaxCalculate).toBe('No');
+      expect(result[1].customLineApiBody.ISWITHHOLDINGTAXCALCULATE).toBe('No');
+      expect(result[1].customLineApiBody.TaxWithholdCalculate).toBe('No');
+      expect(result[1].customLineApiBody.IsWithholdingCalculationEnabled).toBe('No');
+      expect(result[1].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('');
+    }
+  });
+
+  it('maps "led" to Ledger and "customer" to Cust account type', () => {
+    const handler = buildHandler();
+    expect((handler as any).mapEntryAccountTypeStrForCustom('led')).toBe('Ledger');
+    expect((handler as any).mapEntryAccountTypeStrForCustom('customer')).toBe('Cust');
   });
 });

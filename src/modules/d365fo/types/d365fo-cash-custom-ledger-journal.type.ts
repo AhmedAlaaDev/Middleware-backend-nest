@@ -54,6 +54,11 @@ export interface TSLedgerJournalTransCustomRequestBody {
   ITEMWITHHOLDINGTAXGROUP: string;
   IsWithholdingTaxCalculate?: string;
   ISWITHHOLDINGTAXCALCULATE?: string;
+  isWithholdingTaxCalculate?: string;
+  TaxWithholdCalculate?: string;
+  TAXWITHHOLDCALCULATE?: string;
+  IsWithholdingCalculationEnabled?: string;
+  ISWITHHOLDINGCALCULATIONENABLED?: string;
   MARKEDINVOICE?: string | null;
   MarkedLines?: TSLedgerJournalMarkedLine[];
   VendorGroup?: string;
@@ -116,6 +121,12 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   // Always 'No' for cash journals. Omitting this lets FO journal-name
   // auto-WHT call TaxWithhold::construct on Bank/Ledger/RCash lines.
   IsWithholdingTaxCalculate: string;
+  ISWITHHOLDINGTAXCALCULATE?: string;
+  isWithholdingTaxCalculate?: string;
+  TaxWithholdCalculate?: string;
+  TAXWITHHOLDCALCULATE?: string;
+  IsWithholdingCalculationEnabled?: string;
+  ISWITHHOLDINGCALCULATIONENABLED?: string;
   MarkedLines?: TSLedgerJournalMarkedLine[];
   offsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';

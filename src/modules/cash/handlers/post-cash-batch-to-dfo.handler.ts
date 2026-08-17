@@ -376,7 +376,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         data.PaymentId || data.SourceIds?.[0] || '',
       ).trim();
       const isWithholdingLine =
-        accountMain.startsWith('223304') || offsetMain.startsWith('223304');
+        accountMain.startsWith('2233') || offsetMain.startsWith('2233');
       if (groupKey && isWithholdingLine) {
         withholdingGroupKeys.add(groupKey);
       } else if (groupKey) {
@@ -486,13 +486,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             .trim()
             .split('|')[0]
             .trim()
-            .startsWith('223304')) ||
+            .startsWith('2233')) ||
         (accountTypeStr === 'Ledger' &&
           String(line.AccountDisplayValue ?? '')
             .trim()
             .split('|')[0]
             .trim()
-            .startsWith('223304'));
+            .startsWith('2233'));
       const sourceMarkedLines =
         line.MarkedLines && line.MarkedLines.length > 0
           ? line.MarkedLines
@@ -512,8 +512,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // the array empty (e.g. older batches or missing hydrate at format).
       const routeSupportsMarking =
         accountTypeStr === 'Vendor' &&
-        (route?.safeType === 'Vendor Payment' ||
-          route?.safeType === 'Custody Settlement');
+        (!route ||
+          route?.safeType === 'Vendor Payment' ||
+          route?.safeType === 'Custody Settlement' ||
+          Boolean(sourceMarkedLines && sourceMarkedLines.length > 0) ||
+          Boolean(markedInvoice));
       const markedLines = routeSupportsMarking
         ? sourceMarkedLines && sourceMarkedLines.length > 0
           ? sourceMarkedLines.map((markedLine) => ({
@@ -653,6 +656,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         // FO call TaxWithhold::construct with a non-Vend/Cust module.
         IsWithholdingTaxCalculate: 'No',
         ISWITHHOLDINGTAXCALCULATE: 'No',
+        isWithholdingTaxCalculate: 'No',
+        TaxWithholdCalculate: 'No',
+        TAXWITHHOLDCALCULATE: 'No',
+        IsWithholdingCalculationEnabled: 'No',
+        ISWITHHOLDINGCALCULATIONENABLED: 'No',
 
         // Main-account-only Cash Out lines keep offset blank. For classic AP
         // Vendor Payment (with an offset), FO still accepts an empty
@@ -859,7 +867,22 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         data.Document = vendor.Document;
       }
       if (!data.MarkedLines?.length) {
-        data.MarkedLines = [];
+        data.MarkedLines = vendor.MarkedLines?.length
+          ? vendor.MarkedLines.map((m) => ({ ...m, HasWithHoldingLine: true }))
+          : vendor.MarkedInvoice || vendor.Invoice
+            ? [
+                {
+                  InvoiceNumber: String(
+                    vendor.MarkedInvoice || vendor.Invoice,
+                  ).trim(),
+                  OperationNumber: this.stripBidiMarks(
+                    String(vendor.FinTagDisplayValue ?? '').split('|')[0],
+                  ).trim(),
+                  DocumentNumber: String(vendor.Document ?? '').trim(),
+                  HasWithHoldingLine: true,
+                },
+              ]
+            : [];
       }
 
       rewritten.push(record);
@@ -897,7 +920,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       .trim()
       .split('|')[0]
       .trim();
-    return main.startsWith('223304');
+    const offsetMain = String(data.OffsetAccountDisplayValue ?? '')
+      .trim()
+      .split('|')[0]
+      .trim();
+    return main.startsWith('2233') || offsetMain.startsWith('2233');
   }
 
   private isMainAccountOnlyLine(
@@ -985,10 +1012,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
     const normalized = raw.toLowerCase().replace(/\s+/g, '');
     if (normalized === 'vend' || normalized === 'vendor') return 'Vendor';
-    if (normalized === 'cust') return 'Cust';
+    if (normalized === 'cust' || normalized === 'customer') return 'Cust';
     if (normalized === 'pettycash' || normalized === 'rcash') return 'RCash';
     if (normalized === 'bank') return 'Bank';
-    if (normalized === 'ledger') return 'Ledger';
+    if (normalized === 'ledger' || normalized === 'led') return 'Ledger';
 
     return '' as TSLedgerJournalCustomAccountTypeStr;
   }
