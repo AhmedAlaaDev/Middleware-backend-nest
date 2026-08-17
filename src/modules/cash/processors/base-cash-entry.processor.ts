@@ -5,6 +5,17 @@ import { capitalize } from '@/lib/utils';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import {
+  isCash22420LedgerDimensionLine,
+  isCashNotesReceivableLine,
+  isCashSettlementLine,
+  sanitizeCashOutboundInvoice,
+} from '@/modules/cash/policies/cash-account.policy';
+import {
+  cashDimensionPartAsString,
+  resolveCashOffsetAccountDisplayValue,
+  toCashDefaultDimensionDisplayValue,
+} from '@/modules/cash/policies/cash-dimension.policy';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -38,32 +49,6 @@ import {
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
-/**
- * Cash custom APIs expect default dimensions without mainAccount, in this order
- * (no leading empty/`|` separator for mainAccount).
- */
-const CASH_API_DIMENSION_FIELDS: Array<keyof EntryDimensionsModel> = [
-  'costCenter',
-  'activityName',
-  'businessUnit',
-  'location',
-  'customer',
-  'subCustomer',
-  'vendor',
-  'subVendor',
-  'chargeType',
-  'salesMan',
-  'coordinatorMan',
-  'freightType',
-  'truckerType',
-  'truckNumber',
-  'direction',
-  'worker',
-  'fixedAsset',
-  'lease',
-  'bankAccount',
-];
-
 /** FinTag segment index for shippingLine (operationNo|quotationNo|shippingLine|...). */
 const FINTAG_SHIPPING_LINE_INDEX = 2;
 
@@ -82,16 +67,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * VendInvoiceJournalLines (filled once per enrich via batched FO lookup).
    */
   protected vendorInvoiceExistsMap: Set<string> | null = null;
-
-  protected readonly NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
-    '122201',
-    '122202',
-    '122203',
-    '122204',
-    '123510',
-  ];
-
-  protected readonly SETTLEMENT_MAIN_ACCOUNTS = ['421103'];
 
   protected readonly MAIN_ACCOUNTS_NP_MAP: Record<number, number> = {
     211201: 223201,
@@ -1839,19 +1814,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
   ): boolean {
-    const ledgerLine = [accountLine, offsetLine].find(
-      (line) => line?.IsLedger || line?.ACCOUNTTYPE === 'Ledger',
-    );
-    if (!ledgerLine) return false;
-
-    const has22420Tag = String(ledgerLine.FINTAGDISPLAYVALUE || '')
-      .trim()
-      .startsWith('22420');
-    const has22420Account = String(ledgerLine.ACCOUNTDISPLAYVALUE || '')
-      .trim()
-      .startsWith('22420');
-
-    return has22420Tag || has22420Account;
+    return isCash22420LedgerDimensionLine(accountLine, offsetLine);
   }
 
   /**
@@ -1895,16 +1858,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     dimensions: EntryDimensionsModel | null | undefined,
     defaultFreightType = true,
   ): string {
-    if (!dimensions) return '';
-
-    return CASH_API_DIMENSION_FIELDS.map((fieldName) => {
-      if (fieldName === 'freightType') {
-        return this.dimensionPartAsString(
-          dimensions.freightType || (defaultFreightType ? 'Payable' : ''),
-        );
-      }
-      return this.dimensionPartAsString(dimensions[fieldName]);
-    }).join('|');
+    return toCashDefaultDimensionDisplayValue(dimensions, defaultFreightType);
   }
 
   /**
@@ -1919,53 +1873,34 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     isNotesReceivable: boolean,
     dimensionStrFallback: string,
   ): string {
-    if (isNotesReceivable) {
-      const bankAccount = this.dimensionPartAsString(dimensions.bankAccount);
-      if (bankAccount) return bankAccount;
-    }
-
-    if (offsetLine.IsBank || offsetLine.IsPettyCash) {
-      return (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
-    }
-
-    const accountDisplay = (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
-    if (accountDisplay) return accountDisplay;
-
-    return dimensionStrFallback;
+    return resolveCashOffsetAccountDisplayValue(
+      offsetLine,
+      dimensions,
+      isNotesReceivable,
+      dimensionStrFallback,
+    );
   }
 
   private dimensionPartAsString(part: unknown): string {
-    if (part === null || part === undefined) return '';
-    if (typeof part !== 'string' && typeof part !== 'number') return '';
-    return typeof part === 'string' ? part.trim() : String(part);
+    return cashDimensionPartAsString(part);
   }
 
   protected isNotesReceivableLine(
     line: CashEntryRawDataModel,
     dimensions: EntryDimensionsModel,
   ): boolean {
-    const accountType = line.ACCOUNTTYPE;
     const mainAccount = dimensions.mainAccount;
 
-    if (accountType !== 'Ledger') return false;
-
-    if (!mainAccount) return false;
-
-    return this.NOTES_RECEIVABLE_MAIN_ACCOUNTS.includes(mainAccount);
+    return isCashNotesReceivableLine(line, mainAccount);
   }
 
   protected isSettlementLine(
     line: CashEntryRawDataModel,
     dimensions: EntryDimensionsModel,
   ): boolean {
-    const accountType = line.ACCOUNTTYPE;
     const mainAccount = dimensions.mainAccount;
 
-    if (accountType !== 'Ledger') return false;
-
-    if (!mainAccount) return false;
-
-    return this.SETTLEMENT_MAIN_ACCOUNTS.includes(mainAccount);
+    return isCashSettlementLine(line, mainAccount);
   }
 
   protected filterOutSettlementLines(
@@ -2008,10 +1943,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * (0, 00, 000, ...). Does not use cash-in number/text formatting.
    */
   protected sanitizeInvoiceOutbound(invoice?: string): string {
-    const trimmed = invoice?.trim() ?? '';
-    if (!trimmed) return '';
-    if (/^0+$/.test(trimmed)) return '';
-    return trimmed;
+    return sanitizeCashOutboundInvoice(invoice);
   }
 
   protected isWithholdingLedgerLine(line: CashEntryRawDataModel): boolean {
