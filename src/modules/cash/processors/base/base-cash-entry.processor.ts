@@ -32,6 +32,7 @@ import {
 } from '@/modules/cash/policies/cash-journal.policy';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
+import { buildCashInboundInvalidLine } from '@/modules/cash/services/cash-in-line-building.service';
 import {
   buildCashLine,
   buildCashMoreThanTwoLines,
@@ -1007,18 +1008,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       : dimensions;
 
     if (!accountLine || !offsetLine) {
-      const line = new CashEntryDynDataModel(dimensions, {
-        SourceIds: [sourceId],
-      });
-
-      if (!accountLine) {
-        line.AddError('InvalidMapping', 'No account line found');
-      }
-      if (!offsetLine) {
-        line.AddError('InvalidMapping', 'No offset line found');
-      }
-
-      return line;
+      return buildCashInboundInvalidLine(
+        sourceId,
+        accountLine,
+        offsetLine,
+        dimensions,
+      );
     }
 
     if (dimensions.mainAccount === '123510') {
