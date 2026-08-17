@@ -59,5 +59,26 @@ The following methods remain in `BaseCashEntryProcessor` as compatibility wrappe
 - `isSettlementLine`
 - `sanitizeInvoiceOutbound`
 
-Keeping these wrappers preserves subclass access and avoids changing the processor pipeline in one large operation. Future extractions should follow the same pattern: add characterization tests, move one deterministic responsibility, delegate from the base processor, and compare enhanced records/errors/payloads before and after.
+## `cash-invoice.policy.ts`
 
+Path: `src/modules/cash/policies/cash-invoice.policy.ts`
+
+This file begins the extraction of FinTag and invoice-identifier policies.
+The current compatibility slice delegates the two FinTag operations from the
+base processor; the inbound and outbound invoice formatters are documented
+and staged in the same policy module for the next delegation step.
+
+### Business rules
+
+- The first FinTag segment is the operation number after invisible-character cleanup.
+- Cash-Out shipping-line segment index `2` may be replaced by the vendor organization name when the vendor lookup succeeds.
+- Inbound and outbound invoice formatting remain separate because they intentionally normalize source suffixes differently.
+
+### Functions
+
+- `firstCashFinancialTag`: extracts the normalized operation-number segment.
+- `replaceCashShippingLineWithVendorName`: performs vendor-aware shipping-line replacement through a callback.
+- `formatCashInboundInvoice`: staged Cash-In invoice normalization policy.
+- `formatCashOutboundInvoice`: staged Cash-Out invoice normalization policy.
+
+Keeping these wrappers preserves subclass access and avoids changing the processor pipeline in one large operation. Future extractions should follow the same pattern: add characterization tests, move one deterministic responsibility, delegate from the base processor, and compare enhanced records/errors/payloads before and after.

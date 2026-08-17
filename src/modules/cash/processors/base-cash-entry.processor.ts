@@ -16,6 +16,10 @@ import {
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
 import {
+  firstCashFinancialTag,
+  replaceCashShippingLineWithVendorName,
+} from '@/modules/cash/policies/cash-invoice.policy';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -48,9 +52,6 @@ import {
 } from '@/modules/vendor/commands';
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
-
-/** FinTag segment index for shippingLine (operationNo|quotationNo|shippingLine|...). */
-const FINTAG_SHIPPING_LINE_INDEX = 2;
 
 @Injectable()
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
@@ -1825,29 +1826,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected replaceFinTagShippingLineWithVendorName(
     finTagDisplayValue?: string,
   ): string {
-    if (!finTagDisplayValue) return finTagDisplayValue ?? '';
-
-    const parts = finTagDisplayValue.split('|');
-    if (parts.length <= FINTAG_SHIPPING_LINE_INDEX) {
-      return finTagDisplayValue;
-    }
-
-    const shippingLineCode = parts[FINTAG_SHIPPING_LINE_INDEX].replace(
-      /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
-      '',
-    ).trim();
-
-    if (!shippingLineCode) {
-      return finTagDisplayValue;
-    }
-
-    const vendorOrganizationName = this.getVendorName(shippingLineCode);
-    if (!vendorOrganizationName) {
-      return finTagDisplayValue;
-    }
-
-    parts[FINTAG_SHIPPING_LINE_INDEX] = vendorOrganizationName;
-    return parts.join('|');
+    return replaceCashShippingLineWithVendorName(
+      finTagDisplayValue,
+      (vendorAccount) => this.getVendorName(vendorAccount),
+    );
   }
 
   /**
@@ -1956,10 +1938,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   protected firstFinancialTag(value?: string): string {
-    return String(value ?? '')
-      .split('|')[0]
-      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
-      .trim();
+    return firstCashFinancialTag(value);
   }
 
   /**
