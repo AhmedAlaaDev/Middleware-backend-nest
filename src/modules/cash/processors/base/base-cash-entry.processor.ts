@@ -766,39 +766,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return getCashCollectionDescriptionLabel(this.isTrucking());
   }
 
-  protected filterLines(sortedLines: CashEntryRawDataModel[]): {
-    custodySettlementLines: CashEntryRawDataModel[];
-    otherLines: CashEntryRawDataModel[];
-    vendorPayment: CashEntryRawDataModel[];
-  } {
-    // Cash-out: keep every SafeType on the cash-out path (no custody/vendor split).
-    if (!this.isInbound()) {
-      return {
-        custodySettlementLines: [],
-        otherLines: sortedLines,
-        vendorPayment: [],
-      };
-    }
-
-    const custodySettlementLines: CashEntryRawDataModel[] = [];
-    const vendorPayment: CashEntryRawDataModel[] = [];
-    const otherLines: CashEntryRawDataModel[] = [];
-
-    for (const line of sortedLines) {
-      if (line.IsCustodySettlement) {
-        custodySettlementLines.push(line);
-      } else {
-        otherLines.push(line);
-      }
-    }
-
-    return {
-      custodySettlementLines,
-      otherLines,
-      vendorPayment,
-    };
-  }
-
   protected processCustodySettlementLines(
     lines: CashEntryRawDataModel[],
   ): void {

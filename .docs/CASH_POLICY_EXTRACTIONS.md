@@ -100,6 +100,10 @@ and staged in the same policy module for the next delegation step.
 - `formatCashInboundInvoice`: staged Cash-In invoice normalization policy.
 - `formatCashOutboundInvoice`: staged Cash-Out invoice normalization policy.
 
+`filterLines` has now been removed from the base processor because the active
+pipeline uses `classifyCashLines` directly. The legacy unique-ID helper remains
+temporarily until its final external-reference check is complete.
+
 ## `cash-journal.policy.ts`
 
 Path: `src/modules/cash/policies/cash-journal.policy.ts`
