@@ -33,6 +33,7 @@ import {
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
+  buildCashLine,
   buildCashMoreThanTwoLines,
   buildCashTwoLines,
 } from '@/modules/cash/services/cash-group-line-building.service';
@@ -958,21 +959,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
-    return this.isInbound()
-      ? this.buildLineInbound(
-          sourceId,
-          accountLine,
-          offsetLine,
-          amountSource ?? 'OFFSET',
-          exchangeRateContext,
-        )
-      : this.buildLineOutbound(
-          sourceId,
-          accountLine,
-          offsetLine,
-          amountSource ?? 'OFFSET',
-          exchangeRateContext,
-        );
+    return buildCashLine({
+      inbound: this.isInbound(),
+      sourceId,
+      accountLine,
+      offsetLine,
+      amountSource,
+      exchangeRateContext,
+      buildInbound: (id, account, offset, source, context) =>
+        this.buildLineInbound(id, account, offset, source, context),
+      buildOutbound: (id, account, offset, source, context) =>
+        this.buildLineOutbound(id, account, offset, source, context),
+    });
   }
 
   protected buildLineInbound(

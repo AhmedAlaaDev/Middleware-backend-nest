@@ -14,6 +14,38 @@ type BuildLine = (
   exchangeRateContext?: CashOutExchangeRateContext,
 ) => CashEntryDynDataModel;
 
+/** Selects the direction-specific formatter without changing its arguments. */
+export function buildCashLine(options: {
+  inbound: boolean;
+  sourceId: string;
+  accountLine?: CashEntryRawDataModel;
+  offsetLine?: CashEntryRawDataModel;
+  amountSource?: AmountSource;
+  exchangeRateContext?: CashOutExchangeRateContext;
+  buildInbound: BuildLine;
+  buildOutbound: BuildLine;
+}): CashEntryDynDataModel {
+  const {
+    inbound,
+    sourceId,
+    accountLine,
+    offsetLine,
+    amountSource,
+    exchangeRateContext,
+    buildInbound,
+    buildOutbound,
+  } = options;
+  const build = inbound ? buildInbound : buildOutbound;
+
+  return build(
+    sourceId,
+    accountLine,
+    offsetLine,
+    amountSource ?? 'OFFSET',
+    exchangeRateContext,
+  );
+}
+
 /**
  * Builds grouped Cash-In/Cash-Out lines for the two supported group shapes.
  * Direction-specific line formatting stays behind the buildLine callback.
