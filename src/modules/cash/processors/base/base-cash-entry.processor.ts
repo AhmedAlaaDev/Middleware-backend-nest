@@ -31,6 +31,7 @@ import {
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
+import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
@@ -62,10 +63,6 @@ import {
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 import { RequiredDimensionsConfig } from '@/modules/entry-processor/types';
 import { GetVendorsQuery } from '@/modules/master-data/queries';
-import {
-  ProcessVendorPaymentFreightCommand,
-  ProcessVendorPaymentTruckingCommand,
-} from '@/modules/vendor/commands';
 
 type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 
@@ -309,7 +306,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.logger.debug(
         `[STEP 7] Processing ${vendorPayment.length} vendor payment lines`,
       );
-      this.processVendorPaymentLines(vendorPayment);
+      processCashVendorPaymentLines({
+        company: this.company,
+        trucking: this.isTrucking(),
+        lines: vendorPayment,
+        execute: (command) => this.commandBus.execute(command),
+        debug: (message) => this.logger.debug(message),
+        error: (message) => this.logger.error(message),
+      });
     }
 
     if (withholdingStats) {
@@ -756,27 +760,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Validation records the unsupported Safe Type on the formatted line.
       return undefined;
     }
-  }
-
-  protected processVendorPaymentLines(lines: CashEntryRawDataModel[]): void {
-    if (lines.length === 0) return;
-
-    const command = this.isTrucking()
-      ? new ProcessVendorPaymentTruckingCommand(this.company, undefined, lines)
-      : new ProcessVendorPaymentFreightCommand(this.company, undefined, lines);
-
-    this.commandBus
-      .execute(command)
-      .then(() => {
-        this.logger.debug(
-          `[STEP 2.5] Successfully processed ${lines.length} vendor payment lines`,
-        );
-      })
-      .catch((error) => {
-        this.logger.error(
-          `[STEP 2.5] Error processing vendor payment entry for ${lines.length} lines: ${error}`,
-        );
-      });
   }
 
   /**
