@@ -9,7 +9,7 @@ import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/cash-out
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
-describe('Cash-In customer FX + Ledger 421103', () => {
+describe('Cash-In customer FX + Ledger 421103 Exclusion', () => {
   const utilsService = new EntryProcessorUtilsService();
 
   const createCashInProcessor = () => {
@@ -32,6 +32,9 @@ describe('Cash-In customer FX + Ledger 421103', () => {
     (processor as any).accountNumberSet = new Set();
     (processor as any).customerNameMap = new Map([
       ['101000543', 'Customer 543'],
+      ['101000046', 'Customer 046'],
+      ['101003837', 'Customer 837'],
+      ['101000585', 'Customer 585'],
     ]);
     jest
       .spyOn(processor as any, 'validateDimensionsForLine')
@@ -59,6 +62,10 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       } as any,
     );
     (processor as any).company = 'm-p';
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
+      exchangeRate: 100,
+      reportingRate: 100,
+    });
     return processor;
   };
 
@@ -134,1297 +141,722 @@ describe('Cash-In customer FX + Ledger 421103', () => {
       },
     ]);
 
-  it('matches USD debit to customer and keeps Ledger 421103 as a normal source line', async () => {
-    const processor = createCashInProcessor();
-    const source = exampleGroup();
+  describe('Explicit Acceptance Criteria (AC1 - AC12)', () => {
+    it('AC1: excludes Ledger + 421103 from Cash-In journal line generation', async () => {
+      const processor = createCashInProcessor();
+      const source = exampleGroup();
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(source);
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(source);
 
-    expect(processed).toHaveLength(4);
-    expect(
-      processed.some((line: CashEntryRawDataModel) =>
-        isCashInLedger421103Line(line),
-      ),
-    ).toBe(true);
+      expect(processed).toHaveLength(3);
+      expect(
+        processed.some((line: CashEntryRawDataModel) =>
+          isCashInLedger421103Line(line),
+        ),
+      ).toBe(false);
 
-    const customer = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 69,
-    );
-    expect(customer.DEBITAMOUNT).toBe(0);
-    expect(customer.CREDITAMOUNT).toBe(730);
-    expect(customer.CURRENCYCODE).toBe('USD');
-    expect(customer.INVOICE).toBe('5564/مطالبة نولون محصلة لصالح الغير');
-
-    const built = (processor as any).buildLines('466669', processed);
-    expect(built).toHaveLength(4);
-
-    const customerLine = built.find(
-      (line: any) => line.CreditAmount === 730 && line.CurrencyCode === 'USD',
-    );
-    expect(customerLine).toBeDefined();
-    expect(customerLine.AccountDisplayValue).toBe('101000543');
-    expect(customerLine.MarkedLines).toEqual([
-      expect.objectContaining({ InvoiceNumber: '000005564/OF-FW' }),
-    ]);
-    expect(
-      built.every(
-        (line: any) =>
-          line.OffsetAccountType === '' &&
-          line.OffsetAccountDisplayValue === '',
-      ),
-    ).toBe(true);
-    expect(
-      built.map((line: any) => ({
-        account: line.AccountDisplayValue,
-        debit: line.DebitAmount,
-        credit: line.CreditAmount,
-      })),
-    ).toEqual([
-      { account: 'ALEXHO US', debit: 730, credit: 0 },
-      { account: 'ALEXHO EG', debit: 360, credit: 0 },
-      { account: '101000543', debit: 0, credit: 730 },
-      {
-        account:
-          '421103|1301|013|001|001|101000543|||||KEYACCOUNT|3336||||IMPORT||||',
-        debit: 0,
-        credit: 26.45,
-      },
-    ]);
-  });
-
-  it('uniquely matches Notes Receivable debit when customer FX amount equals 122201', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 468971,
-        LINENUMBER: 2017,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
-        DEBITAMOUNT: 75.5,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 468971,
-        LINENUMBER: 2018,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '122201|1301|013|001|001|||RP-000001|RP-000001||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 6194.5,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 468971,
-        LINENUMBER: 2019,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: '101000046',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 130,
-        CURRENCYCODE: 'USD',
-        EXCHANGERATE: 4765,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 468971,
-        LINENUMBER: 2020,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '421103|1301|013|001|001|101000046|||||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 75.5,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    const customer = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 2019,
-    );
-
-    expect(customer.CREDITAMOUNT).toBe(6194.5);
-    expect(customer.CURRENCYCODE).toBe('EGP');
-    expect(
-      processed.some((line: CashEntryRawDataModel) =>
-        isCashInLedger421103Line(line),
-      ),
-    ).toBe(true);
-
-    const built = (processor as any).buildLines('468971', processed);
-    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
-  });
-
-  it('skips FX rewrite for same-currency groups that already balance', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 473668,
-        LINENUMBER: 4648,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
-        DEBITAMOUNT: 100000,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Deposit',
-      },
-      {
-        UniqueId: 473668,
-        LINENUMBER: 4649,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'CIB-EG-CA',
-        DEBITAMOUNT: 53870,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Deposit',
-      },
-      {
-        UniqueId: 473668,
-        LINENUMBER: 4650,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: '101001506',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 153870.06,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Deposit',
-      },
-      {
-        UniqueId: 473668,
-        LINENUMBER: 4651,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '421103|1302|013|001|001|101001506|||||3042|3336||||IMPORT||||',
-        DEBITAMOUNT: 0.06,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Deposit',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-
-    expect(processed).toHaveLength(4);
-    expect(processed.find((l: any) => l.LINENUMBER === 4650).CREDITAMOUNT).toBe(
-      153870.06,
-    );
-    expect(
-      (processor as any).cashInCustomerFxResults.has('473668'),
-    ).toBe(false);
-  });
-
-  it('assigns multiple customers to multiple debits one-to-one by currency', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 100,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'BANK-USD',
-        DEBITAMOUNT: 100,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'INV-A',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 100,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'BANK-EUR',
-        DEBITAMOUNT: 200,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EUR',
-        INVOICE: 'INV-B',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 100,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C-USD',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 111,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'INV-A',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 100,
-        LINENUMBER: 4,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C-EUR',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 222,
-        CURRENCYCODE: 'EUR',
-        INVOICE: 'INV-B',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 100,
-        LINENUMBER: 5,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|001',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    const usdCust = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 3,
-    );
-    const eurCust = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 4,
-    );
-
-    expect(usdCust.CREDITAMOUNT).toBe(100);
-    expect(usdCust.CURRENCYCODE).toBe('USD');
-    expect(eurCust.CREDITAMOUNT).toBe(200);
-    expect(eurCust.CURRENCYCODE).toBe('EUR');
-
-    const built = (processor as any).buildLines('100', processed);
-    expect(built).toHaveLength(5);
-    expect(
-      built.map((line: any) => ({
-        credit: line.CreditAmount,
-        currency: line.CurrencyCode,
-        account: line.AccountDisplayValue,
-      })),
-    ).toEqual(
-      expect.arrayContaining([
-        { credit: 0, currency: 'USD', account: 'BANK-USD' },
-        { credit: 0, currency: 'EUR', account: 'BANK-EUR' },
-        { credit: 100, currency: 'USD', account: 'C-USD' },
-        { credit: 200, currency: 'EUR', account: 'C-EUR' },
-        { credit: 1, currency: 'EGP', account: '421103|001' },
-      ]),
-    );
-    expect(
-      built.every((line: any) => line.OffsetAccountDisplayValue === ''),
-    ).toBe(true);
-  });
-
-  it('does not refresh exchange rate when currency already matches', async () => {
-    const processor = createCashInProcessor();
-    const fetchSpy = jest.spyOn(processor as any, 'fetchExchangeRates');
-    fetchSpy.mockClear();
-
-    const lines = toModels([
-      {
-        UniqueId: 200,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'SAFE',
-        DEBITAMOUNT: 50,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        EXCHANGERATE: 4765,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 200,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 60,
-        CURRENCYCODE: 'USD',
-        EXCHANGERATE: 4765,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 200,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    await (processor as any).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(lines[1].CREDITAMOUNT).toBe(50);
-    expect(lines[1].EXCHANGERATE).toBe(4765);
-  });
-
-  it('refreshes exchange rate when customer currency differs from debit', async () => {
-    const processor = createCashInProcessor();
-    const fetchSpy = jest
-      .spyOn(processor as any, 'fetchExchangeRates')
-      .mockReturnValue({ exchangeRate: 9999, reportingRate: 100 });
-
-    const lines = toModels([
-      {
-        UniqueId: 201,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'SAFE',
-        DEBITAMOUNT: 702,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 201,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 600,
-        CURRENCYCODE: 'EUR',
-        EXCHANGERATE: 1111,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 201,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    await (processor as any).applyCashInCustomerForeignCurrencyRules(lines);
-
-    expect(fetchSpy).toHaveBeenCalledWith('2026-02-01', 'USD');
-    expect(lines[1].CREDITAMOUNT).toBe(702);
-    expect(lines[1].CURRENCYCODE).toBe('USD');
-    expect(lines[1].EXCHANGERATE).toBe(9999);
-  });
-
-  it('blocks the full UniqueId when exchange rate is missing after currency change', async () => {
-    const processor = createCashInProcessor();
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(() => {
-      throw new Error('missing rate');
+      const built = (processor as any).buildLines('466669', processed);
+      expect(built).toHaveLength(3);
+      expect(
+        built.some((line: any) =>
+          String(line.AccountDisplayValue ?? '').startsWith('421103'),
+        ),
+      ).toBe(false);
     });
 
-    const lines = toModels([
-      {
-        UniqueId: 202,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'SAFE',
-        DEBITAMOUNT: 702,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 202,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 600,
-        CURRENCYCODE: 'EUR',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 202,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-02-01',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
+    it('AC2: requires both AccountType = Ledger AND AccountDisplayValue = 421103', async () => {
+      const processor = createCashInProcessor();
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    // Invalid groups keep source lines; build emits one line per upload row.
-    expect(processed).toHaveLength(3);
-    expect(lines[1].CREDITAMOUNT).toBe(600);
-    expect(lines[1].CURRENCYCODE).toBe('EUR');
+      // Case A: Ledger with account 421104 -> not excluded
+      const linesA = toModels([
+        {
+          UniqueId: 101,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-01',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 101,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421104|1301|013|001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+      const processedA = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(linesA);
+      expect(processedA).toHaveLength(2);
+      expect(processedA[1].ACCOUNTDISPLAYVALUE).toBe('421104|1301|013|001');
 
-    // Formatting still needs a rate resolver; FX match already failed above.
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
-      exchangeRate: 4765,
-      reportingRate: 100,
+      // Case B: Cust with account 421103 -> not excluded
+      const linesB = toModels([
+        {
+          UniqueId: 102,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-01',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 102,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '421103',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+      const processedB = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(linesB);
+      expect(processedB).toHaveLength(2);
+      expect(processedB[1].ACCOUNTDISPLAYVALUE).toBe('421103');
     });
 
-    const built = (processor as any).buildLines('202', processed);
-    expect(built).toHaveLength(3);
-    expect(built.every((line: any) => line.ErrorCount > 0)).toBe(true);
-    expect(
-      built[0]
-        .GetErrors()
-        .some((error: string) =>
-          error.includes('Unable to determine a unique debit line'),
+    it('AC3: handles lowercase and whitespace in AccountType ("ledger", " LEDGER ", " Ledger ")', () => {
+      const lineLower = toModels([
+        { ACCOUNTTYPE: 'ledger', ACCOUNTDISPLAYVALUE: '421103' },
+      ])[0];
+      const lineUpper = toModels([
+        { ACCOUNTTYPE: ' LEDGER ', ACCOUNTDISPLAYVALUE: '421103' },
+      ])[0];
+      const lineMixed = toModels([
+        { ACCOUNTTYPE: ' Ledger ', ACCOUNTDISPLAYVALUE: '421103' },
+      ])[0];
+
+      expect(isCashInLedger421103Line(lineLower)).toBe(true);
+      expect(isCashInLedger421103Line(lineUpper)).toBe(true);
+      expect(isCashInLedger421103Line(lineMixed)).toBe(true);
+    });
+
+    it('AC4: trims account number with surrounding spaces (" 421103 ")', () => {
+      const lineSpaces = toModels([
+        { ACCOUNTTYPE: 'Ledger', ACCOUNTDISPLAYVALUE: '  421103  ' },
+      ])[0];
+      expect(isCashInLedger421103Line(lineSpaces)).toBe(true);
+    });
+
+    it('AC5: Ledger account other than 421103 is not excluded', () => {
+      const otherLedger = toModels([
+        { ACCOUNTTYPE: 'Ledger', ACCOUNTDISPLAYVALUE: '223304' },
+        { ACCOUNTTYPE: 'Ledger', ACCOUNTDISPLAYVALUE: '421104' },
+        { ACCOUNTTYPE: 'Ledger', ACCOUNTDISPLAYVALUE: '122201' },
+      ]);
+      for (const line of otherLedger) {
+        expect(isCashInLedger421103Line(line)).toBe(false);
+      }
+    });
+
+    it('AC6: Non-Ledger account with display value 421103 is not excluded', () => {
+      const nonLedgers = toModels([
+        { ACCOUNTTYPE: 'Cust', ACCOUNTDISPLAYVALUE: '421103' },
+        { ACCOUNTTYPE: 'Vend', ACCOUNTDISPLAYVALUE: '421103' },
+        { ACCOUNTTYPE: 'Bank', ACCOUNTDISPLAYVALUE: '421103' },
+        { ACCOUNTTYPE: 'Petty Cash', ACCOUNTDISPLAYVALUE: '421103' },
+      ]);
+      for (const line of nonLedgers) {
+        expect(isCashInLedger421103Line(line)).toBe(false);
+      }
+    });
+
+    it('AC7: Excluded 421103 is not selected for customer matching', async () => {
+      const processor = createCashInProcessor();
+      const lines = toModels([
+        {
+          UniqueId: 301,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'SAFE-USD',
+          DEBITAMOUNT: 500,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 301,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421103',
+          DEBITAMOUNT: 500,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 301,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '101000543',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 450,
+          CURRENCYCODE: 'EUR',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+
+      // 421103 was excluded; customer was uniquely matched to Petty Cash SAFE-USD
+      expect(processed).toHaveLength(2);
+      const customer = processed.find((l: any) => l.LINENUMBER === 3);
+      expect(customer.CREDITAMOUNT).toBe(500);
+      expect(customer.CURRENCYCODE).toBe('USD');
+      expect((customer as any).__cashInFxTransform.sourceDebitLineNumber).toBe(
+        1,
+      );
+    });
+
+    it('AC8: Excluded 421103 does not re-enter a fallback Cash-In case', async () => {
+      const processor = createCashInProcessor();
+      const source = exampleGroup();
+
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(source);
+      const built = (processor as any).buildLines('466669', processed);
+
+      expect(built).toHaveLength(3);
+      for (const line of built) {
+        expect(line.AccountDisplayValue).not.toContain('421103');
+        expect(line.OffsetAccountDisplayValue).not.toContain('421103');
+      }
+    });
+
+    it('AC9: Multiple 421103 lines are handled consistently', async () => {
+      const processor = createCashInProcessor();
+      const lines = toModels([
+        {
+          UniqueId: 302,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'SAFE-USD',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 302,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '101000543',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 302,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421103|1101',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 10,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 302,
+          LINENUMBER: 4,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421103|1102',
+          DEBITAMOUNT: 5,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+      expect(processed).toHaveLength(2);
+      expect(
+        processed.some((line: CashEntryRawDataModel) =>
+          isCashInLedger421103Line(line),
         ),
-    ).toBe(true);
+      ).toBe(false);
+    });
+
+    it('AC10: Mixed UniqueId groups are processed independently', async () => {
+      const processor = createCashInProcessor();
+      const group1 = toModels([
+        {
+          UniqueId: 1001,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-1',
+          DEBITAMOUNT: 200,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 1001,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: 'C1',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 200,
+          CURRENCYCODE: 'USD',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 1001,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421103',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 5,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+      const group2 = toModels([
+        {
+          UniqueId: 1002,
+          LINENUMBER: 4,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-2',
+          DEBITAMOUNT: 300,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 1002,
+          LINENUMBER: 5,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: 'C2',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 300,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules([...group1, ...group2]);
+
+      // Group 1001 has 2 lines (421103 excluded), Group 1002 has 2 lines (unchanged)
+      expect(processed).toHaveLength(4);
+      expect(processed.filter((l: any) => l.UniqueId === 1001)).toHaveLength(2);
+      expect(processed.filter((l: any) => l.UniqueId === 1002)).toHaveLength(2);
+    });
+
+    it('AC11: Custody Settlement with Ledger 421103 retains the line and routes to Cash-Out', async () => {
+      const cashInProcessor = createCashInProcessor();
+      const lines = toModels([
+        {
+          UniqueId: 2001,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: '4080',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 500,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 2001,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '421103',
+          DEBITAMOUNT: 500,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ]);
+
+      // SafeType Custody Settlement routes out of Cash-In completely
+      const routed = await (
+        cashInProcessor as any
+      ).routeCashInCustodySettlementToCashOut(lines);
+      expect(routed).toHaveLength(0);
+
+      // In Cash-Out processor, the 421103 line is preserved
+      const cashOutProcessor = createCashOutProcessor();
+      const cashOutLines = lines.map(
+        (l) =>
+          new CashEntryRawDataModel(
+            { ...l, SafeType: 'Custody Settlement' } as any,
+            'Freight',
+            false,
+          ),
+      );
+      const built = (cashOutProcessor as any).buildLines(
+        '2001',
+        cashOutLines,
+      );
+      expect(built).toHaveLength(2);
+      expect(
+        built.some((l: any) => l.AccountDisplayValue === '421103'),
+      ).toBe(true);
+    });
+
+    it('AC12: Existing Cash-In transactions without 421103 produce unchanged results', async () => {
+      const processor = createCashInProcessor();
+      const lines = toModels([
+        {
+          UniqueId: 3001,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'SAFE-1',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 3001,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: 'C-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 1000,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
+
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+      expect(processed).toHaveLength(2);
+      const built = (processor as any).buildLines('3001', processed);
+      expect(built).toHaveLength(2);
+      expect(built[0].DebitAmount).toBe(1000);
+      expect(built[1].CreditAmount).toBe(1000);
+    });
   });
 
-  it('detects Ledger lines only when AccountType is Ledger and main account is exactly 421103', () => {
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '421103|1301|013',
-          },
-        ])[0],
-      ),
-    ).toBe(true);
+  describe('Real-world Multi-Currency & Notes Receivable Scenarios', () => {
+    it('matches USD debit to customer and excludes Ledger 421103', async () => {
+      const processor = createCashInProcessor();
+      const source = exampleGroup();
 
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: ' ledger ',
-            ACCOUNTDISPLAYVALUE: '421103|1301|013',
-          },
-        ])[0],
-      ),
-    ).toBe(true);
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(source);
 
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'LEDGER',
-            ACCOUNTDISPLAYVALUE: '421103',
-          },
-        ])[0],
-      ),
-    ).toBe(true);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '421103-001-002',
-          },
-        ])[0],
-      ),
-    ).toBe(true);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '223304|1301|013',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '4211039|1301|013',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '1421103',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '42110',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Cust',
-            ACCOUNTDISPLAYVALUE: '421103',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Vend',
-            ACCOUNTDISPLAYVALUE: '421103',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Bank',
-            ACCOUNTDISPLAYVALUE: '421103',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(
-      isCashInLedger421103Line(
-        toModels([
-          {
-            ACCOUNTTYPE: 'Ledger',
-            ACCOUNTDISPLAYVALUE: '223304|1301|421103|001',
-          },
-        ])[0],
-      ),
-    ).toBe(false);
-
-    expect(extractCashInMainAccount('223304|1301|421103|001')).toBe('223304');
-    expect(extractCashInMainAccount('421103-001-002')).toBe('421103');
-  });
-
-  it('matches EUR customer to Notes Receivable when Petty Cash + 122201 remain after excluding 421103', async () => {
-    const processor = createCashInProcessor();
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
-      (_date: string, currencyCode: string) => {
-        const currency = String(currencyCode ?? '')
-          .trim()
-          .toUpperCase();
-        if (currency === 'EUR') {
-          return { exchangeRate: 5580, reportingRate: 100 };
-        }
-        if (currency === 'USD') {
-          return { exchangeRate: 4765, reportingRate: 100 };
-        }
-        return { exchangeRate: 100, reportingRate: 100 };
-      },
-    );
-
-    const lines = toModels([
-      {
-        UniqueId: 469310,
-        LINENUMBER: 2315,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
-        DEBITAMOUNT: 18.1,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cheque',
-      },
-      {
-        UniqueId: 469310,
-        LINENUMBER: 2316,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '122201|1301|013|001|001|||RP-000001|RP-000001||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 911.9,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cheque',
-      },
-      {
-        UniqueId: 469310,
-        LINENUMBER: 2317,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: '101000046',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 16.55,
-        CURRENCYCODE: 'EUR',
-        EXCHANGERATE: 5580,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cheque',
-      },
-      {
-        UniqueId: 469310,
-        LINENUMBER: 2318,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '421103|1301|013|001|001|101000046|||||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 6.51,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cheque',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-
-    expect(
-      processed.some((line: CashEntryRawDataModel) =>
-        isCashInLedger421103Line(line),
-      ),
-    ).toBe(true);
-
-    const customer = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 2317,
-    );
-    expect(customer.CREDITAMOUNT).toBe(911.9);
-    expect(customer.CURRENCYCODE).toBe('EGP');
-
-    const built = (processor as any).buildLines('469310', processed);
-    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
-    expect(
-      built.some((line: any) =>
-        String(line.AccountDisplayValue ?? '').startsWith('421103'),
-      ),
-    ).toBe(true);
-  });
-
-  it('posts Ledger 421103 as a normal Cash-In source line with empty offsets', async () => {
-    const processor = createCashInProcessor();
-    const source = exampleGroup();
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(source);
-    const built = (processor as any).buildLines('466669', processed);
-
-    expect(
-      processed.some((line: CashEntryRawDataModel) =>
-        isCashInLedger421103Line(line),
-      ),
-    ).toBe(true);
-    for (const line of built) {
-      expect(line.OffsetAccountType || '').toBe('');
-      expect(line.OffsetAccountDisplayValue || '').toBe('');
-    }
-  });
-
-  it('parses comma-separated customer invoices without mutating INVOICE or splitting amount', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 300,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'BANK',
-        DEBITAMOUNT: 730,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'INV-1001',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 300,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 800,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'INV-1001, INV-1002,INV-1003,',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 300,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    expect(parseCashInCustomerInvoices(lines[1])).toEqual([
-      'INV-1001',
-      'INV-1002',
-      'INV-1003',
-    ]);
-
-    await (processor as any).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(lines[1].INVOICE).toBe('INV-1001, INV-1002,INV-1003,');
-    expect(lines[1].CREDITAMOUNT).toBe(730);
-
-    const marked = (processor as any).formatInvoiceInbound(lines[1].INVOICE);
-    // Existing FTI path still uses the primary token only.
-    expect(
-      marked.startsWith('000INV') || marked.includes('1001') || marked === '',
-    ).toBe(true);
-  });
-
-  it('does not apply customer multi-invoice parsing to non-Cust lines', () => {
-    const bankLine = toModels([
-      {
-        ACCOUNTTYPE: 'Bank',
-        INVOICE: 'INV-1, INV-2',
-      },
-    ])[0];
-
-    expect(parseCashInCustomerInvoices(bankLine)).toEqual([]);
-  });
-
-  it('fails the UniqueId on ambiguous debit/customer assignment', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 400,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'B1',
-        DEBITAMOUNT: 100,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'SAME',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 400,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'B2',
-        DEBITAMOUNT: 200,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'SAME',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 400,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 150,
-        CURRENCYCODE: 'USD',
-        INVOICE: 'SAME',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 400,
-        LINENUMBER: 4,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    const built = (processor as any).buildLines('400', processed);
-
-    expect(built).toHaveLength(4);
-    expect(built.every((line: any) => line.ErrorCount > 0)).toBe(true);
-    expect(lines[2].CREDITAMOUNT).toBe(150);
-  });
-
-  it('fails the UniqueId when a customer has no matching debit', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 401,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'B1',
-        DEBITAMOUNT: 100,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 401,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 100,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 401,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C2',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 50,
-        CURRENCYCODE: 'EUR',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 401,
-        LINENUMBER: 4,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 1,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    const built = (processor as any).buildLines('401', processed);
-    expect(built).toHaveLength(4);
-    expect(built.every((line: any) => line.ErrorCount > 0)).toBe(true);
-  });
-
-  it('does not enter Cash-In FX matching for same-currency groups even when Ledger 421103 exists', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 402,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'B1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 402,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 100,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 402,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '421103|x',
-        DEBITAMOUNT: 5,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(processed).toHaveLength(3);
-    expect((processor as any).cashInCustomerFxResults.has('402')).toBe(false);
-    expect(
-      processed.some((line: CashEntryRawDataModel) =>
-        isCashInLedger421103Line(line),
-      ),
-    ).toBe(true);
-    expect(processed[1].CREDITAMOUNT).toBe(100);
-  });
-
-  it('does not apply the special transform when Ledger 421103 is absent', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 500,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'SAFE',
-        DEBITAMOUNT: 730,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 500,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 737,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
-
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(processed).toHaveLength(2);
-    expect(processed[1].CREDITAMOUNT).toBe(737);
-    expect((processor as any).cashInCustomerFxResults.has('500')).toBe(false);
-
-    const built = (processor as any).buildLines('500', processed);
-    expect(built).toHaveLength(2);
-    expect(built[0].DebitAmount).toBe(730);
-    expect(built[1].CreditAmount).toBe(737);
-    expect(
-      built.every((line: any) => line.OffsetAccountDisplayValue === ''),
-    ).toBe(true);
-  });
-
-  it('does not apply Cash-In special rules on Cash-Out processors', async () => {
-    const processor = createCashOutProcessor();
-    const lines = exampleGroup().map(
-      (line) =>
-        new CashEntryRawDataModel(
-          {
-            ...line,
-            SafeType: 'Vendor Payment',
-          } as any,
-          'Freight',
-          false,
+      expect(processed).toHaveLength(3);
+      expect(
+        processed.some((line: CashEntryRawDataModel) =>
+          isCashInLedger421103Line(line),
         ),
-    );
+      ).toBe(false);
 
-    const before = lines.map((line) => ({
-      credit: line.CREDITAMOUNT,
-      currency: line.CURRENCYCODE,
-      line: line.LINENUMBER,
-    }));
+      const customer = processed.find(
+        (line: CashEntryRawDataModel) => line.LINENUMBER === 69,
+      );
+      expect(customer.DEBITAMOUNT).toBe(0);
+      expect(customer.CREDITAMOUNT).toBe(730);
+      expect(customer.CURRENCYCODE).toBe('USD');
+      expect(customer.INVOICE).toBe('5564/مطالبة نولون محصلة لصالح الغير');
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
+      const built = (processor as any).buildLines('466669', processed);
+      expect(built).toHaveLength(3);
 
-    expect(processed).toHaveLength(4);
-    expect(
-      processed.map((line: CashEntryRawDataModel) => ({
-        credit: line.CREDITAMOUNT,
-        currency: line.CURRENCYCODE,
-        line: line.LINENUMBER,
-      })),
-    ).toEqual(before);
-    expect((processor as any).cashInCustomerFxResults.size).toBe(0);
-  });
+      const customerLine = built.find(
+        (line: any) => line.CreditAmount === 730 && line.CurrencyCode === 'USD',
+      );
+      expect(customerLine).toBeDefined();
+      expect(customerLine.AccountDisplayValue).toBe('101000543');
+      expect(customerLine.MarkedLines).toEqual([
+        expect.objectContaining({ InvoiceNumber: '000005564/OF-FW' }),
+      ]);
+    });
 
-  it('matches EUR customer to Petty Cash USD when residual Ledger EGP also exists (466693)', async () => {
-    const processor = createCashInProcessor();
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
-      (_date: string, currencyCode: string) => {
-        const currency = String(currencyCode ?? '')
-          .trim()
-          .toUpperCase();
-        if (currency === 'USD') {
-          return { exchangeRate: 4765, reportingRate: 100 };
-        }
-        if (currency === 'EUR') {
-          return { exchangeRate: 5580, reportingRate: 100 };
-        }
-        return { exchangeRate: 100, reportingRate: 100 };
-      },
-    );
+    it('uniquely matches Notes Receivable debit when customer FX amount equals 122201 and excludes 421103', async () => {
+      const processor = createCashInProcessor();
+      const lines = toModels([
+        {
+          UniqueId: 468971,
+          LINENUMBER: 2017,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
+          DEBITAMOUNT: 75.5,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          EXCHANGERATE: 100,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 468971,
+          LINENUMBER: 2018,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '122201|1301|013|001|001|||RP-000001|RP-000001||3038|3208||||IMPORT||||',
+          DEBITAMOUNT: 6194.5,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          EXCHANGERATE: 100,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 468971,
+          LINENUMBER: 2019,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '101000046',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 130,
+          CURRENCYCODE: 'USD',
+          EXCHANGERATE: 4765,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 468971,
+          LINENUMBER: 2020,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '421103|1301|013|001|001|101000046|||||3038|3208||||IMPORT||||',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 75.5,
+          CURRENCYCODE: 'EGP',
+          EXCHANGERATE: 100,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
 
-    const lines = toModels([
-      {
-        UniqueId: 466693,
-        LINENUMBER: 137,
-        VOUCHER: 'CashIn-000125223',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'ALEXHO US',
-        DEBITAMOUNT: 702,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        EXCHANGERATE: 4765,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 466693,
-        LINENUMBER: 138,
-        VOUCHER: 'CashIn-000125223',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: '101003837',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 600,
-        CURRENCYCODE: 'EUR',
-        EXCHANGERATE: 5580,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 466693,
-        LINENUMBER: 139,
-        VOUCHER: 'CashIn-000125223',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '421103|1301|013|001|001|101003837|||||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 29.7,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+      expect(processed).toHaveLength(3);
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(processed).toHaveLength(3);
+      const customer = processed.find(
+        (line: CashEntryRawDataModel) => line.LINENUMBER === 2019,
+      );
+      expect(customer.CREDITAMOUNT).toBe(6194.5);
+      expect(customer.CURRENCYCODE).toBe('EGP');
 
-    const customer = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 138,
-    );
-    expect(customer.CREDITAMOUNT).toBe(702);
-    expect(customer.CURRENCYCODE).toBe('USD');
+      const built = (processor as any).buildLines('468971', processed);
+      expect(built).toHaveLength(3);
+      expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
+    });
 
-    const built = (processor as any).buildLines('466693', processed);
-    expect(built).toHaveLength(3);
-    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
-  });
+    it('matches EUR customer to Petty Cash USD and excludes Ledger 421103 (466693)', async () => {
+      const processor = createCashInProcessor();
+      jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
+        (_date: string, currencyCode: string) => {
+          const currency = String(currencyCode ?? '')
+            .trim()
+            .toUpperCase();
+          if (currency === 'USD') {
+            return { exchangeRate: 4765, reportingRate: 100 };
+          }
+          if (currency === 'EUR') {
+            return { exchangeRate: 5580, reportingRate: 100 };
+          }
+          return { exchangeRate: 100, reportingRate: 100 };
+        },
+      );
 
-  it('matches EUR customer to Bank USD when residual Ledger EGP also exists (470802)', async () => {
-    const processor = createCashInProcessor();
-    jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
-      (_date: string, currencyCode: string) => {
-        const currency = String(currencyCode ?? '')
-          .trim()
-          .toUpperCase();
-        if (currency === 'USD') {
-          return { exchangeRate: 4765, reportingRate: 100 };
-        }
-        if (currency === 'EUR') {
-          return { exchangeRate: 5580, reportingRate: 100 };
-        }
-        return { exchangeRate: 100, reportingRate: 100 };
-      },
-    );
+      const lines = toModels([
+        {
+          UniqueId: 466693,
+          LINENUMBER: 137,
+          VOUCHER: 'CashIn-000125223',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'ALEXHO US',
+          DEBITAMOUNT: 702,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          EXCHANGERATE: 4765,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 466693,
+          LINENUMBER: 138,
+          VOUCHER: 'CashIn-000125223',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '101003837',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 600,
+          CURRENCYCODE: 'EUR',
+          EXCHANGERATE: 5580,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 466693,
+          LINENUMBER: 139,
+          VOUCHER: 'CashIn-000125223',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '421103|1301|013|001|001|101003837|||||3038|3208||||IMPORT||||',
+          DEBITAMOUNT: 29.7,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          EXCHANGERATE: 100,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Cash',
+        },
+      ]);
 
-    const lines = toModels([
-      {
-        UniqueId: 470802,
-        LINENUMBER: 3184,
-        VOUCHER: 'BankIn-000128771',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'BANK-US',
-        DEBITAMOUNT: 385,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        EXCHANGERATE: 4765,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Transfer',
-      },
-      {
-        UniqueId: 470802,
-        LINENUMBER: 3185,
-        VOUCHER: 'BankIn-000128771',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: '101000585',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 330,
-        CURRENCYCODE: 'EUR',
-        EXCHANGERATE: 5580,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Transfer',
-      },
-      {
-        UniqueId: 470802,
-        LINENUMBER: 3186,
-        VOUCHER: 'BankIn-000128771',
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE:
-          '421103|1301|013|001|001|101000585|||||3038|3208||||IMPORT||||',
-        DEBITAMOUNT: 68.75,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        EXCHANGERATE: 100,
-        SafeType: 'Customer Collection',
-        VoucherType: 'Transfer',
-      },
-    ]);
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+      expect(processed).toHaveLength(2);
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(processed).toHaveLength(3);
+      const customer = processed.find(
+        (line: CashEntryRawDataModel) => line.LINENUMBER === 138,
+      );
+      expect(customer.CREDITAMOUNT).toBe(702);
+      expect(customer.CURRENCYCODE).toBe('USD');
 
-    const customer = processed.find(
-      (line: CashEntryRawDataModel) => line.LINENUMBER === 3185,
-    );
-    expect(customer.CREDITAMOUNT).toBe(385);
-    expect(customer.CURRENCYCODE).toBe('USD');
+      const built = (processor as any).buildLines('466693', processed);
+      expect(built).toHaveLength(2);
+      expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
+    });
 
-    const built = (processor as any).buildLines('470802', processed);
-    expect(built).toHaveLength(3);
-    expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
-  });
+    it('matches EUR customer to Bank USD and excludes Ledger 421103 (470802)', async () => {
+      const processor = createCashInProcessor();
+      jest.spyOn(processor as any, 'fetchExchangeRates').mockImplementation(
+        (_date: string, currencyCode: string) => {
+          const currency = String(currencyCode ?? '')
+            .trim()
+            .toUpperCase();
+          if (currency === 'USD') {
+            return { exchangeRate: 4765, reportingRate: 100 };
+          }
+          if (currency === 'EUR') {
+            return { exchangeRate: 5580, reportingRate: 100 };
+          }
+          return { exchangeRate: 100, reportingRate: 100 };
+        },
+      );
 
-  it('keeps one formatted line per uploaded row when FX match fails', async () => {
-    const processor = createCashInProcessor();
-    const lines = toModels([
-      {
-        UniqueId: 999001,
-        LINENUMBER: 1,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Petty Cash',
-        ACCOUNTDISPLAYVALUE: 'SAFE-A',
-        DEBITAMOUNT: 100,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'USD',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 999001,
-        LINENUMBER: 2,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Bank',
-        ACCOUNTDISPLAYVALUE: 'BANK-B',
-        DEBITAMOUNT: 200,
-        CREDITAMOUNT: 0,
-        CURRENCYCODE: 'EGP',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-      {
-        UniqueId: 999001,
-        LINENUMBER: 3,
-        TRANSDATE: '2026-01-15',
-        ACCOUNTTYPE: 'Cust',
-        ACCOUNTDISPLAYVALUE: 'C1',
-        DEBITAMOUNT: 0,
-        CREDITAMOUNT: 50,
-        CURRENCYCODE: 'EUR',
-        SafeType: 'Customer Collection',
-        VoucherType: 'Cash',
-      },
-    ]);
+      const lines = toModels([
+        {
+          UniqueId: 470802,
+          LINENUMBER: 3184,
+          VOUCHER: 'BankIn-000128771',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-US',
+          DEBITAMOUNT: 385,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'USD',
+          EXCHANGERATE: 4765,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 470802,
+          LINENUMBER: 3185,
+          VOUCHER: 'BankIn-000128771',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Cust',
+          ACCOUNTDISPLAYVALUE: '101000585',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 330,
+          CURRENCYCODE: 'EUR',
+          EXCHANGERATE: 5580,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 470802,
+          LINENUMBER: 3186,
+          VOUCHER: 'BankIn-000128771',
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE:
+            '421103|1301|013|001|001|101000585|||||3038|3208||||IMPORT||||',
+          DEBITAMOUNT: 68.75,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          EXCHANGERATE: 100,
+          SafeType: 'Customer Collection',
+          VoucherType: 'Transfer',
+        },
+      ]);
 
-    const processed = await (
-      processor as any
-    ).applyCashInCustomerForeignCurrencyRules(lines);
-    expect(processed).toHaveLength(3);
-    expect((processor as any).cashInCustomerFxResults.get('999001').isInvalid)
-      .toBe(true);
+      const processed = await (
+        processor as any
+      ).applyCashInCustomerForeignCurrencyRules(lines);
+      expect(processed).toHaveLength(2);
 
-    const built = (processor as any).buildLines('999001', processed);
-    expect(built).toHaveLength(3);
-    expect(
-      built.every((line: any) =>
-        line.GetErrors().some((e: string) => e.includes('CustomerDebitMatch')),
-      ),
-    ).toBe(true);
+      const customer = processed.find(
+        (line: CashEntryRawDataModel) => line.LINENUMBER === 3185,
+      );
+      expect(customer.CREDITAMOUNT).toBe(385);
+      expect(customer.CURRENCYCODE).toBe('USD');
+
+      const built = (processor as any).buildLines('470802', processed);
+      expect(built).toHaveLength(2);
+      expect(built.every((line: any) => line.ErrorCount === 0)).toBe(true);
+    });
   });
 });

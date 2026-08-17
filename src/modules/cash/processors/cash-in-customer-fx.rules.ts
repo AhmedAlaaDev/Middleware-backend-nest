@@ -197,7 +197,7 @@ export function isCashInSpecialCustomerFxCase(
   lines: CashEntryRawDataModel[],
 ): boolean {
   // Multi-currency Cash-In FX rewrite: debit + customer credit across more
-  // than one currency. Ledger 421103 is no longer a gate or exclusion target.
+  // than one currency.
   const hasDebit = lines.some(
     (line) => toPositiveNumber(line.DEBITAMOUNT) !== null,
   );
@@ -372,7 +372,6 @@ function isSingleCurrencyBalancedGroup(lines: CashEntryRawDataModel[]): boolean 
   return Math.abs(totalDebit - totalCredit) <= 0.05;
 }
 
-
 function findAllPerfectMatchings(
   customers: IndexedLine[],
   candidateMap: Map<string, IndexedLine[]>,
@@ -465,32 +464,49 @@ export function evaluateCashInCustomerFxGroup(options: {
   outputLines: CashEntryRawDataModel[];
 } {
   const { uniqueId, lines, resolveExchangeRate } = options;
-  const indexed = lines.map((line, index) => ({
+
+  // Identify and isolate Ledger 421103 lines from Cash-In processing
+  const excluded421103LineIds = new Set<string>();
+  const processableLines: CashEntryRawDataModel[] = [];
+
+  lines.forEach((line, index) => {
+    const id = cashInLineStableId(line, index);
+    if (isCashInLedger421103Line(line)) {
+      excluded421103LineIds.add(id);
+    } else {
+      processableLines.push(line);
+    }
+  });
+
+  const indexed = processableLines.map((line, index) => ({
     line,
     index,
     id: cashInLineStableId(line, index),
   }));
 
-  const emptyResult = (): CashInCustomerFxSpecialCaseResult => ({
+  const emptyResult = (
+    isInvalid = false,
+    validationErrors: CashInCustomerFxValidationError[] = [],
+  ): CashInCustomerFxSpecialCaseResult => ({
     uniqueId,
     matchedPairs: [],
     consumedLineIds: new Set<string>(),
-    skippedLedgerLineIds: new Set<string>(),
+    skippedLedgerLineIds: new Set<string>(excluded421103LineIds),
     residualLineIds: new Set<string>(indexed.map((entry) => entry.id)),
-    residualLines: lines,
-    validationErrors: [],
-    isInvalid: false,
+    residualLines: processableLines,
+    validationErrors,
+    isInvalid,
   });
 
-  if (!isCashInSpecialCustomerFxCase(lines)) {
-    return { result: emptyResult(), outputLines: lines };
+  if (!isCashInSpecialCustomerFxCase(processableLines)) {
+    return { result: emptyResult(), outputLines: processableLines };
   }
 
   // Same-currency groups that already balance do not need customer↔debit FX
   // rewriting. Leaving them on the normal path avoids false CustomerDebitMatch
   // ambiguity when multiple debit accounts exist.
-  if (isSingleCurrencyBalancedGroup(lines)) {
-    return { result: emptyResult(), outputLines: lines };
+  if (isSingleCurrencyBalancedGroup(processableLines)) {
+    return { result: emptyResult(), outputLines: processableLines };
   }
 
   const customers = collectCustomerCredits(indexed);
@@ -508,13 +524,13 @@ export function evaluateCashInCustomerFxGroup(options: {
         uniqueId,
         matchedPairs: [],
         consumedLineIds: new Set<string>(),
-        skippedLedgerLineIds: new Set<string>(),
-        residualLineIds: new Set<string>(),
-        residualLines: [],
+        skippedLedgerLineIds: new Set<string>(excluded421103LineIds),
+        residualLineIds: new Set<string>(indexed.map((entry) => entry.id)),
+        residualLines: processableLines,
         validationErrors: [validationError],
         isInvalid: true,
       } satisfies CashInCustomerFxSpecialCaseResult,
-      outputLines: lines,
+      outputLines: processableLines,
     };
   };
 
@@ -665,7 +681,7 @@ export function evaluateCashInCustomerFxGroup(options: {
     };
   }
 
-  const skippedLedgerLineIds = new Set<string>();
+  const skippedLedgerLineIds = new Set<string>(excluded421103LineIds);
   const residualEntries = indexed.filter(
     (entry) => !consumedLineIds.has(entry.id),
   );

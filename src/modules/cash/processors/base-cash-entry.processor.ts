@@ -1155,7 +1155,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       if (
         fxResult &&
         !fxResult.isInvalid &&
-        fxResult.matchedPairs.length > 0
+        (fxResult.matchedPairs.length > 0 ||
+          fxResult.skippedLedgerLineIds.size > 0)
       ) {
         continue;
       }
