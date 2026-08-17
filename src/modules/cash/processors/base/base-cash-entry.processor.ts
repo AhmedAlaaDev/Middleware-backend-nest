@@ -33,6 +33,7 @@ import {
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import { buildCashInboundInvalidLine } from '@/modules/cash/services/cash-in-line-building.service';
+import { prepareCashInboundDimensions } from '@/modules/cash/services/cash-in-line-building.service';
 import {
   buildCashLine,
   buildCashMoreThanTwoLines,
@@ -994,18 +995,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
-    const dimensionString =
-      offsetLine?.ACCOUNTTYPE === 'Ledger'
-        ? offsetLine?.ACCOUNTDISPLAYVALUE
-        : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
-
-    const segmentLength =
-      this.utilsService.getDimensionSegmentLength(dimensionString);
-
-    let dimensions = this.utilsService.parseDimensionString(dimensionString);
-    dimensions = isCash22420LedgerDimensionLine(accountLine, offsetLine)
-      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
-      : dimensions;
+    const { dimensionString, segmentLength, dimensions } =
+      prepareCashInboundDimensions({
+        accountLine,
+        offsetLine,
+        getDimensionSegmentLength: (displayValue) =>
+          this.utilsService.getDimensionSegmentLength(displayValue),
+        parseDimensionString: (displayValue) =>
+          this.utilsService.parseDimensionString(displayValue),
+        filterDimensionsForLedgerTag22420: (parsedDimensions) =>
+          this.utilsService.filterDimensionsForLedgerTag22420(parsedDimensions),
+      });
 
     if (!accountLine || !offsetLine) {
       return buildCashInboundInvalidLine(
