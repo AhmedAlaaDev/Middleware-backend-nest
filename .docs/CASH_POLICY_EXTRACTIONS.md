@@ -101,3 +101,14 @@ and staged in the same policy module for the next delegation step.
 - `formatCashOutboundInvoice`: staged Cash-Out invoice normalization policy.
 
 Keeping these wrappers preserves subclass access and avoids changing the processor pipeline in one large operation. Future extractions should follow the same pattern: add characterization tests, move one deterministic responsibility, delegate from the base processor, and compare enhanced records/errors/payloads before and after.
+
+## `cash-line.policy.ts`
+
+Path: `src/modules/cash/policies/cash-line.policy.ts`
+
+This file owns two source-line rules shared by Cash-In and Cash-Out:
+
+- `filterCashSettlementLines` separates account `421103` settlement rows while preserving source order and delegates dimension parsing to the existing processor utility.
+- `resolveCashPaymentMethod` selects the source payment method from the transaction row first, then the paired row; it never infers a method from account type.
+
+The corresponding helper implementations have been removed from the base processor. The policy receives parsing as a callback so it remains free of processor state and D365FO dependencies.

@@ -7,7 +7,6 @@ import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data
 import {
   isCash22420LedgerDimensionLine,
   isCashNotesReceivableLine,
-  isCashSettlementLine,
   sanitizeCashOutboundInvoice,
 } from '@/modules/cash/policies/cash-account.policy';
 import {
@@ -23,6 +22,10 @@ import {
   analyzeCashWithholding,
   isCashWithholdingLedgerLine,
 } from '@/modules/cash/policies/cash-withholding.policy';
+import {
+  filterCashSettlementLines,
+  resolveCashPaymentMethod,
+} from '@/modules/cash/policies/cash-line.policy';
 import {
   CashJournalRoute,
   CashJournalRoutingError,
@@ -1071,9 +1074,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
 
       if (accountLinesLength === 1 && offsetLinesLength > 1) {
-        const withoutSettlementOffsetLines = this.filterOutSettlementLines(
+        const withoutSettlementOffsetLines = filterCashSettlementLines(
           offsetLines,
           settlementSink,
+          (displayValue) =>
+            this.utilsService.parseDimensionString(displayValue),
         );
 
         return withoutSettlementOffsetLines.map((offLine) =>
@@ -1117,9 +1122,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
 
       if (accountLinesLength === 1 && offsetLinesLength > 1) {
-        const withoutSettlementOffsetLines = this.filterOutSettlementLines(
+        const withoutSettlementOffsetLines = filterCashSettlementLines(
           offsetLines,
           settlementSink,
+          (displayValue) =>
+            this.utilsService.parseDimensionString(displayValue),
         );
 
         return withoutSettlementOffsetLines.map((offLine) =>
@@ -1264,7 +1271,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
+      PaymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
       PaymentReference: paymentReference,
       JournalName: this.getJournalName(),
       TransactionDate: accountLine.TRANSDATE,
@@ -1484,7 +1491,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
-      PaymentMethodName: this.getPaymentMethodName(accountLine, offsetLine),
+      PaymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
       PaymentReference: paymentReference,
       OffsetTransactionText: (() => {
         let offsetText = isNotesReceivable
@@ -1815,41 +1822,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Ledger → full ledger account display value.
    * Notes-receivable forced to Bank → bankAccount dim segment when present.
    */
-  protected filterOutSettlementLines(
-    lines: CashEntryRawDataModel[],
-    settlementSink: CashEntryRawDataModel[],
-  ): CashEntryRawDataModel[] {
-    const withoutSettlement: CashEntryRawDataModel[] = [];
-    for (const line of lines) {
-      const dimensions = this.utilsService.parseDimensionString(
-        line.ACCOUNTDISPLAYVALUE,
-      );
-      if (isCashSettlementLine(line, dimensions.mainAccount)) {
-        settlementSink.push(line);
-      } else {
-        withoutSettlement.push(line);
-      }
-    }
-
-    return withoutSettlement;
-  }
-
   /**
    * PAYMENTMETHODNAME is source-owned: use the Excel PAYMENTMETHOD value from
    * the transaction row, then the paired row, and never derive it from an
    * account type such as Petty cash/RCash.
    */
-  protected getPaymentMethodName(
-    accountLine: CashEntryRawDataModel,
-    offsetLine: CashEntryRawDataModel,
-  ): string {
-    return (
-      [accountLine.PAYMENTMETHOD, offsetLine.PAYMENTMETHOD]
-        .map((value) => value?.trim() ?? '')
-        .find(Boolean) ?? ''
-    );
-  }
-
   /**
    * One batched FO lookup for all cash-out marked invoices → in-memory Set.
    * Validation is then sync from the Set (no per-line FO calls).
