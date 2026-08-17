@@ -41,6 +41,23 @@ export function resolveCashInboundRates(options: {
   };
 }
 
+export function formatCashInboundDescription(options: {
+  accountLine: CashEntryRawDataModel;
+  offsetLine: CashEntryRawDataModel;
+  isNotesReceivable: boolean;
+  label: string;
+  formattedDate: string;
+}): { description: string; paymentReference: string } {
+  const { accountLine, offsetLine, isNotesReceivable, label, formattedDate } =
+    options;
+  const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
+  const paymentReference = isNotesReceivable
+    ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
+    : offsetLine.DESCRIPTION || '';
+
+  return { description, paymentReference };
+}
+
 export function prepareCashInboundDimensions(options: {
   accountLine?: CashEntryRawDataModel;
   offsetLine?: CashEntryRawDataModel;

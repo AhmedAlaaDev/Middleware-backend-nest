@@ -34,6 +34,7 @@ import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
   buildCashInboundInvalidLine,
+  formatCashInboundDescription,
   prepareCashInboundDimensions,
   resolveCashInboundRates,
 } from '@/modules/cash/services/cash-in-line-building.service';
@@ -1032,11 +1033,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       accountLine.TRANSDATE,
     );
     const label = getCashCollectionDescriptionLabel(this.isTrucking());
-    const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
-
-    const paymentReference = isNotesReceivable
-      ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
-      : offsetLine.DESCRIPTION || '';
+    const { description, paymentReference } = formatCashInboundDescription({
+      accountLine,
+      offsetLine,
+      isNotesReceivable,
+      label,
+      formattedDate,
+    });
 
     const dimensionStr = toCashDefaultDimensionDisplayValue(
       dimensions,
