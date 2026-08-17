@@ -113,6 +113,16 @@ The batch-policy tests verify voucher-ID assignment, preservation of existing
 IDs, Cash-In custody splitting, and Cash-Out line retention before the legacy
 base helpers are removed.
 
+## `cash-normalization.policy.ts`
+
+Path: `src/modules/cash/policies/cash-normalization.policy.ts`
+
+`mapCashRawData` is now the active raw-row mapping boundary. It receives the
+explicit Freight/Fleet product and inbound/outbound direction, preserves input
+order, and constructs the same `CashEntryRawDataModel` instances previously
+created by the base processor. Its focused test verifies order and outbound
+direction metadata.
+
 ## `cash-batch.policy.ts`
 
 Path: `src/modules/cash/policies/cash-batch.policy.ts`

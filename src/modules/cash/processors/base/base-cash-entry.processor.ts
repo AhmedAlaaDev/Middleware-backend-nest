@@ -34,6 +34,7 @@ import {
   assignCashMissingUniqueIds,
   classifyCashLines,
 } from '@/modules/cash/policies/cash-batch.policy';
+import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
 import {
   CashJournalRoute,
   CashJournalRoutingError,
@@ -183,7 +184,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
 
     this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
-    const rawLines = this.mapToModel(data);
+    const rawLines = mapCashRawData(
+      data,
+      this.isTrucking() ? 'Fleet' : 'Freight',
+      this.isInbound(),
+    );
     const assignedIds = assignCashMissingUniqueIds(rawLines);
     if (assignedIds.assignedLineCount > 0) {
       this.logger.debug(
@@ -396,13 +401,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
   public insertIntoDynamicsAsync(): Promise<void> {
     return Promise.resolve();
-  }
-
-  protected mapToModel(data: EntryRawDataModel[]): CashEntryRawDataModel[] {
-    const kind = this.isTrucking() ? 'Fleet' : 'Freight';
-    return data.map(
-      (d) => new CashEntryRawDataModel(d, kind, this.isInbound()),
-    );
   }
 
   protected async validateCashOutSourceAsync(
