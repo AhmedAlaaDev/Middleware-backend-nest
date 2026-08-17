@@ -1859,7 +1859,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): CashEntryDynDataModel[] {
     if (withholdingLines.length === 0) return [];
 
-    const vendorLines = groupLines.filter((line) => line.IsVendor);
+    const tradeVendorLines = groupLines.filter(
+      (line) =>
+        line.IsVendor &&
+        !line.IsCustodyVendor &&
+        String(line.VendorGroup ?? '').trim().toLowerCase() !== 'custody',
+    );
+    const vendorLines =
+      tradeVendorLines.length > 0
+        ? tradeVendorLines
+        : groupLines.filter((line) => line.IsVendor);
     const companions: CashEntryDynDataModel[] = [];
     const claimed = new Set<CashEntryRawDataModel>();
 
