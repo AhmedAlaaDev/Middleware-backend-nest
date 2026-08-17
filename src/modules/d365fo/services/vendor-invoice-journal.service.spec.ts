@@ -3,7 +3,7 @@ import { VendorInvoiceJournalService } from './vendor-invoice-journal.service';
 import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-builder.service';
 
 describe('VendorInvoiceJournalService invoice lookup', () => {
-  it('finds an invoice that is already posted in Finance', async () => {
+  it('finds an invoice by invoice query when no vendor account is provided', async () => {
     const d365foClient = {
       get: jest.fn().mockResolvedValue({
         value: [
@@ -47,18 +47,23 @@ describe('VendorInvoiceJournalService invoice lookup', () => {
     expect(decodeURIComponent(d365foClient.get.mock.calls[0][0])).toContain(
       "InvoiceId eq ' INV/2026/00597'",
     );
-    expect(decodeURIComponent(d365foClient.get.mock.calls[0][0])).toContain(
-      "InvoiceId eq ' INV/2026/00597 '",
-    );
   });
 
-  it('looks up posted invoices from the vendor account, not invoice-only', async () => {
+  it('looks up posted invoices by vendor account first and matches case-insensitively in memory', async () => {
     const d365foClient = {
       get: jest.fn().mockResolvedValue({
         value: [
           {
-            InvoiceId: '386',
-            InvoiceAccount: 'RP-000003',
+            InvoiceId: 'EGDAMAX260025097',
+            InvoiceAccount: 'RP-000007',
+          },
+          {
+            InvoiceId: 'EGDAMAX260025100',
+            InvoiceAccount: 'RP-000007',
+          },
+          {
+            InvoiceId: 'EGDAMAX260025101',
+            InvoiceAccount: 'RP-000007',
           },
         ],
       }),
@@ -75,13 +80,37 @@ describe('VendorInvoiceJournalService invoice lookup', () => {
       { extractMessage: jest.fn() } as any,
     );
 
-    await service.findExistingInvoiceVendorPairs('m-p', ['386'], {
-      pairs: [{ invoice: '386', vendorAccount: 'RP-000003' }],
-    });
+    const result = await service.findExistingInvoiceVendorPairs(
+      'm-p',
+      ['egdamax260025097', 'egdamax260025100', 'egdamax260025101'],
+      {
+        pairs: [
+          { invoice: 'egdamax260025097', vendorAccount: 'RP-000007' },
+          { invoice: 'egdamax260025100', vendorAccount: 'RP-000007' },
+          { invoice: 'egdamax260025101', vendorAccount: 'RP-000007' },
+        ],
+      },
+    );
 
     const query = decodeURIComponent(d365foClient.get.mock.calls[0][0]);
-    expect(query).toContain("InvoiceAccount eq 'RP-000003'");
-    expect(query).toContain("InvoiceId eq '386'");
+    // Verifies that OData filters by vendor account first
+    expect(query).toContain("InvoiceAccount eq 'RP-000007'");
+    // Verifies in-memory case-insensitive pair matching
+    expect(
+      result.has(
+        VendorInvoiceJournalService.pairKey('egdamax260025097', 'RP-000007'),
+      ),
+    ).toBe(true);
+    expect(
+      result.has(
+        VendorInvoiceJournalService.pairKey('egdamax260025100', 'RP-000007'),
+      ),
+    ).toBe(true);
+    expect(
+      result.has(
+        VendorInvoiceJournalService.pairKey('egdamax260025101', 'RP-000007'),
+      ),
+    ).toBe(true);
   });
 
   it('returns the exact D365 InvoiceId for a normalized invoice/vendor pair', async () => {

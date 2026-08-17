@@ -112,9 +112,18 @@ export class VendorInvoiceJournalService {
       ),
     ];
 
+    const vendorAccounts = [
+      ...new Set(
+        (options?.vendorAccounts ?? [])
+          .concat((options?.pairs ?? []).map((p) => p.vendorAccount))
+          .map((v) => VendorInvoiceJournalService.cleanLookupValue(v))
+          .filter(Boolean),
+      ),
+    ];
+
     const existingInvoiceIds = new Map<VendorInvoiceVendorPairKey, string>();
 
-    if (uniqueInvoices.length === 0) {
+    if (uniqueInvoices.length === 0 && vendorAccounts.length === 0) {
       return existingInvoiceIds;
     }
 
@@ -126,33 +135,40 @@ export class VendorInvoiceJournalService {
       5,
       Math.max(1, options?.concurrency ?? VENDOR_INVOICE_LOOKUP_CONCURRENCY),
     );
-    const pairs = this.uniqueLookupPairs(options?.pairs ?? []);
-    const pairChunks =
-      pairs.length > 0 ? this.chunkArray(pairs, Math.min(8, chunkSize)) : [];
-    const invoiceChunks =
-      pairChunks.length > 0 ? [] : this.chunkArray(uniqueInvoices, chunkSize);
-    const totalLookups = Math.max(pairChunks.length, invoiceChunks.length);
+
+    // Prioritize querying by vendor account first (so invoice casing/formatting variations
+    // in source data match D365 posted records reliably).
+    const useVendorLookup = vendorAccounts.length > 0;
+    const chunks = useVendorLookup
+      ? this.chunkArray(vendorAccounts, Math.min(10, chunkSize))
+      : this.chunkArray(uniqueInvoices, chunkSize);
+    const totalLookups = chunks.length;
 
     this.logger.log(
-      `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against posted D365 vendor invoices for company '${company}' from ${pairs.length} vendor-invoice pair(s) in ${totalLookups} lookup(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
+      useVendorLookup
+        ? `[LOOKUP] Resolving vendor invoices for ${vendorAccounts.length} vendor(s) in company '${company}' in ${totalLookups} lookup(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`
+        : `[LOOKUP] Resolving ${uniqueInvoices.length} vendor invoices against posted D365 vendor invoices for company '${company}' in ${totalLookups} lookup(s) (chunkSize=${chunkSize}, concurrency=${concurrency})`,
     );
 
     const startMs = Date.now();
-    const chunks = pairChunks.length > 0 ? pairChunks : invoiceChunks;
 
     for (let i = 0; i < chunks.length; i += concurrency) {
       const wave = chunks.slice(i, i + concurrency);
       const waveResults = await Promise.all(
         wave.map((chunk, j) =>
-          this.fetchInvoiceVendorPairsChunk(
-            company,
-            pairChunks.length > 0 ? [] : (chunk as string[]),
-            i + j + 1,
-            totalLookups,
-            pairChunks.length > 0
-              ? (chunk as VendorInvoiceLookupPair[])
-              : [],
-          ),
+          useVendorLookup
+            ? this.fetchInvoiceVendorPairsByVendorsChunk(
+                company,
+                chunk as string[],
+                i + j + 1,
+                totalLookups,
+              )
+            : this.fetchInvoiceVendorPairsByInvoicesChunk(
+                company,
+                chunk as string[],
+                i + j + 1,
+                totalLookups,
+              ),
         ),
       );
 
@@ -166,51 +182,124 @@ export class VendorInvoiceJournalService {
     }
 
     this.logger.log(
-      `[LOOKUP] Found ${existingInvoiceIds.size} invoice/vendor pair(s) for ${uniqueInvoices.length} invoice(s) in ${Date.now() - startMs}ms`,
+      `[LOOKUP] Found ${existingInvoiceIds.size} invoice/vendor pair(s) for ${uniqueInvoices.length} invoice(s) / ${vendorAccounts.length} vendor(s) in ${Date.now() - startMs}ms`,
     );
 
     return existingInvoiceIds;
   }
 
-  private uniqueLookupPairs(
-    pairs: VendorInvoiceLookupPair[],
-  ): VendorInvoiceLookupPair[] {
-    const unique = new Map<string, VendorInvoiceLookupPair>();
-    for (const pair of pairs) {
-      const invoice = VendorInvoiceJournalService.preserveLookupValue(
-        pair.invoice,
+  private async fetchInvoiceVendorPairsByVendorsChunk(
+    company: string,
+    vendors: string[],
+    chunkIndex: number,
+    totalChunks: number,
+  ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
+    const vendorFilters = vendors.map((vendor) => {
+      return `(${this.queryBuilder.or(
+        ...this.lookupValueVariants(vendor).flatMap((v) => [
+          this.queryBuilder.eq('InvoiceAccount', v),
+          this.queryBuilder.eq('OrderAccount', v),
+        ]),
+      )})`;
+    });
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', company),
+      vendorFilters.length > 0 ? `(${vendorFilters.join(' or ')})` : '',
+    );
+
+    const endpoint = this.queryBuilder.buildQuery(
+      '/data/VendInvoiceJourBiEntities',
+      {
+        filter,
+        select: ['InvoiceId', 'InvoiceAccount', 'OrderAccount'],
+        crossCompany: true,
+      },
+    );
+
+    type RawLine = {
+      InvoiceId?: string;
+      InvoiceAccount?: string;
+      OrderAccount?: string;
+    };
+
+    try {
+      return await this.retryService.executeWithRetry(
+        async () => {
+          let pageEndpoint = endpoint;
+          let pages = 0;
+          const pageInvoiceIds = new Map<VendorInvoiceVendorPairKey, string>();
+
+          while (true) {
+            pages += 1;
+            const response = await this.d365foClient.get<RawLine>(
+              pageEndpoint,
+              {
+                useCache: false,
+              },
+            );
+
+            for (const row of response.value ?? []) {
+              const invoice = row.InvoiceId;
+              const invoiceAccount = row.InvoiceAccount;
+              const orderAccount = row.OrderAccount;
+              if (!invoice?.trim()) continue;
+
+              if (invoiceAccount?.trim()) {
+                pageInvoiceIds.set(
+                  VendorInvoiceJournalService.pairKey(invoice, invoiceAccount),
+                  invoice,
+                );
+              }
+              if (orderAccount?.trim()) {
+                pageInvoiceIds.set(
+                  VendorInvoiceJournalService.pairKey(invoice, orderAccount),
+                  invoice,
+                );
+              }
+            }
+
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            pageEndpoint = this.getEndpointFromNextLink(nextLink);
+          }
+
+          this.logger.debug(
+            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${vendors.length} vendor(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
+          );
+
+          return pageInvoiceIds;
+        },
+        {
+          retries: VENDOR_INVOICE_LOOKUP_CHUNK_RETRIES,
+          retryDelay: 2 * 60 * 1000,
+          exponentialBackoff: false,
+          retryCondition: (error: unknown) => {
+            const status = (error as { response?: { status?: number } })
+              ?.response?.status;
+            if (status === 429 || (status !== undefined && status >= 500)) {
+              return true;
+            }
+            return this.retryService.isFoThrottleError(error);
+          },
+        },
       );
-      const vendorAccount = VendorInvoiceJournalService.preserveLookupValue(
-        pair.vendorAccount,
+    } catch (error) {
+      const errorDetails = this.dfoErrorExtractor.extractMessage(error);
+      this.logger.error(
+        `[LOOKUP] Chunk ${chunkIndex}/${totalChunks} failed: ${errorDetails}`,
       );
-      if (!invoice.trim() || !vendorAccount.trim()) continue;
-      const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
-      if (!unique.has(key)) unique.set(key, { invoice, vendorAccount });
+      throw new Error(
+        `Vendor invoice lookup failed (chunk ${chunkIndex}/${totalChunks}): ${errorDetails}`,
+      );
     }
-    return [...unique.values()];
   }
 
-  private async fetchInvoiceVendorPairsChunk(
+  private async fetchInvoiceVendorPairsByInvoicesChunk(
     company: string,
     invoices: string[],
     chunkIndex: number,
     totalChunks: number,
-    pairs: VendorInvoiceLookupPair[] = [],
   ): Promise<Map<VendorInvoiceVendorPairKey, string>> {
-    const pairFilters = pairs.map((pair) => {
-      const invoiceFilter = `(${this.queryBuilder.or(
-        ...this.lookupValueVariants(pair.invoice).map((invoice) =>
-          this.queryBuilder.eq('InvoiceId', invoice),
-        ),
-      )})`;
-      const vendorFilter = `(${this.queryBuilder.or(
-        ...this.lookupValueVariants(pair.vendorAccount).flatMap((vendor) => [
-          this.queryBuilder.eq('InvoiceAccount', vendor),
-          this.queryBuilder.eq('OrderAccount', vendor),
-        ]),
-      )})`;
-      return `(${vendorFilter} and ${invoiceFilter})`;
-    });
     const invoiceOrFilter =
       invoices.length > 0
         ? `(${this.queryBuilder.or(
@@ -223,7 +312,6 @@ export class VendorInvoiceJournalService {
         : '';
     const filter = this.queryBuilder.and(
       this.queryBuilder.eq('dataAreaId', company),
-      pairFilters.length > 0 ? `(${pairFilters.join(' or ')})` : '',
       invoiceOrFilter,
     );
 
@@ -260,12 +348,22 @@ export class VendorInvoiceJournalService {
 
             for (const row of response.value ?? []) {
               const invoice = row.InvoiceId;
-              const vendorAccount = row.InvoiceAccount || row.OrderAccount;
-              if (!invoice?.trim() || !vendorAccount?.trim()) continue;
-              pageInvoiceIds.set(
-                VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
-                invoice,
-              );
+              const invoiceAccount = row.InvoiceAccount;
+              const orderAccount = row.OrderAccount;
+              if (!invoice?.trim()) continue;
+
+              if (invoiceAccount?.trim()) {
+                pageInvoiceIds.set(
+                  VendorInvoiceJournalService.pairKey(invoice, invoiceAccount),
+                  invoice,
+                );
+              }
+              if (orderAccount?.trim()) {
+                pageInvoiceIds.set(
+                  VendorInvoiceJournalService.pairKey(invoice, orderAccount),
+                  invoice,
+                );
+              }
             }
 
             const nextLink = response['@odata.nextLink'];
@@ -274,7 +372,7 @@ export class VendorInvoiceJournalService {
           }
 
           this.logger.debug(
-            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${pairs.length || invoices.length} lookup(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
+            `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${invoices.length} invoice(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
           );
 
           return pageInvoiceIds;
@@ -289,7 +387,6 @@ export class VendorInvoiceJournalService {
             if (status === 429 || (status !== undefined && status >= 500)) {
               return true;
             }
-            // Wrapped FO errors often lose HTTP status; match on message.
             return this.retryService.isFoThrottleError(error);
           },
         },
