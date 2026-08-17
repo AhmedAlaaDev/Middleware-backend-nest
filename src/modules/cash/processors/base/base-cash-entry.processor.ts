@@ -32,7 +32,10 @@ import {
 } from '@/modules/cash/policies/cash-journal.policy';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
-import { buildCashLines } from '@/modules/cash/services/cash-line-building.service';
+import {
+  buildCashInvoiceLines,
+  buildCashLines,
+} from '@/modules/cash/services/cash-line-building.service';
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
@@ -781,15 +784,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     invoiceMap: RawDataInvoiceMap,
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    const dfoLines: CashEntryDynDataModel[] = [];
-
-    for (const [sourceId, lines] of invoiceMap.entries()) {
-      dfoLines.push(
-        ...buildCashLines({
+    return buildCashInvoiceLines({
+      invoiceMap,
+      exchangeRateContext,
+      buildGroupedLines: (sourceId, lines, context) =>
+        buildCashLines({
           sourceId,
           lines,
           inbound: this.isInbound(),
-          exchangeRateContext,
+          exchangeRateContext: context,
           buildVendorPayment: (id, groupedLines, context) =>
             this.buildVendorPaymentLines(id, groupedLines, context),
           buildSourceOutbound: (id, line, context) =>
@@ -799,10 +802,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           buildManyLines: (id, groupedLines, context) =>
             this.caseMoreThanTwoLines(id, groupedLines, context),
         }),
-      );
-    }
-
-    return dfoLines;
+    });
   }
 
   /**

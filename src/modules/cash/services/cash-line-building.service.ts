@@ -2,6 +2,36 @@ import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { CashOutExchangeRateContext } from '@/modules/cash/services/cash-out-exchange-rate.service';
 
+export type CashInvoiceLineMap = Map<string, CashEntryRawDataModel[]>;
+
+/**
+ * Builds all D365FO lines in the insertion order of the grouped invoice map.
+ * The callbacks remain responsible for the existing business-specific builders.
+ */
+export function buildCashInvoiceLines(options: {
+  invoiceMap: CashInvoiceLineMap;
+  buildGroupedLines: (
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ) => CashEntryDynDataModel[];
+  exchangeRateContext?: CashOutExchangeRateContext;
+}): CashEntryDynDataModel[] {
+  const dfoLines: CashEntryDynDataModel[] = [];
+
+  for (const [sourceId, lines] of options.invoiceMap.entries()) {
+    dfoLines.push(
+      ...options.buildGroupedLines(
+        sourceId,
+        lines,
+        options.exchangeRateContext,
+      ),
+    );
+  }
+
+  return dfoLines;
+}
+
 /**
  * Dispatches one grouped cash invoice to the correct builder.
  * This service owns only routing; the existing line-building implementations
