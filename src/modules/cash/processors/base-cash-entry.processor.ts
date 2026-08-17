@@ -3498,13 +3498,24 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryDynDataModel[],
   ): Promise<void> {
     const vendorPaymentLines = lines.filter((line) => {
+      const accountType = (line.AccountType || '').trim().toLowerCase();
+      const isVendor = accountType === 'vend' || accountType === 'vendor';
+      const hasInvoice = Boolean(
+        (line.MarkedLines?.length ?? 0) > 0 ||
+        (line.MarkedInvoice && String(line.MarkedInvoice).trim()) ||
+        (line.Invoice && String(line.Invoice).trim()),
+      );
+      if (isVendor && hasInvoice) return true;
+
       try {
+        const resolved = this.cashJournalRoutingService.resolve({
+          safeType: line.SafeType,
+          targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
+          voucherType: line.VoucherType,
+        });
         return (
-          this.cashJournalRoutingService.resolve({
-            safeType: line.SafeType,
-            targetProcessor: this.isTrucking() ? 'Fleet' : 'Freight',
-            voucherType: line.VoucherType,
-          }).safeType === 'Vendor Payment'
+          resolved.safeType === 'Vendor Payment' ||
+          resolved.safeType === 'Custody Settlement'
         );
       } catch {
         return false;
@@ -3523,7 +3534,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ),
     ];
 
-    if (invoices.length === 0) {
+    const vendorAccounts = [
+      ...new Set(
+        vendorPaymentLines
+          .map((line) => String(line.AccountDisplayValue ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (invoices.length === 0 && vendorAccounts.length === 0) {
       this.vendorInvoiceExistsMap = new Set();
       this.logger.debug(
         '[LOOKUP] No cash-out marked invoices to resolve; skipping posted vendor invoice lookup',
@@ -3549,9 +3568,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         invoices,
         {
           pairs,
-          vendorAccounts: [
-            ...new Set(pairs.map((pair) => pair.vendorAccount)),
-          ],
+          vendorAccounts,
         },
       );
   }

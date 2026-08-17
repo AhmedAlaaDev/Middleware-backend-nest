@@ -263,6 +263,54 @@ export class VendorInvoiceJournalService {
             pageEndpoint = this.getEndpointFromNextLink(nextLink);
           }
 
+          // 2. Also query VendTransBiEntities to cover direct vendor ledger entries
+          try {
+            const vendTransFilters = vendors.map((vendor) => {
+              return `(${this.queryBuilder.or(
+                ...this.lookupValueVariants(vendor).map((v) =>
+                  this.queryBuilder.eq('AccountNum', v),
+                ),
+              )})`;
+            });
+            const transFilter = this.queryBuilder.and(
+              this.queryBuilder.eq('dataAreaId', company),
+              vendTransFilters.length > 0
+                ? `(${vendTransFilters.join(' or ')})`
+                : '',
+            );
+            const transEndpoint = this.queryBuilder.buildQuery(
+              '/data/VendTransBiEntities',
+              {
+                filter: transFilter,
+                select: ['Invoice', 'AccountNum'],
+                crossCompany: true,
+              },
+            );
+            let transPageEndpoint = transEndpoint;
+            while (true) {
+              const transResponse = await this.d365foClient.get<{
+                Invoice?: string;
+                AccountNum?: string;
+              }>(transPageEndpoint, { useCache: false });
+              for (const row of transResponse.value ?? []) {
+                const invoice = row.Invoice;
+                const accountNum = row.AccountNum;
+                if (!invoice?.trim() || !accountNum?.trim()) continue;
+                pageInvoiceIds.set(
+                  VendorInvoiceJournalService.pairKey(invoice, accountNum),
+                  invoice,
+                );
+              }
+              const nextLink = transResponse['@odata.nextLink'];
+              if (!nextLink) break;
+              transPageEndpoint = this.getEndpointFromNextLink(nextLink);
+            }
+          } catch (transError) {
+            this.logger.debug(
+              `[LOOKUP] VendTransBiEntities fallback query for vendors skipped: ${this.dfoErrorExtractor.extractMessage(transError)}`,
+            );
+          }
+
           this.logger.debug(
             `[LOOKUP] Chunk ${chunkIndex}/${totalChunks}: ${vendors.length} vendor(s) → ${pageInvoiceIds.size} pair(s) in ${pages} page(s)`,
           );
