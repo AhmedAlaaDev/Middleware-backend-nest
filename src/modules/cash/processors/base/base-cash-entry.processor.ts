@@ -33,6 +33,10 @@ import {
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
+  buildCashMoreThanTwoLines,
+  buildCashTwoLines,
+} from '@/modules/cash/services/cash-group-line-building.service';
+import {
   buildCashInvoiceLines,
   buildCashLines,
 } from '@/modules/cash/services/cash-line-building.service';
@@ -920,26 +924,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    let accountLine: CashEntryRawDataModel | undefined;
-    let offsetLine: CashEntryRawDataModel | undefined;
-
-    if (this.isInbound()) {
-      accountLine = lines.find((l) => l.IsCustomer);
-      offsetLine = lines.find((l) => !l.IsCustomer);
-    } else {
-      accountLine = lines.find((l) => l.DEBITAMOUNT > 0);
-      offsetLine = lines.find((l) => l.CREDITAMOUNT > 0);
-    }
-
-    return [
-      this.buildLine(
-        sourceId,
-        accountLine,
-        offsetLine,
-        undefined,
-        exchangeRateContext,
-      ),
-    ];
+    return buildCashTwoLines({
+      sourceId,
+      lines,
+      inbound: this.isInbound(),
+      exchangeRateContext,
+      buildLine: (id, accountLine, offsetLine, amountSource, context) =>
+        this.buildLine(id, accountLine, offsetLine, amountSource, context),
+    });
   }
 
   protected caseMoreThanTwoLines(
@@ -947,106 +939,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    let accountLines: CashEntryRawDataModel[] = [];
-    let offsetLines: CashEntryRawDataModel[] = [];
-
-    if (this.isInbound()) {
-      accountLines = lines.filter((l) => l.IsCustomer);
-      offsetLines = lines.filter((l) => !l.IsCustomer);
-
-      const accountLinesLength = accountLines.length;
-      const offsetLinesLength = offsetLines.length;
-      const settlementSink: CashEntryRawDataModel[] = [];
-
-      if (accountLinesLength > 1 && offsetLinesLength === 1) {
-        return accountLines.map((accLine) =>
-          this.buildLine(
-            sourceId,
-            accLine,
-            offsetLines[0],
-            'ACCOUNT',
-            exchangeRateContext,
-          ),
-        );
-      }
-
-      if (accountLinesLength === 1 && offsetLinesLength > 1) {
-        const withoutSettlementOffsetLines = filterCashSettlementLines(
-          offsetLines,
-          settlementSink,
-          (displayValue) =>
-            this.utilsService.parseDimensionString(displayValue),
-        );
-
-        return withoutSettlementOffsetLines.map((offLine) =>
-          this.buildLine(
-            sourceId,
-            accountLines[0],
-            offLine,
-            'OFFSET',
-            exchangeRateContext,
-          ),
-        );
-      }
-
-      return [
-        this.buildLine(
-          sourceId,
-          undefined,
-          undefined,
-          undefined,
-          exchangeRateContext,
-        ),
-      ];
-    } else {
-      accountLines = lines.filter((l) => l.DEBITAMOUNT > 0);
-      offsetLines = lines.filter((l) => l.CREDITAMOUNT > 0);
-
-      const accountLinesLength = accountLines.length;
-      const offsetLinesLength = offsetLines.length;
-      const settlementSink: CashEntryRawDataModel[] = [];
-
-      if (accountLinesLength > 1 && offsetLinesLength === 1) {
-        return accountLines.map((accLine) =>
-          this.buildLine(
-            sourceId,
-            accLine,
-            offsetLines[0],
-            'ACCOUNT',
-            exchangeRateContext,
-          ),
-        );
-      }
-
-      if (accountLinesLength === 1 && offsetLinesLength > 1) {
-        const withoutSettlementOffsetLines = filterCashSettlementLines(
-          offsetLines,
-          settlementSink,
-          (displayValue) =>
-            this.utilsService.parseDimensionString(displayValue),
-        );
-
-        return withoutSettlementOffsetLines.map((offLine) =>
-          this.buildLine(
-            sourceId,
-            accountLines[0],
-            offLine,
-            'OFFSET',
-            exchangeRateContext,
-          ),
-        );
-      }
-
-      return [
-        this.buildLine(
-          sourceId,
-          undefined,
-          undefined,
-          undefined,
-          exchangeRateContext,
-        ),
-      ];
-    }
+    return buildCashMoreThanTwoLines({
+      sourceId,
+      lines,
+      inbound: this.isInbound(),
+      exchangeRateContext,
+      buildLine: (id, accountLine, offsetLine, amountSource, context) =>
+        this.buildLine(id, accountLine, offsetLine, amountSource, context),
+      parseDimensionString: (displayValue) =>
+        this.utilsService.parseDimensionString(displayValue),
+    });
   }
 
   protected buildLine(
