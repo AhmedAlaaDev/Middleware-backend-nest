@@ -34,6 +34,7 @@ import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
   buildCashInboundInvalidLine,
+  createCashInboundDynamicLine,
   formatCashInboundDescription,
   prepareCashInboundDimensions,
   resolveCashInboundDerivedValues,
@@ -1068,7 +1069,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.fetchExchangeRates(date, currency),
     });
 
-    const dynLine = new CashEntryDynDataModel(dimensions, {
+    const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [sourceId],
       Description: description,
       TransactionText: description,

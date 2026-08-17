@@ -139,3 +139,11 @@ export function buildCashInboundInvalidLine(
 
   return line;
 }
+
+/** Creates the Cash-In dynamic model without altering its payload defaults. */
+export function createCashInboundDynamicLine(
+  dimensions: EntryDimensionsModel,
+  data: Partial<CashEntryDynDataModel>,
+): CashEntryDynDataModel {
+  return new CashEntryDynDataModel(dimensions, data);
+}
