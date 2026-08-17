@@ -2,6 +2,44 @@ import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { isCash22420LedgerDimensionLine } from '@/modules/cash/policies/cash-account.policy';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
+import {
+  CashOutExchangeRateContext,
+  CashOutExchangeRateResolution,
+} from '@/modules/cash/services/cash-out-exchange-rate.service';
+
+export function resolveCashInboundRates(options: {
+  exchangeRateContext?: CashOutExchangeRateContext;
+  transactionDate?: string;
+  currencyCode?: string;
+  resolveReporting: (
+    context: CashOutExchangeRateContext,
+    transactionDate?: string,
+    currencyCode?: string,
+  ) => CashOutExchangeRateResolution;
+  fetchLegacyRates: (
+    transactionDate?: string,
+    currencyCode?: string,
+  ) => { exchangeRate: number; reportingRate: number };
+}): { exchangeRate: number; reportingRate: number } {
+  const reportingResolution = options.exchangeRateContext
+    ? options.resolveReporting(
+        options.exchangeRateContext,
+        options.transactionDate,
+        options.currencyCode,
+      )
+    : undefined;
+  const legacyRates = options.fetchLegacyRates(
+    options.transactionDate,
+    options.currencyCode,
+  );
+
+  return {
+    exchangeRate: legacyRates.exchangeRate,
+    reportingRate: reportingResolution
+      ? reportingResolution.rate
+      : legacyRates.reportingRate,
+  };
+}
 
 export function prepareCashInboundDimensions(options: {
   accountLine?: CashEntryRawDataModel;

@@ -32,8 +32,11 @@ import {
 } from '@/modules/cash/policies/cash-journal.policy';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
-import { buildCashInboundInvalidLine } from '@/modules/cash/services/cash-in-line-building.service';
-import { prepareCashInboundDimensions } from '@/modules/cash/services/cash-in-line-building.service';
+import {
+  buildCashInboundInvalidLine,
+  prepareCashInboundDimensions,
+  resolveCashInboundRates,
+} from '@/modules/cash/services/cash-in-line-building.service';
 import {
   buildCashLine,
   buildCashMoreThanTwoLines,
@@ -1047,20 +1050,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const transactionDate = offsetLine.TRANSDATE || accountLine.TRANSDATE;
 
-    const officialReportingResolution = exchangeRateContext
-      ? this.cashOutExchangeRateService.resolveReporting(
-          exchangeRateContext,
-          transactionDate,
-          currencyCode,
-        )
-      : undefined;
-
-    const legacyRates = this.fetchExchangeRates(transactionDate, currencyCode);
-
-    const exchangeRate = legacyRates.exchangeRate;
-    const reportingRate = officialReportingResolution
-      ? officialReportingResolution.rate
-      : legacyRates.reportingRate;
+    const { exchangeRate, reportingRate } = resolveCashInboundRates({
+      exchangeRateContext,
+      transactionDate,
+      currencyCode,
+      resolveReporting: (context, date, currency) =>
+        this.cashOutExchangeRateService.resolveReporting(
+          context,
+          date,
+          currency,
+        ),
+      fetchLegacyRates: (date, currency) =>
+        this.fetchExchangeRates(date, currency),
+    });
 
     const markedInvoice = formatCashInboundInvoice(
       accountLine.INVOICE ||
