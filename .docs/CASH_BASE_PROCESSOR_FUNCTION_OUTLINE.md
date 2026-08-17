@@ -78,12 +78,16 @@ processors/
     base-cash-entry.processor.ts
   inbound/
     cash-in-entry.processor.ts
-    cash-in-freight-entry.processor.ts
-    cash-in-trucking-entry.processor.ts
+    freight/
+      cash-in-freight-entry.processor.ts
+    fleet/
+      cash-in-trucking-entry.processor.ts
   outbound/
     cash-out-entry.processor.ts
-    cash-out-freight-entry.processor.ts
-    cash-out-trucking-entry.processor.ts
+    freight/
+      cash-out-freight-entry.processor.ts
+    fleet/
+      cash-out-trucking-entry.processor.ts
 ```
 
 The folders are organizational boundaries only. They do not change processor

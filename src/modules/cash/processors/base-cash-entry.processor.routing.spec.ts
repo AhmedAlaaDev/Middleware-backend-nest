@@ -1,6 +1,6 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/cash-out-freight-entry.processor';
-import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/cash-out-trucking-entry.processor';
+import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
+import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 

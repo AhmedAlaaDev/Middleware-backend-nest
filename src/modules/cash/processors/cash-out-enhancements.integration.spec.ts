@@ -3,8 +3,8 @@ import { join } from 'path';
 
 import { PostCashBatchToDFOHandler } from '@/modules/cash/handlers/post-cash-batch-to-dfo.handler';
 import { CashEntryDynDataModel } from '@/modules/cash/models';
-import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/cash-out-freight-entry.processor';
-import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/cash-out-trucking-entry.processor';
+import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
+import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
 import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { ExcelJsAdapter } from '@/modules/excel/adapters/exceljs.adapter';

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models';
-import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/cash-out-freight-entry.processor';
+import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
