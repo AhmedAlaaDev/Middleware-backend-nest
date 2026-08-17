@@ -32,6 +32,7 @@ import {
 } from '@/modules/cash/policies/cash-journal.policy';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
+import { buildCashLines } from '@/modules/cash/services/cash-line-building.service';
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
@@ -783,50 +784,51 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const dfoLines: CashEntryDynDataModel[] = [];
 
     for (const [sourceId, lines] of invoiceMap.entries()) {
-      dfoLines.push(...this.buildLines(sourceId, lines, exchangeRateContext));
+      dfoLines.push(
+        ...buildCashLines({
+          sourceId,
+          lines,
+          inbound: this.isInbound(),
+          exchangeRateContext,
+          buildVendorPayment: (id, groupedLines, context) =>
+            this.buildVendorPaymentLines(id, groupedLines, context),
+          buildSourceOutbound: (id, line, context) =>
+            this.buildSourceLineOutbound(id, line, context),
+          buildTwoLines: (id, groupedLines, context) =>
+            this.caseTwoLines(id, groupedLines, context),
+          buildManyLines: (id, groupedLines, context) =>
+            this.caseMoreThanTwoLines(id, groupedLines, context),
+        }),
+      );
     }
 
     return dfoLines;
   }
 
+  /**
+   * Compatibility wrapper for existing subclasses/tests. The active pipeline
+   * calls `buildCashLines` directly; this wrapper is temporary and delegates
+   * without duplicating any routing logic.
+   */
   protected buildLines(
     sourceId: string,
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    if (!this.isInbound()) {
-      const safeTypes = new Set(lines.map((line) => line.SafeType));
-      if (safeTypes.size === 1 && lines[0]?.IsVendorPayment) {
-        return this.buildVendorPaymentLines(
-          sourceId,
-          lines,
-          exchangeRateContext,
-        );
-      }
-
-      // Every non-Vendor-Payment SafeType keeps the original debit/credit
-      // rows. Only Vendor Payment converts a source counterpart into Offset.
-      return lines.map((line) =>
-        this.buildSourceLineOutbound(sourceId, line, exchangeRateContext),
-      );
-    }
-
-    const invoiceLines: CashEntryDynDataModel[] = [];
-    const invoiceLineCount = lines.length;
-
-    switch (invoiceLineCount) {
-      case 2:
-        invoiceLines.push(
-          ...this.caseTwoLines(sourceId, lines, exchangeRateContext),
-        );
-        break;
-      default:
-        invoiceLines.push(
-          ...this.caseMoreThanTwoLines(sourceId, lines, exchangeRateContext),
-        );
-    }
-
-    return invoiceLines;
+    return buildCashLines({
+      sourceId,
+      lines,
+      inbound: this.isInbound(),
+      exchangeRateContext,
+      buildVendorPayment: (id, groupedLines, context) =>
+        this.buildVendorPaymentLines(id, groupedLines, context),
+      buildSourceOutbound: (id, line, context) =>
+        this.buildSourceLineOutbound(id, line, context),
+      buildTwoLines: (id, groupedLines, context) =>
+        this.caseTwoLines(id, groupedLines, context),
+      buildManyLines: (id, groupedLines, context) =>
+        this.caseMoreThanTwoLines(id, groupedLines, context),
+    });
   }
 
   protected buildVendorPaymentLines(

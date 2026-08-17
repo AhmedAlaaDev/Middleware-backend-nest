@@ -58,3 +58,10 @@ Cash-Out bulk bodies are created in
 Any future builder extraction must preserve the enhanced records and the
 serialized request body exactly. See the refactor outline for the required
 characterization-test approach.
+
+## Current high-risk extraction boundary
+
+`cash-line-building.service.ts` now owns grouped-line dispatch only. It
+selects Cash-In two-line/multi-line builders and Cash-Out vendor/source builders
+through callbacks. The actual business implementations remain in the base
+processor until their output characterization tests are complete.
