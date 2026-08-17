@@ -1,5 +1,5 @@
 import { CashEntryRawDataModel } from '../modules/cash/models/cash-entry-raw-data.model';
-import { BaseCashEntryProcessor } from '../modules/cash/processors/base-cash-entry.processor';
+import { BaseCashEntryProcessor } from '../modules/cash/processors/base/base-cash-entry.processor';
 import { Logger } from '@nestjs/common';
 
 class TestProcessor extends BaseCashEntryProcessor {

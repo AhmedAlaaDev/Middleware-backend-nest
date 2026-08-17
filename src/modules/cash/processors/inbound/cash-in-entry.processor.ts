@@ -1,6 +1,6 @@
 import { CommandBus } from '@nestjs/cqrs';
 
-import { BaseCashEntryProcessor } from './base-cash-entry.processor';
+import { BaseCashEntryProcessor } from '../base/base-cash-entry.processor';
 
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
 

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { CashEntryRawDataModel } from '../modules/cash/models/cash-entry-raw-data.model';
-import { BaseCashEntryProcessor } from '../modules/cash/processors/base-cash-entry.processor';
+import { BaseCashEntryProcessor } from '../modules/cash/processors/base/base-cash-entry.processor';
 
 class TestProcessor extends BaseCashEntryProcessor {
   entryProcessorType: any;

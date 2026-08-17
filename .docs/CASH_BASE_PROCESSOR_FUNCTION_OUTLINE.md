@@ -70,6 +70,25 @@ Every method must retain its current input/output behavior, error keys, error me
 
 ## Cash-In/Cash-Out processor boundaries
 
+The processor source files are organized as follows:
+
+```text
+processors/
+  base/
+    base-cash-entry.processor.ts
+  inbound/
+    cash-in-entry.processor.ts
+    cash-in-freight-entry.processor.ts
+    cash-in-trucking-entry.processor.ts
+  outbound/
+    cash-out-entry.processor.ts
+    cash-out-freight-entry.processor.ts
+    cash-out-trucking-entry.processor.ts
+```
+
+The folders are organizational boundaries only. They do not change processor
+registration names, factory selection, endpoint contracts, or business rules.
+
 The first direction-separation step introduces two intermediate classes:
 
 - `CashInEntryProcessor`: owns only the invariant `isInbound() === true`.
