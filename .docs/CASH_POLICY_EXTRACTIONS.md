@@ -104,6 +104,10 @@ and staged in the same policy module for the next delegation step.
 pipeline uses `classifyCashLines` directly. The legacy unique-ID helper remains
 temporarily until its final external-reference check is complete.
 
+The unique-ID compatibility helper has now also been removed. The active
+pipeline uses `assignCashMissingUniqueIds` directly, and repository reference
+search confirms no remaining Cash callers use the old method.
+
 ## `cash-journal.policy.ts`
 
 Path: `src/modules/cash/policies/cash-journal.policy.ts`

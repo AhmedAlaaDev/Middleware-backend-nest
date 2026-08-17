@@ -714,39 +714,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
   }
 
-  /**
-   * When the source file has no UniqueId column (all values are 0),
-   * derive UniqueId from the VOUCHER field so that lines sharing
-   * the same voucher are grouped together by buildUniqueIdMap.
-   */
-  protected assignMissingUniqueIds(lines: CashEntryRawDataModel[]): void {
-    const hasMissing = lines.some((l) => !l.UniqueId);
-    if (!hasMissing) return;
-
-    const voucherToId = new Map<string, number>();
-    let nextId = 1;
-
-    for (const line of lines) {
-      if (line.UniqueId) continue;
-
-      const voucher = (line.VOUCHER || '').trim();
-      if (!voucher) {
-        // No voucher either — assign a unique id per line
-        line.UniqueId = nextId++;
-        continue;
-      }
-
-      if (!voucherToId.has(voucher)) {
-        voucherToId.set(voucher, nextId++);
-      }
-      line.UniqueId = voucherToId.get(voucher)!;
-    }
-
-    this.logger.debug(
-      `[STEP 1] Assigned UniqueIds to ${lines.filter((l) => l.UniqueId > 0).length} lines from ${voucherToId.size} vouchers`,
-    );
-  }
-
   protected resolveCashOutJournalRoute(
     safeType?: string,
   ): CashJournalRoute | undefined {
