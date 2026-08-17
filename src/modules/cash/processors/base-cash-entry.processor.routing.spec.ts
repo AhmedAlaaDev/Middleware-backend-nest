@@ -1,4 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { resolveCashJournalName } from '@/modules/cash/policies/cash-journal.policy';
 import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
 import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
@@ -31,6 +32,15 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     return processor;
   };
 
+  const resolveJournalName = (processor: any, safeType?: string): string =>
+    resolveCashJournalName({
+      inbound: processor.isInbound(),
+      trucking: processor.isTrucking(),
+      safeType,
+      resolveRoute: (routeSafeType) =>
+        processor.resolveCashOutJournalRoute(routeSafeType),
+    });
+
   it.each([
     ['Custody Settlement', 'CustSettle'],
     ['Custody Issue', 'CashOut'],
@@ -42,7 +52,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   ])('formats Safe Type %s with journal %s', (safeType, expectedJournal) => {
     const processor = createProcessor();
 
-    expect((processor as any).getJournalName(safeType)).toBe(expectedJournal);
+    expect(resolveJournalName(processor, safeType)).toBe(expectedJournal);
   });
 
   it.each([
@@ -53,7 +63,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     (target, expectedJournal) => {
       const processor = createProcessor(target);
 
-      expect((processor as any).getJournalName('Vendor Payment')).toBe(
+      expect(resolveJournalName(processor, 'Vendor Payment')).toBe(
         expectedJournal,
       );
     },
