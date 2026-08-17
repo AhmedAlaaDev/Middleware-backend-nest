@@ -113,6 +113,9 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
+  // Always 'No' for cash journals. Omitting this lets FO journal-name
+  // auto-WHT call TaxWithhold::construct on Bank/Ledger/RCash lines.
+  IsWithholdingTaxCalculate: string;
   MarkedLines?: TSLedgerJournalMarkedLine[];
   offsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';

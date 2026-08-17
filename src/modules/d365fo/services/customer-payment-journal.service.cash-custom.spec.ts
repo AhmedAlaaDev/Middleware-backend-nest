@@ -803,7 +803,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
     expect(postedLine).not.toHaveProperty('Voucher');
-    expect(postedLine).not.toHaveProperty('IsWithholdingTaxCalculate');
+    expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
     expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
@@ -1384,6 +1384,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       FinTagStr: 'financial-tags',
       ISPREPAYMENT: 'No',
       ITEMWITHHOLDINGTAXGROUP: '',
+      IsWithholdingTaxCalculate: 'No',
       offsetAccountDisplayValue: 'PSD EG',
       OffsetAccountTypeStr: '',
       OffsetCompany: 'm-p',
@@ -1503,7 +1504,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
     expect(postedLine).not.toHaveProperty('Voucher');
-    expect(postedLine).not.toHaveProperty('IsWithholdingTaxCalculate');
+    expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
     expect(postedLine).not.toHaveProperty('ISWITHHOLDINGTAXCALCULATE');
   });
 

@@ -1282,12 +1282,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
       // Every non-Vendor-Payment SafeType keeps the original debit/credit
       // rows. Only Vendor Payment converts a source counterpart into Offset.
-      // Associate 223304 withholding rows so the primary vendor MarkedLines
-      // entry sets HasWithHoldingLine while the ledger row remains separate.
+      // 223304 must still become Vendor→Ledger companions: posting Ledger
+      // 223304 as a main account on an AP payment journal makes FO call
+      // TaxWithhold::construct(Ledger) and fail.
       const withholdingLines = lines.filter((line) =>
         this.isWithholdingLedgerLine(line),
       );
-      return lines.map((line) =>
+      const preservedLines = lines.filter(
+        (line) => !this.isWithholdingLedgerLine(line),
+      );
+      const built = preservedLines.map((line) =>
         this.buildSourceLineOutbound(
           sourceId,
           line,
@@ -1297,6 +1301,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             : undefined,
         ),
       );
+      built.push(
+        ...this.buildCashOutWithholdingCompanions(
+          sourceId,
+          lines,
+          withholdingLines,
+          exchangeRateContext,
+        ),
+      );
+      return built;
     }
 
     const specialCase = this.cashInCustomerFxResults.get(sourceId);
@@ -1830,6 +1843,62 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       .filter(Boolean);
     if (parts.length <= 1) return '';
     return `|${parts.slice(1).join('|')}|`;
+  }
+
+  /**
+   * Cash-Out AP journals cannot insert Ledger 223304 as the main account.
+   * FO then calls TaxWithhold::construct with Ledger and fails with
+   * "Function TaxWithhold::construct has been incorrectly called."
+   * Emit the same Vendor→223304 companion used by Vendor Payment instead.
+   */
+  private buildCashOutWithholdingCompanions(
+    sourceId: string,
+    groupLines: CashEntryRawDataModel[],
+    withholdingLines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    if (withholdingLines.length === 0) return [];
+
+    const vendorLines = groupLines.filter((line) => line.IsVendor);
+    const companions: CashEntryDynDataModel[] = [];
+    const claimed = new Set<CashEntryRawDataModel>();
+
+    for (const withholdingLine of withholdingLines) {
+      const remaining = withholdingLines.filter((line) => !claimed.has(line));
+      const vendorLine =
+        vendorLines.find(
+          (vendor) =>
+            this.findWithholdingLine(vendor, remaining) === withholdingLine,
+        ) ||
+        vendorLines.find(
+          (vendor) =>
+            Boolean(this.sanitizeInvoiceOutbound(withholdingLine.INVOICE)) &&
+            this.sanitizeInvoiceOutbound(vendor.INVOICE) ===
+              this.sanitizeInvoiceOutbound(withholdingLine.INVOICE),
+        ) ||
+        (vendorLines.length === 1 ? vendorLines[0] : undefined);
+
+      if (!vendorLine) {
+        this.logger.warn(
+          `Cash-Out UniqueId=${sourceId}: withholding line ${withholdingLine.LINENUMBER} account=${withholdingLine.ACCOUNTDISPLAYVALUE} has no Vendor counterpart; skipping Ledger 223304 main-account insert to avoid TaxWithhold::construct(Ledger).`,
+        );
+        continue;
+      }
+
+      claimed.add(withholdingLine);
+      companions.push(
+        this.buildLineOutbound(
+          sourceId,
+          vendorLine,
+          withholdingLine,
+          'OFFSET',
+          exchangeRateContext,
+          [{ vendorLine, withholdingLine }],
+        ),
+      );
+    }
+
+    return companions;
   }
 
   private findWithholdingLine(
@@ -2625,16 +2694,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Companion 223304 FO lines still need withholding flags even with no marks.
       suppressSettlement;
 
+    const isCustodyVendor =
+      accountLine.IsCustodyVendor ||
+      String(accountLine.VendorGroup ?? '').trim().toLowerCase() === 'custody';
     const rawInvoice =
       primarySettlement.vendorLine.MARKEDINVOICE ||
       offsetLine.MARKEDINVOICE ||
       primarySettlement.vendorLine.INVOICE ||
-      offsetLine.INVOICE ||
-      primarySettlement.vendorLine.DOCUMENT ||
-      offsetLine.DOCUMENT;
-    const sanitizedInvoice = suppressSettlement
-      ? ''
-      : this.sanitizeInvoiceOutbound(rawInvoice);
+      offsetLine.INVOICE;
+    const sanitizedInvoice =
+      suppressSettlement || isCustodyVendor
+        ? ''
+        : this.sanitizeInvoiceOutbound(rawInvoice);
 
     // Intentionally non-settling companion lines keep the payment description
     // without a "- unmarked" suffix.
@@ -2659,10 +2730,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
     }
 
+    const isWhtOffset = this.isWithholdingLedgerLine(offsetLine);
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
     const itemSalesTaxGroup =
       offsetLine.ITEMSALESTAXGROUP?.trim()?.toLowerCase() || '';
-    const isTaxable = salesTaxGroup === 'taxable' && !!itemSalesTaxGroup;
+    const isTaxable =
+      !isWhtOffset && salesTaxGroup === 'taxable' && !!itemSalesTaxGroup;
 
     const dynLine = new CashEntryDynDataModel(dimensions, {
       SourceIds: [sourceId],
@@ -2717,9 +2790,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ReportingCurrencyExchRate: reportingRate,
       DefaultDimensionDisplayValue: dimensionStr,
       OffsetDefaultDimensionDisplayValue: dimensionStr,
-      SalesTaxGroup: isTaxable ? 'Taxable' : 'Non-Taxabl',
-      ItemSalesTaxGroup: itemSalesTaxGroup,
-      IsWithholdingCalculationEnabled: isWithholding ? 'Yes' : 'No',
+      SalesTaxGroup: isWhtOffset ? '' : isTaxable ? 'Taxable' : 'Non-Taxabl',
+      ItemSalesTaxGroup: isWhtOffset ? '' : itemSalesTaxGroup,
+      // Cash-Out posts 223304 as an explicit journal line. Never ask FO to
+      // auto-calculate withholding (TaxWithhold::construct).
+      IsWithholdingCalculationEnabled: 'No',
       ItemWithholdingTaxGroupCode: '',
       OffsetCompany: this.company,
       PostingProfile: this.resolvePostingProfileForAccount(
@@ -2749,7 +2824,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: accountLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: accountLine.SafeType,
-      SettlementTargetType: accountLine.IsCustodyVendor
+      SettlementTargetType: isCustodyVendor
         ? 'CustodyLedger'
         : 'VendorInvoice',
     });
@@ -2942,10 +3017,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : '',
       SalesTaxGroup: sourceLine.SALESTAXGROUP,
       ItemSalesTaxGroup: sourceLine.ITEMSALESTAXGROUP,
-      IsWithholdingCalculationEnabled:
-        (isCustodySettlement || isVendorPayment) && sourceHasWithholding
-          ? 'Yes'
-          : 'No',
+      // Cash-Out posts withholding as a Vendor→223304 companion, not via FO
+      // TaxWithhold::construct. Keep this No on every source-preserving row.
+      IsWithholdingCalculationEnabled: 'No',
       ItemWithholdingTaxGroupCode:
         sourceLine.ITEMWITHHOLDINGTAXGROUPCODE ?? '',
       OffsetCompany:

@@ -938,20 +938,26 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(dfoLines.map((line: any) => line.AccountDisplayValue)).toEqual([
         'VEND-001',
         'BANK-001',
-        '223304-01',
+        'VEND-001',
       ]);
-      expect(
-        dfoLines.every((line: any) => !line.OffsetAccountDisplayValue),
-      ).toBe(true);
+      expect(dfoLines[0].OffsetAccountDisplayValue).toBeFalsy();
+      expect(dfoLines[1].OffsetAccountDisplayValue).toBeFalsy();
+      expect(String(dfoLines[2].OffsetAccountDisplayValue)).toContain('223304');
+      expect(dfoLines[2].OffsetAccountType).toBe('Ledger');
+      expect(dfoLines[2].IsWithholdingCalculationEnabled).toBe('No');
       expect(dfoLines[0].MarkedLines).toEqual([
         expect.objectContaining({
           InvoiceNumber: 'INV-CS-WH',
           HasWithHoldingLine: true,
         }),
       ]);
-      expect(
-        dfoLines.slice(1).every((line: any) => line.MarkedLines.length === 0),
-      ).toBe(true);
+      expect(dfoLines[2].MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-CS-WH',
+          HasWithHoldingLine: true,
+        }),
+      ]);
+      expect(dfoLines[1].MarkedLines).toEqual([]);
       expect(dfoLines[0].SettlementTargetType).toBe('VendorInvoice');
       expect(dfoLines[0].Description).not.toContain('Unmarked');
       expect(dfoLines[0].TransactionText).not.toContain('Unmarked');

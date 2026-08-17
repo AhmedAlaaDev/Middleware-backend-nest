@@ -351,12 +351,18 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
   ): D365FOCustomerPaymentJournalLineRequest[] {
+    // Retry posts already-formatted Mongo lines. Convert leftover Ledger
+    // 223304 main accounts here so FO never sees TaxWithhold::construct(Ledger).
+    const mappedSourceLines =
+      cashDirection === 'out'
+        ? this.rewriteCashOutLedgerWithholdingLines(lines)
+        : lines;
     const withholdingGroupKeys = new Set<string>();
     const primaryMarkedLinesByGroup = new Map<
       string,
       NonNullable<CashEntryDynDataModel['MarkedLines']>
     >();
-    for (const record of lines) {
+    for (const record of mappedSourceLines) {
       const data = record.data;
       const accountMain = String(data.AccountDisplayValue ?? '')
         .trim()
@@ -418,7 +424,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
     }
 
-    return lines.map((lineRecord, groupLineIndex) => {
+    return mappedSourceLines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
       const accountDisplayValue = line.AccountDisplayValue ?? '';
@@ -642,8 +648,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         FinTagStr: this.stripBidiMarks(line.FinTagDisplayValue ?? ''),
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: '',
-        IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
-        ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
+        // Cash-Out never uses FO auto-WHT. IsWithholdingTaxCalculate=Yes on a
+        // Bank/Ledger/RCash line (or a Vendor line with those offsets) makes
+        // FO call TaxWithhold::construct with a non-Vend/Cust module.
+        IsWithholdingTaxCalculate: 'No',
+        ISWITHHOLDINGTAXCALCULATE: 'No',
 
         // Main-account-only Cash Out lines keep offset blank. For classic AP
         // Vendor Payment (with an offset), FO still accepts an empty
@@ -754,6 +763,141 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         HasWithHoldingLine: input.hasWithholdingLine,
       },
     ];
+  }
+
+  /**
+   * Stored cash-out batches still contain Ledger 223304 as a main account.
+   * addLedgerJournalTransVendPaym then calls TaxWithhold::construct(Ledger).
+   * Rewrite those rows to the same Vendor→223304 companion used at format time.
+   */
+  private rewriteCashOutLedgerWithholdingLines(
+    lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
+  ): IDataEnhancedRecord<CashEntryDynDataModel>[] {
+    const rewritten: IDataEnhancedRecord<CashEntryDynDataModel>[] = [];
+
+    for (const record of lines) {
+      const data = record.data;
+      if (!this.isCashOutLedgerWithholdingMainAccount(data)) {
+        rewritten.push(record);
+        continue;
+      }
+
+      const withholdingAccount = String(data.AccountDisplayValue ?? '').trim();
+      const withholdingDimensions =
+        data.DefaultDimensionsForAccountDisplayValue ||
+        data.DefaultDimensionDisplayValue ||
+        '';
+      const groupKey = this.cashOutPaymentGroupKey(data);
+      const vendors = lines
+        .map((line) => line.data)
+        .filter(
+          (candidate) =>
+            candidate !== data &&
+            this.isCashOutVendorAccount(candidate) &&
+            !this.isCashOutLedgerWithholdingMainAccount(candidate) &&
+            (!groupKey || this.cashOutPaymentGroupKey(candidate) === groupKey),
+        );
+      const vendor =
+        vendors.find((candidate) => {
+          const group = String(candidate.VendorGroup ?? '')
+            .trim()
+            .toLowerCase();
+          return (
+            group !== 'custody' &&
+            candidate.SettlementTargetType !== 'CustodyLedger'
+          );
+        }) ||
+        vendors.find((candidate) =>
+          Boolean(
+            String(candidate.MarkedInvoice || candidate.Invoice || '').trim(),
+          ),
+        ) ||
+        vendors[0];
+
+      if (!vendor) {
+        this.logger.warn(
+          `Cash-Out PaymentId=${groupKey || '?'}: skipping Ledger 223304 main-account line ${withholdingAccount} because there is no Vendor counterpart (TaxWithhold::construct(Ledger)).`,
+        );
+        continue;
+      }
+
+      const credit = Number(data.CreditAmount ?? 0);
+      const debit = Number(data.DebitAmount ?? 0);
+      const amount = credit > 0 ? credit : debit;
+
+      data.AccountType = vendor.AccountType;
+      data.AccountDisplayValue = vendor.AccountDisplayValue;
+      data.OffsetAccountType = 'Ledger';
+      data.OffsetAccountDisplayValue = withholdingAccount;
+      data.DebitAmount = amount;
+      data.CreditAmount = 0;
+      data.DefaultDimensionsForAccountDisplayValue =
+        vendor.DefaultDimensionsForAccountDisplayValue ||
+        vendor.DefaultDimensionDisplayValue ||
+        data.DefaultDimensionsForAccountDisplayValue;
+      data.DefaultDimensionsForOffsetAccountDisplayValue =
+        withholdingDimensions ||
+        vendor.DefaultDimensionsForOffsetAccountDisplayValue;
+      data.OffsetDefaultDimensionDisplayValue =
+        withholdingDimensions || vendor.OffsetDefaultDimensionDisplayValue;
+      data.VendorGroup = vendor.VendorGroup || data.VendorGroup;
+      data.PostingProfile = vendor.PostingProfile || data.PostingProfile;
+      data.FinTagDisplayValue =
+        vendor.FinTagDisplayValue || data.FinTagDisplayValue;
+      data.OffsetFinTagDisplayValue =
+        data.OffsetFinTagDisplayValue ||
+        data.FinTagDisplayValue ||
+        vendor.OffsetFinTagDisplayValue;
+      data.IsWithholdingCalculationEnabled = 'No';
+      data.ItemWithholdingTaxGroupCode = '';
+      data.SalesTaxGroup = '';
+      data.ItemSalesTaxGroup = '';
+      if (vendor.SettlementTargetType) {
+        data.SettlementTargetType = vendor.SettlementTargetType;
+      }
+      if (!data.Document) {
+        data.Document = vendor.Document;
+      }
+      if (!data.MarkedLines?.length) {
+        data.MarkedLines = [];
+      }
+
+      rewritten.push(record);
+    }
+
+    return rewritten;
+  }
+
+  private cashOutPaymentGroupKey(data: CashEntryDynDataModel): string {
+    return String(data.PaymentId || data.SourceIds?.[0] || '').trim();
+  }
+
+  private isCashOutVendorAccount(data: CashEntryDynDataModel): boolean {
+    const accountType = String(data.AccountType ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+    return accountType === 'vend' || accountType === 'vendor';
+  }
+
+  private isCashOutLedgerWithholdingMainAccount(
+    data: CashEntryDynDataModel,
+  ): boolean {
+    if (this.isCashOutVendorAccount(data)) return false;
+    const accountType = String(data.AccountType ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+    if (
+      accountType &&
+      accountType !== 'ledger' &&
+      accountType !== 'led'
+    ) {
+      return false;
+    }
+    const main = String(data.AccountDisplayValue ?? '')
+      .trim()
+      .split('|')[0]
+      .trim();
+    return main.startsWith('223304');
   }
 
   private isMainAccountOnlyLine(

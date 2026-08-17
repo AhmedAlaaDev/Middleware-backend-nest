@@ -156,8 +156,8 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
         true,
       );
       expect(
-        vendorPayments.some(
-          (line) => line.IsWithholdingCalculationEnabled === 'Yes',
+        vendorPayments.every(
+          (line) => line.IsWithholdingCalculationEnabled === 'No',
         ),
       ).toBe(true);
       expect(
@@ -192,7 +192,7 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
         DebitAmount: 104299,
         CreditAmount: 0,
         OffsetAccountType: 'Bank',
-        IsWithholdingCalculationEnabled: 'Yes',
+        IsWithholdingCalculationEnabled: 'No',
       });
       expect(withholdingOffsetLine).toMatchObject({
         DebitAmount: 923,

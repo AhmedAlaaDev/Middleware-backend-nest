@@ -3492,6 +3492,7 @@ export class CustomerPaymentJournalService {
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
       ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),
+      IsWithholdingTaxCalculate: 'No',
       offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
