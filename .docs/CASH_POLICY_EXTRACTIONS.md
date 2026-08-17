@@ -51,17 +51,17 @@ This file owns the cash custom API's dimension serialization and offset-account 
 
 The following methods remain in `BaseCashEntryProcessor` as compatibility wrappers:
 
-- `is22420LedgerDimensionLine`
-- `toCashDefaultDimensionDisplayValue`
-- `resolveOffsetAccountDisplayValue`
-- `dimensionPartAsString`
-- `isNotesReceivableLine`
-- `isSettlementLine`
+- `replaceFinTagShippingLineWithVendorName` (requires the base processor's vendor lookup)
 
 The `sanitizeInvoiceOutbound` and `firstFinancialTag` wrappers have now been
 removed from `BaseCashEntryProcessor`; all internal callers use the extracted
 policy functions directly. This is the model for removing the remaining
 compatibility wrappers in later phases.
+
+The account-classification and dimension-serialization wrappers have now also
+been removed. Their callers use the policy functions directly, while the
+existing `filter22420LedgerDimensions` method remains as a small adapter to
+the shared dimension utility.
 
 ## `cash-invoice.policy.ts`
 

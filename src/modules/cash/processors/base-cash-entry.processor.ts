@@ -11,7 +11,6 @@ import {
   sanitizeCashOutboundInvoice,
 } from '@/modules/cash/policies/cash-account.policy';
 import {
-  cashDimensionPartAsString,
   resolveCashOffsetAccountDisplayValue,
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
@@ -1208,9 +1207,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dimensions.mainAccount = '122204';
     }
 
-    const isNotesReceivable = this.isNotesReceivableLine(
+    const isNotesReceivable = isCashNotesReceivableLine(
       offsetLine,
-      dimensions,
+      dimensions.mainAccount,
     );
 
     const formattedDate = this.utilsService.formatMonthYear(
@@ -1223,9 +1222,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
       : offsetLine.DESCRIPTION || '';
 
-    const dimensionStr = this.toCashDefaultDimensionDisplayValue(
+    const dimensionStr = toCashDefaultDimensionDisplayValue(
       dimensions,
-      !this.is22420LedgerDimensionLine(accountLine, offsetLine),
+      !isCash22420LedgerDimensionLine(accountLine, offsetLine),
     );
 
     const currencyCode =
@@ -1269,7 +1268,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       JournalName: this.getJournalName(),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
+      OffsetAccountDisplayValue: resolveCashOffsetAccountDisplayValue(
         offsetLine,
         dimensions,
         isNotesReceivable,
@@ -1384,9 +1383,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.MAIN_ACCOUNTS_NP_MAP[Number(dimensions.mainAccount)].toString();
     }
 
-    const isNotesReceivable = this.isNotesReceivableLine(
+    const isNotesReceivable = isCashNotesReceivableLine(
       offsetLine,
-      dimensions,
+      dimensions.mainAccount,
     );
 
     const formattedDate = this.utilsService.formatMonthYear(
@@ -1398,9 +1397,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const paymentReference =
       offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
 
-    const dimensionStr = this.toCashDefaultDimensionDisplayValue(
+    const dimensionStr = toCashDefaultDimensionDisplayValue(
       dimensions,
-      !this.is22420LedgerDimensionLine(accountLine, offsetLine),
+      !isCash22420LedgerDimensionLine(accountLine, offsetLine),
     );
 
     // Currency, date, amount, and official rate must all come from the same
@@ -1508,7 +1507,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       VoucherType: accountLine.VoucherType,
       // Cash-Out: AccountNum = vendor; OffsetAccountDisplayValue = Bank/RCash account id or ledger account.
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: this.resolveOffsetAccountDisplayValue(
+      OffsetAccountDisplayValue: resolveCashOffsetAccountDisplayValue(
         offsetLine,
         dimensions,
         isNotesReceivable,
@@ -1595,7 +1594,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
     let dimensions = this.utilsService.parseDimensionString(dimensionString);
-    const is22420LedgerLine = this.is22420LedgerDimensionLine(
+    const is22420LedgerLine = isCash22420LedgerDimensionLine(
       sourceLine,
       undefined,
     );
@@ -1686,12 +1685,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
-      DefaultDimensionDisplayValue: this.toCashDefaultDimensionDisplayValue(
+      DefaultDimensionDisplayValue: toCashDefaultDimensionDisplayValue(
         dimensions,
         !is22420LedgerLine,
       ),
       OffsetDefaultDimensionDisplayValue: offsetDimensionString
-        ? this.toCashDefaultDimensionDisplayValue(offsetDimensions, true)
+        ? toCashDefaultDimensionDisplayValue(offsetDimensions, true)
         : '',
       SalesTaxGroup: sourceLine.SALESTAXGROUP,
       ItemSalesTaxGroup: sourceLine.ITEMSALESTAXGROUP,
@@ -1806,16 +1805,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     accountLine?: CashEntryRawDataModel,
     offsetLine?: CashEntryRawDataModel,
   ): EntryDimensionsModel {
-    return this.is22420LedgerDimensionLine(accountLine, offsetLine)
+    return isCash22420LedgerDimensionLine(accountLine, offsetLine)
       ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
       : dimensions;
-  }
-
-  protected is22420LedgerDimensionLine(
-    accountLine?: CashEntryRawDataModel,
-    offsetLine?: CashEntryRawDataModel,
-  ): boolean {
-    return isCash22420LedgerDimensionLine(accountLine, offsetLine);
   }
 
   /**
@@ -1836,55 +1828,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Cash API default-dimension display value: no mainAccount, fixed segment order.
    * Override lives on cash base only (not EntryProcessorBase).
    */
-  protected toCashDefaultDimensionDisplayValue(
-    dimensions: EntryDimensionsModel | null | undefined,
-    defaultFreightType = true,
-  ): string {
-    return toCashDefaultDimensionDisplayValue(dimensions, defaultFreightType);
-  }
-
   /**
    * Bank / RCash (Petty cash) → FO account id from source ACCOUNTDISPLAYVALUE
    * (e.g. "PSD EG", "AAIB-EG-CA"), never the dimension string.
    * Ledger → full ledger account display value.
    * Notes-receivable forced to Bank → bankAccount dim segment when present.
    */
-  protected resolveOffsetAccountDisplayValue(
-    offsetLine: CashEntryRawDataModel,
-    dimensions: EntryDimensionsModel,
-    isNotesReceivable: boolean,
-    dimensionStrFallback: string,
-  ): string {
-    return resolveCashOffsetAccountDisplayValue(
-      offsetLine,
-      dimensions,
-      isNotesReceivable,
-      dimensionStrFallback,
-    );
-  }
-
-  private dimensionPartAsString(part: unknown): string {
-    return cashDimensionPartAsString(part);
-  }
-
-  protected isNotesReceivableLine(
-    line: CashEntryRawDataModel,
-    dimensions: EntryDimensionsModel,
-  ): boolean {
-    const mainAccount = dimensions.mainAccount;
-
-    return isCashNotesReceivableLine(line, mainAccount);
-  }
-
-  protected isSettlementLine(
-    line: CashEntryRawDataModel,
-    dimensions: EntryDimensionsModel,
-  ): boolean {
-    const mainAccount = dimensions.mainAccount;
-
-    return isCashSettlementLine(line, mainAccount);
-  }
-
   protected filterOutSettlementLines(
     lines: CashEntryRawDataModel[],
     settlementSink: CashEntryRawDataModel[],
@@ -1894,7 +1843,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const dimensions = this.utilsService.parseDimensionString(
         line.ACCOUNTDISPLAYVALUE,
       );
-      if (this.isSettlementLine(line, dimensions)) {
+      if (isCashSettlementLine(line, dimensions.mainAccount)) {
         settlementSink.push(line);
       } else {
         withoutSettlement.push(line);
