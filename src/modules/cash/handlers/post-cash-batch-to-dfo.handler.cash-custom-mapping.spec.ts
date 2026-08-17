@@ -1274,7 +1274,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toContain(
       'Unmarked',
     );
-    expect(result[1].customLineApiBody.MarkedLines).toBeUndefined();
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: 'INV-1',
+        HasWithHoldingLine: true,
+      }),
+    ]);
   });
 
   it('maps Custody Settlement standard-vendor MarkedLines with InvoiceNumber only', () => {
@@ -1465,5 +1470,147 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.PAYMENTNOTES).toBe(
       'Vendor Payment - Freight Jan 2026 - Unmarked',
     );
+  });
+
+  it('maps Custody Settlement lines with offset and sends MarkedLines on both lines and withholding', () => {
+    const handler = buildHandler();
+    const routing = new CashJournalRoutingService();
+    const route = routing.resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            PaymentId: 'CS-GROUP-1',
+            SourceIds: ['CS-GROUP-1'],
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Su-000072',
+            OffsetAccountType: 'Bank',
+            OffsetAccountDisplayValue: 'BANK-001',
+            DebitAmount: 14000,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-15',
+            VoucherType: 'Cash',
+            SafeType: 'Custody Settlement',
+            VendorGroup: 'Trade',
+            SettlementTargetType: 'VendorInvoice',
+            Invoice: 'INV-CS-001',
+            MarkedInvoice: 'INV-CS-001',
+            FinTagDisplayValue: 'OP-CS-1|TAG',
+            OffsetFinTagDisplayValue: 'OP-CS-1|TAG',
+            Description: 'Custody Settlement - Freight Jan 2026',
+            TransactionText: 'Custody Settlement - Freight Jan 2026',
+            OffsetTransactionText: 'Custody Settlement - Freight Jan 2026',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-CS-001',
+                OperationNumber: 'OP-CS-1',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+            IsWithholdingCalculationEnabled: 'Yes',
+          },
+        },
+        {
+          data: {
+            PaymentId: 'CS-GROUP-1',
+            SourceIds: ['CS-GROUP-1'],
+            AccountType: 'Vend',
+            AccountDisplayValue: '4080',
+            OffsetAccountType: 'Petty Cash',
+            OffsetAccountDisplayValue: 'Airport EG',
+            DebitAmount: 0,
+            CreditAmount: 10000,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-15',
+            VoucherType: 'Cash',
+            SafeType: 'Custody Settlement',
+            VendorGroup: 'Custody',
+            SettlementTargetType: 'CustodyLedger',
+            Document: '16046',
+            FinTagDisplayValue: 'OP-CS-1|TAG',
+            OffsetFinTagDisplayValue: 'OP-CS-1|TAG',
+            Description: 'Custody Settlement - Freight Jan 2026',
+            TransactionText: 'Custody Settlement - Freight Jan 2026',
+            OffsetTransactionText: 'Custody Settlement - Freight Jan 2026',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'OP-CS-1',
+                DocumentNumber: '16046',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          data: {
+            PaymentId: 'CS-GROUP-1',
+            SourceIds: ['CS-GROUP-1'],
+            AccountType: 'Ledger',
+            AccountDisplayValue: '223304|1101|011|001',
+            DebitAmount: 0,
+            CreditAmount: 50,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-15',
+            VoucherType: 'Cash',
+            SafeType: 'Custody Settlement',
+            Description: 'Custody Settlement - Freight Jan 2026',
+            TransactionText: 'Custody Settlement - Freight Jan 2026',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    expect(result).toHaveLength(3);
+
+    // Line 1: Trade vendor with offset
+    const line1 = result[0].customLineApiBody;
+    expect(line1.AccountNum).toBe('Su-000072');
+    expect(line1.accountTypeStr).toBe('Vendor');
+    expect(line1.offsetAccountDisplayValue).toBe('BANK-001');
+    expect(line1.OffsetAccountTypeStr).toBe('Bank');
+    expect(line1.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-CS-001',
+        OperationNumber: 'OP-CS-1',
+        DocumentNumber: '',
+        HasWithHoldingLine: true,
+      },
+    ]);
+
+    // Line 2: Custody vendor with offset
+    const line2 = result[1].customLineApiBody;
+    expect(line2.AccountNum).toBe('4080');
+    expect(line2.accountTypeStr).toBe('Vendor');
+    expect(line2.offsetAccountDisplayValue).toBe('Airport EG');
+    expect(line2.OffsetAccountTypeStr).toBe('RCash');
+    expect(line2.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'OP-CS-1',
+        DocumentNumber: '16046',
+        HasWithHoldingLine: false,
+      },
+    ]);
+
+    // Line 3: Withholding ledger line in Custody Settlement
+    const line3 = result[2].customLineApiBody;
+    expect(line3.AccountNum).toBe('223304|1101|011|001');
+    expect(line3.accountTypeStr).toBe('Ledger');
+    expect(line3.MarkedLines).toEqual([
+      expect.objectContaining({
+        InvoiceNumber: 'INV-CS-001',
+        HasWithHoldingLine: true,
+      }),
+    ]);
   });
 });

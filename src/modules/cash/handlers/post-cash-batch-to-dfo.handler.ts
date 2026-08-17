@@ -373,8 +373,48 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         accountMain.startsWith('223304') || offsetMain.startsWith('223304');
       if (groupKey && isWithholdingLine) {
         withholdingGroupKeys.add(groupKey);
-      } else if (groupKey && data.MarkedLines?.length) {
-        primaryMarkedLinesByGroup.set(groupKey, data.MarkedLines);
+      } else if (groupKey) {
+        const existing = primaryMarkedLinesByGroup.get(groupKey);
+        const hasExistingWithholding = existing?.some(
+          (m) => m.HasWithHoldingLine,
+        );
+        if (data.MarkedLines?.length) {
+          if (
+            !hasExistingWithholding ||
+            data.MarkedLines.some((m) => m.HasWithHoldingLine)
+          ) {
+            primaryMarkedLinesByGroup.set(groupKey, data.MarkedLines);
+          }
+        } else if (
+          data.MarkedInvoice ||
+          data.Invoice ||
+          data.Document ||
+          data.FinTagDisplayValue
+        ) {
+          const vendorGroup = String(data.VendorGroup ?? '').trim();
+          const isCustody =
+            vendorGroup.toLowerCase() === 'custody' ||
+            data.SettlementTargetType === 'CustodyLedger';
+          const op = this.stripBidiMarks(
+            String(data.FinTagDisplayValue ?? '').split('|')[0],
+          ).trim();
+          const doc = String(data.Document ?? '').trim();
+          const inv = isCustody
+            ? ''
+            : String(data.MarkedInvoice || data.Invoice || '').trim();
+          if (inv || doc || op) {
+            if (!hasExistingWithholding || inv) {
+              primaryMarkedLinesByGroup.set(groupKey, [
+                {
+                  InvoiceNumber: inv,
+                  OperationNumber: op,
+                  DocumentNumber: isCustody ? doc : '',
+                  HasWithHoldingLine: true,
+                },
+              ]);
+            }
+          }
+        }
       }
     }
 
@@ -644,10 +684,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? vendorGroup || (isCustodyVendor ? 'Custody' : '')
           : '';
 
-      if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
-        // Always send MarkedLines for AP vendor cash-out lines (empty array
-        // when the route does not support settlement).
-        customLineApiBody.MarkedLines = markedLines;
+      if (cashDirection === 'out') {
+        // Always send MarkedLines for any cash-out lines with markings
+        // (including Custody Settlement and Withholding lines), and empty
+        // array for AP vendor cash-out lines when unmarked.
+        if (markedLines.length > 0) {
+          customLineApiBody.MarkedLines = markedLines;
+        } else if (accountTypeStr === 'Vendor') {
+          customLineApiBody.MarkedLines = [];
+        }
       } else if (cashDirection === 'in') {
         // Cash-In historically used MARKEDINVOICE only. Keep that field for
         // existing CustPaym behavior, but expose the same structured array

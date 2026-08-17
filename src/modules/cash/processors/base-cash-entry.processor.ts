@@ -2837,9 +2837,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const isCustodySettlement =
       sourceLine.IsCustodySettlement ||
       route?.safeType === 'Custody Settlement';
-    const offsetDimensionString = isCustodySettlement
-      ? ''
-      : sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
+    const offsetDimensionString =
+      sourceLine.OFFSETACCOUNTTYPE === 'Ledger'
         ? sourceLine.OFFSETACCOUNTDISPLAYVALUE
         : sourceLine.OFFSETDEFAULTDIMENSIONDISPLAYVALUE;
     const offsetDimensions = this.omitFleetWorkerDimension(
@@ -2904,15 +2903,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransactionText: transactionText,
       Company: this.company,
       AccountType: sourceLine.ACCOUNTTYPE,
-      // Custody Settlement source rows are standalone in the Cash-Out
-      // processor. Do not carry an uploaded offset onto a line that was not
-      // consumed by a valid pairing rule.
-      OffsetAccountType: isCustodySettlement
-        ? ''
-        : sourceLine.OFFSETACCOUNTTYPE,
+      OffsetAccountType: sourceLine.OFFSETACCOUNTTYPE,
       PaymentMethodName: sourceLine.PAYMENTMETHOD,
       PaymentReference: sourceLine.PAYMENTREFERENCE,
-      OffsetTransactionText: isCustodySettlement ? '' : sourceLine.OFFSETTEXT,
+      OffsetTransactionText: sourceLine.OFFSETTEXT,
       JournalName:
         route?.journalName ?? this.getJournalName(sourceLine.SafeType),
       TransDate: transactionDate,
@@ -2922,20 +2916,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         sourceLine.ACCOUNTTYPE,
         sourceLine.ACCOUNTDISPLAYVALUE,
       ),
-      OffsetAccountDisplayValue: isCustodySettlement
-        ? ''
-        : this.resolveAccountDisplayValueForOutbound(
-            sourceLine.OFFSETACCOUNTTYPE,
-            sourceLine.OFFSETACCOUNTDISPLAYVALUE,
-          ),
+      OffsetAccountDisplayValue: this.resolveAccountDisplayValueForOutbound(
+        sourceLine.OFFSETACCOUNTTYPE,
+        sourceLine.OFFSETACCOUNTDISPLAYVALUE,
+      ),
       FinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
         sourceLine.FINTAGDISPLAYVALUE,
       ),
-      OffsetFinTagDisplayValue: isCustodySettlement
-        ? ''
-        : this.replaceFinTagShippingLineWithVendorName(
-            sourceLine.OFFSETFINTAGDISPLAYVALUE,
-          ),
+      OffsetFinTagDisplayValue: this.replaceFinTagShippingLineWithVendorName(
+        sourceLine.OFFSETFINTAGDISPLAYVALUE,
+      ),
       CreditAmount: sourceLine.CREDITAMOUNT,
       DebitAmount: sourceLine.DEBITAMOUNT,
       CurrencyCode: currencyCode,
@@ -2955,8 +2945,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         (isCustodySettlement || isVendorPayment) && sourceHasWithholding
           ? 'Yes'
           : 'No',
-      ItemWithholdingTaxGroupCode: '',
-      OffsetCompany: isCustodySettlement ? '' : this.company,
+      ItemWithholdingTaxGroupCode:
+        sourceLine.ITEMWITHHOLDINGTAXGROUPCODE ?? '',
+      OffsetCompany:
+        sourceLine.OFFSETACCOUNTTYPE || sourceLine.OFFSETACCOUNTDISPLAYVALUE
+          ? this.company
+          : '',
       PostingProfile: this.resolvePostingProfileForAccount(
         sourceLine.ACCOUNTTYPE,
         sourceLine.POSTINGPROFILE,
