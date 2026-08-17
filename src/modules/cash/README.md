@@ -65,3 +65,15 @@ characterization-test approach.
 selects Cash-In two-line/multi-line builders and Cash-Out vendor/source builders
 through callbacks. The actual business implementations remain in the base
 processor until their output characterization tests are complete.
+
+## Compatibility boundary
+
+`BaseCashEntryProcessor.buildLines` is retained temporarily because legacy
+unit tests and subclasses call the protected method directly. The production
+path uses `buildInvoiceLines`, which delegates invoice iteration to
+`buildCashInvoiceLines` and grouped routing to `buildCashLines`.
+
+The wrapper may be removed only after all in-repository callers are migrated
+to the extracted service or to `buildInvoiceLines`, and the full Cash test
+suite confirms identical enhanced records for Cash-In, Cash-Out, Freight,
+Fleet, vendor payments, withholding, settlement, and exchange-rate cases.
