@@ -55,6 +55,8 @@ The following methods remain in `BaseCashEntryProcessor` as compatibility wrappe
 - `formatInvoiceInbound` and `formatInvoiceOutbound` (the inbound pipeline now
   calls the extracted formatter directly; the wrappers remain temporarily for
   subclass/test compatibility)
+- `applyWithholdingReductions` (temporarily retains only logging and returns
+  the extracted policy statistics)
 
 The `sanitizeInvoiceOutbound` and `firstFinancialTag` wrappers have now been
 removed from `BaseCashEntryProcessor`; all internal callers use the extracted
@@ -65,6 +67,16 @@ The account-classification and dimension-serialization wrappers have now also
 been removed. Their callers use the policy functions directly, while the
 22420 callers retain the shared dimension utility directly at the pipeline
 boundaries.
+
+## `cash-withholding.policy.ts`
+
+Path: `src/modules/cash/policies/cash-withholding.policy.ts`
+
+This file separates withholding classification from pipeline orchestration.
+It preserves the rule that account `223304` is identified by source account
+and that withholding statistics are grouped by voucher without mutating source
+lines. SafeType-specific treatment remains in the processor because it
+controls whether the amount belongs to vendor payment or custody settlement.
 
 ## `cash-invoice.policy.ts`
 

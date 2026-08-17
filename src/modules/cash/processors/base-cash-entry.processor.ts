@@ -20,6 +20,10 @@ import {
   replaceCashShippingLineWithVendorName,
 } from '@/modules/cash/policies/cash-invoice.policy';
 import {
+  analyzeCashWithholding,
+  isCashWithholdingLedgerLine,
+} from '@/modules/cash/policies/cash-withholding.policy';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -195,9 +199,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     let withholdingStats: any = null;
 
     if (!this.isInbound()) {
-      const result = this.applyWithholdingReductions(sortedLines);
-      processedLines = result.lines;
-      withholdingStats = result.stats;
+      withholdingStats = analyzeCashWithholding(sortedLines);
     }
 
     this.logger.debug(
@@ -398,7 +400,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.collectSourceDimensionErrors(line, errors);
 
       const hasWithholding =
-        this.isWithholdingLedgerLine(line) ||
+        isCashWithholdingLedgerLine(line) ||
         String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
           'yes' ||
         Boolean(line.ITEMWITHHOLDINGTAXGROUPCODE);
@@ -427,7 +429,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
       const paymentOffsets = group.filter(
         (line) =>
-          Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
+          Number(line.CREDITAMOUNT) > 0 && !isCashWithholdingLedgerLine(line),
       );
       const invalidDebitLines = group.filter(
         (line) => Number(line.DEBITAMOUNT) > 0 && !line.IsVendor,
@@ -935,14 +937,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     const withholdingLines = lines.filter((line) =>
-      this.isWithholdingLedgerLine(line),
+      isCashWithholdingLedgerLine(line),
     );
     const vendorLines = lines.filter(
       (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
     );
     const offsetLines = lines.filter(
       (line) =>
-        Number(line.CREDITAMOUNT) > 0 && !this.isWithholdingLedgerLine(line),
+        Number(line.CREDITAMOUNT) > 0 && !isCashWithholdingLedgerLine(line),
     );
 
     if (vendorLines.length === 0 || offsetLines.length !== 1) {
@@ -1647,7 +1649,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
     const isCustodySettlement = route?.safeType === 'Custody Settlement';
     const sourceHasWithholding =
-      this.isWithholdingLedgerLine(sourceLine) ||
+      isCashWithholdingLedgerLine(sourceLine) ||
       String(sourceLine.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
       Boolean(sourceLine.ITEMWITHHOLDINGTAXGROUPCODE);
@@ -1845,15 +1847,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       [accountLine.PAYMENTMETHOD, offsetLine.PAYMENTMETHOD]
         .map((value) => value?.trim() ?? '')
         .find(Boolean) ?? ''
-    );
-  }
-
-  protected isWithholdingLedgerLine(line: CashEntryRawDataModel): boolean {
-    return (
-      line.ACCOUNTTYPE === 'Ledger' &&
-      String(line.ACCOUNTDISPLAYVALUE ?? '')
-        .trim()
-        .startsWith('223304')
     );
   }
 
@@ -2059,46 +2052,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       withholdingRemovedAmount: number;
     };
   } {
-    const voucherGroups = new Map<string, CashEntryRawDataModel[]>();
-    for (const line of lines) {
-      const voucher = line.VOUCHER;
-      if (!voucher) continue;
-      if (!voucherGroups.has(voucher)) {
-        voucherGroups.set(voucher, []);
-      }
-      voucherGroups.get(voucher)!.push(line);
-    }
-
-    let withholdingLineCount = 0;
-    let totalWithholdingAmount = 0;
-
-    for (const groupLines of voucherGroups.values()) {
-      const withholdingLines = groupLines.filter((line) =>
-        this.isWithholdingLedgerLine(line),
-      );
-
-      for (const wLine of withholdingLines) {
-        withholdingLineCount++;
-        totalWithholdingAmount += wLine.CREDITAMOUNT || wLine.DEBITAMOUNT;
-      }
-    }
-
-    if (withholdingLineCount > 0) {
+    const stats = analyzeCashWithholding(lines);
+    if (stats.withholdingRemovedCount > 0) {
       this.logger.debug(
-        `[WITHHOLDING] Found ${withholdingLineCount} source lines on 223304 (total amount: ${totalWithholdingAmount}); treatment depends on SafeType.`,
+        `[WITHHOLDING] Found ${stats.withholdingRemovedCount} source lines on 223304 (total amount: ${stats.withholdingRemovedAmount}); treatment depends on SafeType.`,
       );
-      return {
-        lines,
-        stats: {
-          withholdingRemovedCount: withholdingLineCount,
-          withholdingRemovedAmount: totalWithholdingAmount,
-        },
-      };
     }
-
-    return {
-      lines,
-      stats: { withholdingRemovedCount: 0, withholdingRemovedAmount: 0 },
-    };
+    return { lines, stats };
   }
 }
