@@ -109,6 +109,10 @@ This file centralizes journal-name and product-label rules. Cash-In resolves to
 `P-Fleet` fallbacks. The policy receives the existing routing callback so
 SafeType resolution and validation remain in the current routing service.
 
+The batch-policy tests verify voucher-ID assignment, preservation of existing
+IDs, Cash-In custody splitting, and Cash-Out line retention before the legacy
+base helpers are removed.
+
 ## `cash-batch.policy.ts`
 
 Path: `src/modules/cash/policies/cash-batch.policy.ts`
