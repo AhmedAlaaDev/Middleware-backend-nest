@@ -63,8 +63,8 @@ compatibility wrappers in later phases.
 
 The account-classification and dimension-serialization wrappers have now also
 been removed. Their callers use the policy functions directly, while the
-existing `filter22420LedgerDimensions` method remains as a small adapter to
-the shared dimension utility.
+22420 callers retain the shared dimension utility directly at the pipeline
+boundaries.
 
 ## `cash-invoice.policy.ts`
 

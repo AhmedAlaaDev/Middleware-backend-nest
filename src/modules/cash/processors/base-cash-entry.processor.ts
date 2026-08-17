@@ -1183,11 +1183,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
     let dimensions = this.utilsService.parseDimensionString(dimensionString);
-    dimensions = this.filter22420LedgerDimensions(
-      dimensions,
-      accountLine,
-      offsetLine,
-    );
+    dimensions = isCash22420LedgerDimensionLine(accountLine, offsetLine)
+      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
+      : dimensions;
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
@@ -1351,11 +1349,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       this.utilsService.getDimensionSegmentLength(dimensionString);
 
     let dimensions = this.utilsService.parseDimensionString(dimensionString);
-    dimensions = this.filter22420LedgerDimensions(
-      dimensions,
-      accountLine,
-      offsetLine,
-    );
+    dimensions = isCash22420LedgerDimensionLine(accountLine, offsetLine)
+      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
+      : dimensions;
 
     if (!accountLine || !offsetLine) {
       const line = new CashEntryDynDataModel(dimensions, {
@@ -1599,11 +1595,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       sourceLine,
       undefined,
     );
-    dimensions = this.filter22420LedgerDimensions(
-      dimensions,
-      sourceLine,
-      undefined,
-    );
+    dimensions = isCash22420LedgerDimensionLine(sourceLine, undefined)
+      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
+      : dimensions;
 
     if (dimensions.mainAccount === '123510') {
       dimensions.mainAccount = '122204';
@@ -1793,22 +1787,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         dynLine.AddError('ExchangeRate', reportingResolution.message);
       }
     }
-  }
-
-  /**
-   * Applies PBI #2039 to cash journals as well as vendor journals. A Ledger
-   * source row can become either side of the combined cash line, so inspect
-   * both account and offset inputs and treat tag/account as independent OR
-   * triggers.
-   */
-  protected filter22420LedgerDimensions(
-    dimensions: EntryDimensionsModel,
-    accountLine?: CashEntryRawDataModel,
-    offsetLine?: CashEntryRawDataModel,
-  ): EntryDimensionsModel {
-    return isCash22420LedgerDimensionLine(accountLine, offsetLine)
-      ? this.utilsService.filterDimensionsForLedgerTag22420(dimensions)
-      : dimensions;
   }
 
   /**
