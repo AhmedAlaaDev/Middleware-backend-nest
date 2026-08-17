@@ -31,6 +31,10 @@ import {
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
 import {
+  assignCashMissingUniqueIds,
+  classifyCashLines,
+} from '@/modules/cash/policies/cash-batch.policy';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -180,7 +184,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     this.logger.debug(`[STEP 1] Mapping ${rawCount} raw records to models`);
     const rawLines = this.mapToModel(data);
-    this.assignMissingUniqueIds(rawLines);
+    const assignedIds = assignCashMissingUniqueIds(rawLines);
+    if (assignedIds.assignedLineCount > 0) {
+      this.logger.debug(
+        `[STEP 1] Assigned UniqueIds to ${assignedIds.assignedLineCount} lines from ${assignedIds.voucherCount} vouchers`,
+      );
+    }
     this.logger.debug(`[STEP 1] Mapped to ${rawLines.length} lines`);
 
     if (!this.isInbound()) {
@@ -213,7 +222,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       `[STEP 2] Filtering lines from ${processedLines.length} lines${this.isInbound() ? ' (cash-in splits custody)' : ' (cash-out keeps all)'}`,
     );
     const { custodySettlementLines, otherLines, vendorPayment } =
-      this.filterLines(processedLines);
+      classifyCashLines(processedLines, this.isInbound());
     this.logger.debug(
       `[FILTER] Processed ${processedLines.length} lines → ${custodySettlementLines.length} custody settlement, ${vendorPayment.length} vendor payment, ${otherLines.length} remaining lines`,
     );

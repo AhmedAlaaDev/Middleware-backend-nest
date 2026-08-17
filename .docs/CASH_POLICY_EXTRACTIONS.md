@@ -109,6 +109,21 @@ This file centralizes journal-name and product-label rules. Cash-In resolves to
 `P-Fleet` fallbacks. The policy receives the existing routing callback so
 SafeType resolution and validation remain in the current routing service.
 
+## `cash-batch.policy.ts`
+
+Path: `src/modules/cash/policies/cash-batch.policy.ts`
+
+This file separates upload-pipeline grouping rules:
+
+- `assignCashMissingUniqueIds` derives deterministic IDs from vouchers only
+  when source IDs are missing.
+- `classifyCashLines` keeps Cash-Out rows together and separates Cash-In
+  custody-settlement rows while preserving encounter order.
+
+The upload pipeline now calls these policy functions directly. The old base
+methods remain temporarily as compatibility helpers for existing subclasses
+and scripts; they are not part of the active pipeline.
+
 Keeping these wrappers preserves subclass access and avoids changing the processor pipeline in one large operation. Future extractions should follow the same pattern: add characterization tests, move one deterministic responsibility, delegate from the base processor, and compare enhanced records/errors/payloads before and after.
 
 ## `cash-line.policy.ts`
