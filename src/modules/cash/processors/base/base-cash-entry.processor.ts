@@ -30,6 +30,7 @@ import {
   getCashCollectionDescriptionLabel,
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
+import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
@@ -45,7 +46,6 @@ import {
   CashOutExchangeRateResolution,
   CashOutExchangeRateService,
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
-import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
@@ -297,7 +297,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(
       `[STEP 7] Processing ${custodySettlementLines.length} custody settlement lines`,
     );
-    this.processCustodySettlementLines(custodySettlementLines);
+    processCashCustodySettlementLines({
+      company: this.company,
+      lines: custodySettlementLines,
+      execute: (command) => this.commandBus.execute(command),
+      debug: (message) => this.logger.debug(message),
+      error: (message) => this.logger.error(message),
+    });
 
     if (!this.isInbound()) {
       this.logger.debug(
@@ -750,31 +756,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Validation records the unsupported Safe Type on the formatted line.
       return undefined;
     }
-  }
-
-  protected processCustodySettlementLines(
-    lines: CashEntryRawDataModel[],
-  ): void {
-    if (lines.length === 0) return;
-
-    const command = new ProcessCustodySettlementEntryCommand(
-      this.company,
-      undefined,
-      lines,
-    );
-
-    this.commandBus
-      .execute(command)
-      .then(() => {
-        this.logger.debug(
-          `[STEP 2.5] Successfully processed ${lines.length} custody settlement lines`,
-        );
-      })
-      .catch((error) => {
-        this.logger.error(
-          `[STEP 2.5] Error processing custody settlement entry for ${lines.length} lines: ${error}`,
-        );
-      });
   }
 
   protected processVendorPaymentLines(lines: CashEntryRawDataModel[]): void {
