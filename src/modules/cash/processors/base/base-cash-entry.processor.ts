@@ -27,6 +27,10 @@ import {
   resolveCashPaymentMethod,
 } from '@/modules/cash/policies/cash-line.policy';
 import {
+  getCashCollectionDescriptionLabel,
+  resolveCashJournalName,
+} from '@/modules/cash/policies/cash-journal.policy';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -727,13 +731,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   protected getJournalName(safeType?: string): string {
-    if (this.isInbound()) {
-      return this.isTrucking() ? 'Cust-Pay' : 'Cust-Pay';
-    }
-
-    const route = this.resolveCashOutJournalRoute(safeType);
-    if (route) return route.journalName;
-    return this.isTrucking() ? 'P-Fleet' : 'P-Freight';
+    return resolveCashJournalName({
+      inbound: this.isInbound(),
+      trucking: this.isTrucking(),
+      safeType,
+      resolveRoute: (routeSafeType) =>
+        this.resolveCashOutJournalRoute(routeSafeType),
+    });
   }
 
   protected resolveCashOutJournalRoute(
@@ -752,7 +756,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   protected getCollectionDescriptionLabel(): string {
-    return this.isTrucking() ? 'Fleet' : 'Freight';
+    return getCashCollectionDescriptionLabel(this.isTrucking());
   }
 
   protected filterLines(sortedLines: CashEntryRawDataModel[]): {
@@ -1223,7 +1227,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const formattedDate = this.utilsService.formatMonthYear(
       accountLine.TRANSDATE,
     );
-    const label = this.getCollectionDescriptionLabel();
+    const label = getCashCollectionDescriptionLabel(this.isTrucking());
     const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
 
     const paymentReference = isNotesReceivable
@@ -1273,7 +1277,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
       PaymentReference: paymentReference,
-      JournalName: this.getJournalName(),
+      JournalName: resolveCashJournalName({
+        inbound: this.isInbound(),
+        trucking: this.isTrucking(),
+        resolveRoute: (safeType) => this.resolveCashOutJournalRoute(safeType),
+      }),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
       OffsetAccountDisplayValue: resolveCashOffsetAccountDisplayValue(
@@ -1397,7 +1405,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const formattedDate = this.utilsService.formatMonthYear(
       accountLine.TRANSDATE,
     );
-    const label = this.getCollectionDescriptionLabel();
+    const label = getCashCollectionDescriptionLabel(this.isTrucking());
     const route = this.resolveCashOutJournalRoute(accountLine.SafeType);
 
     const paymentReference =
@@ -1653,7 +1661,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const offsetDimensions = this.utilsService.parseDimensionString(
       offsetDimensionString,
     );
-    const description = `${route?.safeType ?? sourceLine.SafeType} - ${this.getCollectionDescriptionLabel()} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
+    const description = `${route?.safeType ?? sourceLine.SafeType} - ${getCashCollectionDescriptionLabel(this.isTrucking())} ${this.utilsService.formatMonthYear(sourceLine.TRANSDATE)}${sourceLine.VoucherType ? ` (${sourceLine.VoucherType})` : ''}`;
     const isCustodySettlement = route?.safeType === 'Custody Settlement';
     const sourceHasWithholding =
       isCashWithholdingLedgerLine(sourceLine) ||

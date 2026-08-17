@@ -100,6 +100,15 @@ and staged in the same policy module for the next delegation step.
 - `formatCashInboundInvoice`: staged Cash-In invoice normalization policy.
 - `formatCashOutboundInvoice`: staged Cash-Out invoice normalization policy.
 
+## `cash-journal.policy.ts`
+
+Path: `src/modules/cash/policies/cash-journal.policy.ts`
+
+This file centralizes journal-name and product-label rules. Cash-In resolves to
+`Cust-Pay`; Cash-Out uses the routed journal and preserves `P-Freight` and
+`P-Fleet` fallbacks. The policy receives the existing routing callback so
+SafeType resolution and validation remain in the current routing service.
+
 Keeping these wrappers preserves subclass access and avoids changing the processor pipeline in one large operation. Future extractions should follow the same pattern: add characterization tests, move one deterministic responsibility, delegate from the base processor, and compare enhanced records/errors/payloads before and after.
 
 ## `cash-line.policy.ts`
