@@ -737,16 +737,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
   }
 
-  protected getJournalName(safeType?: string): string {
-    return resolveCashJournalName({
-      inbound: this.isInbound(),
-      trucking: this.isTrucking(),
-      safeType,
-      resolveRoute: (routeSafeType) =>
-        this.resolveCashOutJournalRoute(routeSafeType),
-    });
-  }
-
   protected resolveCashOutJournalRoute(
     safeType?: string,
   ): CashJournalRoute | undefined {
@@ -760,10 +750,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Validation records the unsupported Safe Type on the formatted line.
       return undefined;
     }
-  }
-
-  protected getCollectionDescriptionLabel(): string {
-    return getCashCollectionDescriptionLabel(this.isTrucking());
   }
 
   protected processCustodySettlementLines(
@@ -1489,7 +1475,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         return offsetText;
       })(),
       JournalName:
-        route?.journalName ?? this.getJournalName(accountLine.SafeType),
+        route?.journalName ??
+        resolveCashJournalName({
+          inbound: this.isInbound(),
+          trucking: this.isTrucking(),
+          safeType: accountLine.SafeType,
+          resolveRoute: (safeType) => this.resolveCashOutJournalRoute(safeType),
+        }),
       TransDate: transactionDate,
       TransactionDate: transactionDate,
       VoucherType: accountLine.VoucherType,
@@ -1654,7 +1646,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       PaymentReference: sourceLine.PAYMENTREFERENCE,
       OffsetTransactionText: sourceLine.OFFSETTEXT,
       JournalName:
-        route?.journalName ?? this.getJournalName(sourceLine.SafeType),
+        route?.journalName ??
+        resolveCashJournalName({
+          inbound: this.isInbound(),
+          trucking: this.isTrucking(),
+          safeType: sourceLine.SafeType,
+          resolveRoute: (safeType) => this.resolveCashOutJournalRoute(safeType),
+        }),
       TransDate: transactionDate,
       TransactionDate: transactionDate,
       VoucherType: sourceLine.VoucherType,
