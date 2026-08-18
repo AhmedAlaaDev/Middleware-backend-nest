@@ -95,32 +95,35 @@ export interface TSLedgerJournalTransCustomRequest {
  * One entry of the Cash Out `_contract.Lines` collection
  * (`addLedgerJournalTransVendPaym` / JournalLineWrapper).
  *
- * Matches the FO Cash Out bulk contract: one clean field set per line (no
- * duplicate ExchRate / EXCHANGERATE / ReportingCurrencyExchRate aliases).
- * `ExchangeRate` and `ReportingExchangeRate` are required keys. Offset display
- * values use the documented lowercase keys; other Offset* members and
- * VendorGroup stay present (empty when unused) because FO's
- * `constructFromJsonObject` looks them up without `exists()`.
+ * Matches the FO Cash Out bulk contract consumed by
+ * `JournalLineContract::constructFromJsonObject`.
+ *
+ * Finance looks up these JSON keys case-sensitively, so bulk posts must emit
+ * the exact names below (`JournalNum`, `AccountTypeStr`, `Company`,
+ * `CreditAmount`, `Currency`, `DebitAmount`, `TransDate`,
+ * `OffsetAccountDisplayValue`, `OffsetDEFAULTDIMENSIONDISPLAYVALUE`, ...).
+ * Some lowercase aliases remain optional only for middleware-side
+ * compatibility while the request is being prepared.
  */
 export interface TSLedgerJournalTransCustomBulkLineRequestBody {
-  journalNum: string;
+  JournalNum: string;
   AccountNum: string;
-  accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
+  AccountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
   BANKTRANSACTIONTYPE: string;
   CENTRALBANKPURPOSECODE: string;
   CENTRALBANKPURPOSETEXT: string;
-  company: string;
-  creditAmount: number;
-  currency: string;
-  debitAmount: number;
+  Company: string;
+  CreditAmount: number;
+  Currency: string;
+  DebitAmount: number;
   DEFAULTDIMENSIONDISPLAYVALUE: string;
-  offsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
   IsWithholdingTaxCalculate?: string;
   MarkedLines?: TSLedgerJournalMarkedLine[];
-  offsetAccountDisplayValue: string;
+  OffsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
   OffsetCompany: string;
   OFFSETFINTAGDISPLAYVALUE: string;
@@ -133,7 +136,7 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   PostingProfile: string;
   TaxGroup: string;
   TAXITEMGROUP: string;
-  transDate: string;
+  TransDate: string;
   TRANSACTIONTEXT: string;
   DocumentNum: string;
   DocumentDate: string;
@@ -142,6 +145,15 @@ export interface TSLedgerJournalTransCustomBulkLineRequestBody {
   VendorGroup: string;
   /** Cash-In customer settlement invoice id (CustPaym). Null clears marking. */
   MARKEDINVOICE?: string | null;
+  journalNum?: string;
+  accountTypeStr?: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
+  company?: string;
+  creditAmount?: number;
+  currency?: string;
+  debitAmount?: number;
+  offsetDEFAULTDIMENSIONDISPLAYVALUE?: string;
+  offsetAccountDisplayValue?: string;
+  transDate?: string;
 }
 
 /** Bulk request body: every journal line of the batch (or chunk) in `Lines`. */

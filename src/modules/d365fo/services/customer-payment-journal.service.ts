@@ -3465,28 +3465,39 @@ export class CustomerPaymentJournalService {
     const stripBidi = (value: string) =>
       value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
 
+    const journalNum = String(line.journalNum ?? '').trim();
+    const accountTypeStr = String(line.accountTypeStr ?? '')
+      .trim()
+      .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['AccountTypeStr'];
+    const company = String(line.company ?? '');
+    const transDate = this.normalizeFoJsonDate(String(line.transDate ?? ''));
+    const creditAmount = Number(line.creditAmount ?? 0);
+    const currency = String(line.currency ?? '');
+    const debitAmount = Number(line.debitAmount ?? 0);
+    const offsetDefaultDimensionDisplayValue = String(
+      line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
+    );
+    const offsetAccountDisplayValue = String(
+      line.offsetAccountDisplayValue ?? '',
+    );
     const body: TSLedgerJournalTransCustomBulkLineRequestBody = {
-      journalNum: String(line.journalNum ?? '').trim(),
+      JournalNum: journalNum,
       AccountNum: String(line.AccountNum ?? ''),
-      accountTypeStr: String(line.accountTypeStr ?? '')
-        .trim()
-        .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
+      AccountTypeStr: accountTypeStr,
       BANKTRANSACTIONTYPE: String(line.BANKTRANSACTIONTYPE ?? ''),
       CENTRALBANKPURPOSECODE: String(line.CENTRALBANKPURPOSECODE ?? ''),
       CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
-      company: String(line.company ?? ''),
-      transDate: this.normalizeFoJsonDate(String(line.transDate ?? '')),
+      Company: company,
+      TransDate: transDate,
       DocumentNum: String(line.DocumentNum ?? ''),
       DocumentDate: this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
-      creditAmount: Number(line.creditAmount ?? 0),
-      currency: String(line.currency ?? ''),
-      debitAmount: Number(line.debitAmount ?? 0),
+      CreditAmount: creditAmount,
+      Currency: currency,
+      DebitAmount: debitAmount,
       DEFAULTDIMENSIONDISPLAYVALUE: String(
         line.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
       ),
-      offsetDEFAULTDIMENSIONDISPLAYVALUE: String(
-        line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
-      ),
+      OffsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimensionDisplayValue,
       // Always present: X++ does jsonMap.lookup("ExchangeRate") unconditionally.
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
@@ -3494,7 +3505,7 @@ export class CustomerPaymentJournalService {
       // Required FO lookup. Keep empty so X++ does not enter TaxWithhold.
       ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
-      offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
+      OffsetAccountDisplayValue: offsetAccountDisplayValue,
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
       OFFSETFINTAGDISPLAYVALUE: stripBidi(
@@ -3515,6 +3526,17 @@ export class CustomerPaymentJournalService {
         : 0,
       // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
       VendorGroup: String(line.VendorGroup ?? ''),
+      // Legacy aliases retained for middleware-side compatibility while we
+      // migrate internal readers to the Finance casing.
+      journalNum,
+      accountTypeStr,
+      company,
+      transDate,
+      creditAmount,
+      currency,
+      debitAmount,
+      offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimensionDisplayValue,
+      offsetAccountDisplayValue,
     };
 
     // Cash-In keeps MARKEDINVOICE for existing CustPaym behavior and also
@@ -3536,9 +3558,9 @@ export class CustomerPaymentJournalService {
     // Middleware still keeps the flag internally for rematch pairing.
     // MarkedLines must only be sent on Vendor/Cust accounts (never on Ledger, Bank, or RCash).
     if (
-      body.accountTypeStr !== 'ledger' &&
-      body.accountTypeStr !== 'bank' &&
-      body.accountTypeStr !== 'rcash' &&
+      body.AccountTypeStr !== 'ledger' &&
+      body.AccountTypeStr !== 'bank' &&
+      body.AccountTypeStr !== 'rcash' &&
       markedLines.length > 0
     ) {
       body.MarkedLines = markedLines.map((marked) => ({

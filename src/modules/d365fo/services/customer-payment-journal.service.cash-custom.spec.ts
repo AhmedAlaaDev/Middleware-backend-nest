@@ -781,27 +781,25 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(options).toEqual({ timeout: 1_200_000, retries: 0 });
     expect(body._contract.Lines).toHaveLength(1);
     const postedLine = body._contract.Lines[0];
-    expect(postedLine).toHaveProperty('journalNum', 'JN000123');
+    expect(postedLine).toHaveProperty('JournalNum', 'JN000123');
     expect(postedLine).toHaveProperty('AccountNum', 'VEND001');
-    expect(postedLine).toHaveProperty('accountTypeStr', 'vendor');
+    expect(postedLine).toHaveProperty('AccountTypeStr', 'vendor');
     expect(postedLine).toHaveProperty('FinTagStr', 'TAG1');
     expect(postedLine).toHaveProperty('OFFSETFINTAGDISPLAYVALUE', 'TAG2');
-    expect(postedLine).toHaveProperty('offsetAccountDisplayValue', 'BANK001');
+    expect(postedLine).toHaveProperty('OffsetAccountDisplayValue', 'BANK001');
     expect(postedLine).toHaveProperty(
-      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
       'BU-001|CC-002|Dept-004',
     );
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
-    expect(postedLine).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(postedLine).toHaveProperty('TransDate', '2026-04-21T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate', 100);
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRate');
     expect(postedLine).not.toHaveProperty('ReportingCurrencyExchRate');
     expect(postedLine).not.toHaveProperty('REPORTINGEXCHANGERATE');
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
-    expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
-    expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
@@ -1017,8 +1015,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(contract.Lines).toHaveLength(2);
     expect(contract.Lines[0]).toEqual(
       expect.objectContaining({
-        journalNum: 'JN-BULK',
-        accountTypeStr: 'vendor',
+        JournalNum: 'JN-BULK',
+        AccountTypeStr: 'vendor',
         VendorGroup: 'Trade',
         ReportingExchangeRate: 2.1,
         MarkedLines: [
@@ -1027,14 +1025,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             HasWithHoldingLine: false,
           }),
         ],
-        offsetAccountDisplayValue: 'BANK001',
+        OffsetAccountDisplayValue: 'BANK001',
         OffsetAccountTypeStr: 'Bank',
       }),
     );
     expect(contract.Lines[1]).toEqual(
       expect.objectContaining({
-        journalNum: 'JN-BULK',
-        accountTypeStr: 'ledger',
+        JournalNum: 'JN-BULK',
+        AccountTypeStr: 'ledger',
         // FO looks up VendorGroup on every line — empty for ledger.
         VendorGroup: '',
         ReportingExchangeRate: 2.2,
@@ -1045,8 +1043,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     // vendor line in the same request keeps its own. The keys stay on the line
     // because the endpoint looks each one up and throws when it is missing.
     for (const offsetKey of [
-      'offsetDEFAULTDIMENSIONDISPLAYVALUE',
-      'offsetAccountDisplayValue',
+      'OffsetDEFAULTDIMENSIONDISPLAYVALUE',
+      'OffsetAccountDisplayValue',
       'OffsetAccountTypeStr',
       'OffsetCompany',
       'OFFSETFINTAGDISPLAYVALUE',
@@ -1419,18 +1417,27 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       'm-p',
     );
 
-    // Same values as the documented body: journalNum is filled in,
-    // accountTypeStr is lowercased, dates stay `yyyy-MM-ddT00:00:00` for FO
-    // FormJsonSerializer, and ExchangeRate + ReportingExchangeRate are present.
+    // Same values as the documented body: Finance-facing keys are emitted with
+    // the exact casing X++ looks up, while legacy lowercase aliases remain for
+    // middleware-side compatibility.
     expect(d365foClient.post.mock.calls[0][1]).toEqual({
       _contract: {
         Lines: [
-          {
+          expect.objectContaining({
             ...documentedLine,
+            JournalNum: 'Mesco-000013758',
+            AccountTypeStr: 'vendor',
+            Company: 'm-p',
+            CreditAmount: 0,
+            Currency: 'EGP',
+            DebitAmount: 5000,
+            OffsetAccountDisplayValue: 'PSD EG',
+            OffsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
+            TransDate: '2026-01-01T00:00:00',
             journalNum: 'Mesco-000013758',
             accountTypeStr: 'vendor',
             VendorGroup: 'Custody',
-          },
+          }),
         ],
       },
     });
