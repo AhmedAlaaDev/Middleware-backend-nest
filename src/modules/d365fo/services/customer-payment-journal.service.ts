@@ -457,41 +457,93 @@ export class CustomerPaymentJournalService {
     if (exactInvoiceIds.size === 0) return lines;
 
     let replacements = 0;
+    let omittedMarks = 0;
     const resolvedLines = lines.map((line) => {
       const body = line.customLineApiBody;
       if (!body || !Array.isArray(body.MarkedLines)) return line;
 
-      const vendorAccount = String(body.AccountNum ?? '');
+      const vendorAccount = String(body.AccountNum ?? '').trim();
+      const isVendor =
+        String(
+          body.accountTypeStr ?? (body as any).AccountTypeStr ?? '',
+        ).toLowerCase() === 'vendor' ||
+        String(
+          body.accountTypeStr ?? (body as any).AccountTypeStr ?? '',
+        ).toLowerCase() === 'vend';
+      const isCustody =
+        String(
+          body.VendorGroup ?? (body as any).vendorGroup ?? '',
+        ).toLowerCase() === 'custody';
+
       let bodyChanged = false;
-      const markedLines = body.MarkedLines.map((marked) => {
-        const sourceInvoiceId = String(marked?.InvoiceNumber ?? '');
-        if (!sourceInvoiceId.trim() || !vendorAccount.trim()) return marked;
+      const validMarkedLines: typeof body.MarkedLines = [];
+
+      for (const marked of body.MarkedLines) {
+        const sourceInvoiceId = String(marked?.InvoiceNumber ?? '').trim();
+        const docNum = String(marked?.DocumentNumber ?? '').trim();
+        const opNum = String(marked?.OperationNumber ?? '').trim();
+
+        // Custody settlements are matched by DocumentNumber + OperationNumber
+        if (isCustody) {
+          validMarkedLines.push(marked);
+          continue;
+        }
+
+        if (!sourceInvoiceId) {
+          if (docNum || opNum) {
+            validMarkedLines.push(marked);
+          }
+          continue;
+        }
 
         const exactInvoiceId = exactInvoiceIds.get(
           VendorInvoiceJournalService.pairKey(sourceInvoiceId, vendorAccount),
         );
-        if (
-          exactInvoiceId === undefined ||
-          exactInvoiceId === sourceInvoiceId
-        ) {
-          return marked;
-        }
 
-        replacements += 1;
-        bodyChanged = true;
-        return { ...marked, InvoiceNumber: exactInvoiceId };
-      });
+        if (exactInvoiceId !== undefined) {
+          if (exactInvoiceId !== sourceInvoiceId) {
+            replacements += 1;
+            bodyChanged = true;
+          }
+          validMarkedLines.push({ ...marked, InvoiceNumber: exactInvoiceId });
+        } else if (isVendor && exactInvoiceIds.size > 0) {
+          // The invoice does NOT belong to this vendor in D365FO.
+          omittedMarks += 1;
+          bodyChanged = true;
+          this.logger.warn(
+            `[CASH-CUSTOM] Invoice ${sourceInvoiceId} does not belong to Vendor ${vendorAccount} in D365FO. Omitted invalid settlement mark.`,
+          );
+        } else {
+          validMarkedLines.push(marked);
+        }
+      }
 
       if (!bodyChanged) return line;
+
+      const updatedBody = { ...body };
+      if (validMarkedLines.length > 0) {
+        updatedBody.MarkedLines = validMarkedLines;
+      } else {
+        delete updatedBody.MarkedLines;
+        if ('MARKEDINVOICE' in updatedBody) {
+          updatedBody.MARKEDINVOICE = null;
+        }
+      }
+
       return {
         ...line,
-        customLineApiBody: { ...body, MarkedLines: markedLines },
+        customLineApiBody: updatedBody,
       };
     });
 
     if (replacements > 0) {
       this.logger.log(
         `[CASH-CUSTOM] Replaced ${replacements} marked invoice value(s) with the exact InvoiceId stored in D365`,
+      );
+    }
+    if (omittedMarks > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Omitted ${omittedMarks} invalid marked invoice(s) that do not belong to their vendor in D365`,
       );
     }
 
@@ -3709,9 +3761,9 @@ export class CustomerPaymentJournalService {
       markedLines.length > 0
     ) {
       body.MarkedLines = markedLines.map((marked) => ({
-        InvoiceNumber: String(marked.InvoiceNumber ?? ''),
-        OperationNumber: stripBidi(String(marked.OperationNumber ?? '')),
-        DocumentNumber: String(marked.DocumentNumber ?? ''),
+        InvoiceNumber: stripBidi(String(marked.InvoiceNumber ?? '')),
+        OperationNumber: stripBidi(String(marked.OperationNumber ?? '')).trim(),
+        DocumentNumber: stripBidi(String(marked.DocumentNumber ?? '')).trim(),
         HasWithHoldingLine: false,
       }));
     }
