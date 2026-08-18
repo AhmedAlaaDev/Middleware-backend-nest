@@ -257,11 +257,12 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
     );
 
     const isWithholding =
-      String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+      line.ACCOUNTTYPE === 'Vend' &&
+      (String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
         'yes' ||
-      (!!line.ITEMWITHHOLDINGTAXGROUPCODE &&
-        String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
-        String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0');
+        (!!line.ITEMWITHHOLDINGTAXGROUPCODE &&
+          String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+          String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0'));
 
     const markedInvoice = line.MARKEDINVOICE || line.INVOICE || '';
 

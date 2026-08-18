@@ -3491,16 +3491,9 @@ export class CustomerPaymentJournalService {
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
-      // Cash journals post withholding explicitly via companion lines.
-      // Always force withholding tax group empty and disable calculation across all aliases.
+      // Required FO lookup. Keep empty so X++ does not enter TaxWithhold.
       ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
-      ISWITHHOLDINGTAXCALCULATE: 'No',
-      isWithholdingTaxCalculate: 'No',
-      TaxWithholdCalculate: 'No',
-      TAXWITHHOLDCALCULATE: 'No',
-      IsWithholdingCalculationEnabled: 'No',
-      ISWITHHOLDINGCALCULATIONENABLED: 'No',
       offsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
@@ -3537,12 +3530,22 @@ export class CustomerPaymentJournalService {
     }
 
     // Always project settlement marks onto the FO body when present.
-    if (markedLines.length > 0) {
+    // HasWithHoldingLine must stay false on the wire: FO then calls
+    // TaxWithhold::construct with OffsetAccountType (Bank/Ledger/RCash)
+    // and fails with "Function TaxWithhold::construct has been incorrectly called."
+    // Middleware still keeps the flag internally for rematch pairing.
+    // MarkedLines must only be sent on Vendor/Cust accounts (never on Ledger, Bank, or RCash).
+    if (
+      body.accountTypeStr !== 'ledger' &&
+      body.accountTypeStr !== 'bank' &&
+      body.accountTypeStr !== 'rcash' &&
+      markedLines.length > 0
+    ) {
       body.MarkedLines = markedLines.map((marked) => ({
         InvoiceNumber: String(marked.InvoiceNumber ?? ''),
         OperationNumber: stripBidi(String(marked.OperationNumber ?? '')),
         DocumentNumber: String(marked.DocumentNumber ?? ''),
-        HasWithHoldingLine: Boolean(marked.HasWithHoldingLine),
+        HasWithHoldingLine: false,
       }));
     }
 

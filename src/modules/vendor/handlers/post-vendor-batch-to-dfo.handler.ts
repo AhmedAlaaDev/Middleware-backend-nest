@@ -443,7 +443,8 @@ export class PostVendorBatchToDFOHandler implements ICommandHandler<
         ),
         Company: company,
         MarkedInvoice: markedInvoiceStr,
-        IsWithholdingTaxCalculate: line.IsWithholdingTaxCalculate ?? 'No',
+        IsWithholdingTaxCalculate:
+          accountType === 'Vend' ? (line.IsWithholdingTaxCalculate ?? 'No') : 'No',
       } as D365FOVendorPaymentJournalLineRequest;
     });
   }

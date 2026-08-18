@@ -803,9 +803,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('OffsetAccountDisplayValue');
     expect(postedLine).not.toHaveProperty('OffsetDEFAULTDIMENSIONDISPLAYVALUE');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
-    expect(postedLine).toHaveProperty('ISWITHHOLDINGTAXCALCULATE', 'No');
-    expect(postedLine).toHaveProperty('TaxWithholdCalculate', 'No');
-    expect(postedLine).toHaveProperty('IsWithholdingCalculationEnabled', 'No');
 
     expect(vendorPaymentJournalService.listLinesForHeader).toHaveBeenCalledWith(
       'JN000123',
@@ -1027,7 +1024,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         MarkedLines: [
           expect.objectContaining({
             InvoiceNumber: 'INV-1',
-            HasWithHoldingLine: true,
+            HasWithHoldingLine: false,
           }),
         ],
         offsetAccountDisplayValue: 'BANK001',
@@ -1386,12 +1383,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       ISPREPAYMENT: 'No',
       ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
-      ISWITHHOLDINGTAXCALCULATE: 'No',
-      isWithholdingTaxCalculate: 'No',
-      TaxWithholdCalculate: 'No',
-      TAXWITHHOLDCALCULATE: 'No',
-      IsWithholdingCalculationEnabled: 'No',
-      ISWITHHOLDINGCALCULATIONENABLED: 'No',
       offsetAccountDisplayValue: 'PSD EG',
       OffsetAccountTypeStr: '',
       OffsetCompany: 'm-p',
@@ -1512,9 +1503,6 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
     expect(postedLine).not.toHaveProperty('Voucher');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
-    expect(postedLine).toHaveProperty('ISWITHHOLDINGTAXCALCULATE', 'No');
-    expect(postedLine).toHaveProperty('TaxWithholdCalculate', 'No');
-    expect(postedLine).toHaveProperty('IsWithholdingCalculationEnabled', 'No');
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {
@@ -2370,7 +2358,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         InvoiceNumber: '120',
         OperationNumber: 'O26-EXP-OC-1759',
         DocumentNumber: '',
-        HasWithHoldingLine: true,
+        HasWithHoldingLine: false,
       }),
     ]);
     expect(posted[1].MarkedLines).toEqual([
@@ -2378,7 +2366,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         InvoiceNumber: '120',
         OperationNumber: 'O26-EXP-OC-1759',
         DocumentNumber: '',
-        HasWithHoldingLine: true,
+        HasWithHoldingLine: false,
       }),
     ]);
     // Both lines must preserve DocumentNum from the input line
@@ -2461,7 +2449,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(rematchBody[0].MarkedLines).toEqual([
       expect.objectContaining({
         InvoiceNumber: '120',
-        HasWithHoldingLine: true,
+        HasWithHoldingLine: false,
       }),
     ]);
     expect(rematchBody[1]).toMatchObject({
@@ -2475,7 +2463,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           InvoiceNumber: '120',
           OperationNumber: 'O26-EXP-OC-1759',
           DocumentNumber: '',
-          HasWithHoldingLine: true,
+          HasWithHoldingLine: false,
         }),
       ],
     });
