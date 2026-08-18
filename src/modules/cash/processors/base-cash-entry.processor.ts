@@ -1271,17 +1271,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
     if (!this.isInbound()) {
-      const safeTypes = new Set(lines.map((line) => line.SafeType));
-      if (
-        safeTypes.size === 1 &&
-        (lines[0]?.IsVendorPayment ||
-          this.shouldBuildCustodySettlementAsVendorPayment(lines))
-      ) {
+      if (lines[0]?.IsVendorPayment) {
         return this.buildVendorPaymentLines(
           sourceId,
           lines,
           exchangeRateContext,
         );
+      }
+
+      const custodySettlementSplit = this.buildCustodySettlementCashOutLines(
+        sourceId,
+        lines,
+        exchangeRateContext,
+      );
+      if (custodySettlementSplit) {
+        return custodySettlementSplit;
       }
 
       // Every non-Vendor-Payment SafeType keeps the original debit/credit
@@ -1336,55 +1340,128 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Some Custody Settlement groups are really standard vendor-invoice payment
-   * shapes under the wrong safe type. Reuse the Vendor Payment builder only
-   * for trade-vendor settlement groups with one payment offset and optional
-   * 223304 withholding companions.
+   * Split mixed Custody Settlement groups into:
+   * - vendor-payment-style lines for standard vendor invoice settlement rows
+   * - preserved one-to-one lines for true custody/counterpart ledger rows
+   *
+   * This matches Finance's VendPaym expectations more closely: the shared cash
+   * row should become the offset for the standard vendor payment lines instead
+   * of staying as a separate main line inside the same batch.
    */
-  private shouldBuildCustodySettlementAsVendorPayment(
+  private buildCustodySettlementCashOutLines(
+    sourceId: string,
     lines: CashEntryRawDataModel[],
-  ): boolean {
-    if (lines.length === 0) return false;
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] | null {
+    if (lines.length === 0) return null;
 
     const safeTypes = new Set(lines.map((line) => line.SafeType));
     if (safeTypes.size !== 1 || lines[0]?.SafeType !== 'Custody Settlement') {
-      return false;
+      return null;
     }
 
-    const withholdingLines = lines.filter((line) =>
+    const paymentOffsetLines = lines.filter((line) =>
+      this.isCashOutSettlementOffsetSource(line),
+    );
+    if (paymentOffsetLines.length !== 1) {
+      return null;
+    }
+
+    const paymentOffsetLine = paymentOffsetLines[0];
+    const allWithholdingLines = lines.filter((line) =>
       this.isWithholdingLedgerLine(line),
     );
-    const vendorDebitLines = lines.filter(
-      (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
-    );
-    const paymentOffsetLines = lines.filter(
+    const invoiceSettlementVendorLines = lines.filter(
       (line) =>
-        Number(line.CREDITAMOUNT) > 0 &&
-        !line.IsVendor &&
-        !this.isWithholdingLedgerLine(line),
+        this.isStandardVendorInvoiceSettlementLine(line) &&
+        Number(line.DEBITAMOUNT) > 0,
     );
 
-    if (vendorDebitLines.length === 0 || paymentOffsetLines.length !== 1) {
-      return false;
+    if (invoiceSettlementVendorLines.length === 0) {
+      return null;
     }
 
-    for (const vendorLine of vendorDebitLines) {
-      const vendorGroup = String(vendorLine.VendorGroup ?? '')
-        .trim()
-        .toLowerCase();
-      const invoice = this.sanitizeInvoiceOutbound(
-        vendorLine.MARKEDINVOICE || vendorLine.INVOICE,
-      );
-      if (vendorLine.IsCustodyVendor || vendorGroup === 'custody' || !invoice) {
-        return false;
-      }
-    }
+    const relatedWithholdingLines = allWithholdingLines.filter((withholdingLine) =>
+      invoiceSettlementVendorLines.some((vendorLine) =>
+        this.isWithholdingLinkedToVendor(vendorLine, withholdingLine),
+      ),
+    );
 
-    return lines.every(
+    const vendorPaymentSubset = [
+      ...invoiceSettlementVendorLines,
+      paymentOffsetLine,
+      ...relatedWithholdingLines,
+    ];
+    const vendorPaymentBuilt = this.buildVendorPaymentLines(
+      sourceId,
+      vendorPaymentSubset,
+      exchangeRateContext,
+    );
+
+    const consumedLines = new Set<CashEntryRawDataModel>(vendorPaymentSubset);
+    const remainingWithholdingLines = allWithholdingLines.filter(
+      (line) => !consumedLines.has(line),
+    );
+    const preservedLines = lines.filter(
       (line) =>
-        vendorDebitLines.includes(line) ||
-        paymentOffsetLines.includes(line) ||
-        withholdingLines.includes(line),
+        !consumedLines.has(line) && !this.isWithholdingLedgerLine(line),
+    );
+    const preservedBuilt = preservedLines.map((line) =>
+      this.buildSourceLineOutbound(
+        sourceId,
+        line,
+        exchangeRateContext,
+        line.IsVendor
+          ? this.findWithholdingLine(line, remainingWithholdingLines)
+          : undefined,
+      ),
+    );
+    preservedBuilt.push(
+      ...this.buildCashOutWithholdingCompanions(
+        sourceId,
+        preservedLines,
+        remainingWithholdingLines,
+        exchangeRateContext,
+      ),
+    );
+
+    return [...preservedBuilt, ...vendorPaymentBuilt];
+  }
+
+  private isCashOutSettlementOffsetSource(
+    line: CashEntryRawDataModel,
+  ): boolean {
+    const accountType = String(line.ACCOUNTTYPE ?? '').trim().toLowerCase();
+    return (
+      Number(line.CREDITAMOUNT) > 0 &&
+      !line.IsVendor &&
+      ['bank', 'petty cash', 'cash', 'rcash'].includes(accountType)
+    );
+  }
+
+  private isStandardVendorInvoiceSettlementLine(
+    line: CashEntryRawDataModel,
+  ): boolean {
+    if (!line.IsVendor) return false;
+
+    const vendorGroup = String(line.VendorGroup ?? '').trim().toLowerCase();
+    const invoice = this.sanitizeInvoiceOutbound(
+      line.MARKEDINVOICE || line.INVOICE,
+    );
+
+    return !line.IsCustodyVendor && vendorGroup !== 'custody' && Boolean(invoice);
+  }
+
+  private isWithholdingLinkedToVendor(
+    vendorLine: CashEntryRawDataModel,
+    withholdingLine: CashEntryRawDataModel,
+  ): boolean {
+    return (
+      this.findWithholdingLine(vendorLine, [withholdingLine]) ===
+        withholdingLine ||
+      (Boolean(this.sanitizeInvoiceOutbound(withholdingLine.INVOICE)) &&
+        this.sanitizeInvoiceOutbound(vendorLine.INVOICE) ===
+          this.sanitizeInvoiceOutbound(withholdingLine.INVOICE))
     );
   }
 

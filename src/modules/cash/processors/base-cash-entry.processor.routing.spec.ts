@@ -884,6 +884,81 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
+    it('splits mixed Custody Settlement groups so trade vendor settlements consume the shared cash offset', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 480002,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'CUSTODY-1',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: 'DOC-1',
+          FINTAGDISPLAYVALUE: 'OP-1|TAG',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 480002,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-TRADE',
+          DEBITAMOUNT: 100,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: 'DOC-1',
+          INVOICE: 'INV-CS',
+          FINTAGDISPLAYVALUE: 'OP-2|TAG',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 480002,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => {
+        const model = new CashEntryRawDataModel(line as any, 'Freight');
+        if (model.ACCOUNTDISPLAYVALUE === 'CUSTODY-1') {
+          model.VendorGroup = 'Custody';
+          model.IsCustodyVendor = true;
+        } else if (model.IsVendor) {
+          model.VendorGroup = 'Trade';
+        }
+        return model;
+      });
+
+      const dfoLines = (processor as any).buildLines('480002', rawLines);
+
+      expect(dfoLines).toHaveLength(2);
+      expect(dfoLines[0]).toMatchObject({
+        AccountDisplayValue: 'CUSTODY-1',
+        SettlementTargetType: 'CustodyLedger',
+        OffsetAccountDisplayValue: '',
+      });
+      expect(dfoLines[1]).toMatchObject({
+        AccountDisplayValue: 'VEND-TRADE',
+        SettlementTargetType: 'VendorInvoice',
+        OffsetAccountDisplayValue: 'BANK-001',
+        MarkedInvoice: 'INV-CS',
+      });
+    });
+
     it('merges trade-vendor Custody Settlement into vendor-style offset lines', () => {
       const processor = createProcessor();
       jest
