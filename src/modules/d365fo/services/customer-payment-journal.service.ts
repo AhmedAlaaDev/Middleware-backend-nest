@@ -2117,22 +2117,10 @@ export class CustomerPaymentJournalService {
     return normalized.includes('has been marked for settlement');
   }
 
-  private isTaxWithholdConstructError(message: string): boolean {
-    const normalized = String(message ?? '')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-    return (
-      normalized.includes('taxwithhold::construct') ||
-      normalized.includes('taxwithhold')
-    );
-  }
-
   private isCashOutSettlementRetryableError(message: string): boolean {
     return (
       this.isInvoiceAmountGreaterThanRemainingError(message) ||
-      this.isAlreadyMarkedForSettlementError(message) ||
-      this.isTaxWithholdConstructError(message)
+      this.isAlreadyMarkedForSettlementError(message)
     );
   }
 
@@ -2930,9 +2918,6 @@ export class CustomerPaymentJournalService {
     const retryBody = { ...body };
     delete retryBody.MarkedLines;
     if ('MARKEDINVOICE' in retryBody) retryBody.MARKEDINVOICE = null;
-    // Custody SpecTrans is often keyed by document; clear so FO cannot rematch
-    // the same open transaction when MarkedLines are already omitted.
-    retryBody.DocumentNum = '';
     retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
       retryBody.PAYMENTNOTES,
     );
@@ -3626,8 +3611,22 @@ export class CustomerPaymentJournalService {
       CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
       Company: company,
       TransDate: transDate,
-      DocumentNum: String(line.DocumentNum ?? ''),
-      DocumentDate: this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
+      DocumentNum: String(
+        line.DocumentNum ??
+          (line as any).Document ??
+          (line as any).DOCUMENT ??
+          (line as any).DocumentNumber ??
+          (line as any).DOCUMENTNUMBER ??
+          '',
+      ),
+      DocumentDate: this.normalizeFoJsonDate(
+        String(
+          line.DocumentDate ??
+            (line as any).DOCUMENTDATE ??
+            (line as any).InvoiceDate ??
+            '',
+        ),
+      ),
       CreditAmount: creditAmount,
       Currency: currency,
       DebitAmount: debitAmount,
@@ -3639,9 +3638,18 @@ export class CustomerPaymentJournalService {
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
-      // Required FO lookup. Keep empty so X++ does not enter TaxWithhold.
-      ITEMWITHHOLDINGTAXGROUP: '',
-      IsWithholdingTaxCalculate: 'No',
+      ITEMWITHHOLDINGTAXGROUP: String(
+        line.ITEMWITHHOLDINGTAXGROUP ??
+          (line as any).ItemWithholdingTaxGroupCode ??
+          (line as any).ItemWithholdingTaxGroup ??
+          (line as any).ITEMWITHHOLDINGTAXGROUPCODE ??
+          '',
+      ),
+      IsWithholdingTaxCalculate: String(
+        line.IsWithholdingTaxCalculate ??
+          (line as any).ISWITHHOLDINGTAXCALCULATE ??
+          'No',
+      ),
       OffsetAccountDisplayValue: offsetAccountDisplayValue,
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
