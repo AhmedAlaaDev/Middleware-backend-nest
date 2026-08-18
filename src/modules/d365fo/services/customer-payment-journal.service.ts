@@ -366,9 +366,9 @@ export class CustomerPaymentJournalService {
           ? await existingLinesLoader()
           : cashDirection === 'out'
             ? await this.vendorPaymentJournalService.listLinesForHeader(
-                headerKey,
-                dataAreaId,
-              )
+              headerKey,
+              dataAreaId,
+            )
             : await this.listLinesForHeader(headerKey, dataAreaId);
         existingLines = new Set(existing.map((l) => l.LineNumber));
       } catch (error) {
@@ -457,93 +457,41 @@ export class CustomerPaymentJournalService {
     if (exactInvoiceIds.size === 0) return lines;
 
     let replacements = 0;
-    let omittedMarks = 0;
     const resolvedLines = lines.map((line) => {
       const body = line.customLineApiBody;
       if (!body || !Array.isArray(body.MarkedLines)) return line;
 
-      const vendorAccount = String(body.AccountNum ?? '').trim();
-      const isVendor =
-        String(
-          body.accountTypeStr ?? (body as any).AccountTypeStr ?? '',
-        ).toLowerCase() === 'vendor' ||
-        String(
-          body.accountTypeStr ?? (body as any).AccountTypeStr ?? '',
-        ).toLowerCase() === 'vend';
-      const isCustody =
-        String(
-          body.VendorGroup ?? (body as any).vendorGroup ?? '',
-        ).toLowerCase() === 'custody';
-
+      const vendorAccount = String(body.AccountNum ?? '');
       let bodyChanged = false;
-      const validMarkedLines: typeof body.MarkedLines = [];
-
-      for (const marked of body.MarkedLines) {
-        const sourceInvoiceId = String(marked?.InvoiceNumber ?? '').trim();
-        const docNum = String(marked?.DocumentNumber ?? '').trim();
-        const opNum = String(marked?.OperationNumber ?? '').trim();
-
-        // Custody settlements are matched by DocumentNumber + OperationNumber
-        if (isCustody) {
-          validMarkedLines.push(marked);
-          continue;
-        }
-
-        if (!sourceInvoiceId) {
-          if (docNum || opNum) {
-            validMarkedLines.push(marked);
-          }
-          continue;
-        }
+      const markedLines = body.MarkedLines.map((marked) => {
+        const sourceInvoiceId = String(marked?.InvoiceNumber ?? '');
+        if (!sourceInvoiceId.trim() || !vendorAccount.trim()) return marked;
 
         const exactInvoiceId = exactInvoiceIds.get(
           VendorInvoiceJournalService.pairKey(sourceInvoiceId, vendorAccount),
         );
-
-        if (exactInvoiceId !== undefined) {
-          if (exactInvoiceId !== sourceInvoiceId) {
-            replacements += 1;
-            bodyChanged = true;
-          }
-          validMarkedLines.push({ ...marked, InvoiceNumber: exactInvoiceId });
-        } else if (isVendor && exactInvoiceIds.size > 0) {
-          // The invoice does NOT belong to this vendor in D365FO.
-          omittedMarks += 1;
-          bodyChanged = true;
-          this.logger.warn(
-            `[CASH-CUSTOM] Invoice ${sourceInvoiceId} does not belong to Vendor ${vendorAccount} in D365FO. Omitted invalid settlement mark.`,
-          );
-        } else {
-          validMarkedLines.push(marked);
+        if (
+          exactInvoiceId === undefined ||
+          exactInvoiceId === sourceInvoiceId
+        ) {
+          return marked;
         }
-      }
+
+        replacements += 1;
+        bodyChanged = true;
+        return { ...marked, InvoiceNumber: exactInvoiceId };
+      });
 
       if (!bodyChanged) return line;
-
-      const updatedBody = { ...body };
-      if (validMarkedLines.length > 0) {
-        updatedBody.MarkedLines = validMarkedLines;
-      } else {
-        delete updatedBody.MarkedLines;
-        if ('MARKEDINVOICE' in updatedBody) {
-          updatedBody.MARKEDINVOICE = null;
-        }
-      }
-
       return {
         ...line,
-        customLineApiBody: updatedBody,
+        customLineApiBody: { ...body, MarkedLines: markedLines },
       };
     });
 
     if (replacements > 0) {
       this.logger.log(
         `[CASH-CUSTOM] Replaced ${replacements} marked invoice value(s) with the exact InvoiceId stored in D365`,
-      );
-    }
-    if (omittedMarks > 0) {
-      this.logger.log(
-        `[CASH-CUSTOM] Omitted ${omittedMarks} invalid marked invoice(s) that do not belong to their vendor in D365`,
       );
     }
 
@@ -673,9 +621,9 @@ export class CustomerPaymentJournalService {
       ),
       expectedInvoices.length > 0
         ? this.vendorPaymentJournalService.listSettlementOwnersForInvoices(
-            dataAreaId,
-            expectedInvoices,
-          )
+          dataAreaId,
+          expectedInvoices,
+        )
         : Promise.resolve([]),
     ]);
     const actual = new Map<
@@ -828,7 +776,7 @@ export class CustomerPaymentJournalService {
           this.normalizeSettlementInvoice(owner.InvoiceNumber) !== invoice ||
           (owner.invoiceAccount &&
             String(owner.invoiceAccount).trim().toLowerCase() !==
-              item.vendorAccount.trim().toLowerCase())
+            item.vendorAccount.trim().toLowerCase())
         ) {
           continue;
         }
@@ -1340,8 +1288,8 @@ export class CustomerPaymentJournalService {
   private resolveCashOutUniqueIdGroupKey(line: CashBulkPendingLine): string {
     const paymentId = String(
       line.body.PAYMENTID ??
-        (line.body as { PaymentId?: string }).PaymentId ??
-        '',
+      (line.body as { PaymentId?: string }).PaymentId ??
+      '',
     ).trim();
     // Missing PAYMENTID must not merge unrelated lines into one fake group.
     return paymentId || `__line:${line.lineNumber}`;
@@ -1804,9 +1752,9 @@ export class CustomerPaymentJournalService {
       preserveAcceptedPatches: boolean;
       dataAreaId?: string;
     } = {
-      settledInvoices: new Set(),
-      preserveAcceptedPatches: false,
-    },
+        settledInvoices: new Set(),
+        preserveAcceptedPatches: false,
+      },
   ): Promise<void> {
     if (pendingLines.length === 0) return;
 
@@ -1975,8 +1923,8 @@ export class CustomerPaymentJournalService {
         );
         const matchedIndex = Number.isFinite(explicitLineNumber)
           ? pendingLines.findIndex(
-              (line) => line.lineNumber === explicitLineNumber,
-            )
+            (line) => line.lineNumber === explicitLineNumber,
+          )
           : -1;
         const requestIndex =
           matchedIndex >= 0
@@ -2332,7 +2280,7 @@ export class CustomerPaymentJournalService {
       return (
         blocker &&
         this.normalizeIntegrityValue(blocker.journalBatchNumber) ===
-          this.normalizeIntegrityValue(headerKey)
+        this.normalizeIntegrityValue(headerKey)
       );
     });
 
@@ -2480,10 +2428,10 @@ export class CustomerPaymentJournalService {
   ): Promise<{
     deleted: boolean;
     entityType?:
-      | 'LedgerJournalHeaders'
-      | 'VendorPaymentJournalHeaders'
-      | 'CustomerPaymentJournalHeaders'
-      | 'VendInvoiceJournalHeaders';
+    | 'LedgerJournalHeaders'
+    | 'VendorPaymentJournalHeaders'
+    | 'CustomerPaymentJournalHeaders'
+    | 'VendInvoiceJournalHeaders';
     company: string;
     journalBatchNumber: string;
   }> {
@@ -2970,6 +2918,9 @@ export class CustomerPaymentJournalService {
     const retryBody = { ...body };
     delete retryBody.MarkedLines;
     if ('MARKEDINVOICE' in retryBody) retryBody.MARKEDINVOICE = null;
+    // Custody SpecTrans is often keyed by document; clear so FO cannot rematch
+    // the same open transaction when MarkedLines are already omitted.
+    retryBody.DocumentNum = '';
     retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
       retryBody.PAYMENTNOTES,
     );
@@ -3478,8 +3429,8 @@ export class CustomerPaymentJournalService {
         })),
         ...(cashOutFailureDiagnostics
           ? {
-              cashOutFailureDiagnostics,
-            }
+            cashOutFailureDiagnostics,
+          }
           : {}),
       },
       payload: this.logPayloads.captureExchange(undefined, result ?? null),
@@ -3623,18 +3574,18 @@ export class CustomerPaymentJournalService {
     );
     const reportingExchangeRate = Number(
       line.ReportingExchangeRate ??
-        line.REPORTINGEXCHANGERATE ??
-        line.ReportingCurrencyExchRate ??
-        line.ExchRateSecond ??
-        0,
+      line.REPORTINGEXCHANGERATE ??
+      line.ReportingCurrencyExchRate ??
+      line.ExchRateSecond ??
+      0,
     );
     const markedLines = Array.isArray(line.MarkedLines)
       ? line.MarkedLines.filter(
-          (marked) =>
-            Boolean(String(marked?.InvoiceNumber ?? '').trim()) ||
-            Boolean(String(marked?.DocumentNumber ?? '').trim()) ||
-            Boolean(String(marked?.OperationNumber ?? '').trim()),
-        )
+        (marked) =>
+          Boolean(String(marked?.InvoiceNumber ?? '').trim()) ||
+          Boolean(String(marked?.DocumentNumber ?? '').trim()) ||
+          Boolean(String(marked?.OperationNumber ?? '').trim()),
+      )
       : [];
     const stripBidi = (value: string) =>
       value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
@@ -3663,22 +3614,8 @@ export class CustomerPaymentJournalService {
       CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
       Company: company,
       TransDate: transDate,
-      DocumentNum: String(
-        line.DocumentNum ??
-          (line as any).Document ??
-          (line as any).DOCUMENT ??
-          (line as any).DocumentNumber ??
-          (line as any).DOCUMENTNUMBER ??
-          '',
-      ),
-      DocumentDate: this.normalizeFoJsonDate(
-        String(
-          line.DocumentDate ??
-            (line as any).DOCUMENTDATE ??
-            (line as any).InvoiceDate ??
-            '',
-        ),
-      ),
+      DocumentNum: String(line.DocumentNum ?? ''),
+      DocumentDate: this.normalizeFoJsonDate(String(line.DocumentDate ?? '')),
       CreditAmount: creditAmount,
       Currency: currency,
       DebitAmount: debitAmount,
@@ -3690,18 +3627,9 @@ export class CustomerPaymentJournalService {
       ExchangeRate: Number.isFinite(exchangeRate) ? exchangeRate : 0,
       FinTagStr: stripBidi(String(line.FinTagStr ?? '')),
       ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
-      ITEMWITHHOLDINGTAXGROUP: String(
-        line.ITEMWITHHOLDINGTAXGROUP ??
-          (line as any).ItemWithholdingTaxGroupCode ??
-          (line as any).ItemWithholdingTaxGroup ??
-          (line as any).ITEMWITHHOLDINGTAXGROUPCODE ??
-          '',
-      ),
-      IsWithholdingTaxCalculate: String(
-        line.IsWithholdingTaxCalculate ??
-          (line as any).ISWITHHOLDINGTAXCALCULATE ??
-          'No',
-      ),
+      // Required FO lookup. Keep empty so X++ does not enter TaxWithhold.
+      ITEMWITHHOLDINGTAXGROUP: '',
+      IsWithholdingTaxCalculate: 'No',
       OffsetAccountDisplayValue: offsetAccountDisplayValue,
       OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
       OffsetCompany: String(line.OffsetCompany ?? ''),
@@ -3761,9 +3689,9 @@ export class CustomerPaymentJournalService {
       markedLines.length > 0
     ) {
       body.MarkedLines = markedLines.map((marked) => ({
-        InvoiceNumber: stripBidi(String(marked.InvoiceNumber ?? '')),
-        OperationNumber: stripBidi(String(marked.OperationNumber ?? '')).trim(),
-        DocumentNumber: stripBidi(String(marked.DocumentNumber ?? '')).trim(),
+        InvoiceNumber: String(marked.InvoiceNumber ?? ''),
+        OperationNumber: stripBidi(String(marked.OperationNumber ?? '')),
+        DocumentNumber: String(marked.DocumentNumber ?? ''),
         HasWithHoldingLine: false,
       }));
     }

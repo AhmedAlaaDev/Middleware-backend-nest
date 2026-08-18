@@ -1392,6 +1392,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       paymentOffsetLine,
       ...relatedWithholdingLines,
     ];
+    const subsetBalanceError = this.validateVendorPaymentWithholdingBalance(
+      sourceId,
+      invoiceSettlementVendorLines,
+      paymentOffsetLine,
+      relatedWithholdingLines,
+    );
+    if (subsetBalanceError) {
+      // A cash row can be the counterpart of the entire custody voucher rather
+      // than of only the trade-vendor invoice rows. Consuming it here would
+      // make every vendor row self-balanced while leaving the other custody
+      // rows unbalanced (and would also drop the shared cash source row).
+      this.logger.debug(
+        `Custody Settlement UniqueId=${sourceId}: preserving source lines because the vendor-payment subset is not independently balanced. ${subsetBalanceError}`,
+      );
+      return null;
+    }
     const vendorPaymentBuilt = this.buildVendorPaymentLines(
       sourceId,
       vendorPaymentSubset,
@@ -1619,22 +1635,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     withholdingLines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    if (withholdingLines.length > 0) {
-      const balanceError = this.validateVendorPaymentWithholdingBalance(
-        sourceId,
-        vendorLines,
-        paymentOffset,
-        withholdingLines,
-      );
-      if (balanceError) {
-        return [
-          this.buildVendorPaymentValidationError(
-            sourceId,
-            'UnbalancedWithholding',
-            balanceError,
-          ),
-        ];
-      }
+    const balanceError = this.validateVendorPaymentWithholdingBalance(
+      sourceId,
+      vendorLines,
+      paymentOffset,
+      withholdingLines,
+    );
+    if (balanceError) {
+      return [
+        this.buildVendorPaymentValidationError(
+          sourceId,
+          withholdingLines.length > 0
+            ? 'UnbalancedWithholding'
+            : 'UnbalancedPayment',
+          balanceError,
+        ),
+      ];
     }
 
     const { assignments, error: allocationError } =

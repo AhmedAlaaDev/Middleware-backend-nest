@@ -808,6 +808,44 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ).toBe(1000);
     });
 
+    it('rejects an unbalanced Vendor Payment even when it has no withholding row', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 4800031,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-A',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-A',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+        {
+          UniqueId: 4800031,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 900,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Vendor Payment',
+          VoucherType: 'Transfer',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
+
+      const dfoLines = (processor as any).buildLines('4800031', rawLines);
+
+      expect(dfoLines).toHaveLength(1);
+      expect(dfoLines[0].GetErrors().join(' ')).toMatch(
+        /unbalanced.*vendorDebit=1000.*normalPaymentCredit=900/i,
+      );
+    });
+
     it('emits custody vs standard MarkedLines for Custody Settlement vendor lines', () => {
       const processor = createProcessor();
       jest
@@ -957,6 +995,80 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         OffsetAccountDisplayValue: 'BANK-001',
         MarkedInvoice: 'INV-CS',
       });
+    });
+
+    it('preserves a balanced Custody Settlement group when its cash row is shared by the whole voucher', () => {
+      const processor = createProcessor();
+      jest
+        .spyOn(processor as any, 'fetchExchangeRates')
+        .mockReturnValue({ exchangeRate: 100, reportingRate: 0 });
+
+      const rawLines = [
+        {
+          UniqueId: 4800021,
+          LINENUMBER: 1,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-TRADE',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          CURRENCYCODE: 'EGP',
+          INVOICE: 'INV-SHARED',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 4800021,
+          LINENUMBER: 2,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Petty Cash',
+          ACCOUNTDISPLAYVALUE: 'PSD EG',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 100,
+          CURRENCYCODE: 'EGP',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 4800021,
+          LINENUMBER: 3,
+          TRANSDATE: '2026-01-15',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'CUSTODY-1',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 900,
+          CURRENCYCODE: 'EGP',
+          DOCUMENT: 'DOC-1',
+          FINTAGDISPLAYVALUE: 'OP-1|TAG',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => {
+        const model = new CashEntryRawDataModel(line as any, 'Freight');
+        if (model.ACCOUNTDISPLAYVALUE === 'CUSTODY-1') {
+          model.VendorGroup = 'Custody';
+          model.IsCustodyVendor = true;
+        } else if (model.IsVendor) {
+          model.VendorGroup = 'Trade';
+        }
+        return model;
+      });
+
+      const dfoLines = (processor as any).buildLines('4800021', rawLines);
+
+      expect(dfoLines).toHaveLength(3);
+      expect(
+        dfoLines.map((line: any) => ({
+          account: line.AccountDisplayValue,
+          debit: line.DebitAmount,
+          credit: line.CreditAmount,
+          offset: line.OffsetAccountDisplayValue,
+        })),
+      ).toEqual([
+        { account: 'VEND-TRADE', debit: 1000, credit: 0, offset: '' },
+        { account: 'PSD EG', debit: 0, credit: 100, offset: '' },
+        { account: 'CUSTODY-1', debit: 0, credit: 900, offset: '' },
+      ]);
     });
 
     it('merges trade-vendor Custody Settlement into vendor-style offset lines', () => {

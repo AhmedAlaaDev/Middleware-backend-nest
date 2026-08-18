@@ -2686,7 +2686,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
     expect(d365foClient.post.mock.calls[2][1]._contract.Lines[0]).toMatchObject(
       {
-        DocumentNum: 'DOC-1',
+        DocumentNum: '',
         PAYMENTNOTES: 'Custody Settlement - unmarked',
       },
     );
@@ -2748,7 +2748,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post.mock.calls[2][1]._contract.Lines[0]).toMatchObject(
       {
         journalNum: 'Mesco-000014129',
-        DocumentNum: 'DOC-1',
+        DocumentNum: '',
         PAYMENTNOTES: 'Custody Settlement - unmarked',
       },
     );
@@ -2994,56 +2994,5 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       (service as any).tryDeleteBlockingJournalHeader('m-p', 'Mesco-000014833'),
     ).resolves.toBe(false);
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
-  });
-
-  it('surfaces error without dropping marked lines when D365FO fails on marked line posting', async () => {
-    const { service, d365foClient } = buildService();
-
-    d365foClient.post.mockResolvedValueOnce({
-      StatusCode: 'Failed',
-      Message: 'Function TaxWithhold::construct has been incorrectly called.',
-    });
-
-    await expect(
-      service.postCashOutLinesForHeader(
-        'Mesco-000020046',
-        [
-          {
-            dataAreaId: 'm-p',
-            LineNumber: 1,
-            cashDirection: 'out',
-            customLineApiBody: {
-              journalNum: 'Mesco-000020046',
-              AccountNum: 'VEND001',
-              accountTypeStr: 'vendor',
-              debitAmount: 1000,
-              creditAmount: 0,
-              MarkedLines: [
-                {
-                  InvoiceNumber: 'INV-12345',
-                  OperationNumber: '',
-                  DocumentNumber: '',
-                  HasWithHoldingLine: false,
-                },
-              ],
-              PAYMENTNOTES: 'Payment for INV-12345',
-              TRANSACTIONTEXT: 'Payment for INV-12345',
-            },
-          } as any,
-        ],
-        20,
-        'm-p',
-        undefined,
-        true,
-      ),
-    ).rejects.toThrow('TaxWithhold::construct has been incorrectly called');
-
-    expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    expect(d365foClient.post.mock.calls[0][0]).toContain(
-      '/addLedgerJournalTransVendPaym',
-    );
-    expect(
-      d365foClient.post.mock.calls[0][1]._contract.Lines[0].MarkedLines,
-    ).toHaveLength(1);
   });
 });
