@@ -2117,10 +2117,22 @@ export class CustomerPaymentJournalService {
     return normalized.includes('has been marked for settlement');
   }
 
+  private isTaxWithholdConstructError(message: string): boolean {
+    const normalized = String(message ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+    return (
+      normalized.includes('taxwithhold::construct') ||
+      normalized.includes('taxwithhold')
+    );
+  }
+
   private isCashOutSettlementRetryableError(message: string): boolean {
     return (
       this.isInvoiceAmountGreaterThanRemainingError(message) ||
-      this.isAlreadyMarkedForSettlementError(message)
+      this.isAlreadyMarkedForSettlementError(message) ||
+      this.isTaxWithholdConstructError(message)
     );
   }
 

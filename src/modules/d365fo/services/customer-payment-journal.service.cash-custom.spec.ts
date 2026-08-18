@@ -2995,4 +2995,63 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).resolves.toBe(false);
     expect(vendorPaymentJournalService.deleteHeader).not.toHaveBeenCalled();
   });
+
+  it('automatically falls back to unmarked retry when D365FO fails with TaxWithhold::construct error', async () => {
+    const { service, d365foClient } = buildService();
+
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Failed',
+        Message:
+          'Function TaxWithhold::construct has been incorrectly called.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: '1 line(s) processed successfully.',
+      });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000020046',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: 'Mesco-000020046',
+            AccountNum: 'VEND001',
+            accountTypeStr: 'vendor',
+            debitAmount: 1000,
+            creditAmount: 0,
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-12345',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+            PAYMENTNOTES: 'Payment for INV-12345',
+            TRANSACTIONTEXT: 'Payment for INV-12345',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+      undefined,
+      true,
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(d365foClient.post.mock.calls[0][0]).toContain(
+      '/addLedgerJournalTransVendPaym',
+    );
+    // 2nd call should be unmarked retry without MarkedLines
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0].MarkedLines,
+    ).toBeUndefined();
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0].PAYMENTNOTES,
+    ).toBe('Payment for INV-12345 - unmarked');
+  });
 });
