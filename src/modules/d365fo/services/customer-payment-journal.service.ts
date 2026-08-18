@@ -3391,6 +3391,10 @@ export class CustomerPaymentJournalService {
     const succeeded = failures.length === 0;
     const direction = this.resolveCashBulkDirection(endpoint);
     const label = direction === 'in' ? 'Cash-in' : 'Cash-out';
+    const cashOutFailureDiagnostics =
+      !succeeded && direction === 'out'
+        ? this.buildCashOutFailureDiagnostics(pendingLines)
+        : undefined;
 
     await this.operationalLogs.emit({
       level: succeeded ? 'info' : 'error',
@@ -3423,6 +3427,11 @@ export class CustomerPaymentJournalService {
           correlated: failure.correlated,
           message: failure.message,
         })),
+        ...(cashOutFailureDiagnostics
+          ? {
+              cashOutFailureDiagnostics,
+            }
+          : {}),
       },
       payload: this.logPayloads.captureExchange(undefined, result ?? null),
     });
@@ -3430,6 +3439,122 @@ export class CustomerPaymentJournalService {
 
   private resolveCashBulkDirection(endpoint: string): 'in' | 'out' {
     return endpoint.includes('addLedgerJournalTransCustPaym') ? 'in' : 'out';
+  }
+
+  private buildCashOutFailureDiagnostics(
+    pendingLines: CashBulkPendingLine[],
+  ): {
+    suspectLineCount: number;
+    suspectLines: Array<{
+      lineNumber: number;
+      accountType: string;
+      accountNum: string;
+      offsetAccountType: string;
+      offsetAccountDisplayValue: string;
+      vendorGroup: string;
+      paymentId: string;
+      debitAmount: number;
+      creditAmount: number;
+      taxGroup: string;
+      taxItemGroup: string;
+      itemWithholdingTaxGroup: string;
+      markedInvoice: string | null;
+      markedLinesCount: number;
+      hasMarkedWithholdingLine: boolean;
+      hasUnexpectedMarkedLines: boolean;
+      hasUnexpectedWithholdingFlags: boolean;
+    }>;
+    accountTypeCounts: Record<string, number>;
+    offsetAccountTypeCounts: Record<string, number>;
+  } {
+    const accountTypeCounts: Record<string, number> = {};
+    const offsetAccountTypeCounts: Record<string, number> = {};
+    const suspectLines = pendingLines
+      .map((line) => {
+        const body = line.body;
+        const accountType = String(body.accountTypeStr ?? '').trim();
+        const offsetAccountType = String(body.OffsetAccountTypeStr ?? '').trim();
+        const markedLines = Array.isArray(body.MarkedLines) ? body.MarkedLines : [];
+        const itemWithholdingTaxGroup = String(
+          body.ITEMWITHHOLDINGTAXGROUP ?? '',
+        ).trim();
+        const withholdingCalculationFlags = [
+          body.IsWithholdingTaxCalculate,
+          body.ISWITHHOLDINGTAXCALCULATE,
+          body.isWithholdingTaxCalculate,
+          body.TaxWithholdCalculate,
+          body.TAXWITHHOLDCALCULATE,
+          body.IsWithholdingCalculationEnabled,
+          body.ISWITHHOLDINGCALCULATIONENABLED,
+        ]
+          .map((value) => String(value ?? '').trim().toLowerCase())
+          .filter(Boolean);
+        const hasUnexpectedWithholdingFlags =
+          itemWithholdingTaxGroup !== '' ||
+          withholdingCalculationFlags.some((value) => value !== 'no');
+        const hasMarkedWithholdingLine = markedLines.some(
+          (markedLine) => markedLine?.HasWithHoldingLine === true,
+        );
+        const hasUnexpectedMarkedLines =
+          markedLines.length > 0 &&
+          accountType !== 'Vendor' &&
+          accountType !== 'vendor' &&
+          accountType !== 'Cust' &&
+          accountType !== 'cust';
+
+        accountTypeCounts[accountType || '(empty)'] =
+          (accountTypeCounts[accountType || '(empty)'] ?? 0) + 1;
+        offsetAccountTypeCounts[offsetAccountType || '(empty)'] =
+          (offsetAccountTypeCounts[offsetAccountType || '(empty)'] ?? 0) + 1;
+
+        if (
+          !hasUnexpectedWithholdingFlags &&
+          !hasMarkedWithholdingLine &&
+          !hasUnexpectedMarkedLines
+        ) {
+          return null;
+        }
+
+        return {
+          lineNumber: line.lineNumber,
+          accountType,
+          accountNum: String(body.AccountNum ?? ''),
+          offsetAccountType,
+          offsetAccountDisplayValue: String(
+            body.offsetAccountDisplayValue ?? '',
+          ),
+          vendorGroup: String(body.VendorGroup ?? ''),
+          paymentId: String(body.PAYMENTID ?? ''),
+          debitAmount: Number(body.debitAmount ?? 0),
+          creditAmount: Number(body.creditAmount ?? 0),
+          taxGroup: String(body.TaxGroup ?? ''),
+          taxItemGroup: String(body.TAXITEMGROUP ?? ''),
+          itemWithholdingTaxGroup,
+          markedInvoice:
+            body.MARKEDINVOICE === null || body.MARKEDINVOICE === undefined
+              ? null
+              : String(body.MARKEDINVOICE),
+          markedLinesCount: markedLines.length,
+          hasMarkedWithholdingLine,
+          hasUnexpectedMarkedLines,
+          hasUnexpectedWithholdingFlags,
+        };
+      })
+      .filter(
+        (
+          line,
+        ): line is NonNullable<
+          ReturnType<CustomerPaymentJournalService['buildCashOutFailureDiagnostics']>['suspectLines'][number]
+        > => line !== null,
+      )
+      .slice(0, 50);
+
+    return {
+      suspectLineCount: suspectLines.length,
+      suspectLines,
+      accountTypeCounts,
+      offsetAccountTypeCounts,
+    };
   }
 
   /**

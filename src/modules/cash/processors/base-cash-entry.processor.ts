@@ -1272,7 +1272,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): CashEntryDynDataModel[] {
     if (!this.isInbound()) {
       const safeTypes = new Set(lines.map((line) => line.SafeType));
-      if (safeTypes.size === 1 && lines[0]?.IsVendorPayment) {
+      if (
+        safeTypes.size === 1 &&
+        (lines[0]?.IsVendorPayment ||
+          this.shouldBuildCustodySettlementAsVendorPayment(lines))
+      ) {
         return this.buildVendorPaymentLines(
           sourceId,
           lines,
@@ -1328,6 +1332,59 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     // row via MarkedLines.
     return lines.map((line) =>
       this.buildSourceLineInbound(sourceId, line, lines, exchangeRateContext),
+    );
+  }
+
+  /**
+   * Some Custody Settlement groups are really standard vendor-invoice payment
+   * shapes under the wrong safe type. Reuse the Vendor Payment builder only
+   * for trade-vendor settlement groups with one payment offset and optional
+   * 223304 withholding companions.
+   */
+  private shouldBuildCustodySettlementAsVendorPayment(
+    lines: CashEntryRawDataModel[],
+  ): boolean {
+    if (lines.length === 0) return false;
+
+    const safeTypes = new Set(lines.map((line) => line.SafeType));
+    if (safeTypes.size !== 1 || lines[0]?.SafeType !== 'Custody Settlement') {
+      return false;
+    }
+
+    const withholdingLines = lines.filter((line) =>
+      this.isWithholdingLedgerLine(line),
+    );
+    const vendorDebitLines = lines.filter(
+      (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
+    );
+    const paymentOffsetLines = lines.filter(
+      (line) =>
+        Number(line.CREDITAMOUNT) > 0 &&
+        !line.IsVendor &&
+        !this.isWithholdingLedgerLine(line),
+    );
+
+    if (vendorDebitLines.length === 0 || paymentOffsetLines.length !== 1) {
+      return false;
+    }
+
+    for (const vendorLine of vendorDebitLines) {
+      const vendorGroup = String(vendorLine.VendorGroup ?? '')
+        .trim()
+        .toLowerCase();
+      const invoice = this.sanitizeInvoiceOutbound(
+        vendorLine.MARKEDINVOICE || vendorLine.INVOICE,
+      );
+      if (vendorLine.IsCustodyVendor || vendorGroup === 'custody' || !invoice) {
+        return false;
+      }
+    }
+
+    return lines.every(
+      (line) =>
+        vendorDebitLines.includes(line) ||
+        paymentOffsetLines.includes(line) ||
+        withholdingLines.includes(line),
     );
   }
 

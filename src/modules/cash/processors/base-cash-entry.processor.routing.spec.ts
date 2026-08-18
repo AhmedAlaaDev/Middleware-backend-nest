@@ -884,7 +884,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
-    it('keeps Custody Settlement withholding separate and marks the primary vendor line', () => {
+    it('merges trade-vendor Custody Settlement into vendor-style offset lines', () => {
       const processor = createProcessor();
       jest
         .spyOn(processor as any, 'fetchExchangeRates')
@@ -934,31 +934,29 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const dfoLines = (processor as any).buildLines('480003', rawLines);
 
-      expect(dfoLines).toHaveLength(3);
+      expect(dfoLines).toHaveLength(2);
       expect(dfoLines.map((line: any) => line.AccountDisplayValue)).toEqual([
         'VEND-001',
-        'BANK-001',
         'VEND-001',
       ]);
-      expect(dfoLines[0].OffsetAccountDisplayValue).toBeFalsy();
-      expect(dfoLines[1].OffsetAccountDisplayValue).toBeFalsy();
-      expect(String(dfoLines[2].OffsetAccountDisplayValue)).toContain('223304');
-      expect(dfoLines[2].OffsetAccountType).toBe('Ledger');
-      expect(dfoLines[2].IsWithholdingCalculationEnabled).toBe('No');
+      expect(dfoLines[0].OffsetAccountDisplayValue).toBe('BANK-001');
+      expect(String(dfoLines[1].OffsetAccountDisplayValue)).toContain('223304');
+      expect(dfoLines[1].OffsetAccountType).toBe('Ledger');
+      expect(dfoLines[1].IsWithholdingCalculationEnabled).toBe('No');
       expect(dfoLines[0].MarkedLines).toEqual([
         expect.objectContaining({
           InvoiceNumber: 'INV-CS-WH',
           HasWithHoldingLine: true,
         }),
       ]);
-      expect(dfoLines[2].MarkedLines).toEqual([
+      expect(dfoLines[1].MarkedLines).toEqual([
         expect.objectContaining({
           InvoiceNumber: 'INV-CS-WH',
           HasWithHoldingLine: true,
         }),
       ]);
-      expect(dfoLines[1].MarkedLines).toEqual([]);
       expect(dfoLines[0].SettlementTargetType).toBe('VendorInvoice');
+      expect(dfoLines[1].SettlementTargetType).toBe('VendorInvoice');
       expect(dfoLines[0].Description).not.toContain('Unmarked');
       expect(dfoLines[0].TransactionText).not.toContain('Unmarked');
       expect(dfoLines[1].Description).not.toContain('Unmarked');
