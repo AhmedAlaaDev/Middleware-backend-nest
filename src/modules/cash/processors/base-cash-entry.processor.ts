@@ -3095,21 +3095,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    // When the journal group contains a 223304 withholding ledger line,
-    // D365 Finance handles settlement internally — MarkedLines must be empty
-    // so the AP journal does not double-mark the invoice.
     const hasGroupWithholding =
       Boolean(withholdingLine) ||
       (groupLines ? this.groupHasWithholdingLine(groupLines) : false);
-    const shouldSuppressForWithholding =
-      supportsSettlementMarking && sourceLine.IsVendor && hasGroupWithholding;
 
-    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows.
-    // Skip MarkedLines entirely when the group contains a 223304 WHT line.
+    // Build MarkedLines for vendor rows that support settlement marking.
+    // The presence of a 223304 withholding ledger line in the group sets
+    // HasWithHoldingLine = true but no longer suppresses the mark — D365
+    // needs the invoice reference to settle correctly.
     const markedLine =
-      supportsSettlementMarking && sourceLine.IsVendor && !shouldSuppressForWithholding
+      supportsSettlementMarking && sourceLine.IsVendor
         ? this.buildMarkedLine(sourceLine, withholdingLine)
         : undefined;
+    if (markedLine && hasGroupWithholding) {
+      markedLine.HasWithHoldingLine = true;
+    }
     const hasSettlementTarget = Boolean(
       markedLine &&
       (markedLine.InvoiceNumber ||
@@ -3117,14 +3117,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         markedLine.OperationNumber),
     );
     const effectiveMarkedLines =
-      shouldSuppressForWithholding ? [] : (hasSettlementTarget && markedLine ? [markedLine] : []);
-    // Mirror the paired vendor-payment formatter: when this line could settle
-    // but has no invoice/doc/operation mark, or when withholding suppressed it,
-    // tag the FO line description.
+      hasSettlementTarget && markedLine ? [markedLine] : [];
     if (
       supportsSettlementMarking &&
       sourceLine.IsVendor &&
-      (!hasSettlementTarget || shouldSuppressForWithholding) &&
+      !hasSettlementTarget &&
       !description.toLowerCase().includes('unmarked')
     ) {
       description = `${description} - unmarked`;
@@ -3689,11 +3686,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected sanitizePaymentMethod(value?: unknown): string {
     const s = String(value ?? '').trim();
     if (!s) return '';
+    // Filter out date patterns that may have been mapped incorrectly from Excel
     if (
       /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s) ||
       /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s) ||
       /^\d{4}-\d{2}-\d{2}T/.test(s)
     ) {
+      this.logger.warn(
+        `[DATA QUALITY] Date-like value "${s}" found in PaymentMethod field, sanitizing to empty string`,
+      );
       return '';
     }
     return s;

@@ -207,14 +207,11 @@ describe('Custody Settlement MarkedLines workbook regression', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Scenario 2 – Withholding suppression: groups WITH a 223304 line must
-  // produce empty MarkedLines and "- unmarked" in the description.
-  //
-  // On UNFIXED code this test FAILS (vendor lines still carry MarkedLines).
-  // After the fix this test PASSES — confirming the bug is resolved.
+  // Scenario 2 – Withholding groups: vendor lines in groups WITH a 223304
+  // line must still produce MarkedLines with HasWithHoldingLine = true.
   // -------------------------------------------------------------------------
   describe('Scenario 2 — vendor lines in groups WITH a 223304 withholding ledger line', () => {
-    it('suppresses MarkedLines and appends "- unmarked" for vendor lines whose UniqueId group contains a 223304 ledger line', async () => {
+    it('preserves MarkedLines with HasWithHoldingLine=true for vendor lines whose UniqueId group contains a 223304 ledger line', async () => {
       const rows = await loadFixture();
       const processor = await buildProcessor(rows);
 
@@ -223,17 +220,13 @@ describe('Custody Settlement MarkedLines workbook regression', () => {
         'm-p',
       )) as any[];
 
-      // Identify UniqueIds that contain at least one 223304 withholding row
       const withholdingUniqueIds = new Set<string>(
         (rows as any[])
           .filter((r) => isWithholdingLedgerRow(r))
           .map((r) => String(r.UNIQUEID ?? r.UniqueId ?? '').trim()),
       );
 
-      // Skip this assertion block if the fixture has no withholding groups
-      // (makes the test portable across fixtures without 223304 rows)
       if (withholdingUniqueIds.size === 0) {
-        // No withholding groups in fixture — nothing to assert
         return;
       }
 
@@ -245,31 +238,33 @@ describe('Custody Settlement MarkedLines workbook regression', () => {
         withholdingUniqueIds.has(String(line.PaymentId ?? '').trim()),
       );
 
-      // There must be at least one vendor line in a withholding group
       expect(withholdingGroupVendors.length).toBeGreaterThan(0);
 
-      // Bug Condition → Expected Behavior:
-      // Every vendor line in a withholding group must have empty MarkedLines
-      expect(
-        withholdingGroupVendors.every((line) => line.MarkedLines.length === 0),
-      ).toBe(true);
+      // Vendor lines in withholding groups must still have MarkedLines
+      // populated (with the invoice reference) so D365 can settle correctly.
+      const vendorsWithInvoice = withholdingGroupVendors.filter(
+        (line) => line.Invoice || line.MarkedInvoice,
+      );
+      if (vendorsWithInvoice.length > 0) {
+        expect(
+          vendorsWithInvoice.every((line) => line.MarkedLines.length > 0),
+        ).toBe(true);
 
-      // And the description must include "- unmarked"
-      expect(
-        withholdingGroupVendors.every((line) =>
-          String(line.Description ?? '')
-            .toLowerCase()
-            .includes('unmarked'),
-        ),
-      ).toBe(true);
+        expect(
+          vendorsWithInvoice.every((line) =>
+            line.MarkedLines.some((ml: any) => ml.HasWithHoldingLine === true),
+          ),
+        ).toBe(true);
+      }
     });
   });
 
   // -------------------------------------------------------------------------
-  // Scenario 3 – Integration: full mapLines pipeline respects suppression
+  // Scenario 3 – Integration: full mapLines pipeline preserves MarkedLines
+  // for all vendor lines (including withholding groups).
   // -------------------------------------------------------------------------
-  describe('Scenario 3 — full mapLines pipeline with withholding suppression', () => {
-    it('produces MarkedLines=[] via PostCashBatchToDFOHandler for withholding-group vendor lines and MarkedLines.length>0 for non-withholding-group vendor lines', async () => {
+  describe('Scenario 3 — full mapLines pipeline with withholding groups', () => {
+    it('produces MarkedLines via PostCashBatchToDFOHandler for all vendor lines that have an invoice', async () => {
       const rows = await loadFixture();
       const processor = await buildProcessor(rows);
 
@@ -277,12 +272,6 @@ describe('Custody Settlement MarkedLines workbook regression', () => {
         rows as any,
         'm-p',
       )) as any[];
-
-      const withholdingUniqueIds = new Set<string>(
-        (rows as any[])
-          .filter((r) => isWithholdingLedgerRow(r))
-          .map((r) => String(r.UNIQUEID ?? r.UniqueId ?? '').trim()),
-      );
 
       const vendors = result.filter(
         (line) => String(line.AccountType).toLowerCase() === 'vend',
@@ -309,33 +298,15 @@ describe('Custody Settlement MarkedLines workbook regression', () => {
         route,
       );
 
-      // Rebuild a lookup: mapped index → original vendor line's PaymentId
-      const vendorPaymentIds = vendors.map((line) =>
-        String(line.PaymentId ?? '').trim(),
-      );
+      // All vendor lines with an invoice should have populated MarkedLines
+      const vendorsWithInvoice = vendors
+        .map((line, i) => ({ line, mapped: mapped[i] }))
+        .filter(({ line }) => line.Invoice || line.MarkedInvoice);
 
-      if (withholdingUniqueIds.size > 0) {
-        // Withholding-group vendor lines: MarkedLines must be empty
-        const whtMapped = mapped.filter((_: any, i: number) =>
-          withholdingUniqueIds.has(vendorPaymentIds[i]),
-        );
-        if (whtMapped.length > 0) {
-          expect(
-            whtMapped.every(
-              (line: any) => (line.customLineApiBody.MarkedLines?.length ?? 0) === 0,
-            ),
-          ).toBe(true);
-        }
-      }
-
-      // Non-withholding-group vendor lines: MarkedLines must be populated
-      const nonWhtMapped = mapped.filter((_: any, i: number) =>
-        !withholdingUniqueIds.has(vendorPaymentIds[i]),
-      );
-      if (nonWhtMapped.length > 0) {
+      if (vendorsWithInvoice.length > 0) {
         expect(
-          nonWhtMapped.every(
-            (line: any) => (line.customLineApiBody.MarkedLines?.length ?? 0) > 0,
+          vendorsWithInvoice.every(
+            ({ mapped: m }) => (m.customLineApiBody.MarkedLines?.length ?? 0) > 0,
           ),
         ).toBe(true);
       }
