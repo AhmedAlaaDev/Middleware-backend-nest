@@ -1218,7 +1218,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     ]);
   });
 
-  it('keeps the Custody Settlement primary mark when UniqueId has 223304', () => {
+  it('leaves Custody Settlement vendor lines unmarked when UniqueId has 223304', () => {
     const handler = buildHandler();
     const routing = new CashJournalRoutingService();
     const route = routing.resolve({
@@ -1267,15 +1267,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       route,
     );
 
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([
-      expect.objectContaining({
-        InvoiceNumber: 'INV-1',
-        HasWithHoldingLine: true,
-      }),
-    ]);
-    expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toContain(
-      'Unmarked',
-    );
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toContain('Unmarked');
     expect(result[1].customLineApiBody.accountTypeStr).toBe('Vendor');
     expect(result[1].customLineApiBody.AccountNum).toBe('VEND-001');
     expect(result[1].customLineApiBody.offsetAccountDisplayValue).toBe(
@@ -1285,12 +1278,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[1].customLineApiBody.debitAmount).toBe(50);
     expect(result[1].customLineApiBody.creditAmount).toBe(0);
     expect(result[1].customLineApiBody.IsWithholdingTaxCalculate).toBe('No');
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      expect.objectContaining({
-        InvoiceNumber: 'INV-1',
-        HasWithHoldingLine: true,
-      }),
-    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
   });
 
   it('maps Custody Settlement standard-vendor MarkedLines with InvoiceNumber only', () => {
@@ -1407,29 +1395,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
 
     expect(result).toHaveLength(2);
-    // Both portions carry the invoice mark. The companion also preserves its
-    // top-level document number from the source row.
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([
-      expect.objectContaining({
-        InvoiceNumber: '3829',
-        HasWithHoldingLine: true,
-      }),
-    ]);
-    expect(result[0].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
-      /unmarked/i,
-    );
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '3829',
-        OperationNumber: 'OP-3829',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    // When a Vendor Payment group contains a 223304 withholding companion,
+    // Finance handles settlement internally. MarkedLines must be empty so the
+    // AP journal does not attempt to double-mark the invoice.
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    // The line description must carry "- unmarked" to flag the suppression.
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toMatch(/unmarked/i);
+    // The withholding companion line (Vend→223304 offset) is also suppressed.
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
     expect(result[1].customLineApiBody.DocumentNum).toBe('18369');
-    expect(result[1].customLineApiBody.TRANSACTIONTEXT).not.toMatch(
-      /unmarked/i,
-    );
     expect(result[1].customLineApiBody.offsetAccountDisplayValue).toContain(
       '223304',
     );
@@ -1583,35 +1557,24 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result).toHaveLength(3);
 
-    // Line 1: Trade vendor with offset
+    // Line 1: Trade vendor with offset — group CS-GROUP-1 contains a 223304
+    // ledger line, so Finance handles settlement internally. MarkedLines are
+    // suppressed for ALL vendor lines in the group.
     const line1 = result[0].customLineApiBody;
     expect(line1.AccountNum).toBe('Su-000072');
     expect(line1.accountTypeStr).toBe('Vendor');
     expect(line1.offsetAccountDisplayValue).toBe('BANK-001');
     expect(line1.OffsetAccountTypeStr).toBe('Bank');
-    expect(line1.MarkedLines).toEqual([
-      {
-        InvoiceNumber: 'INV-CS-001',
-        OperationNumber: 'OP-CS-1',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    expect(line1.MarkedLines).toEqual([]);
 
-    // Line 2: Custody vendor with offset
+    // Line 2: Custody vendor with offset — also suppressed because the group
+    // contains the 223304 companion.
     const line2 = result[1].customLineApiBody;
     expect(line2.AccountNum).toBe('4080');
     expect(line2.accountTypeStr).toBe('Vendor');
     expect(line2.offsetAccountDisplayValue).toBe('Airport EG');
     expect(line2.OffsetAccountTypeStr).toBe('RCash');
-    expect(line2.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '',
-        OperationNumber: 'OP-CS-1',
-        DocumentNumber: '16046',
-        HasWithHoldingLine: false,
-      },
-    ]);
+    expect(line2.MarkedLines).toEqual([]);
 
     // Line 3: stored Ledger 223304 is rewritten to Vendor→223304 so FO
     // never calls TaxWithhold::construct(Ledger) on retry.
@@ -1623,14 +1586,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(line3.debitAmount).toBe(50);
     expect(line3.creditAmount).toBe(0);
     expect(line3.IsWithholdingTaxCalculate).toBe('No');
-    expect(line3.MarkedLines).toEqual([
-      {
-        InvoiceNumber: 'INV-CS-001',
-        OperationNumber: 'OP-CS-1',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    // The WHT companion is also in the withholding group — MarkedLines suppressed.
+    expect(line3.MarkedLines).toEqual([]);
   });
 
   it('rewrites a stored Ledger 223304 cash-out line to Vendor offset on post', () => {
@@ -1707,14 +1664,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[1].customLineApiBody.TaxWithholdCalculate).toBe('No');
     expect(result[1].customLineApiBody.IsWithholdingCalculationEnabled).toBe('No');
     expect(result[1].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('');
-    expect(result[1].customLineApiBody.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '120',
-        OperationNumber: 'O26-EXP-OC-1759',
-        DocumentNumber: '',
-        HasWithHoldingLine: true,
-      },
-    ]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[1].customLineApiBody.TRANSACTIONTEXT).toContain('Unmarked');
   });
 
   it('rewrites stored Ledger 223301, 223302, and 223305 withholding lines to Vendor offsets on post', () => {

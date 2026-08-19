@@ -1307,6 +1307,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           line.IsVendor
             ? this.findWithholdingLine(line, withholdingLines)
             : undefined,
+          lines,
         ),
       );
       built.push(
@@ -1430,6 +1431,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         line.IsVendor
           ? this.findWithholdingLine(line, remainingWithholdingLines)
           : undefined,
+        lines,
       ),
     );
     preservedBuilt.push(
@@ -3011,6 +3013,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     sourceLine: CashEntryRawDataModel,
     exchangeRateContext?: CashOutExchangeRateContext,
     withholdingLine?: CashEntryRawDataModel,
+    groupLines?: CashEntryRawDataModel[],
   ): CashEntryDynDataModel {
     const dimensionString =
       sourceLine.ACCOUNTTYPE === 'Ledger'
@@ -3092,10 +3095,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const vendorGroup = String(sourceLine.VendorGroup ?? '').trim();
     const isCustodyVendor =
       sourceLine.IsCustodyVendor || vendorGroup.toLowerCase() === 'custody';
-    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows,
-    // including groups that carry a separate 223304 withholding transaction.
+    // When the journal group contains a 223304 withholding ledger line,
+    // D365 Finance handles settlement internally — MarkedLines must be empty
+    // so the AP journal does not double-mark the invoice.
+    const hasGroupWithholding =
+      Boolean(withholdingLine) ||
+      (groupLines ? this.groupHasWithholdingLine(groupLines) : false);
+    const shouldSuppressForWithholding =
+      supportsSettlementMarking && sourceLine.IsVendor && hasGroupWithholding;
+
+    // Vendor Payment and Custody Settlement emit MarkedLines for vendor rows.
+    // Skip MarkedLines entirely when the group contains a 223304 WHT line.
     const markedLine =
-      supportsSettlementMarking && sourceLine.IsVendor
+      supportsSettlementMarking && sourceLine.IsVendor && !shouldSuppressForWithholding
         ? this.buildMarkedLine(sourceLine, withholdingLine)
         : undefined;
     const hasSettlementTarget = Boolean(
@@ -3104,13 +3116,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         markedLine.DocumentNumber ||
         markedLine.OperationNumber),
     );
-    const markedLines = hasSettlementTarget && markedLine ? [markedLine] : [];
+    const effectiveMarkedLines =
+      shouldSuppressForWithholding ? [] : (hasSettlementTarget && markedLine ? [markedLine] : []);
     // Mirror the paired vendor-payment formatter: when this line could settle
-    // but has no invoice/doc/operation mark, tag the FO line description.
+    // but has no invoice/doc/operation mark, or when withholding suppressed it,
+    // tag the FO line description.
     if (
       supportsSettlementMarking &&
       sourceLine.IsVendor &&
-      !hasSettlementTarget &&
+      (!hasSettlementTarget || shouldSuppressForWithholding) &&
       !description.toLowerCase().includes('unmarked')
     ) {
       description = `${description} - unmarked`;
@@ -3197,7 +3211,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           : sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
       MarkedInvoice: markedInvoice,
-      MarkedLines: markedLines,
+      MarkedLines: effectiveMarkedLines,
       VendorGroup: sourceLine.IsVendor ? vendorGroup : '',
       dataAreaId: this.company,
       ExchRateSecond: 0,
@@ -3716,6 +3730,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       (isLedger && mainAccount.startsWith('223304')) ||
       (isOffsetLedger && offsetMainAccount.startsWith('223304'))
     );
+  }
+
+  /**
+   * Returns true when any line in the UniqueId group is a 223304 withholding
+   * ledger line. When true, vendor lines in that group must not populate
+   * MarkedLines so that D365 Finance does not attempt to double-mark the
+   * invoice after the WHT companion already handles settlement.
+   */
+  private groupHasWithholdingLine(
+    groupLines: CashEntryRawDataModel[],
+  ): boolean {
+    return groupLines.some((line) => this.isWithholdingLedgerLine(line));
   }
 
   /**
