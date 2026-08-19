@@ -4,6 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
+import {
+  VendorInvoiceJournalService,
+  VendorPaymentSettlementVerification,
+} from './vendor-invoice-journal.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
 import { IConfig, ResilienceConfig } from '@/config';
@@ -41,7 +45,7 @@ interface CashBulkLineFailure {
   correlated: boolean;
 }
 
-type CashBulkAttempt = 'initial' | 'unmarked-retry';
+type CashBulkAttempt = 'initial';
 
 /** Position of one request within the journal batch it belongs to. */
 interface CashBulkBatch {
@@ -82,6 +86,7 @@ export class CustomerPaymentJournalService {
     private readonly retryService: RetryService,
     private readonly dfoErrorExtractor: DfoErrorExtractorService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
+    private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
     private readonly operationalLogs: OperationalLoggerService,
     private readonly logPayloads: LogPayloadService,
     configService: ConfigService<IConfig>,
@@ -228,7 +233,7 @@ export class CustomerPaymentJournalService {
     chunkSize: number = 20,
     dataAreaId?: string,
     existingLinesLoader?: CashJournalExistingLinesLoader,
-    allowUnmarkedInvoiceRetry = true,
+    allowUnmarkedInvoiceRetry = false,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     return this.postCashLinesForHeader(
       headerKey,
@@ -298,6 +303,7 @@ export class CustomerPaymentJournalService {
         headerKey,
         lines,
         existingLines,
+        dataAreaId || lines[0]?.dataAreaId || '',
         allowUnmarkedInvoiceRetry,
       );
     }
@@ -380,6 +386,7 @@ export class CustomerPaymentJournalService {
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: Set<number>,
+    dataAreaId: string,
     allowUnmarkedInvoiceRetry: boolean,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const pendingLines: CashBulkPendingLine[] = [];
@@ -415,6 +422,7 @@ export class CustomerPaymentJournalService {
         endpoint,
         headerKey,
         pendingLines.slice(index, index + batchSize),
+        dataAreaId,
         allowUnmarkedInvoiceRetry,
         { number: Math.floor(index / batchSize) + 1, total: totalBatches },
       );
@@ -428,14 +436,17 @@ export class CustomerPaymentJournalService {
 
   /**
    * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
-   * journal batch, and retry the lines the endpoint rejected because a marked
-   * invoice no longer covers the paid amount.
+   * journal batch and fail closed on any D365 rejection.
+   *
+   * Cash-out vendor-payment posting must preserve the original settlement
+   * intent. Infrastructure never rewrites a marked payment into an unmarked one.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
     headerKey: string,
     pendingLines: CashBulkPendingLine[],
-    allowUnmarkedInvoiceRetry: boolean,
+    dataAreaId: string,
+    _allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
   ): Promise<void> {
     if (pendingLines.length === 0) return;
@@ -459,49 +470,16 @@ export class CustomerPaymentJournalService {
       failures,
     });
 
-    if (failures.length === 0) return;
-
-    const retryableFailures = failures.filter((failure) =>
-      this.isInvoiceAmountGreaterThanRemainingError(failure.message),
-    );
-    const canRetry =
-      allowUnmarkedInvoiceRetry &&
-      retryableFailures.length === failures.length &&
-      failures.every((failure) => failure.correlated);
-
-    if (!canRetry) {
-      throw new Error(this.formatCashBulkFailure(headerKey, failures));
-    }
-
-    const retryLines = retryableFailures.map((failure) => {
-      const pendingLine = pendingLines[failure.requestIndex];
-      return {
-        ...pendingLine,
-        body: this.buildUnmarkedCashLine(pendingLine.body),
-      };
-    });
-    const retryResult = await this.postCustomCashLines(
-      endpoint,
-      retryLines.map((line) => line.body),
-      {
+    if (failures.length === 0) {
+      await this.verifyCashOutMarkedSettlements(
         headerKey,
-        pendingLines: retryLines,
-        attempt: 'unmarked-retry',
+        pendingLines,
+        dataAreaId,
         batch,
-      },
-    );
-    const retryFailures = this.extractCashBulkFailures(retryResult, retryLines);
-    await this.logCashBulkOutcome({
-      headerKey,
-      pendingLines: retryLines,
-      attempt: 'unmarked-retry',
-      batch,
-      result: retryResult,
-      failures: retryFailures,
-    });
-    if (retryFailures.length > 0) {
-      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+      );
+      return;
     }
+    throw new Error(this.formatCashBulkFailure(headerKey, failures));
   }
 
   /**
@@ -590,8 +568,8 @@ export class CustomerPaymentJournalService {
 
     const message = this.cashBulkResponseMessage(result);
 
-    // All-or-nothing TTS rolled the chunk back; attribute a remaining-amount
-    // error to every line so unmarked retry can clear settlements for all.
+    // All-or-nothing TTS rolled the chunk back; attribute the message to every
+    // submitted line so the caller gets a deterministic per-line failure report.
     if (this.isInvoiceAmountGreaterThanRemainingError(message)) {
       return pendingLines.map((line, requestIndex) => ({
         requestIndex,
@@ -814,6 +792,121 @@ export class CustomerPaymentJournalService {
     }
   }
 
+  private async verifyCashOutMarkedSettlements(
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+    dataAreaId: string,
+    batch: CashBulkBatch,
+  ): Promise<void> {
+    const verificationTargets = pendingLines
+      .map((line) => ({
+        lineNumber: line.lineNumber,
+        vendorAccount: String(line.body.AccountNum ?? '').trim(),
+        expectedInvoices: Array.isArray(line.body.MarkedLines)
+          ? line.body.MarkedLines.map((markedLine) =>
+              String(markedLine?.InvoiceNumber ?? '').trim(),
+            ).filter(Boolean)
+          : [],
+      }))
+      .filter(
+        (line) =>
+          Boolean(line.vendorAccount) && line.expectedInvoices.length > 0,
+      );
+
+    if (verificationTargets.length === 0) return;
+
+    const verification = await this.pollCashOutSettlementVerification(
+      dataAreaId,
+      headerKey,
+      verificationTargets,
+    );
+    await this.logCashSettlementVerification(headerKey, batch, verification);
+
+    const failures = verification.filter(
+      (result) => result.status !== 'VERIFIED',
+    );
+    if (failures.length === 0) return;
+
+    throw new Error(
+      `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${failures
+        .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
+        .join('; ')}`,
+    );
+  }
+
+  private async pollCashOutSettlementVerification(
+    dataAreaId: string,
+    headerKey: string,
+    verificationTargets: Array<{
+      lineNumber: number;
+      vendorAccount: string;
+      expectedInvoices: string[];
+    }>,
+  ): Promise<VendorPaymentSettlementVerification[]> {
+    const maxAttempts = 3;
+    const delayMs = 1500;
+    let lastResults: VendorPaymentSettlementVerification[] = [];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      lastResults =
+        await this.vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements(
+          {
+            company: dataAreaId,
+            journalBatchNumber: headerKey,
+            lines: verificationTargets,
+          },
+        );
+
+      if (lastResults.every((result) => result.status === 'VERIFIED')) {
+        return lastResults;
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return lastResults;
+  }
+
+  private async logCashSettlementVerification(
+    headerKey: string,
+    batch: CashBulkBatch,
+    verification: VendorPaymentSettlementVerification[],
+  ): Promise<void> {
+    const succeeded = verification.every(
+      (result) => result.status === 'VERIFIED',
+    );
+
+    await this.operationalLogs.emit({
+      level: succeeded ? 'info' : 'error',
+      message: succeeded
+        ? `Cash-out settlement verification passed for journal ${headerKey} request ${batch.number}/${batch.total}`
+        : `Cash-out settlement verification failed for journal ${headerKey} request ${batch.number}/${batch.total}`,
+      context: CustomerPaymentJournalService.name,
+      eventType: 'd365fo.cash-out.settlement-verification',
+      status: succeeded ? 'verified' : 'not_verified',
+      metadata: {
+        journalNum: headerKey,
+        requestNumber: batch.number,
+        requestCount: batch.total,
+        verificationCount: verification.length,
+        settlementVerificationStatus: succeeded ? 'VERIFIED' : 'NOT_VERIFIED',
+        results: verification.map((result) => ({
+          lineNumber: result.lineNumber,
+          status: result.status,
+          expectedVendorAccount: result.expectedVendorAccount,
+          expectedInvoices: result.expectedInvoices,
+          matchedInvoices: result.matchedInvoices,
+          settlementAmount: result.settlementAmount,
+          journalMarkedInvoice: result.journalMarkedInvoice,
+          settleVoucher: result.settleVoucher,
+          reason: result.reason,
+        })),
+      },
+    });
+  }
+
   /**
    * Record the complete `{ _contract: { Lines: [...] } }` body together with
    * the request-index-to-line-number map used to correlate response errors.
@@ -845,6 +938,14 @@ export class CustomerPaymentJournalService {
         maxLinesPerRequest: this.cashOutBulkBatchSize,
         lineCount,
         lineNumbers: context.pendingLines.map((line) => line.lineNumber),
+        settlementIntent: context.pendingLines.some(
+          (line) => (line.body.MarkedLines?.length ?? 0) > 0,
+        )
+          ? 'MARKED'
+          : 'UNMARKED',
+        markedLineNumbers: context.pendingLines
+          .filter((line) => (line.body.MarkedLines?.length ?? 0) > 0)
+          .map((line) => line.lineNumber),
       },
       payload: this.logPayloads.captureExchange(requestBody),
     });
@@ -894,6 +995,14 @@ export class CustomerPaymentJournalService {
           correlated: failure.correlated,
           message: failure.message,
         })),
+        settlementIntent: pendingLines.some(
+          (line) => (line.body.MarkedLines?.length ?? 0) > 0,
+        )
+          ? 'MARKED'
+          : 'UNMARKED',
+        settlementVerificationStatus: succeeded
+          ? 'PENDING_VERIFICATION'
+          : 'SKIPPED',
       },
       payload: this.logPayloads.captureExchange(undefined, result ?? null),
     });

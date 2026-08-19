@@ -11,6 +11,8 @@ export interface CashEntryMarkedLine {
   HasWithHoldingLine: boolean;
 }
 
+export type CashSettlementIntent = 'Marked' | 'Unmarked' | 'None';
+
 export class CashEntryDynDataModel extends EntryDynDataModel {
   /** Customer name */
   CustomerName: string;
@@ -51,6 +53,7 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
   /** Marked invoice */
   MarkedInvoice: string;
   MarkedLines: CashEntryMarkedLine[];
+  SettlementIntent: CashSettlementIntent;
   VendorGroup: string;
 
   /** Safe type */
@@ -84,6 +87,7 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
       data.DefaultDimensionsForOffsetAccountDisplayValue || '';
     this.MarkedInvoice = data.MarkedInvoice || '';
     this.MarkedLines = data.MarkedLines || [];
+    this.SettlementIntent = data.SettlementIntent || 'None';
     this.VendorGroup = data.VendorGroup || '';
     this.SafeType = data.SafeType || ('' as EntrySafeType);
     this.VoucherType = data.VoucherType || ('' as EntryVoucherType);

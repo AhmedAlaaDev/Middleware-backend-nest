@@ -10,28 +10,33 @@ import {
   sanitizeCashOutboundInvoice,
 } from '@/modules/cash/policies/cash-account.policy';
 import {
+  assignCashMissingUniqueIds,
+  classifyCashLines,
+} from '@/modules/cash/policies/cash-batch.policy';
+import {
   resolveCashOffsetAccountDisplayValue,
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   firstCashFinancialTag,
-  formatCashInboundInvoice,
   replaceCashShippingLineWithVendorName,
 } from '@/modules/cash/policies/cash-invoice.policy';
-import {
-  analyzeCashWithholding,
-  isCashWithholdingLedgerLine,
-} from '@/modules/cash/policies/cash-withholding.policy';
-import {
-  filterCashSettlementLines,
-  resolveCashPaymentMethod,
-} from '@/modules/cash/policies/cash-line.policy';
 import {
   getCashCollectionDescriptionLabel,
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
-import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
-import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
+import { resolveCashPaymentMethod } from '@/modules/cash/policies/cash-line.policy';
+import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
+import {
+  analyzeCashWithholding,
+  isCashWithholdingLedgerLine,
+} from '@/modules/cash/policies/cash-withholding.policy';
+import { resolveVendorPaymentMarking } from '@/modules/cash/processors/outbound/vendor-payment';
+import {
+  buildCashLine,
+  buildCashMoreThanTwoLines,
+  buildCashTwoLines,
+} from '@/modules/cash/services/cash-group-line-building.service';
 import {
   buildCashInboundInvalidLine,
   createCashInboundDynamicLine,
@@ -41,34 +46,29 @@ import {
   resolveCashInboundRates,
 } from '@/modules/cash/services/cash-in-line-building.service';
 import {
-  buildCashLine,
-  buildCashMoreThanTwoLines,
-  buildCashTwoLines,
-} from '@/modules/cash/services/cash-group-line-building.service';
-import {
-  buildCashInvoiceLines,
-  buildCashLines,
-} from '@/modules/cash/services/cash-line-building.service';
-import {
-  assignCashMissingUniqueIds,
-  classifyCashLines,
-} from '@/modules/cash/policies/cash-batch.policy';
-import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
-import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
 } from '@/modules/cash/services/cash-journal-routing.service';
 import {
+  buildCashInvoiceLines,
+  buildCashLines,
+} from '@/modules/cash/services/cash-line-building.service';
+import {
   CashOutExchangeRateContext,
   CashOutExchangeRateResolution,
   CashOutExchangeRateService,
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
+import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
+import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
 } from '@/modules/d365fo/services/general-journal.service';
-import { VendorInvoiceJournalService } from '@/modules/d365fo/services/vendor-invoice-journal.service';
+import {
+  VendorInvoiceJournalService,
+  VendorInvoiceSettlementSnapshot,
+} from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { VendorService } from '@/modules/d365fo/services/vendor.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
@@ -94,10 +94,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
   /**
-   * Cash-out: Set of `invoice|vendorAccount` keys that exist on
-   * VendInvoiceJournalLines (filled once per enrich via batched FO lookup).
+   * Cash-out: cached D365 invoice snapshots keyed by `invoice|vendor`.
    */
-  protected vendorInvoiceExistsMap: Set<string> | null = null;
+  protected vendorInvoiceSnapshotMap: Map<
+    string,
+    VendorInvoiceSettlementSnapshot
+  > | null = null;
 
   protected readonly MAIN_ACCOUNTS_NP_MAP: Record<number, number> = {
     211201: 223201,
@@ -230,7 +232,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const sortedLines = this.sortRawDataByLineNumber(rawLines);
     this.logger.debug(`[STEP 1.5] Sorted to ${sortedLines.length} lines`);
 
-    let processedLines = sortedLines;
+    const processedLines = sortedLines;
     let withholdingStats: any = null;
 
     if (!this.isInbound()) {
@@ -304,7 +306,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
       await this.fetchVendorInvoiceExistsMap(updatedDfoLines);
       this.logger.debug(
-        `[STEP 6] Vendor invoice pair map size: ${this.vendorInvoiceExistsMap?.size ?? 0}`,
+        `[STEP 6] Vendor invoice snapshot map size: ${this.vendorInvoiceSnapshotMap?.size ?? 0}`,
       );
     }
 
@@ -646,17 +648,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       line.IsCustodyVendor = true;
     }
 
-    const invoices = normalVendorLines
-      .map((line) =>
-        sanitizeCashOutboundInvoice(
+    const settlementRequests = normalVendorLines
+      .map((line) => ({
+        invoice: sanitizeCashOutboundInvoice(
           line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
         ),
-      )
-      .filter(Boolean);
-    const existingPairs =
-      await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
+        vendorAccount: String(line.ACCOUNTDISPLAYVALUE ?? '').trim(),
+        lineNumber: line.LINENUMBER,
+      }))
+      .filter(
+        (request) => Boolean(request.invoice) && Boolean(request.vendorAccount),
+      );
+    this.vendorInvoiceSnapshotMap =
+      await this.vendorInvoiceJournalService.findInvoiceSettlementSnapshots(
         this.company,
-        invoices,
+        settlementRequests,
       );
     for (const line of normalVendorLines) {
       const invoice = sanitizeCashOutboundInvoice(
@@ -670,9 +676,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         continue;
       }
       const key = VendorInvoiceJournalService.pairKey(invoice, vendor);
-      if (!existingPairs.has(key)) {
+      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      if (!snapshot?.exists) {
         errors.push(
           `Line ${line.LINENUMBER}: vendor invoice ${invoice} was not found in D365 for vendor ${vendor}.`,
+        );
+      } else if (!snapshot.belongsToVendor) {
+        errors.push(
+          `Line ${line.LINENUMBER}: vendor invoice ${invoice} does not belong to vendor ${vendor}.`,
+        );
+      } else if (snapshot.isOpen === false) {
+        errors.push(
+          `Line ${line.LINENUMBER}: vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendor}.`,
         );
       }
     }
@@ -1001,17 +1016,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
-    const { dimensionString, segmentLength, dimensions } =
-      prepareCashInboundDimensions({
-        accountLine,
-        offsetLine,
-        getDimensionSegmentLength: (displayValue) =>
-          this.utilsService.getDimensionSegmentLength(displayValue),
-        parseDimensionString: (displayValue) =>
-          this.utilsService.parseDimensionString(displayValue),
-        filterDimensionsForLedgerTag22420: (parsedDimensions) =>
-          this.utilsService.filterDimensionsForLedgerTag22420(parsedDimensions),
-      });
+    const { segmentLength, dimensions } = prepareCashInboundDimensions({
+      accountLine,
+      offsetLine,
+      getDimensionSegmentLength: (displayValue) =>
+        this.utilsService.getDimensionSegmentLength(displayValue),
+      parseDimensionString: (displayValue) =>
+        this.utilsService.parseDimensionString(displayValue),
+      filterDimensionsForLedgerTag22420: (parsedDimensions) =>
+        this.utilsService.filterDimensionsForLedgerTag22420(parsedDimensions),
+    });
 
     if (!accountLine || !offsetLine) {
       return buildCashInboundInvalidLine(
@@ -1062,11 +1076,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       resolveReporting: (context, date, currency) =>
         this.cashOutExchangeRateService.resolveReporting(
           context,
-          date,
-          currency,
+          date ?? '',
+          currency ?? '',
         ),
       fetchLegacyRates: (date, currency) =>
-        this.fetchExchangeRates(date, currency),
+        this.fetchExchangeRates(date ?? '', currency ?? ''),
     });
 
     const dynLine = createCashInboundDynamicLine(dimensions, {
@@ -1252,11 +1266,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       settlements && settlements.length > 0
         ? settlements
         : [{ vendorLine: accountLine }];
-    const markedLines = normalizedSettlements.map(
-      ({ vendorLine, withholdingLine }) =>
-        this.buildMarkedLine(vendorLine, withholdingLine),
-    );
     const primarySettlement = normalizedSettlements[0];
+    const markingResult = resolveVendorPaymentMarking({
+      settlements: normalizedSettlements,
+      offsetLine,
+      vendorGroup: String(accountLine.VendorGroup ?? '').trim(),
+    });
     const isWithholding =
       normalizedSettlements.some(
         ({ vendorLine, withholdingLine }) =>
@@ -1283,9 +1298,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       offsetLine.INVOICE ||
       primarySettlement.vendorLine.DOCUMENT ||
       offsetLine.DOCUMENT;
-    const sanitizedInvoice = sanitizeCashOutboundInvoice(rawInvoice);
+    const sanitizedInvoice = markingResult.markedInvoice;
 
-    const descriptionSuffix = !sanitizedInvoice ? ' - unmarked' : '';
+    const descriptionSuffix = markingResult.shouldMark ? '' : ' - unmarked';
     const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
@@ -1368,7 +1383,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         '',
       Invoice: sanitizeCashOutboundInvoice(rawInvoice),
       MarkedInvoice: sanitizedInvoice,
-      MarkedLines: markedLines,
+      MarkedLines: [...markingResult.markedLines],
+      SettlementIntent: markingResult.shouldMark ? 'Marked' : 'Unmarked',
       VendorGroup: accountLine.VendorGroup ?? '',
       dataAreaId: this.company,
       // Excel exchange-rate fields (including secondary/reporting variants)
@@ -1530,6 +1546,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         sourceLine.INVOICE || sourceLine.DOCUMENT,
       ),
       MarkedInvoice: '',
+      SettlementIntent: 'None',
       dataAreaId: this.company,
       ExchRateSecond: 0,
       Document: sourceLine.DOCUMENT,
@@ -1683,17 +1700,29 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     ];
 
     if (invoices.length === 0) {
-      this.vendorInvoiceExistsMap = new Set();
+      this.vendorInvoiceSnapshotMap = new Map();
       this.logger.debug(
-        '[LOOKUP] No cash-out marked invoices to resolve; skipping VendInvoiceJournalLines lookup',
+        '[LOOKUP] No cash-out marked invoices to resolve; skipping VendTransBiEntities lookup',
       );
       return;
     }
 
-    this.vendorInvoiceExistsMap =
-      await this.vendorInvoiceJournalService.findExistingInvoiceVendorPairs(
+    this.vendorInvoiceSnapshotMap =
+      await this.vendorInvoiceJournalService.findInvoiceSettlementSnapshots(
         this.company,
-        invoices,
+        lines
+          .filter((line) => Boolean(line.AccountDisplayValue?.trim()))
+          .flatMap((line) =>
+            (line.MarkedLines?.length
+              ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
+              : [line.MarkedInvoice || line.Invoice || '']
+            )
+              .map((invoice) => ({
+                invoice: String(invoice ?? '').trim(),
+                vendorAccount: String(line.AccountDisplayValue ?? '').trim(),
+              }))
+              .filter((request) => Boolean(request.invoice)),
+          ),
       );
   }
 
@@ -1702,7 +1731,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Empty MarkedInvoice = payment without settle (allowed).
    */
   protected validateCashOutMarkedInvoice(line: CashEntryDynDataModel): void {
-    if (!this.vendorInvoiceExistsMap) {
+    if (!this.vendorInvoiceSnapshotMap) {
       throw new Error(
         'fetchVendorInvoiceExistsMap must be called before validateCashOutMarkedInvoice',
       );
@@ -1725,10 +1754,31 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       if (!invoice) continue;
 
       const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
-      if (!this.vendorInvoiceExistsMap.has(key)) {
+      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      if (!snapshot?.exists) {
         line.AddError(
           'MarkedInvoice',
           `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
+        );
+      } else if (!snapshot.belongsToVendor) {
+        line.AddError(
+          'MarkedInvoice',
+          `Vendor invoice ${invoice} does not belong to vendor ${vendorAccount}.`,
+        );
+      } else if (snapshot.isOpen === false) {
+        line.AddError(
+          'MarkedInvoice',
+          `Vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendorAccount}.`,
+        );
+      } else if (
+        snapshot.currencyCode &&
+        line.CurrencyCode &&
+        snapshot.currencyCode.trim().toLowerCase() !==
+          line.CurrencyCode.trim().toLowerCase()
+      ) {
+        line.AddError(
+          'CurrencyCode',
+          `Vendor invoice ${invoice} is in currency ${snapshot.currencyCode}, but the payment line is ${line.CurrencyCode}.`,
         );
       }
     }

@@ -12,6 +12,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const queryBuilder = {
       and: jest.fn(),
       eq: jest.fn(),
+      or: jest.fn(),
       buildQuery: jest.fn(),
     };
 
@@ -28,6 +29,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const vendorPaymentJournalService = {
       listLinesForHeader: jest.fn().mockResolvedValue([]),
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const vendorInvoiceJournalService = {
+      verifyVendorPaymentJournalSettlements: jest.fn().mockResolvedValue([]),
     };
 
     const operationalLogs = {
@@ -55,6 +60,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       retryService as any,
       dfoErrorExtractor as any,
       vendorPaymentJournalService as any,
+      vendorInvoiceJournalService as any,
       operationalLogs as any,
       logPayloads as any,
       configService as any,
@@ -64,6 +70,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       service,
       d365foClient,
       vendorPaymentJournalService,
+      vendorInvoiceJournalService,
       operationalLogs,
       logPayloads,
     };
@@ -445,6 +452,87 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(requestLog.payload.request.body._contract.Lines).toHaveLength(2);
   });
 
+  it('fails a marked vendor payment when D365 accepts the bulk request but settlement cannot be verified', async () => {
+    const {
+      service,
+      d365foClient,
+      vendorInvoiceJournalService,
+      operationalLogs,
+    } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! JN-VERIFY',
+    });
+    vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mockResolvedValue(
+      [
+        {
+          lineNumber: 10,
+          status: 'NOT_VERIFIED',
+          reason:
+            'No settled invoice rows matched vendor Tr-000031 and invoices 171',
+          expectedVendorAccount: 'Tr-000031',
+          expectedInvoices: ['171'],
+          matchedInvoices: [],
+          settlementAmount: 0,
+          journalBatchNumber: 'JN-VERIFY',
+          journalMarkedInvoice: '171',
+          settleVoucher: '',
+        },
+      ],
+    );
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-VERIFY',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 10,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'Tr-000031',
+              accountTypeStr: 'Vendor',
+              debitAmount: 16823.04,
+              currency: 'EGP',
+              MARKEDINVOICE: '171',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '171',
+                  OperationNumber: 'O26-EXP-OC-2143',
+                  DocumentNumber: '19307',
+                  HasWithHoldingLine: true,
+                },
+              ],
+            },
+          },
+        ] as any[],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(/settlement verification failed/i);
+
+    expect(
+      vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements,
+    ).toHaveBeenCalledWith({
+      company: 'm-p',
+      journalBatchNumber: 'JN-VERIFY',
+      lines: [
+        {
+          lineNumber: 10,
+          vendorAccount: 'Tr-000031',
+          expectedInvoices: ['171'],
+        },
+      ],
+    });
+    expect(operationalLogs.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'd365fo.cash-out.settlement-verification',
+        status: 'not_verified',
+      }),
+    );
+  });
+
   it('logs the bulk response with the per-line error correlation', async () => {
     const { service, d365foClient, operationalLogs } = buildService();
     const response = {
@@ -781,48 +869,51 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('retries a failed bulk line without marked settlements when its amount exceeds the remaining invoice amount', async () => {
+  it('preserves a marked cash-out line and returns the original remaining-amount error', async () => {
     const { service, d365foClient } = buildService();
-
-    d365foClient.post
-      .mockResolvedValueOnce({
-        StatusCode: 'Error',
-        Message:
-          'The amount of the Invoice: 2025001409 is greater than the remain amount.',
-      })
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: 'Success! Mesco-000013709',
-      });
-
-    const result = await service.postCashOutLinesForHeader(
-      'Mesco-000013709',
-      [
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 9,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001409',
-                OperationNumber: 'OP-1',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-            TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
-          },
-        } as any,
-      ],
-      20,
-      'm-p',
+    const buildUnmarkedCashLineSpy = jest.spyOn(
+      service as any,
+      'buildUnmarkedCashLine',
     );
 
-    expect(result).toEqual([{ headerId: 'Mesco-000013709', lineNumber: 9 }]);
-    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'The amount of the Invoice: 2025001409 is greater than the remain amount.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000013709',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 9,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001409',
+                  OperationNumber: 'OP-1',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+              TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'line 9: The amount of the Invoice: 2025001409 is greater than the remain amount.',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(buildUnmarkedCashLineSpy).not.toHaveBeenCalled();
     expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toMatchObject(
       {
         journalNum: 'Mesco-000013709',
@@ -831,89 +922,83 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         TRANSACTIONTEXT: 'Vendor Payment - Freight Jan 2026 (Transfer)',
       },
     );
-    expect(d365foClient.post.mock.calls[1][1]._contract.Lines[0]).toMatchObject(
-      {
-        journalNum: 'Mesco-000013709',
-        MarkedLines: [],
-        PAYMENTNOTES: 'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-        TRANSACTIONTEXT:
-          'Vendor Payment - Freight Jan 2026 (Transfer) - unmarked',
-      },
-    );
   });
 
-  it('retries every line unmarked when an all-or-nothing FO response reports remaining invoice amount', async () => {
+  it('fails the marked bulk request without sending an unmarked retry when FO rejects the whole TTS chunk', async () => {
     const { service, d365foClient } = buildService();
-
-    d365foClient.post
-      .mockResolvedValueOnce({
-        StatusCode: 'Error',
-        Message:
-          'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
-      })
-      .mockResolvedValueOnce({
-        StatusCode: 'Success',
-        Message: '2 line(s) processed successfully.',
-      });
-
-    await service.postCashOutLinesForHeader(
-      'JN-TTS',
-      [
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 1,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            AccountNum: 'VEND1',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001409',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Pay 1',
-            TRANSACTIONTEXT: 'Pay 1',
-          },
-        } as any,
-        {
-          dataAreaId: 'm-p',
-          LineNumber: 2,
-          cashDirection: 'out',
-          customLineApiBody: {
-            journalNum: '',
-            AccountNum: 'VEND2',
-            MarkedLines: [
-              {
-                InvoiceNumber: '2025001410',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-            PAYMENTNOTES: 'Pay 2',
-            TRANSACTIONTEXT: 'Pay 2',
-          },
-        } as any,
-      ],
-      20,
-      'm-p',
+    const buildUnmarkedCashLineSpy = jest.spyOn(
+      service as any,
+      'buildUnmarkedCashLine',
     );
 
-    expect(d365foClient.post).toHaveBeenCalledTimes(2);
-    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(2);
-    expect(d365foClient.post.mock.calls[1][1]._contract.Lines).toEqual([
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN-TTS',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND1',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001409',
+                  OperationNumber: '',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Pay 1',
+              TRANSACTIONTEXT: 'Pay 1',
+            },
+          } as any,
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 2,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'VEND2',
+              MarkedLines: [
+                {
+                  InvoiceNumber: '2025001410',
+                  OperationNumber: '',
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ],
+              PAYMENTNOTES: 'Pay 2',
+              TRANSACTIONTEXT: 'Pay 2',
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'line 1: The amount of the Invoice: 2025001409 is greater than the remaining amount.; line 2: The amount of the Invoice: 2025001409 is greater than the remaining amount.',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(buildUnmarkedCashLineSpy).not.toHaveBeenCalled();
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toEqual([
       expect.objectContaining({
         AccountNum: 'VEND1',
-        MarkedLines: [],
-        PAYMENTNOTES: 'Pay 1 - unmarked',
+        MarkedLines: [expect.objectContaining({ InvoiceNumber: '2025001409' })],
+        PAYMENTNOTES: 'Pay 1',
       }),
       expect.objectContaining({
         AccountNum: 'VEND2',
-        MarkedLines: [],
-        PAYMENTNOTES: 'Pay 2 - unmarked',
+        MarkedLines: [expect.objectContaining({ InvoiceNumber: '2025001410' })],
+        PAYMENTNOTES: 'Pay 2',
       }),
     ]);
   });

@@ -396,53 +396,27 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       ).trim();
       const vendorGroup = String(line.VendorGroup ?? '').trim();
       const markedLines =
-        line.MarkedLines && line.MarkedLines.length > 0
-          ? line.MarkedLines.map((markedLine) => ({
-              InvoiceNumber: String(markedLine.InvoiceNumber ?? '').trim(),
-              OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
-              DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
-              HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
-            }))
-          : markedInvoice
-            ? [
-                {
-                  InvoiceNumber:
-                    vendorGroup.toLowerCase() === 'custody'
-                      ? ''
-                      : markedInvoice,
-                  OperationNumber: '',
-                  DocumentNumber:
-                    vendorGroup.toLowerCase() === 'custody'
-                      ? String(line.Document ?? '').trim()
-                      : '',
-                  HasWithHoldingLine: false,
-                },
-              ]
-            : [];
+        line.MarkedLines?.map((markedLine) => ({
+          InvoiceNumber: String(markedLine.InvoiceNumber ?? '').trim(),
+          OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
+          DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+          HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+        })) ?? [];
       const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
-      let transactionTextValue =
+      const transactionTextValue =
         line.TransactionText || line.Description || line.Text || '';
-      if (
-        routeSupportsMarking &&
-        markedLines.length === 0 &&
-        !markedInvoice &&
-        !transactionTextValue.toLowerCase().includes('unmarked')
-      ) {
-        transactionTextValue = transactionTextValue
-          ? `${transactionTextValue} - unmarked`
-          : 'unmarked';
-      }
-      let offsetTransactionTextValue =
+      const offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
+
       if (
         routeSupportsMarking &&
-        markedLines.length === 0 &&
-        !markedInvoice &&
-        !offsetTransactionTextValue.toLowerCase().includes('unmarked')
+        accountTypeStr === 'Vendor' &&
+        markedInvoice &&
+        markedLines.length === 0
       ) {
-        offsetTransactionTextValue = offsetTransactionTextValue
-          ? `${offsetTransactionTextValue} - unmarked`
-          : 'unmarked';
+        throw new BadRequestException(
+          `Cash line ${line.LineNumber ?? '?'} has MarkedInvoice "${markedInvoice}" but no MarkedLines. Settlement intent must be resolved before posting.`,
+        );
       }
 
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {

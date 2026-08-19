@@ -139,6 +139,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             TransactionText: 'Vendor payment',
             Invoice: 'INV-0002',
             MarkedInvoice: 'INV-0002',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-0002',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
             Voucher: '',
           },
         },
@@ -157,7 +165,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('MarkedLines', [
       {
         InvoiceNumber: 'INV-0002',
-        OperationNumber: '',
+        OperationNumber: 'OP-1',
         DocumentNumber: '',
         HasWithHoldingLine: false,
       },
@@ -205,6 +213,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'REF789',
             TransactionText: 'Vendor payment',
             Invoice: 'INV-0003',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-0003',
+                OperationNumber: 'OP-2',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
             Voucher: '',
           },
         },
@@ -220,7 +236,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('MarkedLines', [
       {
         InvoiceNumber: 'INV-0003',
-        OperationNumber: '',
+        OperationNumber: 'OP-2',
         DocumentNumber: '',
         HasWithHoldingLine: false,
       },
@@ -612,6 +628,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'ALEXHO US-2 - Freight',
             TransactionText: 'Vendor Payment - Freight Jan 2026 (Cash)',
             MarkedInvoice: '2025001410',
+            MarkedLines: [
+              {
+                InvoiceNumber: '2025001410',
+                OperationNumber: 'OP-A',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
           },
         },
         {
@@ -641,6 +665,14 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentReference: 'ALEXHO US-2 - Freight',
             TransactionText: 'Vendor Payment - Freight Jan 2026 (Cash)',
             MarkedInvoice: '2025011319',
+            MarkedLines: [
+              {
+                InvoiceNumber: '2025011319',
+                OperationNumber: 'OP-B',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
           },
         },
       ],
@@ -727,7 +759,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('EXCHANGERATE');
   });
 
-  it('preserves empty MARKEDINVOICE and appends " - unmarked" to TRANSACTIONTEXT/PAYMENTNOTES when MarkedInvoice was cleared by business rules', () => {
+  it('preserves explicitly unmarked outbound text without mapper-side rewriting', () => {
     const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
 
     const result = (handler as any).mapLines(
@@ -758,12 +790,53 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result).toHaveLength(1);
     const body = result[0].customLineApiBody;
     expect(body.MarkedLines).toEqual([]);
-    expect(body.TRANSACTIONTEXT).toBe(
-      'Vendor Payment - Freight Jan 2026 - unmarked',
-    );
-    expect(body.OFFSETTRANSACTIONTEXT).toBe('unmarked');
-    expect(body.PAYMENTNOTES).toBe(
-      'Vendor Payment - Freight Jan 2026 - unmarked',
-    );
+    expect(body.TRANSACTIONTEXT).toBe('Vendor Payment - Freight Jan 2026');
+    expect(body.OFFSETTRANSACTIONTEXT).toBe('');
+    expect(body.PAYMENTNOTES).toBe('Vendor Payment - Freight Jan 2026');
+  });
+
+  it('rejects a vendor-payment line that has MarkedInvoice without MarkedLines', () => {
+    const handler = buildHandler();
+
+    expect(() =>
+      (handler as any).mapLines(
+        [
+          {
+            data: {
+              dataAreaId: 'USMF',
+              JournalBatchNumber: 'JN000123',
+              LineNumber: 1,
+              AccountType: 'Vend',
+              AccountDisplayValue: 'VEND001',
+              OffsetAccountDisplayValue: 'BANK001',
+              OffsetAccountType: 'Bank',
+              OffsetCompany: 'USMF',
+              DefaultDimensionsForAccountDisplayValue: 'BU-001|CC-002|Dept-003',
+              DefaultDimensionsForOffsetAccountDisplayValue:
+                'BU-001|CC-002|Dept-004',
+              TransactionDate: '2026-04-21T00:00:00.000Z',
+              Document: 'DOC-2002',
+              DocumentDate: '2026-04-19T00:00:00.000Z',
+              ExchangeRate: 1,
+              CreditAmount: 0,
+              DebitAmount: 1000,
+              CurrencyCode: 'USD',
+              VoucherType: 'transfer',
+              PostingProfile: 'V-PP',
+              SafeType: 'Vendor Payment',
+              TransactionText: 'Vendor payment',
+              Invoice: 'INV-0002',
+              MarkedInvoice: 'INV-0002',
+            },
+          },
+        ],
+        'USMF',
+        'out',
+        new CashJournalRoutingService().resolve({
+          safeType: 'Vendor Payment',
+          targetProcessor: 'Freight',
+        }),
+      ),
+    ).toThrow('has MarkedInvoice "INV-0002" but no MarkedLines');
   });
 });
