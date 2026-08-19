@@ -196,13 +196,20 @@ export class EntryRawDataModel {
   protected sanitizePaymentMethod(value: LookupCell<any>): string {
     const raw = this.lookupResult<any>(value);
     if (raw == null) return '';
-    if (raw instanceof Date) return '';
+    if (raw instanceof Date) {
+      // Log warning when date is found in payment method column
+      console.warn('[DATA QUALITY] Date value detected in PAYMENTMETHOD column, skipping');
+      return '';
+    }
     const str = this.stripDisallowedChars(String(raw)).trim();
+    // Filter out any date-like patterns (YYYY-MM-DD, DD/MM/YYYY, MM-DD-YYYY, ISO timestamps)
     if (
       /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str) ||
       /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(str) ||
       /^\d{4}-\d{2}-\d{2}T/.test(str)
     ) {
+      // Log warning when date string is found
+      console.warn(`[DATA QUALITY] Date-like string "${str}" detected in PAYMENTMETHOD column, sanitizing to empty`);
       return '';
     }
     return str;

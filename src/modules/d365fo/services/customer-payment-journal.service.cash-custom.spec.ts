@@ -35,6 +35,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     const vendorPaymentJournalService = {
       listLinesForHeader: jest.fn().mockResolvedValue([]),
+      postLine: jest.fn().mockResolvedValue(undefined),
       listIntegrityLinesForHeader: jest.fn().mockResolvedValue([]),
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
       deleteHeader: jest.fn().mockResolvedValue(undefined),
@@ -636,11 +637,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(body._contract.Lines).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          offsetAccountDisplayValue: '125901',
+          offsetAccountDisplayValue: 'WCApp - USD',
           OffsetAccountTypeStr: 'Bank',
         }),
         expect.objectContaining({
-          offsetAccountDisplayValue: '125902',
+          offsetAccountDisplayValue: 'WCApp - EUR',
           OffsetAccountTypeStr: 'Bank',
         }),
       ]),
@@ -698,11 +699,11 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(posted).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          AccountNum: '125901',
-          accountTypeStr: 'bank',
+          AccountNum: 'WCApp - USD',
+          accountTypeStr: 'Bank',
         }),
         expect.objectContaining({
-          offsetAccountDisplayValue: '125902',
+          offsetAccountDisplayValue: 'WCApp - EUR',
           OffsetAccountTypeStr: 'Bank',
         }),
       ]),
@@ -711,7 +712,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       posted.some(
         (line: any) =>
           String(line.accountTypeStr).toLowerCase() === 'ledger' &&
-          line.AccountNum === '125901',
+          (line.AccountNum === '125901' || line.AccountNum === 'WCApp - USD'),
       ),
     ).toBe(false);
   });
@@ -1510,6 +1511,135 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).not.toHaveProperty('ExchRateSecond');
     expect(postedLine).not.toHaveProperty('Voucher');
     expect(postedLine).toHaveProperty('IsWithholdingTaxCalculate', 'No');
+  });
+
+  it('does not send settlement marks from legacy Finance-cased Ledger lines', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! Mesco-000014969',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000014969',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '223304|1101',
+            // Legacy persisted payload: no lowercase accountTypeStr.
+            AccountTypeStr: 'Ledger',
+            company: 'm-p',
+            creditAmount: 100,
+            currency: 'EGP',
+            debitAmount: 0,
+            DEFAULTDIMENSIONDISPLAYVALUE: 'dims',
+            ITEMWITHHOLDINGTAXGROUP: '',
+            IsWithholdingTaxCalculate: 'No',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-1',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '',
+                HasWithHoldingLine: true,
+              },
+            ],
+            PAYMENTNOTES: 'WHT',
+            TRANSACTIONTEXT: 'WHT',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    const postedLine = d365foClient.post.mock.calls[0][1]._contract.Lines[0];
+    expect(postedLine.AccountTypeStr).toBe('ledger');
+    expect(postedLine).not.toHaveProperty('MarkedLines');
+  });
+
+  it('clears RCash offset type for Vendor settlement lines', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Success! Mesco-000014995',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000014995',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Su-000019',
+            accountTypeStr: 'Vendor',
+            company: 'm-p',
+            creditAmount: 0,
+            currency: 'EGP',
+            debitAmount: 100,
+            OffsetAccountTypeStr: 'RCash',
+            offsetAccountDisplayValue: 'ALEXHO EG',
+            DEFAULTDIMENSIONDISPLAYVALUE: 'dims',
+            ITEMWITHHOLDINGTAXGROUP: '',
+            IsWithholdingTaxCalculate: 'No',
+            PAYMENTNOTES: 'Cash-out',
+            TRANSACTIONTEXT: 'Cash-out',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    const postedLine = d365foClient.post.mock.calls[0][1]._contract.Lines[0];
+    expect(postedLine.OffsetAccountTypeStr).toBe('');
+    expect(postedLine.OffsetAccountDisplayValue).toBe('ALEXHO EG');
+  });
+
+  it('posts Ledger cash-out lines through the standard VendorPayment OData entity', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } = buildService();
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000014996',
+      [
+        {
+          LineNumber: 1,
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '223404|1301|013',
+            accountTypeStr: 'Ledger',
+            company: 'm-p',
+            creditAmount: 0,
+            currency: 'EGP',
+            debitAmount: 8500,
+            DEFAULTDIMENSIONDISPLAYVALUE: '1301|013',
+            ITEMWITHHOLDINGTAXGROUP: '',
+            IsWithholdingTaxCalculate: 'No',
+            PAYMENTID: '488961',
+            PAYMENTNOTES: 'Custody Settlement',
+            TRANSACTIONTEXT: 'Custody Settlement',
+            transDate: '2026-01-04T00:00:00',
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(vendorPaymentJournalService.postLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        JournalBatchNumber: 'Mesco-000014996',
+        AccountType: 'Ledger',
+        AccountDisplayValue: '223404|1301|013',
+        TransactionDate: '2026-01-04T00:00:00Z',
+      }),
+    );
+    expect(vendorPaymentJournalService.postLine.mock.calls[0][0]).not.toHaveProperty(
+      'IsWithholdingTaxCalculate',
+    );
+    expect(d365foClient.post).not.toHaveBeenCalled();
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {

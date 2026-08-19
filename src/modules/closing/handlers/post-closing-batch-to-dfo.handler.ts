@@ -15,6 +15,13 @@ import {
   DynCustodySettlementJournalEntryModel,
 } from '@/modules/closing/models';
 import {
+  D365FOCustomerPaymentJournalLineRequest,
+} from '@/modules/d365fo/types';
+import {
+  TSLedgerJournalCustomAccountTypeStr,
+  TSLedgerJournalTransCustomRequestBody,
+} from '@/modules/d365fo/types/d365fo-cash-custom-ledger-journal.type';
+import {
   LedgerJournalHeaderRequest,
   LedgerJournalLineRequest,
 } from '@/modules/d365fo/types/d365fo-ledger.type';
@@ -25,6 +32,9 @@ import {
 import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
+import {
+  CashJournalPostingGroup,
+} from '@/modules/queue/contracts/post-customer-payment-journal-dfo-job.contract';
 import { QueueService } from '@/modules/queue/services/queue.service';
 
 /** Ledger journal line shape used for DFO posting (closing and custody-settlement batches) */
@@ -61,7 +71,27 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
 
     const batch = await this.validateBatch(batchId);
 
+    const isCustodySettlement =
+      batch.entryProcessorType ===
+      EntryProcessorTypes.LedgerCustodySettlementEntry;
+
     const journalGroups = await this.groupRecordsByJournalBatchNumber(batchId);
+
+    if (isCustodySettlement) {
+      this.logger.log(
+        `Routing custody settlement batch ${batchId} through cash-out custom API for settlement marking`,
+      );
+      const cashGroups = this.mapToCashOutRequests(
+        journalGroups,
+        batch.company,
+      );
+      await this.prepareBatchForPosting(batchId);
+      return await this.enqueueCashOutPostingJob(
+        batchId,
+        batch.company,
+        cashGroups,
+      );
+    }
 
     const groupedJournals = this.mapToD365Requests(
       journalGroups,
@@ -385,6 +415,204 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       this.dataBatchService.updateStatusAsync(batchId, DataBatchStatus.Posting),
       this.dataBatchService.clearDfoPostingErrorsAsync(batchId),
     ]);
+  }
+
+  private mapToCashOutRequests(
+    journalGroups: Map<string, IDataEnhancedRecord<ClosingJournalEntryModel>[]>,
+    company: string,
+  ): CashJournalPostingGroup[] {
+    const result: CashJournalPostingGroup[] = [];
+
+    for (const [_batchNumber, lines] of journalGroups.entries()) {
+      if (lines.length === 0) continue;
+
+      const firstLine = lines[0].data;
+      const header = {
+        dataAreaId: company,
+        JournalBatchNumber: '',
+        JournalName: firstLine.JournalName,
+        Description: firstLine.Description,
+      };
+
+      const withholdingUniqueIds = this.detectWithholdingGroups(
+        lines.map((r) => r.data as DynCustodySettlementJournalEntryModel),
+      );
+
+      const mappedLines: D365FOCustomerPaymentJournalLineRequest[] = lines.map(
+        (record, index) => {
+          const data = record.data as DynCustodySettlementJournalEntryModel;
+          const hasWithholding =
+            data.UniqueId !== undefined &&
+            withholdingUniqueIds.has(data.UniqueId);
+          return this.mapLineToCashOutRequest(data, company, index + 1, hasWithholding);
+        },
+      );
+
+      result.push({ header, lines: mappedLines });
+    }
+
+    return result;
+  }
+
+  private detectWithholdingGroups(
+    lines: DynCustodySettlementJournalEntryModel[],
+  ): Set<number> {
+    const uniqueIds = new Set<number>();
+    for (const line of lines) {
+      const accountDisplay = (line.AccountDisplayValue || '').trim();
+      const mainAccount = accountDisplay.split('|')[0].trim();
+      if (mainAccount.startsWith('223304') && line.UniqueId !== undefined) {
+        uniqueIds.add(line.UniqueId);
+      }
+      const offsetDisplay = (line.OffsetAccountDisplayValue || '').trim();
+      const offsetMain = offsetDisplay.split('|')[0].trim();
+      if (offsetMain.startsWith('223304') && line.UniqueId !== undefined) {
+        uniqueIds.add(line.UniqueId);
+      }
+    }
+    return uniqueIds;
+  }
+
+  private mapLineToCashOutRequest(
+    line: DynCustodySettlementJournalEntryModel,
+    company: string,
+    lineNumber: number,
+    hasWithholding: boolean,
+  ): D365FOCustomerPaymentJournalLineRequest {
+    const accountTypeStr = this.mapAccountTypeStr(line.AccountType);
+    const offsetAccountTypeStr = this.mapAccountTypeStr(line.OffsetAccountType);
+    const transDate = this.formatDate(line.TransDate);
+
+    const isVendor = accountTypeStr === 'Vendor';
+    const markedLines =
+      isVendor && line.MarkedLines && line.MarkedLines.length > 0
+        ? line.MarkedLines.map((m) => ({
+            ...m,
+            HasWithHoldingLine: m.HasWithHoldingLine || hasWithholding,
+          }))
+        : [];
+
+    const exchangeRate = Number(line.ExchangeRate || 0);
+    const reportingExchangeRate = (line.ReportingCurrencyExchRate || 0) * 100;
+
+    const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
+      journalNum: '',
+      AccountNum: line.AccountDisplayValue || '',
+      accountTypeStr,
+
+      BANKTRANSACTIONTYPE: '',
+      CENTRALBANKPURPOSECODE: '',
+      CENTRALBANKPURPOSETEXT: '',
+
+      company,
+      transDate,
+      DocumentNum: line.Document ? String(line.Document) : '',
+      DocumentDate: line.DocumentDate ? this.formatDate(line.DocumentDate) : '',
+      creditAmount: Number(line.CreditAmount ?? 0),
+      currency: line.CurrencyCode || '',
+      debitAmount: Number(line.DebitAmount ?? 0),
+
+      ExchangeRate: exchangeRate,
+      ReportingCurrencyExchRate: reportingExchangeRate,
+      ExchRateSecond: 0,
+
+      DEFAULTDIMENSIONDISPLAYVALUE: line.DefaultDimensionDisplayValue || '',
+      offsetDEFAULTDIMENSIONDISPLAYVALUE:
+        line.OffsetDefaultDimensionDisplayValue || '',
+
+      FinTagStr: line.FinTagDisplayValue || '',
+      ISPREPAYMENT: line.Prepayment || 'No',
+      ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode || '',
+      IsWithholdingTaxCalculate:
+        line.IsWithholdingCalculationEnabled || 'No',
+
+      offsetAccountDisplayValue: line.OffsetAccountDisplayValue || '',
+      OffsetAccountTypeStr: offsetAccountTypeStr || '',
+      OffsetCompany: line.OffsetAccountType || line.OffsetAccountDisplayValue
+        ? company
+        : '',
+      OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue || '',
+      OFFSETTRANSACTIONTEXT: line.OffsetText || '',
+
+      PAYMENTID: line.PaymentId || line.UniqueId?.toString() || '',
+      PAYMENTMETHODNAME: this.sanitizePaymentMethod(line.PaymentMethod) || '',
+      PAYMENTNOTES: line.Description || '',
+      PAYMENTREFERENCE: line.PaymentReference || '',
+      PAYMENTSPECIFICATION: '',
+
+      PostingProfile: line.PostingProfile || '',
+
+      TaxGroup: this.normalizeTaxGroup(line.SalesTaxGroup),
+      TAXITEMGROUP: line.ItemSalesTaxGroup || '',
+
+      TRANSACTIONTEXT: line.Text || line.Description || '',
+      Voucher: '',
+
+      MarkedLines: markedLines,
+      VendorGroup: line.VendorGroup || '',
+    };
+
+    return {
+      dataAreaId: company,
+      LineNumber: lineNumber,
+      cashDirection: 'out',
+      customLineApiBody,
+    };
+  }
+
+  private mapAccountTypeStr(
+    type: string | undefined,
+  ): TSLedgerJournalCustomAccountTypeStr {
+    const raw = (type || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (raw === 'vend' || raw === 'vendor') return 'Vendor';
+    if (raw === 'cust' || raw === 'customer') return 'Cust';
+    if (raw === 'pettycash' || raw === 'rcash') return 'RCash';
+    if (raw === 'bank') return 'Bank';
+    if (raw === 'ledger' || raw === 'led') return 'Ledger';
+    return '' as TSLedgerJournalCustomAccountTypeStr;
+  }
+
+  private normalizeTaxGroup(value: string | undefined): string {
+    const v = (value || '').trim();
+    if (v === 'Taxable' || v === 'Non-Taxabl') return v;
+    return 'Non-Taxabl';
+  }
+
+  private async enqueueCashOutPostingJob(
+    batchId: string,
+    company: string,
+    groupedJournals: CashJournalPostingGroup[],
+  ): Promise<PostClosingBatchToDFOResult> {
+    const submission = await this.queueService.addDurableJob(
+      QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL,
+      'post-customer-payment-journal-dfo',
+      {
+        batchId,
+        company,
+        cashDirection: 'out',
+        sourceModule: 'CASH',
+        payloadVersion: 1,
+      },
+      groupedJournals,
+    );
+    if (submission.status === 'already-completed') {
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.Posted,
+      );
+    }
+
+    this.logger.log(
+      submission.status === 'queued' || submission.status === 'requeued'
+        ? `${submission.message} Cash-out journal groups: ${groupedJournals.length}`
+        : submission.message,
+    );
+
+    return {
+      jobId: submission.jobId,
+      message: submission.message,
+      submissionStatus: submission.status,
+    };
   }
 
   private async enqueuePostingJob(

@@ -502,13 +502,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const hasAssociatedWithholding = Boolean(
         groupKey && withholdingGroupKeys.has(groupKey),
       );
-      // A withholding entry must never be marked for settlement. Finance's
-      // VendPaym X++ contract uses the withholding companion to calculate the
-      // withholding transaction; sending MarkedLines/MarkedInvoice as well
-      // makes it attempt settlement against the wrong invoice.
-      const settlementMarkedInvoice = hasAssociatedWithholding
-        ? ''
-        : markedInvoice;
+      const settlementMarkedInvoice = markedInvoice;
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
       // VendorGroup / Invoice / Document / Operation when formatting left
@@ -520,7 +514,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           route?.safeType === 'Custody Settlement' ||
           Boolean(sourceMarkedLines && sourceMarkedLines.length > 0) ||
           Boolean(markedInvoice));
-      const markedLines = routeSupportsMarking && !hasAssociatedWithholding
+      const markedLines = routeSupportsMarking
         ? sourceMarkedLines && sourceMarkedLines.length > 0
           ? sourceMarkedLines.map((markedLine) => ({
               // Prefer the formatted mark; fall back to MarkedInvoice so the
@@ -586,7 +580,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (!settlementMarkedInvoice || hasAssociatedWithholding) &&
+        !markedInvoice &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
         transactionTextValue = transactionTextValue
@@ -598,7 +592,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        (!settlementMarkedInvoice || hasAssociatedWithholding) &&
+        !markedInvoice &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue

@@ -13,6 +13,7 @@ import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalHeaderResponse,
   D365FOCustomerPaymentJournalLineRequest,
+  D365FOVendorPaymentJournalLineRequest,
 } from '@/modules/d365fo/types';
 import {
   TSLedgerJournalTransCustomBulkLineResponseBody,
@@ -384,6 +385,39 @@ export class CustomerPaymentJournalService {
       }
     }
 
+    // The custom VendPaym X++ service is a subledger service. Its
+    // TaxWithhold::construct path is not valid for Ledger/Bank/RCash main
+    // accounts, even when every withholding field is disabled. Post those
+    // lines through the standard VendorPaymentJournalLines OData entity; keep
+    // only Vendor settlement lines on the custom bulk contract.
+    if (cashDirection === 'out') {
+      const ledgerLines = normalizedLines.filter((line) =>
+        this.isNonVendorCashLine(line.customLineApiBody),
+      );
+      const vendorLines = normalizedLines.filter(
+        (line) => !this.isNonVendorCashLine(line.customLineApiBody),
+      );
+      const postedLedgerLines = await this.postCashOutLedgerLinesViaOdata(
+        headerKey,
+        ledgerLines,
+        existingLines,
+        dataAreaId,
+      );
+      const postedVendorLines =
+        vendorLines.length > 0
+          ? await this.postCashBulkLinesForHeader(
+              endpoint,
+              headerKey,
+              vendorLines,
+              existingLines,
+              dataAreaId,
+              allowUnmarkedInvoiceRetry,
+              cashDirection,
+            )
+          : [];
+      return [...postedLedgerLines, ...postedVendorLines];
+    }
+
     // Both CustPaym and VendPaym expect `{ _contract: { Lines: [...] } }`.
     // A flat single-line `_contract` makes FO return "No journal lines were received."
     return this.postCashBulkLinesForHeader(
@@ -395,6 +429,82 @@ export class CustomerPaymentJournalService {
       allowUnmarkedInvoiceRetry,
       cashDirection,
     );
+  }
+
+  private isNonVendorCashLine(
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): boolean {
+    const accountType = String(
+      body.accountTypeStr ??
+        (body as TSLedgerJournalTransCustomRequestBody & {
+          AccountTypeStr?: string;
+        }).AccountTypeStr ??
+        '',
+    )
+      .trim()
+      .toLowerCase();
+    return accountType !== 'vendor' && accountType !== 'vend';
+  }
+
+  private async postCashOutLedgerLinesViaOdata(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    existingLines: Set<number>,
+    dataAreaId?: string,
+  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const posted: Array<{ headerId: string; lineNumber: number }> = [];
+    for (const line of lines) {
+      if (existingLines.has(line.LineNumber)) {
+        posted.push({ headerId: headerKey, lineNumber: line.LineNumber });
+        continue;
+      }
+
+      const body = line.customLineApiBody;
+      const accountType = String(body.accountTypeStr ?? '').trim().toLowerCase();
+      const odataAccountType = accountType === 'bank' ? 'Bank' : 'Ledger';
+      const offsetAccountType = String(body.OffsetAccountTypeStr ?? '').trim();
+      const odataLine: D365FOVendorPaymentJournalLineRequest = {
+        dataAreaId: String(dataAreaId ?? body.company ?? ''),
+        JournalBatchNumber: headerKey,
+        LineNumber: line.LineNumber,
+        AccountDisplayValue: String(body.AccountNum ?? ''),
+        AccountType: odataAccountType as 'Vend' | 'Ledger',
+        PaymentId: String(body.PAYMENTID ?? ''),
+        FinTagDisplayValue: String(body.FinTagStr ?? ''),
+        OffsetFinTagDisplayValue: String(body.OFFSETFINTAGDISPLAYVALUE ?? ''),
+        TransactionDate: this.normalizeOdataDateTimeOffset(
+          String(body.transDate ?? ''),
+        ),
+        PostingProfile: String(body.PostingProfile ?? ''),
+        TransactionText: String(body.TRANSACTIONTEXT ?? ''),
+        CurrencyCode: String(body.currency ?? ''),
+        CreditAmount: Number(body.creditAmount ?? 0),
+        DebitAmount: Number(body.debitAmount ?? 0),
+        DefaultDimensionsForAccountDisplayValue: String(
+          body.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
+        ),
+        DefaultDimensionsForOffsetAccountDisplayValue: String(
+          body.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
+        ),
+        OffsetAccountType: offsetAccountType.toLowerCase() === 'rcash'
+          ? 'Ledger'
+          : offsetAccountType,
+        OffsetAccountDisplayValue: String(body.offsetAccountDisplayValue ?? ''),
+        Company: String(body.company ?? dataAreaId ?? ''),
+        OffsetCompany: String(body.OffsetCompany ?? body.company ?? dataAreaId ?? ''),
+      };
+
+      await this.vendorPaymentJournalService.postLine(odataLine);
+      existingLines.add(line.LineNumber);
+      posted.push({ headerId: headerKey, lineNumber: line.LineNumber });
+    }
+
+    if (posted.length > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Posted ${posted.length} non-Vendor cash line(s) through VendorPaymentJournalLines OData for journal ${headerKey}`,
+      );
+    }
+    return posted;
   }
 
   /**
@@ -921,7 +1031,7 @@ export class CustomerPaymentJournalService {
           `[CASH-CUSTOM] Could not resolve bank alias ${target.alias}: D365 returned multiple main accounts for "${target.name}" (${Array.from(accountIds).join(', ')}).`,
         );
       }
-      resolvedByAlias.set(alias, Array.from(accountIds)[0]);
+      resolvedByAlias.set(alias, target.name);
     }
 
     return this.applyCashCustomWcaBankTypes(lines, resolvedByAlias);
@@ -971,7 +1081,8 @@ export class CustomerPaymentJournalService {
   ): string | undefined {
     const accountId = this.cashCustomAccountId(value);
     const alias = this.normalizeCashCustomAccountAlias(accountId);
-    if (alias === '125901' || alias === '125902') return alias;
+    if (alias === '125901') return 'WCApp - USD';
+    if (alias === '125902') return 'WCApp - EUR';
     return resolvedByAlias.get(alias);
   }
 
@@ -2133,6 +2244,15 @@ export class CustomerPaymentJournalService {
     if (!iso) return '';
     const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
     return match ? `${match[1]}T00:00:00` : iso;
+  }
+
+  /** OData Edm.DateTimeOffset requires an explicit timezone. */
+  private normalizeOdataDateTimeOffset(value: string): string {
+    const normalized = this.normalizeFoJsonDate(value);
+    if (!normalized) return '';
+    return /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)
+      ? normalized
+      : `${normalized}Z`;
   }
 
   private ensureCashOutBulkLineDates(
@@ -3591,7 +3711,18 @@ export class CustomerPaymentJournalService {
       value.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
 
     const journalNum = String(line.journalNum ?? '').trim();
-    const accountTypeStr = String(line.accountTypeStr ?? '')
+    // Resumed/legacy batches may already contain the Finance-cased key only.
+    // If we default that to empty, a Ledger/Bank line can incorrectly receive
+    // MarkedLines and Finance enters TaxWithhold::construct for a non-Vend/Cust
+    // account. Always normalize both supported spellings before projecting the
+    // final wire contract.
+    const accountTypeStr = String(
+      line.accountTypeStr ??
+        (line as TSLedgerJournalTransCustomRequestBody & {
+          AccountTypeStr?: string;
+        }).AccountTypeStr ??
+        '',
+    )
       .trim()
       .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['AccountTypeStr'];
     const company = String(line.company ?? '');
@@ -3605,6 +3736,20 @@ export class CustomerPaymentJournalService {
     const offsetAccountDisplayValue = String(
       line.offsetAccountDisplayValue ?? '',
     );
+    const rawOffsetAccountType = String(
+      line.OffsetAccountTypeStr ??
+        (line as TSLedgerJournalTransCustomRequestBody & {
+          OffsetAccountType?: string;
+        }).OffsetAccountType ??
+        '',
+    ).trim();
+    // VendPaym can carry the RCash offset account and dimensions, but Finance
+    // must not receive RCash as OffsetAccountType for a Vendor settlement.
+    // That combination enters TaxWithhold::construct with the wrong module.
+    const offsetAccountTypeStr =
+      accountTypeStr === 'vendor' && rawOffsetAccountType.toLowerCase() === 'rcash'
+        ? ''
+        : rawOffsetAccountType;
     const body: TSLedgerJournalTransCustomBulkLineRequestBody = {
       JournalNum: journalNum,
       AccountNum: String(line.AccountNum ?? ''),
@@ -3631,7 +3776,7 @@ export class CustomerPaymentJournalService {
       ITEMWITHHOLDINGTAXGROUP: '',
       IsWithholdingTaxCalculate: 'No',
       OffsetAccountDisplayValue: offsetAccountDisplayValue,
-      OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
+      OffsetAccountTypeStr: offsetAccountTypeStr as TSLedgerJournalTransCustomBulkLineRequestBody['OffsetAccountTypeStr'],
       OffsetCompany: String(line.OffsetCompany ?? ''),
       OFFSETFINTAGDISPLAYVALUE: stripBidi(
         String(line.OFFSETFINTAGDISPLAYVALUE ?? ''),

@@ -46,12 +46,11 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
       safeType: 'Custody Settlement',
       targetProcessor: 'Fleet',
       expected: {
-        kind: 'vendor-invoice',
-        module: 'AP',
+        kind: 'ledger',
+        module: 'GL',
         safeType: 'Custody Settlement',
-        targetProcessor: 'Fleet',
-        journalName: 'P-Fleet',
-        headerApi: 'VendorPaymentJournalHeaders',
+        journalName: 'CashOut',
+        headerApi: 'LedgerJournalHeaders',
         lineDirection: 'out',
       },
     },
@@ -137,8 +136,8 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
       ' custody_settlement ',
       ' fLeEt ',
       'Custody Settlement',
-      'Fleet',
-      'P-Fleet',
+      undefined,
+      'CashOut',
     ],
     [' custody_issue ', ' freight ', 'Custody Issue', 'Freight', 'P-Freight'],
     [
@@ -168,6 +167,7 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
   );
 
   it.each([
+    ['Custody Settlement', 'CashOut'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
@@ -200,7 +200,7 @@ describe('CashJournalRoutingService - acceptance criteria matrix', () => {
     },
   );
 
-  it.each(['Vendor Payment', 'Custody Settlement', 'Custody Issue'])(
+  it.each(['Vendor Payment', 'Custody Issue'])(
     'rejects invalid Target Processor values for the %s AP route',
     (safeType) => {
       for (const targetProcessor of [

@@ -273,9 +273,56 @@ export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
     line.TaxExemptNumber = source.TAXEXEMPTNUMBER || '';
     line.Text = source.TEXT || '';
     line.Quantity = source.QUANTITY || 0;
-    line.Invoice = source.DOCUMENT || '';
+    line.Invoice = source.INVOICE || source.DOCUMENT || '';
     line.IsPosted = 'No';
     line.SourceIds = [source.UniqueId.toString()];
+
+    const accountType = (source.ACCOUNTTYPE || '').trim().toLowerCase();
+    const isVendor = accountType === 'vend' || accountType === 'vendor';
+    const invoice = (source.INVOICE || '').trim();
+    const document = (source.DOCUMENT || '').trim();
+    const operationNumber = (source.FINTAGDISPLAYVALUE || '')
+      .split('|')[0]
+      .trim();
+
+    const vendorGroup = isVendor
+      ? (source as any).VendorGroup
+        ? String((source as any).VendorGroup).trim()
+        : this.inferVendorGroup(source)
+      : '';
+    const isCustodyVendor = vendorGroup.toLowerCase() === 'custody';
+
+    line.VendorGroup = isVendor ? vendorGroup : '';
+    line.SettlementTargetType = isVendor
+      ? isCustodyVendor
+        ? 'CustodyLedger'
+        : 'VendorInvoice'
+      : 'None';
+    line.MarkedInvoice = isVendor && !isCustodyVendor ? invoice : '';
+    line.MarkedLines =
+      isVendor
+        ? isCustodyVendor
+          ? (document || operationNumber)
+            ? [
+                {
+                  InvoiceNumber: '',
+                  OperationNumber: operationNumber,
+                  DocumentNumber: document,
+                  HasWithHoldingLine: false,
+                },
+              ]
+            : []
+          : invoice
+            ? [
+                {
+                  InvoiceNumber: invoice,
+                  OperationNumber: operationNumber,
+                  DocumentNumber: '',
+                  HasWithHoldingLine: false,
+                },
+              ]
+            : []
+        : [];
 
     if (
       typeof source.dimensionSegmentLength === 'number' &&
@@ -290,6 +337,15 @@ export class ClosingCustodySettlementEntryProcessor extends EntryProcessorBase {
     }
 
     return line;
+  }
+
+  private inferVendorGroup(source: CustodySettlementEntryModel): string {
+    const invoice = (source.INVOICE || '').trim();
+    const document = (source.DOCUMENT || '').trim();
+    if (invoice && !document) return '';
+    if (!invoice && document) return 'Custody';
+    if (invoice && document) return '';
+    return 'Custody';
   }
 
   private filterAndMapLedgerData(

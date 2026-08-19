@@ -1,3 +1,4 @@
+import { CashEntryMarkedLine } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { DynDataModel } from '@/modules/entry-processor/models/dyn-data-model';
 
 export class DynCustodySettlementJournalEntryModel extends DynDataModel {
@@ -49,4 +50,8 @@ export class DynCustodySettlementJournalEntryModel extends DynDataModel {
   PostingProfile: string;
   PostingLayer: string;
   IsPosted: string;
+  MarkedInvoice: string;
+  MarkedLines: CashEntryMarkedLine[];
+  VendorGroup: string;
+  SettlementTargetType: 'VendorInvoice' | 'CustodyLedger' | 'None';
 }

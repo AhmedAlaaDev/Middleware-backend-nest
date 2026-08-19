@@ -3,15 +3,15 @@
  * Add/adjust rows here to extend Safe Type coverage without rewriting resolve logic.
  *
  * Acceptance Criteria (task routing):
- * - Vendor Payment / Custody Settlement / Custody Issue Fleet/Freight
- *   → AP P-Fleet/P-Freight
+ * - Vendor Payment / Custody Issue Fleet/Freight → AP P-Fleet/P-Freight
+ * - Custody Settlement → GL CashOut (mixed Ledger/Vend/Bank lines)
  * - Direct / Other → GL CashOut
  * - DownPayment / CN / Customer Collection → AR Cust-Pay
  */
 export type CashJournalRoutingRule =
   | {
       safeTypeToken: string;
-      safeType: 'Vendor Payment' | 'Custody Settlement' | 'Custody Issue';
+      safeType: 'Vendor Payment' | 'Custody Issue';
       requiresTargetProcessor: true;
       kind: 'vendor-invoice';
       module: 'AP';
@@ -25,6 +25,7 @@ export type CashJournalRoutingRule =
   | {
       safeTypeToken: string;
       safeType:
+        | 'Custody Settlement'
         | 'Customer Collection'
         | 'Direct'
         | 'Other'
@@ -55,15 +56,12 @@ export const CASH_JOURNAL_ROUTING_RULES: readonly CashJournalRoutingRule[] = [
   {
     safeTypeToken: 'custodysettlement',
     safeType: 'Custody Settlement',
-    requiresTargetProcessor: true,
-    kind: 'vendor-invoice',
-    module: 'AP',
-    headerApi: 'VendorPaymentJournalHeaders',
+    requiresTargetProcessor: false,
+    kind: 'ledger',
+    module: 'GL',
+    headerApi: 'LedgerJournalHeaders',
     lineDirection: 'out',
-    journalByProcessor: {
-      Fleet: 'P-Fleet',
-      Freight: 'P-Freight',
-    },
+    journalName: 'CashOut',
   },
   {
     safeTypeToken: 'custodyissue',

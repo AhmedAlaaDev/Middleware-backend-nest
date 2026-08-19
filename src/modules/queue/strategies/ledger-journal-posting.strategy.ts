@@ -222,8 +222,10 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
     const headers = await this.generalJournalService.getJournalHeaders(
       dataAreaId,
       {
-        filters: `contains(Description, '${marker.replace(/'/g, "''")}')`,
-        maxCount: 100,
+        // LedgerJournalHeaders does not support the OData contains operator
+        // on Description in this Finance environment. Fetch the company
+        // headers and match the integration marker locally.
+        maxCount: 10_000,
         select: ['JournalBatchNumber', 'Description'],
         useCache: false,
       },

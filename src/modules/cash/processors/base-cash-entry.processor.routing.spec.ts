@@ -37,7 +37,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   };
 
   it.each([
-    ['Custody Settlement', 'P-Freight'],
+    ['Custody Settlement', 'CashOut'],
     ['Custody Issue', 'P-Freight'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],

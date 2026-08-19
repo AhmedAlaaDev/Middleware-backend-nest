@@ -96,18 +96,6 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     [EntryProcessorTypes.CashOutTrucking, 'Vendor Payment', 'Fleet', 'P-Fleet'],
     [
       EntryProcessorTypes.CashOutFreight,
-      'Custody Settlement',
-      'Freight',
-      'P-Freight',
-    ],
-    [
-      EntryProcessorTypes.CashOutTrucking,
-      'Custody Settlement',
-      'Fleet',
-      'P-Fleet',
-    ],
-    [
-      EntryProcessorTypes.CashOutFreight,
       'Custody Issue',
       'Freight',
       'P-Freight',
@@ -232,34 +220,24 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(groups[2].route.lineDirection).toBe('in');
   });
 
-  it('routes Freight Custody Settlement through AP P-Freight', async () => {
+  it('routes Custody Settlement through GL CashOut for mixed account types', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,
-      [
-        makeLine({
-          SafeType: 'Custody Settlement',
-          AccountType: 'Ledger',
-          MarkedInvoice: '',
-          Invoice: '',
-        }),
-      ],
+      [makeLine({ SafeType: 'Custody Settlement', AccountType: 'Ledger' })],
     );
 
     await handler.execute({ batchId: 'batch-2045' } as any);
 
     const groups = queueService.addDurableJob.mock.calls[0][3];
-    expect(groups).toHaveLength(1);
     expect(groups[0].route).toMatchObject({
-      kind: 'vendor-invoice',
-      module: 'AP',
+      kind: 'ledger',
+      module: 'GL',
       safeType: 'Custody Settlement',
-      targetProcessor: 'Freight',
-      journalName: 'P-Freight',
-      headerApi: 'VendorPaymentJournalHeaders',
+      journalName: 'CashOut',
+      headerApi: 'LedgerJournalHeaders',
     });
-    expect(groups[0].header).toMatchObject({
-      JournalName: 'P-Freight',
-    });
+    expect(groups[0].route).not.toHaveProperty('targetProcessor');
+    expect(groups[0].header.JournalName).toBe('CashOut');
   });
 
   it('routes Freight Custody Issue through AP P-Freight', async () => {
