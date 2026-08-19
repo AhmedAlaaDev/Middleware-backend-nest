@@ -15,6 +15,7 @@ import { D365FOCustomerPaymentJournalLineRequest } from '@/modules/d365fo/types'
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
 import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
 import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/vendor-payment-journal-posting.strategy';
+import { LedgerJournalLineRequest } from '@/modules/d365fo/types/d365fo-ledger.type';
 
 /**
  * Task 2045 cash strategy.
@@ -82,6 +83,15 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     const existingLinesLoader = () =>
       this.activeHeaderStrategy().listLinesForHeader(headerKey, dataAreaId);
 
+    if (route.kind === 'ledger') {
+      return this.ledgerStrategy.postLinesForHeader(
+        headerKey,
+        typedLines.map((line) => this.toLedgerJournalLine(line)),
+        dataAreaId,
+        chunkSize,
+      );
+    }
+
     return route.lineDirection === 'in'
       ? this.customerPaymentJournalService.postCashInLinesForHeader(
           headerKey,
@@ -98,8 +108,90 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
           typedLines,
           chunkSize,
           dataAreaId,
-          existingLinesLoader,
-        );
+        existingLinesLoader,
+      );
+  }
+
+  private toLedgerJournalLine(
+    line: D365FOCustomerPaymentJournalLineRequest,
+  ): LedgerJournalLineRequest {
+    const body = line.customLineApiBody as any;
+    const accountType = this.toLedgerAccountType(
+      body.accountTypeStr ?? body.AccountTypeStr,
+    );
+    const offsetDisplay = String(
+      body.offsetAccountDisplayValue ?? body.OffsetAccountDisplayValue ?? '',
+    );
+    const offsetType = offsetDisplay
+      ? this.toLedgerAccountType(body.OffsetAccountTypeStr)
+      : undefined;
+    const paymentMethod = this.sanitizePaymentMethod(body.PAYMENTMETHODNAME);
+    // The Cash API sends its own 19-segment dimension-only format.  It is not
+    // the active DefaultDimensionDisplayValue format of LedgerJournalLineEntity
+    // (this also applies to Vend/Bank/RCash lines). Sending it makes Finance
+    // reject the whole row before X++ can resolve the account combination.
+    // Ledger account combinations remain in AccountDisplayValue; the other
+    // account types are resolved by their account display value and posting
+    // profile.
+    return {
+      dataAreaId: line.dataAreaId,
+      JournalBatchNumber: '',
+      AccountType: accountType,
+      AccountDisplayValue: String(body.AccountNum ?? ''),
+      Text: String(body.TRANSACTIONTEXT ?? ''),
+      DebitAmount: Number(body.debitAmount ?? 0),
+      CreditAmount: Number(body.creditAmount ?? 0),
+      ...(offsetType && offsetDisplay
+        ? {
+            OffsetAccountType: offsetType,
+            OffsetAccountDisplayValue: offsetDisplay,
+            OffsetText: String(body.OFFSETTRANSACTIONTEXT ?? ''),
+          }
+        : {}),
+      CurrencyCode: String(body.currency ?? ''),
+      TransDate: this.toOdataDateTimeOffset(body.transDate),
+      DocumentDate: this.toOdataDateTimeOffset(body.DocumentDate),
+      Document: String(body.DocumentNum ?? ''),
+      Invoice: String(body.INVOICE ?? ''),
+      PostingProfile: String(body.PostingProfile ?? ''),
+      ...(paymentMethod ? { PaymentMethod: paymentMethod } : {}),
+      FinTagDisplayValue: String(body.FinTagStr ?? ''),
+      PaymentId: String(body.PAYMENTID ?? ''),
+    };
+  }
+
+  private sanitizePaymentMethod(value: unknown): string {
+    const method = String(value ?? '').trim();
+    if (!method) return '';
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(method) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(method) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(method)
+    ) {
+      return '';
+    }
+    return method;
+  }
+
+  private toLedgerAccountType(value: unknown): string {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized === 'vendor' || normalized === 'vend') return 'Vend';
+    if (normalized === 'bank') return 'Bank';
+    // LedgerJournalACType includes RCash. Mapping petty cash to Bank makes
+    // Finance look up the cash account id (for example ALEXHO EG) in the Bank
+    // dimension and reject the LedgerJournalLineEntity row.
+    if (normalized === 'petty cash' || normalized === 'rcash') return 'RCash';
+    return 'Ledger';
+  }
+
+  private toOdataDateTimeOffset(value: unknown): string {
+    const date = String(value ?? '').trim();
+    if (!date) return '';
+    const day = date.match(/^(\d{4}-\d{2}-\d{2})/);
+    const normalized = day ? `${day[1]}T00:00:00` : date;
+    return /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)
+      ? normalized
+      : `${normalized}Z`;
   }
 
   public deleteHeader(headerId: string, dataAreaId: string): Promise<void> {

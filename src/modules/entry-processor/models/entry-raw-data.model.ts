@@ -156,7 +156,7 @@ export class EntryRawDataModel {
       : s(data?.ITEMWITHHOLDINGTAXGROUPCODE);
     this.DOCUMENTDATE = this.normalizeDate(data?.DOCUMENTDATE);
     this.DUEDATE = this.normalizeDate(data?.DUEDATE);
-    this.PAYMENTMETHOD = s(data?.PAYMENTMETHOD);
+    this.PAYMENTMETHOD = this.sanitizePaymentMethod(data?.PAYMENTMETHOD);
     this.PAYMENTREFERENCE = s(data?.PAYMENTREFERENCE);
     this.CASHDISCOUNT = Number(n(data?.CASHDISCOUNT)) || 0;
     this.CASHDISCOUNTAMOUNT = Number(n(data?.CASHDISCOUNTAMOUNT)) || 0;
@@ -191,6 +191,21 @@ export class EntryRawDataModel {
     if (typeof v === 'object') return 0; // e.g. { error: "#N/A" }
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
+  }
+
+  protected sanitizePaymentMethod(value: LookupCell<any>): string {
+    const raw = this.lookupResult<any>(value);
+    if (raw == null) return '';
+    if (raw instanceof Date) return '';
+    const str = this.stripDisallowedChars(String(raw)).trim();
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(str) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(str)
+    ) {
+      return '';
+    }
+    return str;
   }
 
   /**

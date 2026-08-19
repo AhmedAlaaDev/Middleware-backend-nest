@@ -100,4 +100,14 @@ describe('BaseCashEntryProcessor - PAYMENTMETHOD mapping', () => {
     expect(line.OffsetAccountType).toBe('Petty cash');
     expect(line.PaymentMethodName).toBe('');
   });
+
+  it('sanitizes date-like values in PAYMENTMETHOD to empty string', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines(
+      '466672',
+      buildGroup('2026-01-22', '2026-01-22'),
+    );
+
+    expect(line.PaymentMethodName).toBe('');
+  });
 });

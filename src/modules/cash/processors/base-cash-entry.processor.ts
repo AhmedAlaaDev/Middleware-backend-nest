@@ -2644,7 +2644,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: sourceLine.ACCOUNTTYPE,
       OffsetAccountType: '' as any,
-      PaymentMethodName: sourceLine.PAYMENTMETHOD?.trim() ?? '',
+      PaymentMethodName: this.sanitizePaymentMethod(sourceLine.PAYMENTMETHOD),
       PaymentReference:
         sourceLine.PAYMENTREFERENCE || sourceLine.DESCRIPTION || '',
       OffsetTransactionText: '',
@@ -3153,7 +3153,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Company: this.company,
       AccountType: sourceLine.ACCOUNTTYPE,
       OffsetAccountType: sourceLine.OFFSETACCOUNTTYPE,
-      PaymentMethodName: sourceLine.PAYMENTMETHOD,
+      PaymentMethodName: this.sanitizePaymentMethod(sourceLine.PAYMENTMETHOD),
       PaymentReference: sourceLine.PAYMENTREFERENCE,
       OffsetTransactionText: sourceLine.OFFSETTEXT,
       JournalName:
@@ -3681,9 +3681,22 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): string {
     return (
       [accountLine.PAYMENTMETHOD, offsetLine.PAYMENTMETHOD]
-        .map((value) => value?.trim() ?? '')
+        .map((value) => this.sanitizePaymentMethod(value))
         .find(Boolean) ?? ''
     );
+  }
+
+  protected sanitizePaymentMethod(value?: unknown): string {
+    const s = String(value ?? '').trim();
+    if (!s) return '';
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(s)
+    ) {
+      return '';
+    }
+    return s;
   }
 
   /**

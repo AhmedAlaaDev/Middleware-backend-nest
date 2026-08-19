@@ -500,12 +500,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             ? primaryMarkedLinesByGroup.get(groupKey)
             : undefined;
       const hasAssociatedWithholding = Boolean(
-        withholdingGroupKeys.has(groupKey) &&
-        (isWithholdingCompanion ||
-          String(line.IsWithholdingCalculationEnabled ?? '').toLowerCase() ===
-            'yes' ||
-          sourceMarkedLines?.some((marked) => marked.HasWithHoldingLine)),
+        groupKey && withholdingGroupKeys.has(groupKey),
       );
+      // A withholding entry must never be marked for settlement. Finance's
+      // VendPaym X++ contract uses the withholding companion to calculate the
+      // withholding transaction; sending MarkedLines/MarkedInvoice as well
+      // makes it attempt settlement against the wrong invoice.
+      const settlementMarkedInvoice = hasAssociatedWithholding
+        ? ''
+        : markedInvoice;
       // Settlement (marking) for Vendor Payment and Custody Settlement.
       // Prefer pre-built MarkedLines from formatting; synthesize from
       // VendorGroup / Invoice / Document / Operation when formatting left
@@ -517,7 +520,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           route?.safeType === 'Custody Settlement' ||
           Boolean(sourceMarkedLines && sourceMarkedLines.length > 0) ||
           Boolean(markedInvoice));
-      const markedLines = routeSupportsMarking
+      const markedLines = routeSupportsMarking && !hasAssociatedWithholding
         ? sourceMarkedLines && sourceMarkedLines.length > 0
           ? sourceMarkedLines.map((markedLine) => ({
               // Prefer the formatted mark; fall back to MarkedInvoice so the
@@ -525,7 +528,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
               InvoiceNumber: isCustodyVendor
                 ? ''
                 : this.toOptionalInvoiceString(
-                    markedLine.InvoiceNumber || markedInvoice || '',
+                    markedLine.InvoiceNumber || settlementMarkedInvoice || '',
                   ),
               OperationNumber: this.stripBidiMarks(
                 String(markedLine.OperationNumber ?? operationNumber),
@@ -540,7 +543,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             }))
           : this.synthesizeCashOutMarkedLines({
               isCustodyVendor,
-              markedInvoice,
+              markedInvoice: settlementMarkedInvoice,
               // Only Custody Settlement may fall back to Invoice when
               // MarkedInvoice was never populated. Vendor Payment keeps
               // intentional unmarked (cleared MarkedInvoice) as empty.
@@ -583,7 +586,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const shouldAppendUnmarked =
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !markedInvoice &&
+        (!settlementMarkedInvoice || hasAssociatedWithholding) &&
         !transactionTextValue.toLowerCase().includes('unmarked');
       if (shouldAppendUnmarked) {
         transactionTextValue = transactionTextValue
@@ -595,7 +598,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (
         routeSupportsMarking &&
         markedLines.length === 0 &&
-        !markedInvoice &&
+        (!settlementMarkedInvoice || hasAssociatedWithholding) &&
         !offsetTransactionTextValue.toLowerCase().includes('unmarked')
       ) {
         offsetTransactionTextValue = offsetTransactionTextValue
@@ -674,8 +677,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         OFFSETTRANSACTIONTEXT: offsetTransactionTextValue,
 
         PAYMENTID: line.PaymentId ?? '',
-        PAYMENTMETHODNAME:
-          this.toOptionalTrimmedString(line.PaymentMethodName) ?? '',
+        PAYMENTMETHODNAME: this.sanitizePaymentMethod(line.PaymentMethodName),
         PAYMENTNOTES: transactionTextValue,
         PAYMENTREFERENCE: line.PaymentReference ?? '',
         // TODO: mapping is unknown; keeping empty until confirmed.
@@ -717,7 +719,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           customLineApiBody.MARKEDINVOICE = markedInvoice;
         }
       } else if (routeSupportsMarking || (markedInvoice && accountTypeStr === 'Vendor')) {
-        customLineApiBody.MARKEDINVOICE = markedInvoice;
+        customLineApiBody.MARKEDINVOICE = settlementMarkedInvoice;
       }
 
       if (this.isMainAccountOnlyLine(line, cashDirection, route)) {
@@ -1314,6 +1316,19 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (value === null || value === undefined) return undefined;
     const trimmed = String(value).trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private sanitizePaymentMethod(value?: unknown): string {
+    const s = this.toOptionalTrimmedString(value as string) ?? '';
+    if (!s) return '';
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(s)
+    ) {
+      return '';
+    }
+    return s;
   }
 
   private toOptionalInvoiceString(value: string | undefined | null): string {

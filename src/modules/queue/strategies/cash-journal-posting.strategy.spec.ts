@@ -142,6 +142,136 @@ describe('CashJournalPostingStrategy', () => {
     },
   );
 
+  it('maps Petty Cash to RCash on LedgerJournalLineEntity', async () => {
+    const harness = buildStrategy();
+    harness.ledgerStrategy.postLinesForHeader.mockResolvedValue([]);
+    harness.strategy.setRouteContext(glRoute);
+
+    await harness.strategy.postLinesForHeader(
+      'GL-0001',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 142,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'ALEXHO EG',
+            accountTypeStr: 'petty cash',
+            debitAmount: 0,
+            creditAmount: 2394,
+            currency: 'EGP',
+            transDate: '2026-01-04',
+          },
+        } as any,
+      ],
+      'm-p',
+    );
+
+    expect(harness.ledgerStrategy.postLinesForHeader).toHaveBeenCalledWith(
+      'GL-0001',
+      [
+        expect.objectContaining({
+          AccountType: 'RCash',
+          AccountDisplayValue: 'ALEXHO EG',
+        }),
+      ],
+      'm-p',
+      20,
+    );
+  });
+
+  it('maps a petty-cash offset to RCash instead of Bank', async () => {
+    const harness = buildStrategy();
+    harness.ledgerStrategy.postLinesForHeader.mockResolvedValue([]);
+    harness.strategy.setRouteContext(glRoute);
+
+    await harness.strategy.postLinesForHeader(
+      'GL-0003',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            AccountNum: '124101|1101|011|001',
+            accountTypeStr: 'ledger',
+            offsetAccountDisplayValue: 'ALEXHO EG',
+            OffsetAccountTypeStr: 'RCash',
+          },
+        } as any,
+      ],
+      'm-p',
+    );
+
+    const [mappedLine] = harness.ledgerStrategy.postLinesForHeader.mock
+      .calls[0][1];
+    expect(mappedLine).toMatchObject({
+      AccountType: 'Ledger',
+      OffsetAccountType: 'RCash',
+      OffsetAccountDisplayValue: 'ALEXHO EG',
+    });
+  });
+
+  it('does not send the Cash API dimension string to LedgerJournalLineEntity', async () => {
+    const harness = buildStrategy();
+    harness.ledgerStrategy.postLinesForHeader.mockResolvedValue([]);
+    harness.strategy.setRouteContext(glRoute);
+
+    await harness.strategy.postLinesForHeader(
+      'GL-0002',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 143,
+          cashDirection: 'out',
+          customLineApiBody: {
+            AccountNum: '3135',
+            accountTypeStr: 'vendor',
+            DEFAULTDIMENSIONDISPLAYVALUE:
+              '1301|013|001|001|101000358|101000358|3135|3135|16517|3042|3336|Collect|||IMPORT||||',
+            offsetAccountDisplayValue: '101000358',
+            OffsetAccountTypeStr: 'ledger',
+            offsetDEFAULTDIMENSIONDISPLAYVALUE: 'invalid-target-format',
+          },
+        } as any,
+      ],
+      'm-p',
+    );
+
+    const [mappedLine] = harness.ledgerStrategy.postLinesForHeader.mock
+      .calls[0][1];
+    expect(mappedLine).not.toHaveProperty('DefaultDimensionDisplayValue');
+    expect(mappedLine).not.toHaveProperty('OffsetDefaultDimensionDisplayValue');
+  });
+
+  it('omits PaymentMethod when PAYMENTMETHODNAME is a date string', async () => {
+    const harness = buildStrategy();
+    harness.ledgerStrategy.postLinesForHeader.mockResolvedValue([]);
+    harness.strategy.setRouteContext(glRoute);
+
+    await harness.strategy.postLinesForHeader(
+      'GL-0004',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 144,
+          cashDirection: 'out',
+          customLineApiBody: {
+            AccountNum: '124101|1101',
+            accountTypeStr: 'ledger',
+            PAYMENTMETHODNAME: '2026-01-22',
+          },
+        } as any,
+      ],
+      'm-p',
+    );
+
+    const [mappedLine] = harness.ledgerStrategy.postLinesForHeader.mock
+      .calls[0][1];
+    expect(mappedLine).not.toHaveProperty('PaymentMethod');
+  });
+
   it.each([
     {
       name: 'AP',
@@ -192,6 +322,7 @@ describe('CashJournalPostingStrategy', () => {
           return postedLines;
         },
       );
+      harness.ledgerStrategy.postLinesForHeader.mockResolvedValue(postedLines);
 
       harness.strategy.setRouteContext(route);
       const result = await harness.strategy.postLinesForHeader(
@@ -201,22 +332,31 @@ describe('CashJournalPostingStrategy', () => {
         7,
       );
 
-      expect(
-        harness.customerPaymentJournalService[lineMethod],
-      ).toHaveBeenCalledWith(
-        ...[
+      if (route.kind === 'ledger') {
+        expect(harness.ledgerStrategy.postLinesForHeader).toHaveBeenCalledWith(
           'Mesco-000020045',
-          lines,
-          7,
+          [expect.objectContaining({ AccountType: 'Ledger' })],
           'm-p',
-          expect.any(Function),
-          ...(route.kind === 'customer-payment' ? [true] : []),
-        ],
-      );
-      expect(harness[activeStrategy].listLinesForHeader).toHaveBeenCalledWith(
-        'Mesco-000020045',
-        'm-p',
-      );
+          7,
+        );
+      } else {
+        expect(
+          harness.customerPaymentJournalService[lineMethod],
+        ).toHaveBeenCalledWith(
+          ...[
+            'Mesco-000020045',
+            lines,
+            7,
+            'm-p',
+            expect.any(Function),
+            ...(route.kind === 'customer-payment' ? [true] : []),
+          ],
+        );
+        expect(harness[activeStrategy].listLinesForHeader).toHaveBeenCalledWith(
+          'Mesco-000020045',
+          'm-p',
+        );
+      }
       expect(result).toEqual(postedLines);
 
       const allLineLookupMocks = [
@@ -226,7 +366,7 @@ describe('CashJournalPostingStrategy', () => {
       ];
       expect(
         allLineLookupMocks.filter((mock) => mock.mock.calls.length > 0),
-      ).toHaveLength(1);
+      ).toHaveLength(route.kind === 'ledger' ? 0 : 1);
     },
   );
 
