@@ -166,10 +166,30 @@ export class GeneralJournalService {
     );
 
     const payload = { ...data, dataAreaId: data.dataAreaId || company };
+    const paymentMethod = this.sanitizePaymentMethod(payload.PaymentMethod);
+    if (paymentMethod) {
+      payload.PaymentMethod = paymentMethod;
+    } else {
+      delete payload.PaymentMethod;
+    }
+
     return this.d365foClient.post<
       LedgerJournalLineRequest,
       LedgerJournalLineResponse
     >(`/data/LedgerJournalLines${CROSS_COMPANY}`, payload);
+  }
+
+  private sanitizePaymentMethod(value?: unknown): string | undefined {
+    const s = String(value ?? '').trim();
+    if (!s) return undefined;
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(s)
+    ) {
+      return undefined;
+    }
+    return s;
   }
 
   /**

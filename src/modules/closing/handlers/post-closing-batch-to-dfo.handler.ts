@@ -271,12 +271,25 @@ export class PostClosingBatchToDFOHandler implements ICommandHandler<
       Document: line.Document ? line.Document.toString() : '',
       Invoice: line.Invoice ? line.Invoice.toString() : '',
       PostingProfile: line.PostingProfile,
-      PaymentMethod: line.PaymentMethod,
+      PaymentMethod: this.sanitizePaymentMethod(line.PaymentMethod),
       SalesTaxGroup: line.SalesTaxGroup,
       ItemSalesTaxGroup: line.ItemSalesTaxGroup,
       FinTagDisplayValue: line.FinTagDisplayValue || '',
       PaymentId: line.UniqueId?.toString() || '',
     };
+  }
+
+  private sanitizePaymentMethod(value?: unknown): string | undefined {
+    const s = String(value ?? '').trim();
+    if (!s) return undefined;
+    if (
+      /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s) ||
+      /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s) ||
+      /^\d{4}-\d{2}-\d{2}T/.test(s)
+    ) {
+      return undefined;
+    }
+    return s;
   }
 
   private formatDate(date?: Date | string): string {
