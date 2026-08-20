@@ -377,7 +377,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
-      if (this.unbalancedUniqueIds.has(line.SourceIds[0])) {
+      if (
+        !this.isInbound() &&
+        this.unbalancedUniqueIds.has(line.SourceIds[0])
+      ) {
         line.AddError('UnbalancedInvoice', 'Invoice is unbalanced after FX');
       }
 
@@ -893,29 +896,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     invoiceMap: Map<string, EntryRawDataModel[]>,
     exchangeRateContext?: CashOutExchangeRateContext,
   ): Set<string> {
+    if (this.isInbound()) {
+      this.unbalancedUniqueIds.clear();
+      return this.unbalancedUniqueIds;
+    }
+
     if (!exchangeRateContext) {
-      if (this.isInbound()) {
-        for (const lines of invoiceMap.values()) {
-          const rateSourceLine = lines.find(
-            (l) =>
-              l.CURRENCYCODE &&
-              l.CURRENCYCODE !== 'EGP' &&
-              Number(l.EXCHANGERATE) > 0,
-          );
-          if (rateSourceLine && rateSourceLine.EXCHANGERATE) {
-            for (const line of lines) {
-              if (
-                line.CURRENCYCODE === rateSourceLine.CURRENCYCODE &&
-                (!line.EXCHANGERATE ||
-                  line.EXCHANGERATE === 100 ||
-                  line.EXCHANGERATE === 1)
-              ) {
-                line.EXCHANGERATE = rateSourceLine.EXCHANGERATE;
-              }
-            }
-          }
-        }
-      }
       return super.checkInvoiceBalancedAfterFx(invoiceMap);
     }
 
