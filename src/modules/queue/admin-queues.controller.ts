@@ -85,7 +85,10 @@ export class AdminQueuesController {
 
   @Post(':queueName/pause')
   async pauseQueue(@Param('queueName') queueName: string) {
-    const queue = await this.queues.setPaused(this.requireQueue(queueName), true);
+    const queue = await this.queues.setPaused(
+      this.requireQueue(queueName),
+      true,
+    );
     return { status: 'paused', queue };
   }
 
@@ -143,10 +146,7 @@ export class AdminQueuesController {
           : normalized === 'waiting'
             ? [DurableQueueJobStatus.QUEUED, DurableQueueJobStatus.PAUSED]
             : normalized === 'active'
-              ? [
-                  DurableQueueJobStatus.ACTIVE,
-                  DurableQueueJobStatus.RETRYING,
-                ]
+              ? [DurableQueueJobStatus.ACTIVE, DurableQueueJobStatus.RETRYING]
               : undefined; // all durable rows for this queue
 
     const redis = await this.queues.cleanJobs(name, [...redisTypes]);

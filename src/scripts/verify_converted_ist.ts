@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 
 async function verify() {
-  const filePath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\Dynamics_Converted_To_IST.xlsx';
+  const filePath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\Dynamics_Converted_To_IST.xlsx';
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
@@ -17,7 +18,7 @@ async function verify() {
 
   console.log(`Total headers count: ${headers.filter(Boolean).length}`);
   console.log(`Sample Row 2:`);
-  
+
   const sampleRow: Record<string, any> = {};
   sheet.getRow(2).eachCell((cell, colNumber) => {
     sampleRow[headers[colNumber]] = cell.value;

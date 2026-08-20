@@ -102,7 +102,9 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
     (processor as any).dimensionsMap = new Map();
     (processor as any).accountNumberSet = new Set();
 
-    jest.spyOn(processor as any, 'warmupProcessorData').mockResolvedValue(undefined);
+    jest
+      .spyOn(processor as any, 'warmupProcessorData')
+      .mockResolvedValue(undefined);
     jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
       exchangeRate: 1,
       reportingRate: 1,
@@ -124,7 +126,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
           JOURNALBATCHNUMBER: 'B101',
           ACCOUNTTYPE: 'Vend',
           ACCOUNTDISPLAYVALUE: 'VEND-STD-001',
-          DEFAULTDIMENSIONDISPLAYVALUE: '200101-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
+          DEFAULTDIMENSIONDISPLAYVALUE:
+            '200101-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
           CREDITAMOUNT: 5000,
           DEBITAMOUNT: 0,
           CURRENCYCODE: 'EGP',
@@ -138,7 +141,9 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
       expect(result).toHaveLength(1);
       expect(result[0].Invoice).toBe('');
       expect(result[0].MarkedInvoice).toBe('');
-      expect(result[0].Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+      expect(result[0].Description).toBe(
+        'Test Vendor Freight Jan 2026 - unmarked',
+      );
     });
 
     it('should set MarkedInvoice = "" and append " - unmarked" to Description for custody vendor with missing invoice', () => {
@@ -160,7 +165,9 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
 
       expect(builtLine.Invoice).toBe('');
       expect(builtLine.MarkedInvoice).toBe('');
-      expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+      expect(builtLine.Description).toBe(
+        'Test Vendor Freight Jan 2026 - unmarked',
+      );
     });
   });
 
@@ -185,7 +192,9 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
 
       expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
       expect(builtLine.MarkedInvoice).toBe('');
-      expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+      expect(builtLine.Description).toBe(
+        'Test Vendor Freight Jan 2026 - unmarked',
+      );
     });
 
     it('should retain MarkedInvoice string and normal Description when Payment Amount (1000) >= Invoice Amount (1000) [Full Payment]', () => {
@@ -242,7 +251,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
         LINENUMBER: 1,
         JOURNALBATCHNUMBER: 'B301',
         ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '224201-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
+        ACCOUNTDISPLAYVALUE:
+          '224201-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
         FINTAGDISPLAYVALUE: '224201_TAG',
         CREDITAMOUNT: 0,
         DEBITAMOUNT: 2500,
@@ -272,7 +282,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
         LINENUMBER: 2,
         JOURNALBATCHNUMBER: 'B301',
         ACCOUNTTYPE: 'Ledger',
-        ACCOUNTDISPLAYVALUE: '100501-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
+        ACCOUNTDISPLAYVALUE:
+          '100501-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
         FINTAGDISPLAYVALUE: '100501_TAG',
         CREDITAMOUNT: 0,
         DEBITAMOUNT: 2500,
@@ -293,7 +304,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
         JOURNALBATCHNUMBER: 'B301',
         ACCOUNTTYPE: 'Vend',
         ACCOUNTDISPLAYVALUE: 'VEND-001',
-        DEFAULTDIMENSIONDISPLAYVALUE: '200101-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
+        DEFAULTDIMENSIONDISPLAYVALUE:
+          '200101-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
         FINTAGDISPLAYVALUE: '224201_TAG',
         CREDITAMOUNT: 5000,
         DEBITAMOUNT: 0,
@@ -362,7 +374,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
           LINENUMBER: 4,
           JOURNALBATCHNUMBER: 'BATCH-ALL',
           ACCOUNTTYPE: 'Ledger',
-          ACCOUNTDISPLAYVALUE: '224201-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
+          ACCOUNTDISPLAYVALUE:
+            '224201-CC01-ACT01-BU01-LOC01-CUST01-SUBCUST01-VEND01-CHG01',
           FINTAGDISPLAYVALUE: '224201_TAG',
           CREDITAMOUNT: 0,
           DEBITAMOUNT: 1800,
@@ -371,14 +384,25 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
         },
       ];
 
-      const enrichedLines = await processor.formatAndEnrichAsync(mixedRawBatch, 'mesco');
+      const enrichedLines = await processor.formatAndEnrichAsync(
+        mixedRawBatch,
+        'mesco',
+      );
 
       expect(enrichedLines).toHaveLength(4);
 
-      const fullPaymentLine = enrichedLines.find((l: any) => l.Invoice === 'INV-FULL-BATCH') as any;
-      const partialPaymentLine = enrichedLines.find((l: any) => l.Invoice === 'INV-PARTIAL-BATCH') as any;
-      const missingInvoiceLine = enrichedLines.find((l: any) => l.AccountDisplayValue === 'VEND-03') as any;
-      const ledger22420Line = enrichedLines.find((l: any) => l.AccountDisplayValue.startsWith('224201')) as any;
+      const fullPaymentLine = enrichedLines.find(
+        (l: any) => l.Invoice === 'INV-FULL-BATCH',
+      ) as any;
+      const partialPaymentLine = enrichedLines.find(
+        (l: any) => l.Invoice === 'INV-PARTIAL-BATCH',
+      ) as any;
+      const missingInvoiceLine = enrichedLines.find(
+        (l: any) => l.AccountDisplayValue === 'VEND-03',
+      ) as any;
+      const ledger22420Line = enrichedLines.find((l: any) =>
+        l.AccountDisplayValue.startsWith('224201'),
+      ) as any;
 
       // Line 1: Full Payment
       expect(fullPaymentLine).toBeDefined();
@@ -390,13 +414,17 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
       expect(partialPaymentLine).toBeDefined();
       expect(partialPaymentLine.Invoice).toBe('INV-PARTIAL-BATCH');
       expect(partialPaymentLine.MarkedInvoice).toBe('');
-      expect(partialPaymentLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+      expect(partialPaymentLine.Description).toBe(
+        'Test Vendor Freight Jan 2026 - unmarked',
+      );
 
       // Line 3: Missing Invoice
       expect(missingInvoiceLine).toBeDefined();
       expect(missingInvoiceLine.Invoice).toBe('');
       expect(missingInvoiceLine.MarkedInvoice).toBe('');
-      expect(missingInvoiceLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+      expect(missingInvoiceLine.Description).toBe(
+        'Test Vendor Freight Jan 2026 - unmarked',
+      );
 
       // Line 4: 22420 Ledger Line
       expect(ledger22420Line).toBeDefined();

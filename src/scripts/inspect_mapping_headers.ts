@@ -1,8 +1,10 @@
 import ExcelJS from 'exceljs';
 
 async function inspect() {
-  const dynPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\DynamicsExport_639203027794976482.xlsx';
-  const istPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST Report from jan to apr 2026.xlsx';
+  const dynPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\DynamicsExport_639203027794976482.xlsx';
+  const istPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\IST Report from jan to apr 2026.xlsx';
 
   const dynWb = new ExcelJS.Workbook();
   await dynWb.xlsx.readFile(dynPath);

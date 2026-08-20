@@ -1,7 +1,7 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { resolveCashJournalName } from '@/modules/cash/policies/cash-journal.policy';
-import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
 import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
+import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
@@ -171,7 +171,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
   describe('Bug 2046 - MarkedInvoice clearing & unmarked description rules', () => {
     it('adds a blocking validation error when invoice belongs to another vendor', () => {
       const processor = createProcessor();
-      (processor as any).vendorInvoiceExistsMap = new Set(); // Empty map => invoice does not exist for vendor
+      (processor as any).vendorInvoiceSnapshotMap = new Map(); // Empty map => invoice does not exist for vendor
 
       const line: any = {
         MarkedInvoice: 'INV-MISMATCH',

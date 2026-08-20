@@ -42,7 +42,10 @@ describe('CashOutExchangeRateService', () => {
   it('uses one file-global date range and makes one request per normalized foreign currency', async () => {
     const { d365ExchangeRateService, service } = setup();
     d365ExchangeRateService.getExchangeRatesForCurrencyRange.mockImplementation(
-      (_company: string, options: { fromCurrency: string; toCurrency?: string }) => {
+      (
+        _company: string,
+        options: { fromCurrency: string; toCurrency?: string },
+      ) => {
         if (options.toCurrency === 'USD') {
           return Promise.resolve([
             {
@@ -188,14 +191,18 @@ describe('CashOutExchangeRateService', () => {
     expect(service.resolveReporting(context, '2026-03-20', 'EGP')).toEqual({
       kind: 'missing',
       rate: 0,
-      message: 'No valid reporting exchange rate found for EGP to USD on 2026-03-20',
+      message:
+        'No valid reporting exchange rate found for EGP to USD on 2026-03-20',
     });
   });
 
   it('automatically falls back to reverse currency pair and calculates reciprocal rate when direct rate is missing', async () => {
     const { d365ExchangeRateService, service } = setup();
     d365ExchangeRateService.getExchangeRatesForCurrencyRange.mockImplementation(
-      (_company: string, options: { fromCurrency: string; toCurrency?: string }) => {
+      (
+        _company: string,
+        options: { fromCurrency: string; toCurrency?: string },
+      ) => {
         // Direct EGP -> USD is empty; reverse USD -> EGP exists with 50.25
         if (options.fromCurrency === 'USD' && options.toCurrency === 'EGP') {
           return Promise.resolve([

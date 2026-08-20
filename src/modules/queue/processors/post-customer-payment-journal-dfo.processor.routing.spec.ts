@@ -365,8 +365,15 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
   });
 
   it('posts nothing when the batch is paused before the first journal', async () => {
-    const { processor, job, cashStrategy, batches, jobs, rollback, pauseControl } =
-      buildProcessor([makeGroup(apRoute)]);
+    const {
+      processor,
+      job,
+      cashStrategy,
+      batches,
+      jobs,
+      rollback,
+      pauseControl,
+    } = buildProcessor([makeGroup(apRoute)]);
     pauseControl.isPaused.mockResolvedValue(true);
 
     await processor.process(job as any);

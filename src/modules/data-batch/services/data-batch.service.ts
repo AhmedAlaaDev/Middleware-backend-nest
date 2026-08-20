@@ -130,6 +130,241 @@ export class DataBatchService {
   }
 
   /**
+   * Creates a shell batch while Cash-Out formatting runs in the background.
+   * Source rows are stored immediately; enhanced rows are added when import finishes.
+   */
+  public async createProcessingShellAsync<
+    TRawData extends RawDataModel = RawDataModel,
+  >(
+    entryProcessorType: EntryProcessorTypes,
+    entryProcessorName: string,
+    companyId: string,
+    description: string,
+    rawData: TRawData[],
+    billingClassification?: string,
+  ): Promise<IDataBatch> {
+    const validationRunId = randomUUID();
+    const actor = this.traceContext.get();
+    const sourceColumnHeaders = this.collectSourceColumnHeaders(rawData);
+    const dataBatch = await this.dataBatchRepo.create({
+      company: companyId,
+      entryProcessorType,
+      entryProcessorName,
+      description,
+      successCount: 0,
+      errorCount: 0,
+      totalFormattedCount: 0,
+      totalUploadedCount: rawData.length,
+      withholdingRemovedCount: 0,
+      withholdingRemovedAmount: 0,
+      status: DataBatchStatus.Processing,
+      billingCodeId: billingClassification,
+      expectedGroupCount: 0,
+      activeValidationRunId: validationRunId,
+      createdByUserId: actor?.userId,
+      createdByName: actor?.userName,
+      createdByEmail: actor?.userEmail,
+      reprocessCount: 0,
+      sourceColumnHeaders:
+        sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
+    });
+
+    if (rawData.length > 0) {
+      await this.dataSourceRecordRepo.insertMany(
+        rawData.map((record) => ({
+          batchId: dataBatch.id,
+          data: record as unknown as Record<string, unknown>,
+        })),
+      );
+    }
+
+    this.logger.log(
+      `Processing shell batch created: id=${dataBatch.id} raw=${rawData.length}`,
+    );
+    return dataBatch;
+  }
+
+  public async finalizeProcessingValidationFailureAsync(
+    batchId: string,
+    errors: string[],
+  ): Promise<IDataBatch> {
+    const validationRunId = randomUUID();
+    const batchErrors = this.groupPreFormatValidationErrors(
+      batchId,
+      validationRunId,
+      errors,
+    );
+
+    if (batchErrors.length > 0) {
+      await this.dataBatchErrorRepo.insertMany(batchErrors);
+    }
+
+    await this.dataBatchRepo.updateOne(batchId, {
+      successCount: 0,
+      errorCount: errors.length,
+      totalFormattedCount: 0,
+      status: DataBatchStatus.PendingPosting,
+      activeValidationRunId: validationRunId,
+    });
+
+    const updated = await this.requireBatch(batchId);
+    this.logger.warn(
+      `Processing batch finalized with pre-format errors: id=${batchId} errors=${errors.length}`,
+    );
+    return updated;
+  }
+
+  public async finalizeProcessingSuccessAsync<
+    TEnhancedData extends DynDataModel = DynDataModel,
+  >(
+    batchId: string,
+    companyId: string,
+    entryProcessorType: EntryProcessorTypes,
+    dynData: TEnhancedData[],
+    options?: {
+      withholdingRemovedCount?: number;
+      withholdingRemovedAmount?: number;
+    },
+  ): Promise<IDataBatch> {
+    const successCount = dynData.filter((d) => d.ErrorCount === 0).length;
+    const errorCount = dynData.filter((d) => d.ErrorCount > 0).length;
+    const expectedGroupCount = this.calculateExpectedGroupCount(dynData);
+    const validationRunId = randomUUID();
+
+    if (dynData.length > 0) {
+      await this.dataEnhancedRecordRepo.insertMany(
+        dynData.map((record) => ({
+          batchId,
+          dimensionModel: record.DimensionModel
+            ? (Object.assign({}, record.DimensionModel) as unknown as Record<
+                string,
+                unknown
+              >)
+            : undefined,
+          sourceIds: record.SourceIds || [],
+          data: record as unknown as Record<string, unknown>,
+          dataModelType: this.getDataModelType(record),
+          validationRunId,
+        })),
+      );
+    }
+
+    const errorRecords = dynData.filter((d) => d.ErrorCount > 0);
+    if (errorRecords.length > 0) {
+      await this.dataBatchErrorRepo.insertMany(
+        errorRecords.map((record) => ({
+          batchId,
+          sourceRecordIds: record.SourceIds || [],
+          errorMessages: record.GetErrors(),
+          accountDimensionsModel: record.DimensionModel
+            ? (Object.assign({}, record.DimensionModel) as unknown as Record<
+                string,
+                any
+              >)
+            : undefined,
+          enhancedRecordIds: [record.LineNumber?.toString() || ''],
+          enhancedData: record as unknown as Record<string, unknown>,
+          validationRunId,
+        })),
+      );
+    }
+
+    await this.persistMissingMasterData(batchId, companyId, entryProcessorType, dynData);
+
+    await this.dataBatchRepo.updateOne(batchId, {
+      successCount,
+      errorCount,
+      totalFormattedCount: dynData.length,
+      expectedGroupCount,
+      status: DataBatchStatus.PendingPosting,
+      activeValidationRunId: validationRunId,
+      withholdingRemovedCount: options?.withholdingRemovedCount ?? 0,
+      withholdingRemovedAmount: options?.withholdingRemovedAmount ?? 0,
+    });
+
+    const updated = await this.requireBatch(batchId);
+    this.logger.log(
+      `Processing batch finalized: id=${batchId} dyn=${dynData.length} errors=${errorRecords.length}`,
+    );
+    return updated;
+  }
+
+  public async markProcessingImportFailedAsync(
+    batchId: string,
+    message: string,
+  ): Promise<void> {
+    await this.dataBatchRepo.updateOne(batchId, {
+      status: DataBatchStatus.Canceled,
+      lastReprocessError: message,
+    });
+    this.logger.error(`Processing batch import failed: id=${batchId} ${message}`);
+  }
+
+  public async processDeferredImportAsync(
+    batchId: string,
+    voucherNumberSettingLogicalName?: string,
+  ): Promise<void> {
+    const batch = await this.requireBatch(batchId);
+    if (batch.status !== DataBatchStatus.Processing) {
+      throw new ConflictException(
+        `Batch ${batchId} is not waiting for background import (status=${batch.status})`,
+      );
+    }
+
+    const sourceRecords = await this.getSourceRecordsAsync(batchId);
+    const rawData = sourceRecords.map((record) => record.data);
+    if (rawData.length === 0) {
+      throw new ConflictException(`Batch ${batchId} has no source records to import`);
+    }
+
+    const processor = this.processorFactory.getProcessor(batch.entryProcessorType);
+
+    let enriched;
+    try {
+      enriched = await processor.formatAndEnrichAsync(rawData, batch.company);
+    } catch (error: unknown) {
+      const validationErrors = this.getCashOutPreFormatValidationErrors(error);
+      if (!validationErrors) {
+        throw error;
+      }
+
+      await this.finalizeProcessingValidationFailureAsync(
+        batchId,
+        validationErrors,
+      );
+      return;
+    }
+
+    const validated = await processor.validateAsync(enriched, batch.company);
+    const metadata = (enriched as { metadata?: {
+      withholdingRemovedCount?: number;
+      withholdingRemovedAmount?: number;
+    } }).metadata;
+
+    await this.finalizeProcessingSuccessAsync(
+      batchId,
+      batch.company,
+      batch.entryProcessorType,
+      validated,
+      {
+        withholdingRemovedCount: metadata?.withholdingRemovedCount,
+        withholdingRemovedAmount: metadata?.withholdingRemovedAmount,
+      },
+    );
+
+    if (voucherNumberSettingLogicalName) {
+      this.updateBatchSettingsAsync(validated, voucherNumberSettingLogicalName).catch(
+        (settingsError: Error) => {
+          this.logger.error(
+            `Failed to update batch settings for ${batchId}: ${settingsError.message}`,
+            settingsError.stack,
+          );
+        },
+      );
+    }
+  }
+
+  /**
    * Create a new batch with source and enhanced records
    * @template TRawData - Type of raw/source data records
    * @template TEnhancedData - Type of enhanced/dynamic data records
@@ -279,61 +514,12 @@ export class DataBatchService {
     );
 
     // Process and store missing master data if any
-    const missingMasterDataItems: IMissingMasterDataItem[] = [];
-
-    for (const record of dynData) {
-      for (const item of record.GetMissingMasterData()) {
-        missingMasterDataItems.push(item);
-      }
-    }
-
-    if (missingMasterDataItems.length > 0) {
-      const grouped = new Map<
-        string,
-        {
-          type: MissingMasterDataType;
-          missingField: 'CustomerAccount' | 'TaxExemptNumber';
-          missingValue: string;
-          formDefaults: Record<string, unknown>;
-          affectedCount: number;
-        }
-      >();
-
-      for (const item of missingMasterDataItems) {
-        const key = `${item.type}|${item.missingField}|${item.missingValue}`;
-        const existing = grouped.get(key);
-        if (existing) {
-          existing.affectedCount++;
-        } else {
-          grouped.set(key, {
-            ...item,
-            affectedCount: 1,
-          });
-        }
-      }
-
-      for (const groupedItem of grouped.values()) {
-        await this.missingMasterDataRepo.upsert(
-          dataBatch.id,
-          groupedItem.type,
-          groupedItem.missingField,
-          groupedItem.missingValue,
-          {
-            company: companyId,
-            entryProcessorType,
-            creationStatus: 'missing',
-            reprocessStatus: 'not_started',
-            affectedCount: groupedItem.affectedCount,
-            formDefaults: groupedItem.formDefaults,
-            readonlyFormFields: [groupedItem.missingField],
-            reprocessAttempts: 0,
-          },
-        );
-      }
-      this.logger.debug(
-        `Upserted missing master data records: count=${grouped.size}`,
-      );
-    }
+    await this.persistMissingMasterData(
+      dataBatch.id,
+      companyId,
+      entryProcessorType,
+      dynData,
+    );
 
     // Update settings asynchronously (batch number always, voucher number if provided)
     this.updateBatchSettingsAsync(
@@ -982,6 +1168,100 @@ export class DataBatchService {
    * ExcelJS inserts object keys in worksheet column order, so this preserves
    * the uploaded file's column arrangement.
    */
+  private async persistMissingMasterData<
+    TEnhancedData extends DynDataModel = DynDataModel,
+  >(
+    batchId: string,
+    companyId: string,
+    entryProcessorType: EntryProcessorTypes,
+    dynData: TEnhancedData[],
+  ): Promise<void> {
+    const missingMasterDataItems: IMissingMasterDataItem[] = [];
+
+    for (const record of dynData) {
+      for (const item of record.GetMissingMasterData()) {
+        missingMasterDataItems.push(item);
+      }
+    }
+
+    if (missingMasterDataItems.length === 0) {
+      return;
+    }
+
+    const grouped = new Map<
+      string,
+      {
+        type: MissingMasterDataType;
+        missingField: 'CustomerAccount' | 'TaxExemptNumber';
+        missingValue: string;
+        formDefaults: Record<string, unknown>;
+        affectedCount: number;
+      }
+    >();
+
+    for (const item of missingMasterDataItems) {
+      const key = `${item.type}|${item.missingField}|${item.missingValue}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.affectedCount++;
+      } else {
+        grouped.set(key, {
+          ...item,
+          affectedCount: 1,
+        });
+      }
+    }
+
+    for (const groupedItem of grouped.values()) {
+      await this.missingMasterDataRepo.upsert(
+        batchId,
+        groupedItem.type,
+        groupedItem.missingField,
+        groupedItem.missingValue,
+        {
+          company: companyId,
+          entryProcessorType,
+          creationStatus: 'missing',
+          reprocessStatus: 'not_started',
+          affectedCount: groupedItem.affectedCount,
+          formDefaults: groupedItem.formDefaults,
+          readonlyFormFields: [groupedItem.missingField],
+          reprocessAttempts: 0,
+        },
+      );
+    }
+
+    this.logger.debug(
+      `Upserted missing master data records: count=${grouped.size}`,
+    );
+  }
+
+  private getCashOutPreFormatValidationErrors(error: unknown): string[] | null {
+    if (!(error instanceof BadRequestException)) {
+      return null;
+    }
+
+    const response = error.getResponse();
+    if (!response || typeof response !== 'object') {
+      return null;
+    }
+
+    const candidate = response as {
+      message?: string;
+      errors?: unknown;
+    };
+    if (
+      candidate.message !==
+        'Cash Out pre-format validation failed. No journal request was generated.' ||
+      !Array.isArray(candidate.errors) ||
+      !candidate.errors.every((item) => typeof item === 'string')
+    ) {
+      return null;
+    }
+
+    return candidate.errors;
+  }
+
   private groupPreFormatValidationErrors(
     batchId: string,
     validationRunId: string,
@@ -1075,6 +1355,38 @@ export class DataBatchService {
         uniqueId,
         property: 'Pre-format validation',
         message: uniqueIdMatch[2].trim(),
+      };
+    }
+
+    const vendorMatch = error.match(
+      /^Vendor\s+([^(]+?)(?:\s+\(UniqueId\s+([^)]+)\))?:\s*(.*)$/is,
+    );
+    if (vendorMatch) {
+      const vendorAccount = vendorMatch[1].trim();
+      const uniqueId = vendorMatch[2]?.trim();
+      const sourceLabel = uniqueId
+        ? `Vendor ${vendorAccount} (UniqueId ${uniqueId})`
+        : `Vendor ${vendorAccount}`;
+
+      return {
+        sourceKey: sourceLabel,
+        sourceLabel,
+        ...(uniqueId ? { uniqueId } : {}),
+        property: 'Pre-format validation',
+        message: vendorMatch[3].trim(),
+      };
+    }
+
+    const lineOnlyMatch = error.match(/^Line\s+(\d+|\?):\s*(.*)$/is);
+    if (lineOnlyMatch) {
+      const lineNumber = Number(lineOnlyMatch[1]);
+      const sourceLabel = `Line ${lineOnlyMatch[1]}`;
+      return {
+        sourceKey: sourceLabel,
+        sourceLabel,
+        ...(Number.isFinite(lineNumber) ? { lineNumber } : {}),
+        property: 'Pre-format validation',
+        message: lineOnlyMatch[2].trim(),
       };
     }
 

@@ -92,7 +92,9 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
 
     processor = module.get<TestVendorEntryProcessor>(TestVendorEntryProcessor);
 
-    jest.spyOn(processor as any, 'warmupProcessorData').mockResolvedValue(undefined);
+    jest
+      .spyOn(processor as any, 'warmupProcessorData')
+      .mockResolvedValue(undefined);
     jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
       exchangeRate: 1,
       reportingRate: 1,
@@ -175,7 +177,9 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
 
     expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
     expect(builtLine.MarkedInvoice).toBe('');
-    expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026 - unmarked');
+    expect(builtLine.Description).toBe(
+      'Test Vendor Freight Jan 2026 - unmarked',
+    );
   });
 
   it('should retain MarkedInvoice and normal Description for Partial Payment when Withholding Tax is present', () => {

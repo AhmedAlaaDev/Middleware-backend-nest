@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Query,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { Roles } from '@/modules/auth/decorators/roles.decorator';

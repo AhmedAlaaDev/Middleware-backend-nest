@@ -1,5 +1,5 @@
-import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 /**
  * Cash custom APIs omit mainAccount and require this exact dimension order.
@@ -84,4 +84,3 @@ export function resolveCashOffsetAccountDisplayValue(
 
   return dimensionStrFallback;
 }
-

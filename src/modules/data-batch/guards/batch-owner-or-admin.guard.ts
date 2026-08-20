@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
 
 import {
   BATCH_OWNER_ACTION,
@@ -13,7 +14,6 @@ import {
 } from '@/modules/data-batch/decorators/batch-owner-action.decorator';
 import { DataBatchRepository } from '@/modules/data-batch/repositories/interfaces';
 import { UserRole } from '@/modules/user/schemas/user.schema';
-import { Request } from 'express';
 
 @Injectable()
 export class BatchOwnerOrAdminGuard implements CanActivate {

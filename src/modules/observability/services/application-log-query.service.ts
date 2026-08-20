@@ -173,10 +173,7 @@ export class ApplicationLogQueryService {
     return this.deleteByQuery(query, confirmAll);
   }
 
-  private async deleteByQuery(
-    query: Record<string, any>,
-    confirmAll?: string,
-  ) {
+  private async deleteByQuery(query: Record<string, any>, confirmAll?: string) {
     if (Object.keys(query).length === 0 && confirmAll !== 'true') {
       throw new BadRequestException(
         'Pass confirmAll=true to delete all application logs',

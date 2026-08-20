@@ -340,6 +340,8 @@ export abstract class BaseVendorEntryProcessor extends EntryProcessorBase {
   protected sortDfoLines(
     lines: VendorEntryDynDataModel[],
   ): VendorEntryDynDataModel[] {
-    return lines.sort((a, b) => (a.Invoice || '').localeCompare(b.Invoice || ''));
+    return lines.sort((a, b) =>
+      (a.Invoice || '').localeCompare(b.Invoice || ''),
+    );
   }
 }

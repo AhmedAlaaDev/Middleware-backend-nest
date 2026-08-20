@@ -4,22 +4,25 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { ProcessCashOutTruckingCommand } from '@/modules/cash/commands/process-cash-out-trucking.command';
 import { CashEntryRawDataModel } from '@/modules/cash/models';
 import { CashOutTemplateValidationService } from '@/modules/cash/services/cash-out-template-validation.service';
-import { getCashOutPreFormatValidationErrors } from '@/modules/cash/utils/cash-out-pre-format-validation';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
-import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
+import { QueueService } from '@/modules/queue/services/queue.service';
+
+const CASH_OUT_TRUCKING_VOUCHER_SETTING = 'last.ledger.voucher.cash.out.trucking';
 
 @CommandHandler(ProcessCashOutTruckingCommand)
 @Injectable()
 export class ProcessCashOutTruckingHandler implements ICommandHandler<ProcessCashOutTruckingCommand> {
   constructor(
     private readonly excelService: ExcelService,
-    private readonly processorFactory: EntryProcessorFactory,
     private readonly dataBatchService: DataBatchService,
     private readonly templateValidation: CashOutTemplateValidationService,
+    private readonly queueService: QueueService,
+    private readonly traceContext: TraceContextService,
   ) {}
 
   public async execute({
@@ -39,41 +42,22 @@ export class ProcessCashOutTruckingHandler implements ICommandHandler<ProcessCas
       throw new BadRequestException('Empty file');
     }
 
-    const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.CashOutTrucking,
-    );
-
-    let enriched;
-    try {
-      enriched = await processor.formatAndEnrichAsync(rawData, company);
-    } catch (error: unknown) {
-      const validationErrors = getCashOutPreFormatValidationErrors(error);
-      if (!validationErrors) throw error;
-
-      return this.dataBatchService.createPreFormatValidationFailureAsync(
-        EntryProcessorTypes.CashOutTrucking,
-        ENTRY_PROCESSOR_NAMES.CASH_OUT_TRUCKING,
-        company,
-        `Cash-Out Fleet ${Date.now()}`,
-        rawData,
-        validationErrors,
-      );
-    }
-    const validated = await processor.validateAsync(enriched, company);
-
-    const metadata = enriched.metadata;
-
-    const dataBatch = await this.dataBatchService.createAsync(
+    const dataBatch = await this.dataBatchService.createProcessingShellAsync(
       EntryProcessorTypes.CashOutTrucking,
       ENTRY_PROCESSOR_NAMES.CASH_OUT_TRUCKING,
       company,
       `Cash-Out Fleet ${Date.now()}`,
       rawData,
-      validated,
-      undefined,
-      'last.ledger.voucher.cash.out.trucking',
-      metadata,
     );
+
+    const actor = this.traceContext.get();
+    await this.queueService.enqueueBatchImport({
+      batchId: dataBatch.id,
+      userId: actor?.userId ?? 'system',
+      userName: actor?.userName ?? 'System',
+      userEmail: actor?.userEmail ?? '',
+      voucherNumberSettingLogicalName: CASH_OUT_TRUCKING_VOUCHER_SETTING,
+    });
 
     return dataBatch;
   }

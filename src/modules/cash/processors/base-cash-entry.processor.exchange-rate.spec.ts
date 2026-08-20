@@ -153,7 +153,7 @@ describe('BaseCashEntryProcessor - task 2047 D365 exchange rates', () => {
       toCurrency: 'USD',
       startDate: '2026-03-01',
       endDate: '2026-03-31',
-      useCache: false,
+      useCache: true,
     });
     expect(line.ExchRate).toBe(100);
     expect(line.ReportingCurrencyExchRate).toBe(0.02);

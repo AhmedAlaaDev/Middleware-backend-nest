@@ -1,9 +1,12 @@
-import ExcelJS from 'exceljs';
 import path from 'path';
 
+import ExcelJS from 'exceljs';
+
 async function transform() {
-  const dynPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\DynamicsExport_639203027794976482.xlsx';
-  const outputPath = 'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\Dynamics_Converted_To_IST.xlsx';
+  const dynPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\DynamicsExport_639203027794976482.xlsx';
+  const outputPath =
+    'e:\\OneDrive - MESCO\\Desktop\\MiddleWare\\D365FOMiddleware_Nestbackend\\Dynamics_Converted_To_IST.xlsx';
 
   console.log(`Reading Dynamics export file from: ${dynPath}`);
   const dynWb = new ExcelJS.Workbook();
@@ -82,7 +85,7 @@ async function transform() {
     'SALESTAXCODE',
     'SafeType',
     'Closing Month',
-    'Closing Year'
+    'Closing Year',
   ];
 
   const outWb = new ExcelJS.Workbook();
@@ -98,7 +101,8 @@ async function transform() {
     if (!colIdx) return '';
     const cellVal = row.getCell(colIdx).value;
     if (cellVal === null || cellVal === undefined) return '';
-    if (typeof cellVal === 'object' && 'result' in cellVal) return cellVal.result;
+    if (typeof cellVal === 'object' && 'result' in cellVal)
+      return cellVal.result;
     return cellVal;
   }
 
@@ -116,7 +120,8 @@ async function transform() {
     if (rowNumber === 1) return; // Skip header
     rowCount++;
 
-    const txAmount = Number(getDynValue(row, 'Amount in transaction currency')) || 0;
+    const txAmount =
+      Number(getDynValue(row, 'Amount in transaction currency')) || 0;
     const eqvAmount = Number(getDynValue(row, 'Amount')) || 0;
 
     const debit = txAmount > 0 ? txAmount : 0;
@@ -138,7 +143,10 @@ async function transform() {
     const rawShippingLine = String(getDynValue(row, 'ShippingLine')).trim();
     let shippingLine = '';
     let shippingLineName = '';
-    if (rawShippingLine.startsWith('Sl-') || rawShippingLine.startsWith('SL-')) {
+    if (
+      rawShippingLine.startsWith('Sl-') ||
+      rawShippingLine.startsWith('SL-')
+    ) {
       shippingLine = rawShippingLine;
     } else {
       shippingLineName = rawShippingLine;
@@ -157,55 +165,58 @@ async function transform() {
     // Document rule: Document2 primary, Document fallback
     const doc2 = String(getDynValue(row, 'Document2')).trim();
     const doc1 = String(getDynValue(row, 'Document')).trim();
-    const document = (doc2 && doc2 !== 'None') ? doc2 : (doc1 !== 'None' ? doc1 : '');
+    const document =
+      doc2 && doc2 !== 'None' ? doc2 : doc1 !== 'None' ? doc1 : '';
 
     const outRow: Record<string, any> = {
-      'UniqueId': rowNumber - 1,
-      'LINENUMBER': rowNumber - 1,
-      'JOURNALNAME': String(getDynValue(row, 'Journal number')),
-      'DESCRIPTION': String(getDynValue(row, 'Description')),
-      'VOUCHER': String(getDynValue(row, 'Voucher')),
-      'TRANSDATE': formatDate(getDynValue(row, 'Date')),
-      'ACCOUNTTYPE': String(getDynValue(row, 'Posting type')),
+      UniqueId: rowNumber - 1,
+      LINENUMBER: rowNumber - 1,
+      JOURNALNAME: String(getDynValue(row, 'Journal number')),
+      DESCRIPTION: String(getDynValue(row, 'Description')),
+      VOUCHER: String(getDynValue(row, 'Voucher')),
+      TRANSDATE: formatDate(getDynValue(row, 'Date')),
+      ACCOUNTTYPE: String(getDynValue(row, 'Posting type')),
       'Account Name': String(getDynValue(row, 'Account name')),
       'Account Type': String(getDynValue(row, 'Posting type')),
-      'DEBIT': debit,
-      'CREDIT': credit,
-      'CURRENCYCODE': String(getDynValue(row, 'Currency')),
+      DEBIT: debit,
+      CREDIT: credit,
+      CURRENCYCODE: String(getDynValue(row, 'Currency')),
       'EQV Depit': eqvDebit,
       'EQV Credit': eqvCredit,
-      'Customer': customer,
+      Customer: customer,
       'Client Name': clientName,
       'Operation No': String(getDynValue(row, 'OperationNo')),
       'Quotation No': String(getDynValue(row, 'QuotationNo')),
       'Shipping Line': shippingLine,
       'Shipping Line Name': shippingLineName,
-      'Agent': agent,
+      Agent: agent,
       'Agent Name': agentName,
-      'MBL': String(getDynValue(row, 'MBL')),
+      MBL: String(getDynValue(row, 'MBL')),
       'Container No': String(getDynValue(row, 'ContainerNo')),
       'Container Type': String(getDynValue(row, 'ContainerType')),
-      'HBL': String(getDynValue(row, 'HBL')),
+      HBL: String(getDynValue(row, 'HBL')),
       'Voyage No': String(getDynValue(row, 'VoyageNo')),
       'Vessel Name': String(getDynValue(row, 'VesselName')),
-      'POL': String(getDynValue(row, 'POL')),
-      'POD': String(getDynValue(row, 'POD')),
-      'ETA': formatDate(getDynValue(row, 'ETA')),
-      'ETD': formatDate(getDynValue(row, 'ETD')),
-      'ATA': formatDate(getDynValue(row, 'ATA')),
-      'CBMs': getDynValue(row, 'CBMs'),
-      'Weight': getDynValue(row, 'Weight'),
+      POL: String(getDynValue(row, 'POL')),
+      POD: String(getDynValue(row, 'POD')),
+      ETA: formatDate(getDynValue(row, 'ETA')),
+      ETD: formatDate(getDynValue(row, 'ETD')),
+      ATA: formatDate(getDynValue(row, 'ATA')),
+      CBMs: getDynValue(row, 'CBMs'),
+      Weight: getDynValue(row, 'Weight'),
       'Creation Date': formatDate(getDynValue(row, 'CreationDate')),
       'Closing Date': formatDate(getDynValue(row, 'ClosingDate')),
-      'DOCUMENT': document,
-      'PAYMENTREFERENCE': String(getDynValue(row, 'Payment reference'))
+      DOCUMENT: document,
+      PAYMENTREFERENCE: String(getDynValue(row, 'Payment reference')),
     };
 
-    const rowArray = istHeaders.map(h => outRow[h] ?? '');
+    const rowArray = istHeaders.map((h) => outRow[h] ?? '');
     outSheet.addRow(rowArray);
   });
 
-  console.log(`Successfully mapped ${rowCount} rows from Dynamics Export to IST shape.`);
+  console.log(
+    `Successfully mapped ${rowCount} rows from Dynamics Export to IST shape.`,
+  );
   await outWb.xlsx.writeFile(outputPath);
   console.log(`Saved output file to: ${outputPath}`);
 }

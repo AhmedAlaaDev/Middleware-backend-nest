@@ -1,5 +1,5 @@
-import { isCashSettlementLine } from '@/modules/cash/policies/cash-account.policy';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { isCashSettlementLine } from '@/modules/cash/policies/cash-account.policy';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 /** Separates settlement rows while preserving the order of both outputs. */

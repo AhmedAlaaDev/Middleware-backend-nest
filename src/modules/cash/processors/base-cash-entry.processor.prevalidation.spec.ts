@@ -37,10 +37,32 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     custodyMatches?: Map<string, any[]>;
   }) => {
     const custodyAccounts = new Set(options?.custodyAccounts ?? []);
+    const existingPairs = options?.existingPairs ?? new Set();
     const vendorInvoiceJournalService = {
       findExistingInvoiceVendorPairs: jest
         .fn()
-        .mockResolvedValue(options?.existingPairs ?? new Set()),
+        .mockResolvedValue(existingPairs),
+      findInvoiceSettlementSnapshots: jest
+        .fn()
+        .mockImplementation((_company: string, requests: any[]) => {
+          const map = new Map();
+          for (const req of requests) {
+            const pairKey = VendorInvoiceJournalService.pairKey(
+              req.invoice,
+              req.vendorAccount,
+            );
+            const exists = existingPairs.has(pairKey);
+            map.set(pairKey, {
+              company: _company,
+              invoice: req.invoice,
+              vendorAccount: req.vendorAccount,
+              exists,
+              invoiceExistsAcrossVendors: exists,
+              belongsToVendor: exists,
+            });
+          }
+          return Promise.resolve(map);
+        }),
     };
     const generalJournalService = {
       findCustodySettlementTargets: jest
@@ -161,6 +183,23 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
           findExistingInvoiceVendorPairs: jest
             .fn()
             .mockResolvedValue(new Set([pair])),
+          findInvoiceSettlementSnapshots: jest
+            .fn()
+            .mockResolvedValue(
+              new Map([
+                [
+                  pair,
+                  {
+                    company: 'm-p',
+                    invoice: 'INV-2066',
+                    vendorAccount: 'VEND-2066',
+                    exists: true,
+                    invoiceExistsAcrossVendors: true,
+                    belongsToVendor: true,
+                  },
+                ],
+              ]),
+            ),
         },
         cashOutExchangeRateService: {},
         generalJournalService: {},

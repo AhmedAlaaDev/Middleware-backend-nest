@@ -1,5 +1,5 @@
-import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { ProcessCustodySettlementEntryCommand } from '@/modules/closing/commands/process-custody-settlement-entry.command';
 
 /**
  * Dispatches custody-settlement rows to the existing Closing command.

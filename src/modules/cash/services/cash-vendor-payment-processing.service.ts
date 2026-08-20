@@ -1,8 +1,8 @@
+import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import {
   ProcessVendorPaymentFreightCommand,
   ProcessVendorPaymentTruckingCommand,
 } from '@/modules/vendor/commands';
-import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 
 /**
  * Dispatches vendor-payment rows to the existing Freight/Fleet commands.

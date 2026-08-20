@@ -10,6 +10,10 @@ import {
   DataBatchReprocessSubmission,
 } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
 import {
+  DataBatchImportJobPayload,
+  DataBatchImportSubmission,
+} from '@/modules/queue/contracts/data-batch-import-job.contract';
+import {
   DurableJobSubmissionStatus,
   DurablePostingJobPayload,
 } from '@/modules/queue/contracts/durable-posting-job.contract';
@@ -172,7 +176,11 @@ export class QueueService {
       journalKind: metadata.journalKind,
       cashDirection: metadata.cashDirection,
     };
-    const job = await queue.add(jobName, payload, this.durableJobOptions(jobId));
+    const job = await queue.add(
+      jobName,
+      payload,
+      this.durableJobOptions(jobId),
+    );
 
     const submissionStatus = existingJob ? 'requeued' : 'queued';
     await this.operationalLogs.emit({
@@ -201,6 +209,43 @@ export class QueueService {
       message: existingJob
         ? `Batch ${metadata.batchId} requeued for posting to D365FO. Job ID: ${jobId}`
         : `Batch ${metadata.batchId} queued for posting to D365FO. Job ID: ${jobId}`,
+    };
+  }
+
+  public async enqueueBatchImport(
+    payload: Omit<DataBatchImportJobPayload, 'correlationId'>,
+  ): Promise<DataBatchImportSubmission> {
+    const jobId = `${QUEUES.DATA_BATCH_REPROCESS}--import--${payload.batchId}`;
+    const existingJob = await this.dataBatchReprocessQueue.getJob(jobId);
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (['waiting', 'active', 'delayed', 'paused'].includes(state)) {
+        return {
+          jobId,
+          status: 'already-running',
+          message: 'This batch already has an import job queued or running.',
+        };
+      }
+      await existingJob.remove();
+    }
+
+    const correlationId =
+      this.traceContext.get()?.correlationId ?? payload.batchId;
+    await this.dataBatchReprocessQueue.add(
+      'import-data-batch',
+      { ...payload, correlationId },
+      {
+        jobId,
+        attempts: 1,
+        removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1000 },
+        removeOnFail: { age: 30 * 24 * 60 * 60, count: 5000 },
+      },
+    );
+
+    return {
+      jobId,
+      status: 'queued',
+      message: `Batch ${payload.batchId} queued for background import.`,
     };
   }
 
@@ -400,7 +445,8 @@ export class QueueService {
         batchId: job.batchId,
         company: job.company,
         correlationId: job.correlationId,
-        sourceModule: job.sourceModule as DurablePostingJobPayload['sourceModule'],
+        sourceModule:
+          job.sourceModule as DurablePostingJobPayload['sourceModule'],
         payloadVersion: job.payloadVersion,
         journalKind: job.journalKind as DurablePostingJobPayload['journalKind'],
         cashDirection:
@@ -522,7 +568,9 @@ export class QueueService {
    */
   public async cleanJobs(
     queueName: QueueName,
-    types: Array<'completed' | 'wait' | 'active' | 'delayed' | 'failed' | 'paused'>,
+    types: Array<
+      'completed' | 'wait' | 'active' | 'delayed' | 'failed' | 'paused'
+    >,
   ): Promise<Record<string, number>> {
     const queue = this.getQueue(queueName);
     const removed: Record<string, number> = {};

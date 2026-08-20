@@ -481,6 +481,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         /^Line\s+([^\s(:]+)\s+\(UniqueId\s+([^)]+)\)(?:\s+(account|offset))?:\s*(.+)$/i,
       );
       const uniqueIdMatch = error.match(/^UniqueId\s+([^:]+):\s*(.+)$/i);
+      const vendorMatch = error.match(
+        /^Vendor\s+([^(]+?)(?:\s+\(UniqueId\s+([^)]+)\))?:\s*(.+)$/i,
+      );
+      const lineOnlyMatch = error.match(/^Line\s+(\d+|\?):\s*(.+)$/i);
 
       let key = `Validation ${index + 1}`;
       let message = error;
@@ -494,6 +498,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       } else if (uniqueIdMatch) {
         key = `UniqueId ${uniqueIdMatch[1].trim()}`;
         message = uniqueIdMatch[2];
+      } else if (vendorMatch) {
+        key = vendorMatch[2]
+          ? `Vendor ${vendorMatch[1].trim()} (UniqueId ${vendorMatch[2].trim()})`
+          : `Vendor ${vendorMatch[1].trim()}`;
+        message = vendorMatch[3];
+      } else if (lineOnlyMatch) {
+        key = `Line ${lineOnlyMatch[1]}`;
+        message = lineOnlyMatch[2];
       }
 
       (map[key] ||= []).push(message);

@@ -75,4 +75,3 @@ export function sanitizeCashOutboundInvoice(invoice?: string): string {
   if (!trimmed || /^0+$/.test(trimmed)) return '';
   return trimmed;
 }
-

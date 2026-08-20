@@ -56,10 +56,7 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
       throw new NotFoundException('No source records found for this batch');
     }
 
-    const headers = this.resolveHeaders(
-      batch.sourceColumnHeaders,
-      headerSet,
-    );
+    const headers = this.resolveHeaders(batch.sourceColumnHeaders, headerSet);
     this.logger.log(
       `Collected ${headers.length} column(s) from ${recordCount} source record(s)`,
     );

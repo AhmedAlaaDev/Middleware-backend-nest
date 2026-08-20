@@ -43,7 +43,11 @@ export class DataBatch {
   @Prop({ default: 0 })
   withholdingRemovedAmount: number;
 
-  @Prop({ type: Number, enum: DataBatchStatus, default: DataBatchStatus.PendingPosting })
+  @Prop({
+    type: Number,
+    enum: DataBatchStatus,
+    default: DataBatchStatus.PendingPosting,
+  })
   status: DataBatchStatus;
 
   @Prop()
