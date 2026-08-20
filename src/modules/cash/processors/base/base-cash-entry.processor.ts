@@ -718,7 +718,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           const docNum = String(line.DOCUMENT ?? '').trim();
           const withholdingLineInGroup = lines.find(
             (l) =>
-              l.UniqueId === line.UniqueId && isCashWithholdingLedgerLine(l),
+              String(l.UniqueId ?? '').trim() ===
+                String(line.UniqueId ?? '').trim() &&
+              isCashWithholdingLedgerLine(l),
           );
           const withholdingAmount = withholdingLineInGroup
             ? Number(
@@ -728,25 +730,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               )
             : 0;
 
-          const candidates =
-            snapshot.candidateTransactions &&
-            snapshot.candidateTransactions.length > 0
-              ? snapshot.candidateTransactions
-              : [
-                  {
-                    vendorAccount: snapshot.vendorAccount || vendor,
-                    documentNumber: snapshot.documentNumber || docNum,
-                    invoiceNumber: snapshot.invoice || invoice,
-                    currencyCode:
-                      snapshot.currencyCode || String(line.CURRENCYCODE ?? ''),
-                    originalAmount: snapshot.originalAmount ?? 0,
-                    openAmount:
-                      snapshot.remainingAmount ?? snapshot.originalAmount ?? 0,
-                    sourceKey: snapshot.sourceKey,
-                    lastSettleVoucher: snapshot.lastSettleVoucher,
-                    isOpen: snapshot.isOpen ?? true,
-                  },
-                ];
+          const isWithholdingEnabled =
+            withholdingAmount > 0 ||
+            String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
+              'yes' ||
+            (!!line.ITEMWITHHOLDINGTAXGROUPCODE &&
+              String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
+              String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0');
 
           const vendorDebit = Number(line.DEBITAMOUNT ?? 0);
           let netPaymentAmount = vendorDebit;
@@ -759,6 +749,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             } else {
               grossInvoiceAmount = vendorDebit + withholdingAmount;
             }
+          } else if (isWithholdingEnabled) {
+            grossInvoiceAmount =
+              snapshot.originalAmount || snapshot.remainingAmount || undefined;
           }
 
           const verifyResult = this.vendorInvoiceVerificationService.verify(
