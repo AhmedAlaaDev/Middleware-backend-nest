@@ -45,7 +45,7 @@ interface CashBulkLineFailure {
   correlated: boolean;
 }
 
-type CashBulkAttempt = 'initial';
+type CashBulkAttempt = 'initial' | 'unmarked_retry';
 
 /** Position of one request within the journal batch it belongs to. */
 interface CashBulkBatch {
@@ -297,97 +297,25 @@ export class CustomerPaymentJournalService {
       lineNumber: number;
     }> = [];
 
-    if (cashDirection === 'out') {
-      return this.postCashOutBulkLinesForHeader(
-        endpoint,
-        headerKey,
-        lines,
-        existingLines,
-        dataAreaId || lines[0]?.dataAreaId || '',
-        allowUnmarkedInvoiceRetry,
-      );
-    }
-
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize);
-      const chunkNumber = Math.floor(i / chunkSize) + 1;
-      const totalChunks = Math.ceil(lines.length / chunkSize);
-
-      this.logger.log(
-        `[CASH-CUSTOM] Processing chunk ${chunkNumber}/${totalChunks} for header ${headerKey} (${chunk.length} lines)`,
-      );
-
-      for (const line of chunk) {
-        const body = line.customLineApiBody;
-        if (!body) {
-          throw new Error(
-            `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
-          );
-        }
-
-        if (existingLines.has(line.LineNumber)) {
-          successfullyPosted.push({
-            headerId: headerKey,
-            lineNumber: line.LineNumber,
-          });
-          continue;
-        }
-
-        try {
-          await this.postCustomCashLine(endpoint, {
-            ...body,
-            journalNum: headerKey,
-          });
-        } catch (error) {
-          const errorDetails = this.dfoErrorExtractor.extractMessage(error);
-
-          if (
-            allowUnmarkedInvoiceRetry &&
-            this.isInvoiceAmountGreaterThanRemainingError(errorDetails)
-          ) {
-            await this.postCustomCashLine(
-              endpoint,
-              this.buildUnmarkedCashLine({
-                ...body,
-                journalNum: headerKey,
-              }),
-            );
-            successfullyPosted.push({
-              headerId: headerKey,
-              lineNumber: line.LineNumber,
-            });
-            continue;
-          }
-
-          this.logger.error(
-            `[CASH-CUSTOM] Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-          throw new Error(
-            `Failed to post cash-${cashDirection} line ${line.LineNumber} for header ${headerKey}: ${errorDetails}`,
-          );
-        }
-
-        successfullyPosted.push({
-          headerId: headerKey,
-          lineNumber: line.LineNumber,
-        });
-        if (line !== chunk[chunk.length - 1]) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-        }
-      }
-    }
-
-    return successfullyPosted;
+    return this.postCashBulkLinesForHeader(
+      endpoint,
+      headerKey,
+      lines,
+      existingLines,
+      dataAreaId || lines[0]?.dataAreaId || '',
+      allowUnmarkedInvoiceRetry,
+      cashDirection,
+    );
   }
 
-  private async postCashOutBulkLinesForHeader(
+  private async postCashBulkLinesForHeader(
     endpoint: string,
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: Set<number>,
     dataAreaId: string,
     allowUnmarkedInvoiceRetry: boolean,
+    cashDirection: 'in' | 'out',
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const pendingLines: CashBulkPendingLine[] = [];
 
@@ -397,14 +325,14 @@ export class CustomerPaymentJournalService {
       const body = line.customLineApiBody;
       if (!body) {
         throw new Error(
-          `Missing customLineApiBody on cash-out line ${line.LineNumber}`,
+          `Missing customLineApiBody on cash-${cashDirection} line ${line.LineNumber}`,
         );
       }
 
       const suppliedJournalNumber = String(body.journalNum ?? '').trim();
       if (suppliedJournalNumber && suppliedJournalNumber !== headerKey) {
         throw new Error(
-          `Cash-out line ${line.LineNumber} belongs to journal ${suppliedJournalNumber}, not ${headerKey}`,
+          `Cash-${cashDirection} line ${line.LineNumber} belongs to journal ${suppliedJournalNumber}, not ${headerKey}`,
         );
       }
 
@@ -425,6 +353,7 @@ export class CustomerPaymentJournalService {
         dataAreaId,
         allowUnmarkedInvoiceRetry,
         { number: Math.floor(index / batchSize) + 1, total: totalBatches },
+        cashDirection,
       );
     }
 
@@ -437,9 +366,6 @@ export class CustomerPaymentJournalService {
   /**
    * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
    * journal batch and fail closed on any D365 rejection.
-   *
-   * Cash-out vendor-payment posting must preserve the original settlement
-   * intent. Infrastructure never rewrites a marked payment into an unmarked one.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -448,11 +374,12 @@ export class CustomerPaymentJournalService {
     dataAreaId: string,
     _allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
+    cashDirection: 'in' | 'out' = 'out',
   ): Promise<void> {
     if (pendingLines.length === 0) return;
 
     this.logger.log(
-      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-out lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
+      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
     );
 
     const result = await this.postCustomCashLines(
@@ -471,14 +398,46 @@ export class CustomerPaymentJournalService {
     });
 
     if (failures.length === 0) {
-      await this.verifyCashOutMarkedSettlements(
-        headerKey,
-        pendingLines,
-        dataAreaId,
-        batch,
-      );
+      if (cashDirection === 'out') {
+        await this.verifyCashOutMarkedSettlements(
+          headerKey,
+          pendingLines,
+          dataAreaId,
+          batch,
+        );
+      }
       return;
     }
+
+    if (
+      _allowUnmarkedInvoiceRetry &&
+      failures.every((f) =>
+        this.isInvoiceAmountGreaterThanRemainingError(f.message),
+      )
+    ) {
+      const retryPendingLines = pendingLines.map((line) => ({
+        ...line,
+        body: this.buildUnmarkedCashLine(line.body),
+      }));
+
+      const retryResult = await this.postCustomCashLines(
+        endpoint,
+        retryPendingLines.map((line) => line.body),
+        {
+          headerKey,
+          pendingLines: retryPendingLines,
+          attempt: 'unmarked_retry',
+          batch,
+        },
+      );
+      const retryFailures = this.extractCashBulkFailures(
+        retryResult,
+        retryPendingLines,
+      );
+      if (retryFailures.length === 0) return;
+      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+    }
+
     throw new Error(this.formatCashBulkFailure(headerKey, failures));
   }
 
@@ -718,8 +677,8 @@ export class CustomerPaymentJournalService {
     body: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomRequestBody {
     const retryBody = { ...body };
-    if (Array.isArray(retryBody.MarkedLines)) retryBody.MarkedLines = [];
-    if ('MARKEDINVOICE' in retryBody) retryBody.MARKEDINVOICE = null;
+    retryBody.MarkedLines = [];
+    delete (retryBody as any).MARKEDINVOICE;
     retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
       retryBody.PAYMENTNOTES,
     );

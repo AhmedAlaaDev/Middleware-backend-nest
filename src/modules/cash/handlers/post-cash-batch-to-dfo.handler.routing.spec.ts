@@ -207,11 +207,11 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     const groups = queueService.addDurableJob.mock.calls[0][3];
     expect(groups).toHaveLength(1);
     expect(groups[0].route).toMatchObject({
-      kind: 'ledger',
-      module: 'GL',
+      kind: 'vendor-invoice',
+      module: 'AP',
       safeType: 'Custody Issue',
-      journalName: 'CashOut',
-      headerApi: 'LedgerJournalHeaders',
+      journalName: 'P-Freight',
+      headerApi: 'VendorPaymentJournalHeaders',
     });
   });
 

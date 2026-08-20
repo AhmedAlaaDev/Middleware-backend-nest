@@ -21,6 +21,18 @@ export const CASH_LEDGER_MAIN_ACCOUNT_CONFIG: Record<
   string,
   CashLedgerMainAccountConfig
 > = {
+  'WCA-US': {
+    type: 'Ledger',
+    mainAccount: '125901',
+    description: 'WCApp - USD',
+    currency: 'USD',
+  },
+  'WCA-EUR': {
+    type: 'Ledger',
+    mainAccount: '125902',
+    description: 'WCApp - EUR',
+    currency: 'EUR',
+  },
   '125901': {
     type: 'Ledger',
     mainAccount: '125901',
@@ -35,60 +47,80 @@ export const CASH_LEDGER_MAIN_ACCOUNT_CONFIG: Record<
   },
 };
 
-/**
- * Main accounts that must never be posted as AccountType `Bank`. Includes
- * the configured Ledger main accounts above plus the existing settlement
- * (421103) and notes-receivable main accounts, as an extra pre-posting
- * safety net for accounts already known to be Ledger-only.
- */
-const CASH_MAIN_ACCOUNTS_NEVER_BANK = new Set<string>([
-  ...Object.keys(CASH_LEDGER_MAIN_ACCOUNT_CONFIG),
+export const FORCED_LEDGER_ACCOUNTS = new Set<string>([
+  'WCA-US',
+  'WCA-EUR',
+  '125901',
+  '125902',
   ...CASH_SETTLEMENT_MAIN_ACCOUNTS,
-  ...CASH_NOTES_RECEIVABLE_MAIN_ACCOUNTS,
 ]);
 
 /**
+ * Normalizes account display values (uppercase, trimmed).
+ */
+export function normalizeAccountValue(value?: string | null): string {
+  return (value ?? '').trim().toUpperCase();
+}
+
+/**
+ * Main accounts that must never be posted as AccountType `Bank`. Includes
+ * WCA-US, WCA-EUR, configured Ledger main accounts, and settlement (421103) main accounts.
+ */
+const CASH_MAIN_ACCOUNTS_NEVER_BANK = FORCED_LEDGER_ACCOUNTS;
+
+/**
  * Extracts the leading main-account token from a raw account display value.
- * Ledger rows encode the main account as the first pipe-delimited segment
- * (e.g. `125901|1301|...`); Bank/Petty-cash rows may store the main account
- * directly (e.g. `125901`).
  */
 export function extractCashMainAccountToken(
   accountDisplayValue?: string,
 ): string {
-  const trimmed = String(accountDisplayValue ?? '').trim();
-  if (!trimmed) return '';
-  return trimmed.split('|')[0]?.trim() ?? '';
+  const normalized = normalizeAccountValue(accountDisplayValue);
+  if (!normalized) return '';
+  if (normalized.startsWith('WCA-US')) return 'WCA-US';
+  if (normalized.startsWith('WCA-EUR')) return 'WCA-EUR';
+  return normalized.split('|')[0]?.trim() ?? '';
 }
 
 export function getCashLedgerMainAccountConfig(
-  mainAccount?: string,
+  accountDisplayValue?: string,
 ): CashLedgerMainAccountConfig | undefined {
-  if (!mainAccount) return undefined;
+  if (!accountDisplayValue) return undefined;
+  const normalized = normalizeAccountValue(accountDisplayValue);
+  if (normalized.startsWith('WCA-US')) return CASH_LEDGER_MAIN_ACCOUNT_CONFIG['WCA-US'];
+  if (normalized.startsWith('WCA-EUR')) return CASH_LEDGER_MAIN_ACCOUNT_CONFIG['WCA-EUR'];
+  const mainAccount = extractCashMainAccountToken(accountDisplayValue);
   return CASH_LEDGER_MAIN_ACCOUNT_CONFIG[mainAccount];
 }
 
-export function isKnownCashLedgerMainAccount(mainAccount?: string): boolean {
-  return Boolean(mainAccount && CASH_LEDGER_MAIN_ACCOUNT_CONFIG[mainAccount]);
+export function resolveWcaMainAccount(accountDisplayValue?: string): string {
+  const config = getCashLedgerMainAccountConfig(accountDisplayValue);
+  if (config) return config.mainAccount;
+  return accountDisplayValue ?? '';
+}
+
+export function isKnownCashLedgerMainAccount(accountDisplayValue?: string): boolean {
+  return Boolean(getCashLedgerMainAccountConfig(accountDisplayValue));
 }
 
 /** Returns whether a main account must never be posted as AccountType `Bank`. */
-export function isKnownCashMainAccountNeverBank(mainAccount?: string): boolean {
-  return Boolean(mainAccount && CASH_MAIN_ACCOUNTS_NEVER_BANK.has(mainAccount));
+export function isKnownCashMainAccountNeverBank(accountDisplayValue?: string): boolean {
+  const normalized = normalizeAccountValue(accountDisplayValue);
+  if (!normalized) return false;
+  if (normalized.startsWith('WCA-US') || normalized.startsWith('WCA-EUR')) return true;
+  const token = extractCashMainAccountToken(accountDisplayValue);
+  return CASH_MAIN_ACCOUNTS_NEVER_BANK.has(token);
 }
 
 /**
  * Resolves the D365FO account type for a cash line, ensuring configured
- * Ledger main accounts (WCApp 125901/125902) are always classified as
- * `Ledger`, regardless of the source ACCOUNTTYPE value. Any other account
- * passes through unchanged.
+ * Ledger main accounts (WCA-US / WCA-EUR / WCApp 125901 / 125902) are always
+ * classified as `Ledger`, regardless of the source ACCOUNTTYPE value.
  */
 export function resolveCashAccountType(
   accountDisplayValue: string | undefined,
   sourceAccountType: EntryAccountType | undefined,
 ): EntryAccountType {
-  const mainAccount = extractCashMainAccountToken(accountDisplayValue);
-  const config = getCashLedgerMainAccountConfig(mainAccount);
+  const config = getCashLedgerMainAccountConfig(accountDisplayValue);
   if (config) return config.type;
   return (sourceAccountType ?? '') as EntryAccountType;
 }
@@ -96,14 +128,12 @@ export function resolveCashAccountType(
 /**
  * Returns a warning message when a configured Ledger main account is used
  * with a currency other than the one Finance configured for that account.
- * This is a signal only — callers decide whether to log or reject.
  */
 export function validateCashLedgerAccountCurrency(
   accountDisplayValue: string | undefined,
   currencyCode: string | undefined,
 ): string | null {
-  const mainAccount = extractCashMainAccountToken(accountDisplayValue);
-  const config = getCashLedgerMainAccountConfig(mainAccount);
+  const config = getCashLedgerMainAccountConfig(accountDisplayValue);
   if (!config) return null;
 
   const currency = String(currencyCode ?? '')
@@ -111,14 +141,12 @@ export function validateCashLedgerAccountCurrency(
     .toUpperCase();
   if (!currency || currency === config.currency) return null;
 
-  return `Account ${config.mainAccount} is configured for ${config.currency} but transaction currency is ${currency}.`;
+  return `Account ${accountDisplayValue || config.mainAccount} is configured for ${config.currency} but transaction currency is ${currency}.`;
 }
 
 /**
  * Pre-posting guard: a main account known to be Ledger-only must never be
- * resolved as AccountType `Bank`. Returns an error message when that
- * invariant is violated, so the D365FO `BankAccountTable` posting failure is
- * caught here instead of by D365FO.
+ * resolved as AccountType `Bank`.
  */
 export function findCashBankMisclassificationError(
   resolvedAccountType: string | undefined,
@@ -126,8 +154,10 @@ export function findCashBankMisclassificationError(
 ): string | null {
   if (resolvedAccountType !== 'Bank') return null;
 
-  const mainAccount = extractCashMainAccountToken(accountDisplayValue);
-  if (!isKnownCashMainAccountNeverBank(mainAccount)) return null;
+  const normalized = normalizeAccountValue(accountDisplayValue);
+  if (isKnownCashMainAccountNeverBank(normalized)) {
+    return `Account ${accountDisplayValue || normalized} must be mapped as Ledger, not Bank.`;
+  }
 
-  return `Main account ${mainAccount} was incorrectly resolved as a Bank account.`;
+  return null;
 }

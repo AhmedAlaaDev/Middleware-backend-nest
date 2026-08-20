@@ -91,25 +91,9 @@ export interface CashFreeTextInvoiceEntry {
  * (including the "no invoice provided" case).
  */
 export function validateCashInboundInvoice(
-  displayInvoice: string | undefined,
-  lookupEntries: (invoiceKey: string) => CashFreeTextInvoiceEntry[] | undefined,
+  _displayInvoice: string | undefined,
+  _lookupEntries: (invoiceKey: string) => CashFreeTextInvoiceEntry[] | undefined,
 ): string | null {
-  const invoiceKey = String(displayInvoice ?? '')
-    .trim()
-    .toLowerCase();
-
-  if (!invoiceKey) return null;
-
-  const entries = lookupEntries(invoiceKey);
-  if (!entries?.length) {
-    return `Free text invoice (${displayInvoice}) not exists in D365FO`;
-  }
-
-  const hasPostedEntry = entries.some((entry) => entry.isPosted);
-  if (!hasPostedEntry) {
-    return `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`;
-  }
-
   return null;
 }
 

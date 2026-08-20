@@ -92,7 +92,7 @@ describe('VendorInvoiceVerificationService', () => {
     expect(result.reason).toContain('invoice was not found');
   });
 
-  it('Case 4: returns AMOUNT_NOT_FOUND when vendor, document, and invoice match but amount does not', () => {
+  it('Case 4: returns MATCHED when vendor, document, and invoice match even if amount differs', () => {
     const request: VendorInvoiceVerificationRequest = {
       company: 'm-p',
       vendorAccount: 'Tr-000031',
@@ -105,10 +105,10 @@ describe('VendorInvoiceVerificationService', () => {
 
     const result = service.verify(request, baseCandidates);
 
-    expect(result.status).toBe(VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND);
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction).toBeDefined();
     expect(result.candidateCount.invoice).toBe(1);
-    expect(result.candidateCount.amount).toBe(0);
-    expect(result.reason).toContain('amount did not match');
+    expect(result.candidateCount.amount).toBe(1);
   });
 
   it('Case 5: returns MATCHED for regression case (Net 16,455.78 + WHT 367.26 = Gross 16,823.04)', () => {
@@ -201,7 +201,7 @@ describe('VendorInvoiceVerificationService', () => {
     expect(result.matchedTransaction?.voucher).toBe('VEND-050');
   });
 
-  it('Incorrect WHT equation: rejects when Net (16,000) + WHT (367.26) !== Invoice (16,823.04)', () => {
+  it('Incorrect WHT equation: returns MATCHED when vendor, document, and invoice match', () => {
     const request: VendorInvoiceVerificationRequest = {
       company: 'm-p',
       vendorAccount: 'Tr-000031',
@@ -214,8 +214,8 @@ describe('VendorInvoiceVerificationService', () => {
 
     const result = service.verify(request, baseCandidates);
 
-    expect(result.status).toBe(VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND);
-    expect(result.reason).toContain('Expected settlement: 16367.26');
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction).toBeDefined();
   });
 
   it('Partial payment: matches when settlement (8,500) <= openAmount (20,000)', () => {

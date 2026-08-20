@@ -1,5 +1,8 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
+import {
+  isKnownCashMainAccountNeverBank,
+  resolveWcaMainAccount,
+} from '@/modules/cash/policies/cash-account-classification.policy';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 /**
@@ -95,11 +98,23 @@ export function sanitizeCashBankAccountDimension(
 }
 
 /**
+ * Default D365FO Bank Account IDs for Notes Receivable main accounts.
+ */
+export const NOTES_RECEIVABLE_BANK_ACCOUNTS: Record<string, string> = {
+  '122201': 'NR-EGP',
+  '122202': 'NR-USD',
+  '122203': 'NR-EUR',
+  '122204': 'NR-GBP',
+  '123510': 'NR-GBP',
+};
+
+/**
  * Resolves the cash offset account value sent to D365FO.
  *
  * Bank and petty-cash rows use their source account. Ledger rows use the
  * source account when available and otherwise fall back to the serialized
- * dimension string. Notes-receivable lines prefer the bank-account segment.
+ * dimension string. Notes-receivable lines prefer the bank-account segment
+ * or map to configured D365 Bank Account IDs (NR-EGP, NR-USD, NR-EUR, NR-GBP).
  */
 export function resolveCashOffsetAccountDisplayValue(
   offsetLine: CashEntryRawDataModel,
@@ -110,14 +125,31 @@ export function resolveCashOffsetAccountDisplayValue(
   if (isNotesReceivable) {
     const bankAccount = cashDimensionPartAsString(dimensions.bankAccount);
     if (bankAccount) return bankAccount;
-  }
 
-  if (offsetLine.IsBank || offsetLine.IsPettyCash) {
-    return (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
+    const mainAccount =
+      cashDimensionPartAsString(dimensions.mainAccount) ||
+      String(offsetLine.ACCOUNTDISPLAYVALUE || '')
+        .trim()
+        .split('|')[0]
+        ?.trim();
+
+    if (mainAccount && NOTES_RECEIVABLE_BANK_ACCOUNTS[mainAccount]) {
+      return NOTES_RECEIVABLE_BANK_ACCOUNTS[mainAccount];
+    }
   }
 
   const accountDisplay = (offsetLine.ACCOUNTDISPLAYVALUE || '').trim();
-  if (accountDisplay) return accountDisplay;
+
+  // WCA-US / WCA-EUR / 125901 / 125902 must always resolve as Ledger main account
+  if (isKnownCashMainAccountNeverBank(accountDisplay)) {
+    return resolveWcaMainAccount(accountDisplay);
+  }
+
+  if (offsetLine.IsBank || offsetLine.IsPettyCash) {
+    return accountDisplay;
+  }
+
+  if (accountDisplay) return resolveWcaMainAccount(accountDisplay);
 
   return dimensionStrFallback;
 }

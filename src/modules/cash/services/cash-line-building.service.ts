@@ -47,6 +47,11 @@ export function buildCashLines(options: {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ) => CashEntryDynDataModel[];
+  buildCustodySettlement?: (
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ) => CashEntryDynDataModel[];
   buildSourceOutbound: (
     sourceId: string,
     line: CashEntryRawDataModel,
@@ -69,6 +74,7 @@ export function buildCashLines(options: {
     inbound,
     exchangeRateContext,
     buildVendorPayment,
+    buildCustodySettlement,
     buildSourceOutbound,
     buildTwoLines,
     buildManyLines,
@@ -78,6 +84,9 @@ export function buildCashLines(options: {
     const safeTypes = new Set(lines.map((line) => line.SafeType));
     if (safeTypes.size === 1 && lines[0]?.IsVendorPayment) {
       return buildVendorPayment(sourceId, lines, exchangeRateContext);
+    }
+    if (lines.some((line) => line.IsCustodySettlement) && buildCustodySettlement) {
+      return buildCustodySettlement(sourceId, lines, exchangeRateContext);
     }
     return lines.map((line) =>
       buildSourceOutbound(sourceId, line, exchangeRateContext),

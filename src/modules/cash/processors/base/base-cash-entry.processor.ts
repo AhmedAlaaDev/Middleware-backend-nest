@@ -19,6 +19,7 @@ import {
   classifyCashLines,
 } from '@/modules/cash/policies/cash-batch.policy';
 import {
+  cashDimensionPartAsString,
   resolveCashOffsetAccountDisplayValue,
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
@@ -32,6 +33,7 @@ import {
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
 import { resolveCashPaymentMethod } from '@/modules/cash/policies/cash-line.policy';
+import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
 import {
   analyzeCashWithholding,
@@ -265,6 +267,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       `[STEP 3] Building invoice map from ${otherLines.length} lines`,
     );
     const invoiceMap = this.buildUniqueIdMap(otherLines);
+
+    if (this.isInbound()) {
+      for (const [uniqueId, groupLines] of invoiceMap.entries()) {
+        const firstLine = groupLines[0];
+        CashIn421103CurrencyPolicy.apply({
+          uniqueId,
+          safeType: firstLine?.SafeType,
+          lines: groupLines,
+        });
+      }
+    }
+
     const invoiceCount = invoiceMap.size;
     this.logger.debug(`[STEP 3] Grouped into ${invoiceCount} invoices`);
 
@@ -931,6 +945,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           exchangeRateContext: context,
           buildVendorPayment: (id, groupedLines, context) =>
             this.buildVendorPaymentLines(id, groupedLines, context),
+          buildCustodySettlement: (id, groupedLines, context) =>
+            this.buildCustodySettlementLines(id, groupedLines, context),
           buildSourceOutbound: (id, line, context) =>
             this.buildSourceLineOutbound(id, line, context),
           buildTwoLines: (id, groupedLines, context) =>
@@ -958,6 +974,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       exchangeRateContext,
       buildVendorPayment: (id, groupedLines, context) =>
         this.buildVendorPaymentLines(id, groupedLines, context),
+      buildCustodySettlement: (id, groupedLines, context) =>
+        this.buildCustodySettlementLines(id, groupedLines, context),
       buildSourceOutbound: (id, line, context) =>
         this.buildSourceLineOutbound(id, line, context),
       buildTwoLines: (id, groupedLines, context) =>
@@ -1028,6 +1046,108 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         })),
       ),
     );
+  }
+
+  protected buildCustodySettlementLines(
+    sourceId: string,
+    lines: CashEntryRawDataModel[],
+    exchangeRateContext?: CashOutExchangeRateContext,
+  ): CashEntryDynDataModel[] {
+    const withholdingLines = lines.filter((line) =>
+      isCashWithholdingLedgerLine(line),
+    );
+    const nonWithholdingLines = lines.filter(
+      (line) => !isCashWithholdingLedgerLine(line),
+    );
+
+    let totalWithholdingAmount = 0;
+    for (const wLine of withholdingLines) {
+      totalWithholdingAmount += Number(
+        wLine.CREDITAMOUNT || wLine.DEBITAMOUNT || 0,
+      );
+    }
+
+    const result: CashEntryDynDataModel[] = [];
+
+    for (const rawLine of nonWithholdingLines) {
+      const accountTypeLower = String(rawLine.ACCOUNTTYPE ?? '')
+        .trim()
+        .toLowerCase();
+      const isVendor =
+        rawLine.IsVendor ||
+        accountTypeLower === 'vend' ||
+        accountTypeLower === 'vendor';
+      const rawDebit = Number(rawLine.DEBITAMOUNT || 0);
+
+      const lineToBuild: CashEntryRawDataModel = Object.assign(
+        Object.create(Object.getPrototypeOf(rawLine)),
+        rawLine,
+      );
+
+      if (isVendor && rawDebit > 0 && totalWithholdingAmount > 0) {
+        lineToBuild.DEBITAMOUNT = Math.max(
+          0,
+          rawDebit - totalWithholdingAmount,
+        );
+      }
+
+      lineToBuild.OFFSETACCOUNTTYPE = '' as any;
+      lineToBuild.OFFSETACCOUNTDISPLAYVALUE = '';
+      lineToBuild.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
+
+      if (isVendor) {
+        const rawInvoice =
+          lineToBuild.MARKEDINVOICE ||
+          lineToBuild.INVOICE ||
+          lineToBuild.DOCUMENT;
+        const sanitizedInvoice = sanitizeCashOutboundInvoice(rawInvoice);
+
+        const markingResult = resolveVendorPaymentMarking({
+          settlements: [{ vendorLine: lineToBuild }],
+          offsetLine: lineToBuild,
+          vendorGroup: String(lineToBuild.VendorGroup ?? '').trim(),
+        });
+
+        const dynLine = this.buildSourceLineOutbound(
+          sourceId,
+          lineToBuild,
+          exchangeRateContext,
+        );
+        dynLine.Invoice = sanitizedInvoice;
+        dynLine.MarkedInvoice =
+          markingResult.markedInvoice || sanitizedInvoice;
+        dynLine.MarkedLines = [...markingResult.markedLines];
+        if (dynLine.MarkedInvoice && dynLine.MarkedLines.length === 0) {
+          dynLine.MarkedLines = [
+            {
+              InvoiceNumber: dynLine.MarkedInvoice,
+              OperationNumber: firstCashFinancialTag(
+                dynLine.FinTagDisplayValue,
+              ),
+              DocumentNumber: String(dynLine.Document ?? '').trim(),
+              HasWithHoldingLine: false,
+            },
+          ];
+        }
+        dynLine.SettlementIntent = dynLine.MarkedInvoice
+          ? 'Marked'
+          : 'Unmarked';
+        dynLine.IsWithholdingCalculationEnabled = 'No';
+        dynLine.ItemWithholdingTaxGroupCode = '';
+        result.push(dynLine);
+      } else {
+        const dynLine = this.buildSourceLineOutbound(
+          sourceId,
+          lineToBuild,
+          exchangeRateContext,
+        );
+        dynLine.IsWithholdingCalculationEnabled = 'No';
+        dynLine.ItemWithholdingTaxGroupCode = '';
+        result.push(dynLine);
+      }
+    }
+
+    return result;
   }
 
   private findWithholdingLine(

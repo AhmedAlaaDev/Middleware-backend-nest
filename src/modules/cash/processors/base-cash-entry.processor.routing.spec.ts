@@ -42,8 +42,8 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     });
 
   it.each([
-    ['Custody Settlement', 'CustSettle'],
-    ['Custody Issue', 'CashOut'],
+    ['Custody Settlement', 'P-Freight'],
+    ['Custody Issue', 'P-Freight'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
@@ -117,7 +117,6 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     'CN',
     'Direct',
     'Other',
-    'Custody Settlement',
     'Customer Collection',
   ])(
     'does not apply vendor-invoice validation to the %s non-AP route',
@@ -434,6 +433,96 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(bankLine.DebitAmount).toBe(950);
       expect(bankLine.IsWithholdingCalculationEnabled).toBe('Yes');
       expect(bankLine.Invoice).toBe('INV-2055');
+    });
+  });
+
+  describe('Custody Settlement & Custody Issue Vendor Payment Journal logic', () => {
+    it('routes Custody Settlement and Custody Issue to VendorPaymentJournalHeaders with P-Freight / P-Fleet', () => {
+      const freightProcessor = createProcessor('Freight');
+      const fleetProcessor = createProcessor('Fleet');
+
+      const routeSettleFreight = (freightProcessor as any).resolveCashOutJournalRoute('Custody Settlement');
+      expect(routeSettleFreight).toMatchObject({
+        kind: 'vendor-invoice',
+        module: 'AP',
+        headerApi: 'VendorPaymentJournalHeaders',
+        journalName: 'P-Freight',
+        safeType: 'Custody Settlement',
+      });
+
+      const routeIssueFleet = (fleetProcessor as any).resolveCashOutJournalRoute('Custody Issue');
+      expect(routeIssueFleet).toMatchObject({
+        kind: 'vendor-invoice',
+        module: 'AP',
+        headerApi: 'VendorPaymentJournalHeaders',
+        journalName: 'P-Fleet',
+        safeType: 'Custody Issue',
+      });
+    });
+
+    it('subtracts withholding amount from vendor line, skips withholding line, and builds individual lines without offset', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 9999,
+          LINENUMBER: 1,
+          VOUCHER: 'CUST-SETTLE-01',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-CUST-01',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 1000,
+          CREDITAMOUNT: 0,
+          INVOICE: 'INV-CUST-100',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 9999,
+          LINENUMBER: 2,
+          VOUCHER: 'CUST-SETTLE-01',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304-01',
+          CREDITAMOUNT: 50,
+          DEBITAMOUNT: 0,
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 9999,
+          LINENUMBER: 3,
+          VOUCHER: 'CUST-SETTLE-01',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Petty cash',
+          ACCOUNTDISPLAYVALUE: 'SAFE-001',
+          CREDITAMOUNT: 950,
+          DEBITAMOUNT: 0,
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+      const dfoLines = (processor as any).buildLines('9999', rawLines);
+
+      // Withholding line is skipped -> 2 lines returned (Vendor line & Safe line)
+      expect(dfoLines).toHaveLength(2);
+
+      const [vendorLine, safeLine] = dfoLines;
+
+      // Vendor line: amount reduced by withholding (1000 - 50 = 950), invoice marked, no offset account
+      expect(vendorLine.AccountType).toBe('Vend');
+      expect(vendorLine.AccountDisplayValue).toBe('VEND-CUST-01');
+      expect(vendorLine.DebitAmount).toBe(950);
+      expect(vendorLine.Invoice).toBe('INV-CUST-100');
+      expect(vendorLine.MarkedInvoice).toBe('INV-CUST-100');
+      expect(vendorLine.OffsetAccountDisplayValue).toBe('');
+
+      // Safe line: credit 950, individual line without offset account
+      expect(safeLine.AccountType).toBe('Petty cash');
+      expect(safeLine.AccountDisplayValue).toBe('SAFE-001');
+      expect(safeLine.CreditAmount).toBe(950);
+      expect(safeLine.OffsetAccountDisplayValue).toBe('');
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   PostCashBatchToDFOResult,
 } from '@/modules/cash/commands';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
+import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
 import {
   CashJournalRoute,
   CashJournalRoutingError,
@@ -463,9 +464,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
 
         offsetAccountDisplayValue:
-          route && route.kind !== 'vendor-invoice'
-            ? offsetAccountDisplayValue
-            : offsetAccountDisplayValue || accountDisplayValue,
+          this.isMainAccountOnlyLine(line, cashDirection, route)
+            ? ''
+            : route && route.kind !== 'vendor-invoice'
+              ? offsetAccountDisplayValue
+              : offsetAccountDisplayValue || accountDisplayValue,
         OffsetAccountTypeStr: offsetAccountTypeStr,
         OffsetCompany: line.OffsetCompany || company,
         OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
@@ -481,10 +484,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
         PostingProfile: line.PostingProfile ?? '',
 
-        TaxGroup:
-          cashDirection === 'out'
-            ? this.normalizeCashOutTaxGroup(line.SalesTaxGroup)
-            : (line.SalesTaxGroup ?? ''),
+        TaxGroup: this.normalizeTaxGroup(line.SalesTaxGroup),
         TAXITEMGROUP: line.ItemSalesTaxGroup ?? '',
 
         transDate,
@@ -505,11 +505,26 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? vendorGroup
           : '';
 
-      if (cashDirection === 'out' && accountTypeStr === 'Vendor') {
-        customLineApiBody.MarkedLines = markedLines;
-      } else {
-        customLineApiBody.MARKEDINVOICE = markedInvoice;
-      }
+      const effectiveMarkedLines =
+        markedLines.length > 0
+          ? markedLines
+          : markedInvoice
+            ? [
+                {
+                  InvoiceNumber: markedInvoice,
+                  OperationNumber: String(
+                    (line as any).OperationNumber ?? '',
+                  ).trim(),
+                  DocumentNumber: String(
+                    (line as any).DocumentNumber ?? line.Document ?? '',
+                  ).trim(),
+                  HasWithHoldingLine: Boolean((line as any).HasWithHoldingLine),
+                },
+              ]
+            : [];
+
+      customLineApiBody.MarkedLines = effectiveMarkedLines;
+      delete customLineApiBody.MARKEDINVOICE;
 
       if (this.isMainAccountOnlyLine(line, cashDirection, route)) {
         this.omitOffsetFields(customLineApiBody);
@@ -531,7 +546,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   ): boolean {
     return (
       cashDirection === 'out' &&
-      route?.kind === 'ledger' &&
+      route?.safeType !== 'Vendor Payment' &&
       !this.toOptionalTrimmedString(line.OffsetAccountType) &&
       !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
     );
@@ -735,6 +750,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
     if (!body.accountTypeStr?.trim()) {
       missingFields.push('customLineApiBody.accountTypeStr');
+    } else if (
+      body.accountTypeStr === 'Bank' &&
+      isKnownCashMainAccountNeverBank(body.AccountNum)
+    ) {
+      missingFields.push(
+        `customLineApiBody.accountTypeStr: Account ${body.AccountNum} must be mapped as Ledger, not Bank`,
+      );
     }
     if (!body.company?.trim()) {
       missingFields.push('customLineApiBody.company');
@@ -745,13 +767,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!body.DEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
       missingFields.push('customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE');
     }
-    const isOffsetlessLedgerLine =
+    const isOffsetlessLine =
       line.cashDirection === 'out' &&
-      route?.kind === 'ledger' &&
+      route?.safeType !== 'Vendor Payment' &&
       !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
       !body.offsetAccountDisplayValue?.trim() &&
       !body.OffsetAccountTypeStr?.trim();
-    if (!isOffsetlessLedgerLine) {
+    if (!isOffsetlessLine) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
           'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
@@ -759,6 +781,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
       if (!body.offsetAccountDisplayValue?.trim()) {
         missingFields.push('customLineApiBody.offsetAccountDisplayValue');
+      } else if (
+        body.OffsetAccountTypeStr === 'Bank' &&
+        isKnownCashMainAccountNeverBank(body.offsetAccountDisplayValue)
+      ) {
+        missingFields.push(
+          `customLineApiBody.OffsetAccountTypeStr: Offset account ${body.offsetAccountDisplayValue} must be mapped as Ledger, not Bank`,
+        );
       }
       if (line.cashDirection !== 'out' && !body.OffsetAccountTypeStr?.trim()) {
         missingFields.push('customLineApiBody.OffsetAccountTypeStr');
@@ -784,7 +813,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return value === 'Taxable' || value === 'Non-Taxabl';
   }
 
-  private normalizeCashOutTaxGroup(
+  private normalizeTaxGroup(
     taxGroup: string | undefined | null,
   ): string {
     const value = taxGroup?.trim() ?? '';
@@ -792,11 +821,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
     const normalized = value.toLowerCase().replace(/[\s_-]+/g, '');
     if (normalized === 'taxable') return 'Taxable';
-    if (normalized === 'nontaxabl' || normalized === 'nontaxable') {
-      return 'Non-Taxabl';
-    }
 
-    return value;
+    return 'Non-Taxabl';
   }
 
   private async prepareBatchForPosting(batchId: string): Promise<void> {

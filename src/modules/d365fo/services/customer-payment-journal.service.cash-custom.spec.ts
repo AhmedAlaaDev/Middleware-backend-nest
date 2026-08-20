@@ -142,17 +142,19 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     const [endpoint, body] = d365foClient.post.mock.calls[0];
 
     expect(endpoint).toContain('/addLedgerJournalTransCustPaym');
-    expect(body._contract).toHaveProperty('journalNum', 'JN000123');
-    expect(body._contract).toHaveProperty('AccountNum', 'CUST001');
-    expect(body._contract).toHaveProperty('accountTypeStr', 'Cust');
-    expect(body._contract).toHaveProperty('transDate', '2026-04-21T00:00:00');
-    expect(body._contract).toHaveProperty('DocumentNum', 'DOC-1001');
-    expect(body._contract).toHaveProperty(
+    expect(body._contract.Lines).toHaveLength(1);
+    const postedLine = body._contract.Lines[0];
+    expect(postedLine).toHaveProperty('journalNum', 'JN000123');
+    expect(postedLine).toHaveProperty('AccountNum', 'CUST001');
+    expect(postedLine).toHaveProperty('accountTypeStr', 'cust');
+    expect(postedLine).toHaveProperty('transDate', '2026-04-21T00:00:00');
+    expect(postedLine).toHaveProperty('DocumentNum', 'DOC-1001');
+    expect(postedLine).toHaveProperty(
       'DocumentDate',
       '2026-04-20T00:00:00',
     );
-    expect(body._contract).toHaveProperty('ExchangeRate');
-    expect(body._contract).toHaveProperty('EXCHANGERATE');
+    expect(postedLine).toHaveProperty('ExchangeRate');
+    expect(postedLine).toHaveProperty('EXCHANGERATE');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
     ).not.toHaveBeenCalled();
@@ -1144,8 +1146,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post.mock.calls[0][0]).toContain(
       '/addLedgerJournalTransCustPaym',
     );
-    expect(d365foClient.post.mock.calls[1][1]._contract).toMatchObject({
-      MARKEDINVOICE: null,
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0],
+    ).toMatchObject({
+      MarkedLines: [],
       PAYMENTNOTES: 'DownPayment - Freight Jan 2026 - unmarked',
       TRANSACTIONTEXT: 'DownPayment - Freight Jan 2026 - unmarked',
     });

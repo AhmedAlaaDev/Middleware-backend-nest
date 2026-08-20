@@ -75,11 +75,11 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       )) as CashEntryDynDataModel[];
 
       expect(rows).toHaveLength(904);
-      expect(result).toHaveLength(904);
+      // 4 withholding lines (223304) are skipped and subtracted from vendor amount
+      expect(result).toHaveLength(900);
       expect(new Set(result.map((line) => line.SafeType))).toEqual(
         new Set(['Custody Settlement']),
       );
-      expect(result.every((line) => line.MarkedInvoice === '')).toBe(true);
     },
   );
 

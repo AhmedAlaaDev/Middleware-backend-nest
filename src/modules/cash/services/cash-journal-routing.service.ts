@@ -62,21 +62,13 @@ export class CashJournalRoutingService {
         return this.resolveVendorPayment(input.targetProcessor);
       case 'custodysettlement':
         return {
-          kind: 'ledger',
-          module: 'GL',
+          ...this.resolveVendorPaymentWithDefault(input.targetProcessor),
           safeType: 'Custody Settlement',
-          journalName: 'CustSettle',
-          headerApi: 'LedgerJournalHeaders',
-          lineDirection: 'out',
         };
       case 'custodyissue':
         return {
-          kind: 'ledger',
-          module: 'GL',
+          ...this.resolveVendorPaymentWithDefault(input.targetProcessor),
           safeType: 'Custody Issue',
-          journalName: 'CashOut',
-          headerApi: 'LedgerJournalHeaders',
-          lineDirection: 'out',
         };
       case 'customercollection':
         return {
@@ -160,6 +152,32 @@ export class CashJournalRoutingService {
     throw new CashJournalRoutingError(
       `Vendor Payment requires a valid Target Processor. Received "${this.displayValue(target)}"; expected Fleet or Freight.`,
     );
+  }
+
+  private resolveVendorPaymentWithDefault(target: unknown): CashJournalRoute {
+    const targetProcessor = this.normalizeToken(target);
+
+    if (targetProcessor === 'fleet') {
+      return {
+        kind: 'vendor-invoice',
+        module: 'AP',
+        safeType: 'Vendor Payment',
+        targetProcessor: 'Fleet',
+        journalName: 'P-Fleet',
+        headerApi: 'VendorPaymentJournalHeaders',
+        lineDirection: 'out',
+      };
+    }
+
+    return {
+      kind: 'vendor-invoice',
+      module: 'AP',
+      safeType: 'Vendor Payment',
+      targetProcessor: 'Freight',
+      journalName: 'P-Freight',
+      headerApi: 'VendorPaymentJournalHeaders',
+      lineDirection: 'out',
+    };
   }
 
   private normalizeToken(value: unknown): string {

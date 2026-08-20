@@ -94,6 +94,15 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
     expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('MARKEDINVOICE');
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-0001',
+        OperationNumber: '',
+        DocumentNumber: 'DOC-1001',
+        HasWithHoldingLine: false,
+      },
+    ]);
     expect(body.ReportingCurrencyExchRate).toBe(100);
     expect(body.ReportingExchangeRate).toBe(100);
     expect(body.REPORTINGEXCHANGERATE).toBe(100);

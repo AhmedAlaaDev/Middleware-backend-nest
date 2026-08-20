@@ -44,23 +44,27 @@ describe('CashJournalRoutingService - task 2045', () => {
     },
     {
       safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
       expected: {
-        kind: 'ledger',
-        module: 'GL',
+        kind: 'vendor-invoice',
+        module: 'AP',
         safeType: 'Custody Settlement',
-        journalName: 'CustSettle',
-        headerApi: 'LedgerJournalHeaders',
+        targetProcessor: 'Freight',
+        journalName: 'P-Freight',
+        headerApi: 'VendorPaymentJournalHeaders',
         lineDirection: 'out',
       },
     },
     {
       safeType: 'Custody Issue',
+      targetProcessor: 'Freight',
       expected: {
-        kind: 'ledger',
-        module: 'GL',
+        kind: 'vendor-invoice',
+        module: 'AP',
         safeType: 'Custody Issue',
-        journalName: 'CashOut',
-        headerApi: 'LedgerJournalHeaders',
+        targetProcessor: 'Freight',
+        journalName: 'P-Freight',
+        headerApi: 'VendorPaymentJournalHeaders',
         lineDirection: 'out',
       },
     },
@@ -131,12 +135,12 @@ describe('CashJournalRoutingService - task 2045', () => {
     ['VENDOR-PAYMENT', ' freight ', 'Vendor Payment', 'Freight', 'P-Freight'],
     [
       ' custody_settlement ',
-      undefined,
+      ' freight ',
       'Custody Settlement',
-      undefined,
-      'CustSettle',
+      'Freight',
+      'P-Freight',
     ],
-    [' custody_issue ', undefined, 'Custody Issue', undefined, 'CashOut'],
+    [' custody_issue ', ' fLeEt ', 'Custody Issue', 'Fleet', 'P-Fleet'],
     [
       ' customer_collection ',
       undefined,
@@ -164,8 +168,6 @@ describe('CashJournalRoutingService - task 2045', () => {
   );
 
   it.each([
-    ['Custody Settlement', 'CustSettle'],
-    ['Custody Issue', 'CashOut'],
     ['Customer Collection', 'Cust-Pay'],
     ['Direct', 'CashOut'],
     ['Other', 'CashOut'],
