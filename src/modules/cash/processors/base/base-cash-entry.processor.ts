@@ -25,6 +25,7 @@ import {
 import {
   firstCashFinancialTag,
   replaceCashShippingLineWithVendorName,
+  validateCashInboundInvoice,
 } from '@/modules/cash/policies/cash-invoice.policy';
 import {
   getCashCollectionDescriptionLabel,
@@ -377,34 +378,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }
 
       if (this.isInbound() && this.freeTextInvoiceMap) {
-        const invoiceKey = (line.MarkedInvoice || line.Invoice || '')
-          .trim()
-          .toLowerCase();
+        const displayInvoice = line.MarkedInvoice || line.Invoice || '';
+        const invoiceError = validateCashInboundInvoice(
+          displayInvoice,
+          (invoiceKey) => this.freeTextInvoiceMap?.get(invoiceKey),
+        );
 
-        if (!invoiceKey) {
-          line.AddError('Invoice', 'Invoice is missing');
-          continue;
-        }
-
-        const entries = this.freeTextInvoiceMap.get(invoiceKey);
-
-        const displayInvoice = line.MarkedInvoice || line.Invoice;
-
-        if (!entries?.length) {
-          line.AddError(
-            'Invoice',
-            `Free text invoice (${displayInvoice}) not exists in D365FO`,
-          );
-          continue;
-        }
-
-        const postedEntries = entries.filter((e) => e.isPosted);
-
-        if (postedEntries.length === 0) {
-          line.AddError(
-            'Invoice',
-            `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`,
-          );
+        if (invoiceError) {
+          line.AddError('Invoice', invoiceError);
           continue;
         }
       }

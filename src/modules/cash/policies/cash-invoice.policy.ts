@@ -74,6 +74,45 @@ export function formatCashInboundInvoice(invoice?: string): string {
   return `${number.toString().padStart(9, '0')}/${suffix}`;
 }
 
+export interface CashFreeTextInvoiceEntry {
+  isPosted: boolean;
+}
+
+/**
+ * Validates a Cash-In line's invoice against D365FO free text invoices.
+ *
+ * Not every Cash-In source row carries an invoice reference — POS and
+ * petty-cash customer collections in particular are frequently uploaded
+ * without an `INVOICE`/`DOCUMENT` column at all. A missing invoice is
+ * therefore optional and must not block the batch. When an invoice number
+ * IS present, it must still exist in D365FO and be posted.
+ *
+ * Returns a validation error message, or `null` when the line is valid
+ * (including the "no invoice provided" case).
+ */
+export function validateCashInboundInvoice(
+  displayInvoice: string | undefined,
+  lookupEntries: (invoiceKey: string) => CashFreeTextInvoiceEntry[] | undefined,
+): string | null {
+  const invoiceKey = String(displayInvoice ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (!invoiceKey) return null;
+
+  const entries = lookupEntries(invoiceKey);
+  if (!entries?.length) {
+    return `Free text invoice (${displayInvoice}) not exists in D365FO`;
+  }
+
+  const hasPostedEntry = entries.some((entry) => entry.isPosted);
+  if (!hasPostedEntry) {
+    return `(${displayInvoice}) exists in D365FO but is not posted (IsPosted=No)`;
+  }
+
+  return null;
+}
+
 /** Formats Cash-Out invoice numbers and source-specific suffixes. */
 export function formatCashOutboundInvoice(invoice?: string): string {
   const trimmedInvoice = invoice?.trim();
