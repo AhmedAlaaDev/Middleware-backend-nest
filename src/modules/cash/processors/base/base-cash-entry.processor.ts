@@ -748,13 +748,27 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   },
                 ];
 
+          const vendorDebit = Number(line.DEBITAMOUNT ?? 0);
+          let netPaymentAmount = vendorDebit;
+          let grossInvoiceAmount: number | undefined = undefined;
+
+          if (withholdingAmount > 0) {
+            if (vendorDebit > withholdingAmount) {
+              netPaymentAmount = vendorDebit - withholdingAmount;
+              grossInvoiceAmount = vendorDebit;
+            } else {
+              grossInvoiceAmount = vendorDebit + withholdingAmount;
+            }
+          }
+
           const verifyResult = this.vendorInvoiceVerificationService.verify(
             {
               company: this.company,
               vendorAccount: vendor,
               documentNumber: docNum,
               invoiceNumber: invoice,
-              netPaymentAmount: Number(line.DEBITAMOUNT ?? 0),
+              grossInvoiceAmount,
+              netPaymentAmount,
               withholdingAmount,
               currencyCode: String(line.CURRENCYCODE ?? ''),
               allowPartialPayment: false,
@@ -1921,12 +1935,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   },
                 ];
 
+          const isWithholdingEnabled =
+            String(
+              line.IsWithholdingCalculationEnabled ?? '',
+            ).toLowerCase() === 'yes';
+
           const verifyResult = this.vendorInvoiceVerificationService.verify(
             {
               company: this.company,
               vendorAccount,
               documentNumber: lineDoc,
               invoiceNumber: invoice,
+              grossInvoiceAmount: isWithholdingEnabled ? undefined : Number(line.DebitAmount ?? 0),
               netPaymentAmount: Number(line.DebitAmount ?? 0),
               withholdingAmount: 0,
               currencyCode: String(line.CurrencyCode ?? ''),
