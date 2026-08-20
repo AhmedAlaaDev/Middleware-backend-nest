@@ -718,9 +718,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           const docNum = String(line.DOCUMENT ?? '').trim();
           const withholdingLineInGroup = lines.find(
             (l) =>
-              String(l.UniqueId ?? '').trim() ===
-                String(line.UniqueId ?? '').trim() &&
-              isCashWithholdingLedgerLine(l),
+              isCashWithholdingLedgerLine(l) &&
+              ((line.UniqueId &&
+                String(l.UniqueId ?? '').trim() ===
+                  String(line.UniqueId ?? '').trim()) ||
+                (line.VOUCHER &&
+                  String(l.VOUCHER ?? '').trim() ===
+                    String(line.VOUCHER ?? '').trim())),
           );
           const withholdingAmount = withholdingLineInGroup
             ? Number(
@@ -743,7 +747,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           let grossInvoiceAmount: number | undefined = undefined;
 
           if (withholdingAmount > 0) {
-            if (vendorDebit > withholdingAmount) {
+            const candidateOpen =
+              snapshot.remainingAmount || snapshot.originalAmount || 0;
+            if (
+              candidateOpen > 0 &&
+              moneyEquals(
+                candidateOpen,
+                vendorDebit + withholdingAmount,
+                String(line.CURRENCYCODE ?? ''),
+              )
+            ) {
+              netPaymentAmount = vendorDebit;
+              grossInvoiceAmount = candidateOpen;
+            } else if (vendorDebit > withholdingAmount) {
               netPaymentAmount = vendorDebit - withholdingAmount;
               grossInvoiceAmount = vendorDebit;
             } else {

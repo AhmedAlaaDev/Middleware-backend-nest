@@ -5,16 +5,19 @@ export interface CashWithholdingStats {
   withholdingRemovedAmount: number;
 }
 
-/** Identifies the 223304 ledger account used for withholding treatment. */
 export function isCashWithholdingLedgerLine(
   line: CashEntryRawDataModel,
 ): boolean {
-  return (
-    line.ACCOUNTTYPE === 'Ledger' &&
-    String(line.ACCOUNTDISPLAYVALUE ?? '')
-      .trim()
-      .startsWith('223304')
-  );
+  if (!line) return false;
+  const accountType = String(line.ACCOUNTTYPE ?? '').trim().toLowerCase();
+  const accountDisplay = String(line.ACCOUNTDISPLAYVALUE ?? '').trim();
+  const isLedger =
+    line.IsLedger ||
+    accountType === 'ledger' ||
+    accountType === 'ledger account' ||
+    accountType === 'mainaccount';
+
+  return isLedger && accountDisplay.startsWith('223304');
 }
 
 /**
