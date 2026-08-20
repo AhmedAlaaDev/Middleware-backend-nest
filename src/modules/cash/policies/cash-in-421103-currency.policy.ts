@@ -102,6 +102,9 @@ export class CashIn421103CurrencyPolicy {
 
       // Currency-only transformation (AC1, AC3, AC4)
       customerLine.CURRENCYCODE = sourceCurrency;
+      if (ledgerLine.EXCHANGERATE && ledgerLine.EXCHANGERATE !== customerLine.EXCHANGERATE) {
+        customerLine.EXCHANGERATE = ledgerLine.EXCHANGERATE;
+      }
 
       // Defensive assertions (AC2, AC6, AC12)
       if (customerLine.DEBITAMOUNT !== originalCustomerDebit) {

@@ -894,6 +894,28 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     exchangeRateContext?: CashOutExchangeRateContext,
   ): Set<string> {
     if (!exchangeRateContext) {
+      if (this.isInbound()) {
+        for (const lines of invoiceMap.values()) {
+          const rateSourceLine = lines.find(
+            (l) =>
+              l.CURRENCYCODE &&
+              l.CURRENCYCODE !== 'EGP' &&
+              Number(l.EXCHANGERATE) > 0,
+          );
+          if (rateSourceLine && rateSourceLine.EXCHANGERATE) {
+            for (const line of lines) {
+              if (
+                line.CURRENCYCODE === rateSourceLine.CURRENCYCODE &&
+                (!line.EXCHANGERATE ||
+                  line.EXCHANGERATE === 100 ||
+                  line.EXCHANGERATE === 1)
+              ) {
+                line.EXCHANGERATE = rateSourceLine.EXCHANGERATE;
+              }
+            }
+          }
+        }
+      }
       return super.checkInvoiceBalancedAfterFx(invoiceMap);
     }
 
