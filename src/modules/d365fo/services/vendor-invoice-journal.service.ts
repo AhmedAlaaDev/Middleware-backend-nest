@@ -153,15 +153,43 @@ export class VendorInvoiceJournalService {
       normalizedRequests.map((request) => request.invoice),
     );
 
+    const missingVendorAccounts = [
+      ...new Set(
+        normalizedRequests
+          .filter(
+            (req) =>
+              !(
+                rowsByInvoice.get(this.normalizeInvoiceValue(req.invoice))
+                  ?.length ?? 0
+              ),
+          )
+          .map((req) => req.vendorAccount),
+      ),
+    ];
+
+    const rowsByVendor =
+      missingVendorAccounts.length > 0
+        ? await this.fetchVendTransRowsByVendor(company, missingVendorAccounts)
+        : new Map<string, VendTransLookupRow[]>();
+
     for (const request of normalizedRequests) {
-      const invoiceRows =
-        rowsByInvoice.get(request.invoice.toLowerCase()) ?? [];
-      const vendorRows = invoiceRows.filter(
+      const vendorRows =
+        rowsByVendor.get(this.normalizeVendorAccount(request.vendorAccount)) ??
+        [];
+      const invoiceRows = vendorRows.filter(
         (row) =>
-          this.normalizeVendorAccount(row.AccountNum) ===
-          request.vendorAccount.toLowerCase(),
+          this.normalizeInvoiceValue(row.Invoice) ===
+          this.normalizeInvoiceValue(request.invoice),
       );
-      const row = vendorRows[0] ?? invoiceRows[0];
+      const invoiceRowsAcrossVendors =
+        rowsByInvoice.get(this.normalizeInvoiceValue(request.invoice)) ?? [];
+      const row = invoiceRows[0] ?? invoiceRowsAcrossVendors[0];
+
+      const exists = invoiceRowsAcrossVendors.length > 0 || invoiceRows.length > 0;
+      const belongsToVendor = row
+        ? this.normalizeVendorAccount(row.AccountNum) ===
+          this.normalizeVendorAccount(request.vendorAccount)
+        : false;
 
       snapshots.set(
         VendorInvoiceJournalService.pairKey(
@@ -173,8 +201,8 @@ export class VendorInvoiceJournalService {
           request.invoice,
           request.vendorAccount,
           row,
-          invoiceRows.length > 0,
-          vendorRows.length > 0,
+          exists,
+          belongsToVendor,
         ),
       );
     }
@@ -216,10 +244,13 @@ export class VendorInvoiceJournalService {
       const expectedInvoices = line.expectedInvoices
         .map((invoice) => invoice.trim())
         .filter(Boolean);
+      const expectedInvoiceKeys = new Set(
+        expectedInvoices.map((invoice) => this.normalizeInvoiceValue(invoice)),
+      );
       const settledRows = settledByLine.get(line.lineNumber) ?? [];
       const matchedRows = settledRows.filter((row) => {
-        const invoiceMatches = expectedInvoices.includes(
-          String(row.InvoiceNumber ?? '').trim(),
+        const invoiceMatches = expectedInvoiceKeys.has(
+          this.normalizeInvoiceValue(row.InvoiceNumber),
         );
         const vendorMatches =
           this.normalizeVendorAccount(row.invoiceAccount) ===
@@ -229,19 +260,31 @@ export class VendorInvoiceJournalService {
         return invoiceMatches && vendorMatches;
       });
       const journalLine = journalLinesByNumber.get(line.lineNumber);
+      const journalMarkedInvoice = String(
+        journalLine?.MarkedInvoice ?? '',
+      ).trim();
+      const journalLineMatches =
+        this.normalizeVendorAccount(journalLine?.AccountDisplayValue) ===
+          line.vendorAccount.trim().toLowerCase() &&
+        expectedInvoiceKeys.has(
+          this.normalizeInvoiceValue(journalMarkedInvoice),
+        );
       const settlementAmount = matchedRows.reduce(
         (sum, row) =>
           sum + this.readNumber(row.SettlementAmountInInvoiceCurrency),
         0,
       );
+      const verified = matchedRows.length > 0 || journalLineMatches;
 
       return {
         lineNumber: line.lineNumber,
-        status: matchedRows.length > 0 ? 'VERIFIED' : 'NOT_VERIFIED',
+        status: verified ? 'VERIFIED' : 'NOT_VERIFIED',
         reason:
           matchedRows.length > 0
             ? `Verified ${matchedRows.length} settled invoice row(s)`
-            : `No settled invoice rows matched vendor ${line.vendorAccount} and invoices ${expectedInvoices.join(', ')}`,
+            : journalLineMatches
+              ? `Marked invoice ${journalMarkedInvoice} persisted on vendor payment journal line ${line.lineNumber}`
+              : `No settled invoice rows matched vendor ${line.vendorAccount} and invoices ${expectedInvoices.join(', ')}`,
         expectedVendorAccount: line.vendorAccount,
         expectedInvoices,
         matchedInvoices: matchedRows
@@ -249,7 +292,7 @@ export class VendorInvoiceJournalService {
           .filter(Boolean),
         settlementAmount,
         journalBatchNumber,
-        journalMarkedInvoice: String(journalLine?.MarkedInvoice ?? '').trim(),
+        journalMarkedInvoice,
         settleVoucher: String(journalLine?.SettleVoucher ?? '').trim(),
       };
     });
@@ -396,52 +439,123 @@ export class VendorInvoiceJournalService {
     invoices: string[],
   ): Promise<Map<string, VendTransLookupRow[]>> {
     const uniqueInvoices = [
-      ...new Set(invoices.map((invoice) => invoice?.trim()).filter(Boolean)),
+      ...new Set(
+        invoices
+          .flatMap((invoice) => (invoice ? [invoice, invoice.trim()] : []))
+          .filter(Boolean),
+      ),
     ] as string[];
     const rowsByInvoice = new Map<string, VendTransLookupRow[]>();
     if (uniqueInvoices.length === 0) return rowsByInvoice;
 
-    const chunks = this.chunkArray(
-      uniqueInvoices,
-      VENDOR_INVOICE_LOOKUP_CHUNK_SIZE,
-    );
-    for (const chunk of chunks) {
-      const invoiceOrFilter = `(${this.queryBuilder.or(
-        ...chunk.map((invoice) => this.queryBuilder.eq('Invoice', invoice)),
-      )})`;
-      let endpoint = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
-        filter: this.queryBuilder.and(
-          this.queryBuilder.eq('dataAreaId', company),
-          invoiceOrFilter,
-        ),
-        crossCompany: true,
-      });
+    const chunkSize = VENDOR_INVOICE_LOOKUP_CHUNK_SIZE;
+    const concurrency = 4;
+    const chunks = this.chunkArray(uniqueInvoices, chunkSize);
 
-      while (true) {
-        const response = await this.d365foClient.get<VendTransLookupRow>(
-          endpoint,
-          {
-            useCache: false,
-          },
-        );
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const wave = chunks.slice(i, i + concurrency);
+      await Promise.all(
+        wave.map(async (chunk) => {
+          const invoiceOrFilter = `(${this.queryBuilder.or(
+            ...chunk.map((invoice) => this.queryBuilder.eq('Invoice', invoice)),
+          )})`;
+          let endpoint = this.queryBuilder.buildQuery(
+            '/data/VendTransBiEntities',
+            {
+              filter: this.queryBuilder.and(
+                this.queryBuilder.eq('dataAreaId', company),
+                invoiceOrFilter,
+              ),
+              crossCompany: true,
+            },
+          );
 
-        for (const row of response.value ?? []) {
-          const invoice = String(row.Invoice ?? '')
-            .trim()
-            .toLowerCase();
-          if (!invoice) continue;
-          const bucket = rowsByInvoice.get(invoice) ?? [];
-          bucket.push(row);
-          rowsByInvoice.set(invoice, bucket);
-        }
+          while (true) {
+            const response = await this.d365foClient.get<VendTransLookupRow>(
+              endpoint,
+              { useCache: false },
+            );
 
-        const nextLink = response['@odata.nextLink'];
-        if (!nextLink) break;
-        endpoint = this.getEndpointFromNextLink(nextLink);
-      }
+            for (const row of response.value ?? []) {
+              const invoice = this.normalizeInvoiceValue(row.Invoice);
+              if (!invoice) continue;
+              const bucket = rowsByInvoice.get(invoice) ?? [];
+              bucket.push(row);
+              rowsByInvoice.set(invoice, bucket);
+            }
+
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            endpoint = this.getEndpointFromNextLink(nextLink);
+          }
+        }),
+      );
     }
 
     return rowsByInvoice;
+  }
+
+  private async fetchVendTransRowsByVendor(
+    company: string,
+    vendorAccounts: string[],
+  ): Promise<Map<string, VendTransLookupRow[]>> {
+    const uniqueVendors = [
+      ...new Set(
+        vendorAccounts
+          .map((vendorAccount) => vendorAccount?.trim())
+          .filter(Boolean),
+      ),
+    ] as string[];
+    const rowsByVendor = new Map<string, VendTransLookupRow[]>();
+    if (uniqueVendors.length === 0) return rowsByVendor;
+
+    const chunkSize = VENDOR_INVOICE_LOOKUP_CHUNK_SIZE;
+    const concurrency = 4;
+    const chunks = this.chunkArray(uniqueVendors, chunkSize);
+
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const wave = chunks.slice(i, i + concurrency);
+      await Promise.all(
+        wave.map(async (chunk) => {
+          const vendorOrFilter = `(${this.queryBuilder.or(
+            ...chunk.map((vendorAccount) =>
+              this.queryBuilder.eq('AccountNum', vendorAccount),
+            ),
+          )})`;
+          let endpoint = this.queryBuilder.buildQuery(
+            '/data/VendTransBiEntities',
+            {
+              filter: this.queryBuilder.and(
+                this.queryBuilder.eq('dataAreaId', company),
+                vendorOrFilter,
+              ),
+              crossCompany: true,
+            },
+          );
+
+          while (true) {
+            const response = await this.d365foClient.get<VendTransLookupRow>(
+              endpoint,
+              { useCache: false },
+            );
+
+            for (const row of response.value ?? []) {
+              const vendorAccount = this.normalizeVendorAccount(row.AccountNum);
+              if (!vendorAccount) continue;
+              const bucket = rowsByVendor.get(vendorAccount) ?? [];
+              bucket.push(row);
+              rowsByVendor.set(vendorAccount, bucket);
+            }
+
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            endpoint = this.getEndpointFromNextLink(nextLink);
+          }
+        }),
+      );
+    }
+
+    return rowsByVendor;
   }
 
   private toInvoiceSettlementSnapshot(
@@ -630,6 +744,16 @@ export class VendorInvoiceJournalService {
   }
 
   private normalizeVendorAccount(value: unknown): string {
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase();
+    }
+    if (typeof value === 'number') {
+      return String(value).trim().toLowerCase();
+    }
+    return '';
+  }
+
+  private normalizeInvoiceValue(value: unknown): string {
     if (typeof value === 'string') {
       return value.trim().toLowerCase();
     }
