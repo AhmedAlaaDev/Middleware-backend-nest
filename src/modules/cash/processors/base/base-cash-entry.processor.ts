@@ -754,6 +754,26 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               snapshot.originalAmount || snapshot.remainingAmount || undefined;
           }
 
+          const candidates =
+            snapshot.candidateTransactions &&
+            snapshot.candidateTransactions.length > 0
+              ? snapshot.candidateTransactions
+              : [
+                  {
+                    vendorAccount: snapshot.vendorAccount || vendor,
+                    documentNumber: snapshot.documentNumber || docNum,
+                    invoiceNumber: snapshot.invoice || invoice,
+                    currencyCode:
+                      snapshot.currencyCode || String(line.CURRENCYCODE ?? ''),
+                    originalAmount: snapshot.originalAmount ?? 0,
+                    openAmount:
+                      snapshot.remainingAmount ?? snapshot.originalAmount ?? 0,
+                    sourceKey: snapshot.sourceKey,
+                    lastSettleVoucher: snapshot.lastSettleVoucher,
+                    isOpen: snapshot.isOpen ?? true,
+                  },
+                ];
+
           const verifyResult = this.vendorInvoiceVerificationService.verify(
             {
               company: this.company,
