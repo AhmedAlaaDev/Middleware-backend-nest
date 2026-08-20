@@ -144,6 +144,15 @@ export function processVendorPaymentGroup(
       ) {
         netPaymentAmount = offsetCredit;
         grossInvoiceAmount = vendorDebitSum;
+      } else if (
+        offsetCredit > 0 &&
+        moneyEquals(offsetCredit, vendorDebitSum + withholdingAmount, currency)
+      ) {
+        netPaymentAmount = vendorDebitSum;
+        grossInvoiceAmount = offsetCredit;
+      } else if (vendorDebitSum > withholdingAmount) {
+        netPaymentAmount = vendorDebitSum - withholdingAmount;
+        grossInvoiceAmount = vendorDebitSum;
       } else {
         netPaymentAmount = vendorDebitSum;
         grossInvoiceAmount = vendorDebitSum + withholdingAmount;

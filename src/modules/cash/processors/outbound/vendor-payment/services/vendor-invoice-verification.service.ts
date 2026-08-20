@@ -141,7 +141,20 @@ export class VendorInvoiceVerificationService {
         );
       }
 
-      // Standard full settlement: settlementAmount (Net + WHT) equals openAmount or originalAmount
+      // Standard full settlement: settlementAmount (Net + WHT) or grossInvoiceAmount equals openAmount or originalAmount
+      const grossMatch =
+        request.grossInvoiceAmount !== undefined &&
+        (moneyEquals(
+          c.openAmount,
+          request.grossInvoiceAmount,
+          request.currencyCode,
+        ) ||
+          moneyEquals(
+            c.originalAmount,
+            request.grossInvoiceAmount,
+            request.currencyCode,
+          ));
+
       return (
         moneyEquals(
           c.openAmount,
@@ -152,7 +165,8 @@ export class VendorInvoiceVerificationService {
           c.originalAmount,
           expectedSettlementAmount,
           request.currencyCode,
-        )
+        ) ||
+        grossMatch
       );
     });
     candidateCount.amount = amountMatches.length;
