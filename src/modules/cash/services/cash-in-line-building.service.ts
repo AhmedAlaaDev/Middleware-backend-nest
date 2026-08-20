@@ -1,7 +1,11 @@
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { isCash22420LedgerDimensionLine } from '@/modules/cash/policies/cash-account.policy';
-import { toCashDefaultDimensionDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
+import { resolveCashInboundCustomerCurrency } from '@/modules/cash/policies/cash-currency.policy';
+import {
+  sanitizeCashBankAccountDimension,
+  toCashDefaultDimensionDisplayValue,
+} from '@/modules/cash/policies/cash-dimension.policy';
 import { formatCashInboundInvoice } from '@/modules/cash/policies/cash-invoice.policy';
 import {
   CashOutExchangeRateContext,
@@ -68,19 +72,28 @@ export function resolveCashInboundDerivedValues(options: {
 }): {
   dimensionDisplayValue: string;
   currencyCode?: string;
+  currencyChanged: boolean;
+  previousCustomerCurrencyCode: string;
   transactionDate?: string;
   markedInvoice: string;
 } {
-  const { accountLine, offsetLine, dimensions, amountSource } = options;
+  const { accountLine, offsetLine, dimensions } = options;
+  // The non-customer (offset) line is the source of truth for the
+  // transaction currency: the customer line always inherits it when the two
+  // differ, regardless of which side the amount is sourced from.
+  const currencyResolution = resolveCashInboundCustomerCurrency(
+    accountLine,
+    offsetLine,
+  );
+
   return {
     dimensionDisplayValue: toCashDefaultDimensionDisplayValue(
       dimensions,
       !isCash22420LedgerDimensionLine(accountLine, offsetLine),
     ),
-    currencyCode:
-      amountSource === 'ACCOUNT'
-        ? accountLine.CURRENCYCODE
-        : offsetLine.CURRENCYCODE,
+    currencyCode: currencyResolution.currencyCode,
+    currencyChanged: currencyResolution.changed,
+    previousCustomerCurrencyCode: currencyResolution.previousCurrencyCode,
     transactionDate: offsetLine.TRANSDATE || accountLine.TRANSDATE,
     markedInvoice: formatCashInboundInvoice(
       accountLine.INVOICE ||
@@ -103,6 +116,7 @@ export function prepareCashInboundDimensions(options: {
   dimensionString?: string;
   segmentLength: number;
   dimensions: EntryDimensionsModel;
+  clearedBankAccountDimension: string;
 } {
   const { accountLine, offsetLine } = options;
   const dimensionString =
@@ -116,7 +130,19 @@ export function prepareCashInboundDimensions(options: {
     ? options.filterDimensionsForLedgerTag22420(dimensions)
     : dimensions;
 
-  return { dimensionString, segmentLength, dimensions };
+  // A `BankAccount` financial-dimension value that duplicates a main account
+  // (or matches a known Ledger-only main account) can never resolve against
+  // `BankAccountTable` in D365FO, and must be cleared before it reaches the
+  // dimension combination sent to D365FO.
+  const clearedBankAccountDimension =
+    sanitizeCashBankAccountDimension(dimensions);
+
+  return {
+    dimensionString,
+    segmentLength,
+    dimensions,
+    clearedBankAccountDimension,
+  };
 }
 
 /** Builds the unchanged invalid-mapping result used by Cash-In line formatting. */
@@ -133,7 +159,12 @@ export function buildCashInboundInvalidLine(
   if (!accountLine) {
     line.AddError('InvalidMapping', 'No account line found');
   }
-  if (!offsetLine) {
+  if (accountLine && !offsetLine) {
+    line.AddError(
+      'InvalidMapping',
+      'Unable to determine the corresponding non-customer line for the customer transaction.',
+    );
+  } else if (!offsetLine) {
     line.AddError('InvalidMapping', 'No offset line found');
   }
 

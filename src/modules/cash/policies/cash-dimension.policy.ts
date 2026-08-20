@@ -1,4 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 /**
@@ -55,6 +56,42 @@ export function toCashDefaultDimensionDisplayValue(
     }
     return cashDimensionPartAsString(dimensions[fieldName]);
   }).join('|');
+}
+
+/**
+ * Detects when the parsed `bankAccount` financial-dimension segment actually
+ * holds a Ledger-only main account value (e.g. a duplicated main account, or
+ * a known Ledger-only main account such as 125901/125902/421103). Such a
+ * value can never resolve against `BankAccountTable`, so it must not be sent
+ * to D365FO as the `BankAccount` financial dimension.
+ */
+export function findInvalidCashBankAccountDimensionValue(
+  dimensions: Pick<EntryDimensionsModel, 'bankAccount' | 'mainAccount'>,
+): string {
+  const bankAccount = cashDimensionPartAsString(dimensions?.bankAccount);
+  if (!bankAccount) return '';
+
+  const mainAccount = cashDimensionPartAsString(dimensions?.mainAccount);
+  if (mainAccount && bankAccount === mainAccount) return bankAccount;
+  if (isKnownCashMainAccountNeverBank(bankAccount)) return bankAccount;
+
+  return '';
+}
+
+/**
+ * Clears the `bankAccount` financial-dimension segment in place when it
+ * holds an invalid (Ledger-only) main account value, preventing the D365FO
+ * `DimAttributeBankAccountTable` posting failure. Returns the cleared value,
+ * or an empty string when nothing needed to change.
+ */
+export function sanitizeCashBankAccountDimension(
+  dimensions: EntryDimensionsModel,
+): string {
+  const invalidValue = findInvalidCashBankAccountDimensionValue(dimensions);
+  if (!invalidValue) return '';
+
+  dimensions.bankAccount = undefined;
+  return invalidValue;
 }
 
 /**

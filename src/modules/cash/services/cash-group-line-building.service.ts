@@ -134,7 +134,16 @@ export function buildCashMoreThanTwoLines(options: {
     );
   }
 
+  // Preserve a uniquely-determined side so the downstream invalid-line
+  // builder can report which specific side (customer or non-customer) is
+  // missing, instead of a generic "both missing" message.
   return [
-    buildLine(sourceId, undefined, undefined, undefined, exchangeRateContext),
+    buildLine(
+      sourceId,
+      accountLines.length === 1 ? accountLines[0] : undefined,
+      offsetLines.length === 1 ? offsetLines[0] : undefined,
+      undefined,
+      exchangeRateContext,
+    ),
   ];
 }

@@ -5,6 +5,11 @@ import { capitalize } from '@/lib/utils';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import {
+  findCashBankMisclassificationError,
+  resolveCashAccountType,
+  validateCashLedgerAccountCurrency,
+} from '@/modules/cash/policies/cash-account-classification.policy';
+import {
   isCash22420LedgerDimensionLine,
   isCashNotesReceivableLine,
   sanitizeCashOutboundInvoice,
@@ -1138,16 +1143,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     amountSource?: 'ACCOUNT' | 'OFFSET',
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel {
-    const { segmentLength, dimensions } = prepareCashInboundDimensions({
-      accountLine,
-      offsetLine,
-      getDimensionSegmentLength: (displayValue) =>
-        this.utilsService.getDimensionSegmentLength(displayValue),
-      parseDimensionString: (displayValue) =>
-        this.utilsService.parseDimensionString(displayValue),
-      filterDimensionsForLedgerTag22420: (parsedDimensions) =>
-        this.utilsService.filterDimensionsForLedgerTag22420(parsedDimensions),
-    });
+    const { segmentLength, dimensions, clearedBankAccountDimension } =
+      prepareCashInboundDimensions({
+        accountLine,
+        offsetLine,
+        getDimensionSegmentLength: (displayValue) =>
+          this.utilsService.getDimensionSegmentLength(displayValue),
+        parseDimensionString: (displayValue) =>
+          this.utilsService.parseDimensionString(displayValue),
+        filterDimensionsForLedgerTag22420: (parsedDimensions) =>
+          this.utilsService.filterDimensionsForLedgerTag22420(parsedDimensions),
+      });
 
     if (!accountLine || !offsetLine) {
       return buildCashInboundInvalidLine(
@@ -1155,6 +1161,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         accountLine,
         offsetLine,
         dimensions,
+      );
+    }
+
+    if (clearedBankAccountDimension) {
+      this.logger.warn(
+        `Cash-In cleared an invalid BankAccount financial-dimension value that ` +
+          `duplicated a Ledger main account and cannot resolve against BankAccountTable. ` +
+          `UniqueId=${sourceId} Voucher=${accountLine.VOUCHER} ClearedValue=${clearedBankAccountDimension}`,
       );
     }
 
@@ -1182,6 +1196,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const {
       dimensionDisplayValue: dimensionStr,
       currencyCode,
+      currencyChanged,
+      previousCustomerCurrencyCode,
       transactionDate,
       markedInvoice,
     } = resolveCashInboundDerivedValues({
@@ -1190,6 +1206,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dimensions,
       amountSource,
     });
+
+    if (currencyChanged) {
+      this.logger.log(
+        `Cash-In customer currency aligned with paired non-customer line. ` +
+          `UniqueId=${sourceId} Voucher=${accountLine.VOUCHER} CustomerLine=${accountLine.LINENUMBER} SourceLine=${offsetLine.LINENUMBER} ` +
+          `CustomerAccount=${accountLine.ACCOUNTDISPLAYVALUE} SourceAccount=${offsetLine.ACCOUNTDISPLAYVALUE} ` +
+          `PreviousCurrency=${previousCustomerCurrencyCode} ResolvedCurrency=${currencyCode} ` +
+          `DebitAmount=${offsetLine.DEBITAMOUNT} CreditAmount=${accountLine.CREDITAMOUNT}`,
+      );
+    }
 
     const { exchangeRate, reportingRate } = resolveCashInboundRates({
       exchangeRateContext,
@@ -1205,13 +1231,52 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.fetchExchangeRates(date ?? '', currency ?? ''),
     });
 
+    const resolvedAccountType = resolveCashAccountType(
+      accountLine.ACCOUNTDISPLAYVALUE,
+      accountLine.ACCOUNTTYPE,
+    );
+    const resolvedOffsetAccountType = isNotesReceivable
+      ? 'Bank'
+      : resolveCashAccountType(
+          offsetLine.ACCOUNTDISPLAYVALUE,
+          offsetLine.ACCOUNTTYPE,
+        );
+
+    if (resolvedAccountType !== accountLine.ACCOUNTTYPE) {
+      this.logger.log(
+        `Cash-In account resolved as Ledger Main Account. ` +
+          `UniqueId=${sourceId} Voucher=${accountLine.VOUCHER} LineNumber=${accountLine.LINENUMBER} ` +
+          `SourceAccountType=${accountLine.ACCOUNTTYPE} ResolvedAccountType=${resolvedAccountType} ` +
+          `AccountDisplayValue=${accountLine.ACCOUNTDISPLAYVALUE} Currency=${accountLine.CURRENCYCODE}`,
+      );
+    }
+    if (resolvedOffsetAccountType !== offsetLine.ACCOUNTTYPE) {
+      this.logger.log(
+        `Cash-In account resolved as Ledger Main Account. ` +
+          `UniqueId=${sourceId} Voucher=${offsetLine.VOUCHER} LineNumber=${offsetLine.LINENUMBER} ` +
+          `SourceAccountType=${offsetLine.ACCOUNTTYPE} ResolvedAccountType=${resolvedOffsetAccountType} ` +
+          `AccountDisplayValue=${offsetLine.ACCOUNTDISPLAYVALUE} Currency=${offsetLine.CURRENCYCODE}`,
+      );
+    }
+
+    const accountCurrencyWarning = validateCashLedgerAccountCurrency(
+      accountLine.ACCOUNTDISPLAYVALUE,
+      currencyCode,
+    );
+    if (accountCurrencyWarning) this.logger.warn(accountCurrencyWarning);
+    const offsetCurrencyWarning = validateCashLedgerAccountCurrency(
+      offsetLine.ACCOUNTDISPLAYVALUE,
+      currencyCode,
+    );
+    if (offsetCurrencyWarning) this.logger.warn(offsetCurrencyWarning);
+
     const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [sourceId],
       Description: description,
       TransactionText: description,
       Company: this.company,
-      AccountType: accountLine.ACCOUNTTYPE,
-      OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
+      AccountType: resolvedAccountType,
+      OffsetAccountType: resolvedOffsetAccountType,
       PaymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
       PaymentReference: paymentReference,
       JournalName: resolveCashJournalName({
@@ -1276,6 +1341,21 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         [accountLine, offsetLine],
         exchangeRateContext,
       );
+    }
+
+    const accountBankMisclassification = findCashBankMisclassificationError(
+      dynLine.AccountType,
+      accountLine.ACCOUNTDISPLAYVALUE,
+    );
+    if (accountBankMisclassification) {
+      dynLine.AddError('AccountType', accountBankMisclassification);
+    }
+    const offsetBankMisclassification = findCashBankMisclassificationError(
+      dynLine.OffsetAccountType,
+      offsetLine.ACCOUNTDISPLAYVALUE,
+    );
+    if (offsetBankMisclassification) {
+      dynLine.AddError('OffsetAccountType', offsetBankMisclassification);
     }
 
     return dynLine;
@@ -1488,7 +1568,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             sum +
             (withholdingLine
               ? Number(
-                  withholdingLine.CREDITAMOUNT || withholdingLine.DEBITAMOUNT || 0,
+                  withholdingLine.CREDITAMOUNT ||
+                    withholdingLine.DEBITAMOUNT ||
+                    0,
                 )
               : 0),
           0,
@@ -1938,8 +2020,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         if (hasCandidatesOrAmounts) {
           const markedLine = line.MarkedLines?.find(
             (m) =>
-              String(m.InvoiceNumber ?? '').trim().toLowerCase() ===
-              invoice.toLowerCase(),
+              String(m.InvoiceNumber ?? '')
+                .trim()
+                .toLowerCase() === invoice.toLowerCase(),
           );
           const lineDoc =
             markedLine?.DocumentNumber || String(line.Document ?? '').trim();
@@ -1965,9 +2048,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                 ];
 
           const isWithholdingEnabled =
-            String(
-              line.IsWithholdingCalculationEnabled ?? '',
-            ).toLowerCase() === 'yes';
+            String(line.IsWithholdingCalculationEnabled ?? '').toLowerCase() ===
+            'yes';
 
           const verifyResult = this.vendorInvoiceVerificationService.verify(
             {
@@ -1975,7 +2057,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               vendorAccount,
               documentNumber: lineDoc,
               invoiceNumber: invoice,
-              grossInvoiceAmount: isWithholdingEnabled ? undefined : Number(line.DebitAmount ?? 0),
+              grossInvoiceAmount: isWithholdingEnabled
+                ? undefined
+                : Number(line.DebitAmount ?? 0),
               netPaymentAmount: Number(line.DebitAmount ?? 0),
               withholdingAmount: 0,
               currencyCode: String(line.CurrencyCode ?? ''),
