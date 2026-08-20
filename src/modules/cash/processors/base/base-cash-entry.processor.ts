@@ -32,6 +32,7 @@ import {
   isCashWithholdingLedgerLine,
 } from '@/modules/cash/policies/cash-withholding.policy';
 import {
+  moneyEquals,
   resolveVendorPaymentMarking,
   VendorInvoiceMatchStatus,
   VendorInvoiceVerificationService,
@@ -1434,14 +1435,39 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         offsetLine.FINTAGDISPLAYVALUE,
       ),
       CreditAmount: 0,
-      DebitAmount:
-        amountSource === 'ACCOUNT'
-          ? normalizedSettlements.reduce(
-              (sum, { vendorLine }) =>
-                sum + Number(vendorLine.DEBITAMOUNT ?? 0),
-              0,
+      DebitAmount: (() => {
+        const totalVendorDebit = normalizedSettlements.reduce(
+          (sum, { vendorLine }) => sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+          0,
+        );
+        const totalWithholding = normalizedSettlements.reduce(
+          (sum, { withholdingLine }) =>
+            sum +
+            (withholdingLine
+              ? Number(
+                  withholdingLine.CREDITAMOUNT || withholdingLine.DEBITAMOUNT || 0,
+                )
+              : 0),
+          0,
+        );
+        const offsetCredit = Number(offsetLine.CREDITAMOUNT ?? 0);
+        if (totalWithholding > 0) {
+          if (
+            offsetCredit > 0 &&
+            moneyEquals(
+              totalVendorDebit,
+              offsetCredit + totalWithholding,
+              currencyCode,
             )
-          : offsetLine.CREDITAMOUNT,
+          ) {
+            return offsetCredit;
+          }
+          if (totalVendorDebit > totalWithholding) {
+            return totalVendorDebit - totalWithholding;
+          }
+        }
+        return amountSource === 'ACCOUNT' ? totalVendorDebit : offsetCredit;
+      })(),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,

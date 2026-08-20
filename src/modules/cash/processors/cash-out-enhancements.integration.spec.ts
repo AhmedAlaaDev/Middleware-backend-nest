@@ -150,7 +150,7 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
       );
       expect(mergedWithholdingGroup).toHaveLength(1);
       expect(mergedWithholdingGroup[0]).toMatchObject({
-        DebitAmount: 105222,
+        DebitAmount: 104299,
         OffsetAccountType: 'Bank',
         IsWithholdingCalculationEnabled: 'Yes',
       });

@@ -431,7 +431,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(bankLine.AccountType).toBe('Vend');
       expect(bankLine.AccountDisplayValue).toBe('VEND-001');
       expect(bankLine.OffsetAccountDisplayValue).toBe('BANK-001');
-      expect(bankLine.DebitAmount).toBe(1000);
+      expect(bankLine.DebitAmount).toBe(950);
       expect(bankLine.IsWithholdingCalculationEnabled).toBe('Yes');
       expect(bankLine.Invoice).toBe('INV-2055');
     });

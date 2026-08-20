@@ -218,11 +218,8 @@ export function processVendorPaymentGroup(
       paymentOffset.ITEMSALESTAXGROUP?.trim()?.toLowerCase() || '';
     const isTaxable = salesTaxGroup === 'taxable' && !!itemSalesTaxGroup;
 
-    // 13. Debit amount (sum of all vendor lines in group)
-    const debitAmount = groupLines.reduce(
-      (sum, line) => sum + Number(line.DEBITAMOUNT ?? 0),
-      0,
-    );
+    // 13. Debit amount (net payment amount reflecting cash outlay)
+    const debitAmount = netPaymentAmount;
 
     // 14. Build context and construct product
     const context: VendorPaymentBuildContext = {

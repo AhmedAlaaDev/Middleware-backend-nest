@@ -234,7 +234,7 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
 
       expect(result.errors).toHaveLength(0);
       expect(result.lines).toHaveLength(1);
-      expect(result.lines[0].vendorLine.debitAmount).toBeCloseTo(16823.04);
+      expect(result.lines[0].vendorLine.debitAmount).toBeCloseTo(16455.78);
       expect(result.lines[0].markedInvoice).toBe('171');
       expect(result.lines[0].markedLines).toEqual([
         expect.objectContaining({
