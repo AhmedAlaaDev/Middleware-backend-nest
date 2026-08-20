@@ -1,13 +1,11 @@
 import {
   BadRequestException,
-  ConflictException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
 import { DeleteBatchCommand } from '@/modules/data-batch/commands/delete-batch.command';
-import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import {
@@ -31,12 +29,6 @@ export class DeleteBatchHandler implements ICommandHandler<DeleteBatchCommand> {
     const batch = await this.dataBatchService.getByIdAsync(batchId);
     if (!batch) {
       throw new NotFoundException(`Batch with ID ${batchId} not found`);
-    }
-
-    if (batch.status === DataBatchStatus.Posted) {
-      throw new ConflictException(
-        'This batch has already been posted to DFO and cannot be deleted.',
-      );
     }
 
     // Drain queue work first, including an in-flight posting job. The journal

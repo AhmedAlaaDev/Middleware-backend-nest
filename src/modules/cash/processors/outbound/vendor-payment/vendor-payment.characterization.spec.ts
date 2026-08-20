@@ -140,6 +140,25 @@ describe('Vendor Payment Marked Lines Policy', () => {
     expect(result.markedInvoice).toBe('INV-100');
   });
 
+  it('produces marked result with withholding enabled via flags without explicit withholding row', () => {
+    const vendorLine = rawLine({
+      DEBITAMOUNT: 1000,
+      INVOICE: 'INV-201',
+      ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+      ITEMWITHHOLDINGTAXGROUPCODE: 'WHT',
+    });
+    const offsetLine = rawLine({ CREDITAMOUNT: 1000 });
+
+    const result = resolveVendorPaymentMarking({
+      settlements: [{ vendorLine }],
+      offsetLine,
+      vendorGroup: 'Normal',
+    });
+
+    expect(result.shouldMark).toBe(true);
+    expect(result.markedLines[0].HasWithHoldingLine).toBe(true);
+  });
+
   it('produces marked result with withholding', () => {
     const vendorLine = rawLine({ DEBITAMOUNT: 1000, INVOICE: 'INV-200' });
     const withholdingLine = rawLine({ ACCOUNTDISPLAYVALUE: '223304' });

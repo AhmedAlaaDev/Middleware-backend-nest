@@ -1,4 +1,5 @@
 import { VendorPaymentMarkingResult } from '../models/vendor-payment-marking-result';
+import { isVendorPaymentWithholdingEnabled } from './vendor-payment-withholding.policy';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { sanitizeCashOutboundInvoice } from '@/modules/cash/policies/cash-account.policy';
@@ -56,7 +57,11 @@ export function resolveVendorPaymentMarking(options: {
     // D365 settlement can require the source document even for non-custody
     // vendor payments; do not suppress it when an invoice is also present.
     DocumentNumber: String(vendorLine.DOCUMENT ?? '').trim(),
-    HasWithHoldingLine: Boolean(withholdingLine),
+    HasWithHoldingLine: isVendorPaymentWithholdingEnabled({
+      vendorLine,
+      withholdingLine,
+      offsetLine,
+    }),
   }));
 
   return VendorPaymentMarkingResult.marked({
