@@ -15,14 +15,17 @@ export interface VendorPaymentSemanticError {
 export function validateVendorPaymentSemantics(options: {
   markingResult: VendorPaymentMarkingResult;
   vendorAccount: string;
+  sourceId?: string;
   currencyCode?: string;
   invoiceLookup: (
     invoice: string,
     vendor: string,
   ) => VendorInvoiceSettlementSnapshot;
 }): VendorPaymentSemanticError[] {
-  const { markingResult, vendorAccount, invoiceLookup, currencyCode } = options;
+  const { markingResult, vendorAccount, invoiceLookup, currencyCode, sourceId } =
+    options;
   const errors: VendorPaymentSemanticError[] = [];
+  const sourceTag = sourceId ? ` (UniqueId ${sourceId})` : '';
 
   if (!markingResult.shouldMark) {
     return errors;
@@ -37,17 +40,17 @@ export function validateVendorPaymentSemantics(options: {
     if (!lookup.exists) {
       errors.push({
         field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
+        message: `Vendor invoice ${invoice}${sourceTag} was not found in D365 for vendor ${vendorAccount}.`,
       });
     } else if (!lookup.belongsToVendor) {
       errors.push({
         field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice} does not belong to vendor ${vendorAccount}.`,
+        message: `Vendor invoice ${invoice}${sourceTag} does not belong to vendor ${vendorAccount}.`,
       });
     } else if (lookup.isOpen === false) {
       errors.push({
         field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendorAccount}.`,
+        message: `Vendor invoice ${invoice}${sourceTag} is already closed/settled in D365 for vendor ${vendorAccount}.`,
       });
     } else if (
       lookup.currencyCode &&
@@ -57,7 +60,7 @@ export function validateVendorPaymentSemantics(options: {
     ) {
       errors.push({
         field: 'CurrencyCode',
-        message: `Vendor invoice ${invoice} is in currency ${lookup.currencyCode}, but the payment line is ${currencyCode}.`,
+        message: `Vendor invoice ${invoice}${sourceTag} is in currency ${lookup.currencyCode}, but the payment line is ${currencyCode}.`,
       });
     }
   }

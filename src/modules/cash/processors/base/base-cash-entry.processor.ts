@@ -635,8 +635,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
     for (const vendorAccount of vendorAccounts) {
       if (!vendorGroupByAccount.get(vendorAccount.toLowerCase())) {
+        const linesForVendor = vendorLines.filter(
+          (l) =>
+            String(l.ACCOUNTDISPLAYVALUE ?? '')
+              .trim()
+              .toLowerCase() === vendorAccount.toLowerCase(),
+        );
+        const sourceIds = linesForVendor
+          .map((l) => l.UniqueId || '?')
+          .join(', ');
         errors.push(
-          `Vendor ${vendorAccount}: vendor group could not be determined from D365FO. Sync vendor master data and retry.`,
+          `Vendor ${vendorAccount} (UniqueId ${sourceIds}): vendor group could not be determined from D365FO. Sync vendor master data and retry.`,
         );
       }
     }
@@ -669,9 +678,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
       );
       const vendor = String(line.ACCOUNTDISPLAYVALUE ?? '').trim();
+      const uniqueIdTag = line.UniqueId ? ` (UniqueId ${line.UniqueId})` : '';
       if (!invoice) {
         errors.push(
-          `Line ${line.LINENUMBER}: Vendor Payment invoice is required for vendor ${vendor}.`,
+          `Line ${line.LINENUMBER}${uniqueIdTag}: Vendor Payment invoice is required for vendor ${vendor}.`,
         );
         continue;
       }
@@ -679,15 +689,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       const snapshot = this.vendorInvoiceSnapshotMap.get(key);
       if (!snapshot?.exists) {
         errors.push(
-          `Line ${line.LINENUMBER}: vendor invoice ${invoice} was not found in D365 for vendor ${vendor}.`,
+          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} was not found in D365 for vendor ${vendor}.`,
         );
       } else if (!snapshot.belongsToVendor) {
         errors.push(
-          `Line ${line.LINENUMBER}: vendor invoice ${invoice} does not belong to vendor ${vendor}.`,
+          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} does not belong to vendor ${vendor}.`,
         );
       } else if (snapshot.isOpen === false) {
         errors.push(
-          `Line ${line.LINENUMBER}: vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendor}.`,
+          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendor}.`,
         );
       }
     }

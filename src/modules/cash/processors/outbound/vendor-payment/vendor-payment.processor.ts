@@ -117,6 +117,7 @@ export function processVendorPaymentGroup(
     const semanticErrors = validateVendorPaymentSemantics({
       markingResult,
       vendorAccount,
+      sourceId,
       currencyCode: String(
         primaryVendor.CURRENCYCODE || paymentOffset.CURRENCYCODE || '',
       ).trim(),

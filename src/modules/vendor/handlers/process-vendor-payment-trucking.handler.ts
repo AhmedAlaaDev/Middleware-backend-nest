@@ -5,18 +5,23 @@ import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum'
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
-import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
+import { TraceContextService } from '@/modules/observability/services/trace-context.service';
+import { QueueService } from '@/modules/queue/services/queue.service';
 import { ProcessVendorPaymentTruckingCommand } from '@/modules/vendor/commands';
 import { VendorEntryRawDataModel } from '@/modules/vendor/models';
+
+const VENDOR_PAYMENT_TRUCKING_VOUCHER_SETTING =
+  'last.ledger.vendor.trucking.voucher.number';
 
 @CommandHandler(ProcessVendorPaymentTruckingCommand)
 @Injectable()
 export class ProcessVendorPaymentTruckingHandler implements ICommandHandler<ProcessVendorPaymentTruckingCommand> {
   constructor(
     private readonly excelService: ExcelService,
-    private readonly processorFactory: EntryProcessorFactory,
     private readonly dataBatchService: DataBatchService,
+    private readonly queueService: QueueService,
+    private readonly traceContext: TraceContextService,
   ) {}
 
   public async execute({
@@ -38,24 +43,23 @@ export class ProcessVendorPaymentTruckingHandler implements ICommandHandler<Proc
       );
     }
 
-    const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.VendorPaymentTrucking,
-    );
-
-    const enriched = await processor.formatAndEnrichAsync(rawData, company);
-
-    const validated = await processor.validateAsync(enriched, company);
-
-    const dataBatch = await this.dataBatchService.createAsync(
+    const dataBatch = await this.dataBatchService.createProcessingShellAsync(
       EntryProcessorTypes.VendorPaymentTrucking,
       ENTRY_PROCESSOR_NAMES.VENDOR_PAYMENT_TRUCKING,
       company,
       `Vendor Payment Fleet ${Date.now()}`,
       rawData,
-      validated,
-      undefined,
-      'last.ledger.vendor.trucking.voucher.number',
     );
+
+    const actor = this.traceContext.get();
+    await this.queueService.enqueueBatchImport({
+      batchId: dataBatch.id,
+      userId: actor?.userId ?? 'system',
+      userName: actor?.userName ?? 'System',
+      userEmail: actor?.userEmail ?? '',
+      voucherNumberSettingLogicalName:
+        VENDOR_PAYMENT_TRUCKING_VOUCHER_SETTING,
+    });
 
     return dataBatch;
   }

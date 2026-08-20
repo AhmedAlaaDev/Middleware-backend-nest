@@ -39,9 +39,10 @@ export function validateVendorPaymentStructure(
   for (const vendorLine of classification.vendorDebitLines) {
     const account = String(vendorLine.ACCOUNTDISPLAYVALUE ?? '').trim();
     if (!account) {
+      const uniqueIdTag = sourceId ? ` (UniqueId ${sourceId})` : '';
       errors.push({
         field: 'VendorAccount',
-        message: `Line ${vendorLine.LINENUMBER}: Vendor account is required.`,
+        message: `Line ${vendorLine.LINENUMBER}${uniqueIdTag}: Vendor account is required.`,
       });
     }
   }

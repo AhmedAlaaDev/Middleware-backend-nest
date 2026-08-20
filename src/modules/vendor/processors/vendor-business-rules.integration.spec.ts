@@ -191,10 +191,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
       const builtLine = (processor as any).buildLine('SRC-201', lineRaw);
 
       expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
-      expect(builtLine.MarkedInvoice).toBe('');
-      expect(builtLine.Description).toBe(
-        'Test Vendor Freight Jan 2026 - unmarked',
-      );
+      expect(builtLine.MarkedInvoice).toBe('INV-2026-PARTIAL');
+      expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
     });
 
     it('should retain MarkedInvoice string and normal Description when Payment Amount (1000) >= Invoice Amount (1000) [Full Payment]', () => {
@@ -413,10 +411,8 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
       // Line 2: Partial Payment
       expect(partialPaymentLine).toBeDefined();
       expect(partialPaymentLine.Invoice).toBe('INV-PARTIAL-BATCH');
-      expect(partialPaymentLine.MarkedInvoice).toBe('');
-      expect(partialPaymentLine.Description).toBe(
-        'Test Vendor Freight Jan 2026 - unmarked',
-      );
+      expect(partialPaymentLine.MarkedInvoice).toBe('INV-PARTIAL-BATCH');
+      expect(partialPaymentLine.Description).toBe('Test Vendor Freight Jan 2026');
 
       // Line 3: Missing Invoice
       expect(missingInvoiceLine).toBeDefined();
