@@ -183,13 +183,17 @@ export class VendorInvoiceJournalService {
       );
       const invoiceRowsAcrossVendors =
         rowsByInvoice.get(this.normalizeInvoiceValue(request.invoice)) ?? [];
-      const row = invoiceRows[0] ?? invoiceRowsAcrossVendors[0];
+      const matchingAcrossVendors = invoiceRowsAcrossVendors.find(
+        (r) =>
+          this.normalizeVendorAccount(r.AccountNum) ===
+          this.normalizeVendorAccount(request.vendorAccount),
+      );
+      const row =
+        invoiceRows[0] ?? matchingAcrossVendors ?? invoiceRowsAcrossVendors[0];
 
-      const exists = invoiceRowsAcrossVendors.length > 0 || invoiceRows.length > 0;
-      const belongsToVendor = row
-        ? this.normalizeVendorAccount(row.AccountNum) ===
-          this.normalizeVendorAccount(request.vendorAccount)
-        : false;
+      const exists =
+        invoiceRowsAcrossVendors.length > 0 || invoiceRows.length > 0;
+      const belongsToVendor = Boolean(invoiceRows[0] || matchingAcrossVendors);
 
       snapshots.set(
         VendorInvoiceJournalService.pairKey(
