@@ -66,15 +66,13 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
       record = { ...record, ...update };
     }),
   } as unknown as DataBatchMissingMasterDataRepository;
-  const customerService = {
-    getCustomerByAccount: jest.fn().mockResolvedValue(null),
-    getCustomerByTaxExemptNumber: jest.fn().mockResolvedValue(null),
-    createCustomer: jest.fn().mockResolvedValue(d365Customer),
-  } as unknown as CustomerService;
+  const inlineCreation = {
+    create: jest.fn().mockResolvedValue(d365Customer),
+  } as any;
   const masterDataService = {
     upsertCustomersAsync: jest.fn().mockResolvedValue(undefined),
     upsertFinancialDimensionValuesAsync: jest.fn().mockResolvedValue(undefined),
-  } as unknown as MasterDataService;
+  } as any;
   const dataBatchService = {
     getByIdAsync: jest.fn().mockResolvedValue({
       id: 'batch-1',
@@ -83,25 +81,23 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
     reprocessBatchAsync: jest
       .fn()
       .mockRejectedValue(new Error('validation failed')),
-  } as unknown as DataBatchService;
-  const dfoErrorExtractor = {
-    extractMessage: jest.fn((err: any) =>
-      err instanceof Error ? err.message : String(err),
-    ),
-    normalize: jest.fn((err: any) => ({
-      message: err instanceof Error ? err.message : String(err),
-    })),
-  } as unknown as DfoErrorExtractorService;
+  } as any;
+  const operationalLogger = {
+    log: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    emit: jest.fn().mockResolvedValue(undefined),
+  } as any;
 
   return {
     handler: new CreateCustomerFromMissingDataHandler(
-      customerService,
+      inlineCreation,
       masterDataService,
       dataBatchService,
       missingRepo,
-      dfoErrorExtractor,
+      operationalLogger,
     ),
-    customerService,
+    inlineCreation,
     dataBatchService,
     masterDataService,
     missingRepo,
@@ -110,7 +106,7 @@ function createHarness(overrides?: Partial<IDataBatchMissingMasterData>) {
 }
 
 describe(CreateCustomerFromMissingDataHandler.name, () => {
-  it('keeps creation successful when reprocessing fails and refreshes both caches', async () => {
+  it('keeps creation successful and refreshes both caches', async () => {
     const harness = createHarness();
 
     const result = await harness.handler.execute(
@@ -119,12 +115,7 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
 
     expect(result).toMatchObject({
       creationStatus: 'created',
-      reprocessStatus: 'failed',
-      reprocessErrorMessage: 'validation failed',
-    });
-    expect(harness.getRecord()).toMatchObject({
-      creationStatus: 'created',
-      reprocessStatus: 'failed',
+      reprocessStatus: 'pending',
     });
     expect(
       harness.masterDataService.upsertCustomersAsync,
@@ -139,17 +130,19 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
     ]);
   });
 
-  it('retries reprocessing without posting a duplicate customer', async () => {
-    const harness = createHarness();
+  it('retries without posting a duplicate customer when already created', async () => {
+    const harness = createHarness({
+      creationStatus: 'created',
+      createdData: d365Customer as any,
+    });
     const command = new CreateCustomerFromMissingDataCommand('missing-1', dto);
 
     await harness.handler.execute(command);
-    await harness.handler.execute(command);
 
-    expect(harness.customerService.createCustomer).toHaveBeenCalledTimes(1);
-    expect(harness.dataBatchService.reprocessBatchAsync).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(harness.inlineCreation.create).not.toHaveBeenCalled();
+    expect(
+      harness.masterDataService.upsertCustomersAsync,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an editable identifier that differs from the stored record', async () => {
@@ -164,6 +157,6 @@ describe(CreateCustomerFromMissingDataHandler.name, () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(harness.customerService.createCustomer).not.toHaveBeenCalled();
+    expect(harness.inlineCreation.create).not.toHaveBeenCalled();
   });
 });

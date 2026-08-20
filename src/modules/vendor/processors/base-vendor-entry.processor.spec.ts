@@ -157,7 +157,7 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     expect(result[0].Description).toContain('unmarked');
   });
 
-  it('should set MarkedInvoice to empty string "" and append "- unmarked" to Description for Partial Payment without withholding', () => {
+  it('should retain MarkedInvoice and normal Description for Partial Payment without withholding', () => {
     const lineRaw: any = {
       UniqueId: 3,
       LINENUMBER: 3,
@@ -176,10 +176,8 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     const builtLine = (processor as any).buildLine('SRC-3', lineRaw);
 
     expect(builtLine.Invoice).toBe('INV-2026-PARTIAL');
-    expect(builtLine.MarkedInvoice).toBe('');
-    expect(builtLine.Description).toBe(
-      'Test Vendor Freight Jan 2026 - unmarked',
-    );
+    expect(builtLine.MarkedInvoice).toBe('INV-2026-PARTIAL');
+    expect(builtLine.Description).toBe('Test Vendor Freight Jan 2026');
   });
 
   it('should retain MarkedInvoice and normal Description for Partial Payment when Withholding Tax is present', () => {

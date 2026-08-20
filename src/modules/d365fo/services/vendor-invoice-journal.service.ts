@@ -10,6 +10,7 @@ import {
   D365FOVendorInvoiceJournalHeaderResponse,
   D365FOVendorInvoiceJournalLineRequest,
 } from '@/modules/d365fo/types';
+import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /** Max invoices per OR filter chunk (FO does not support OData `in`). */
@@ -37,6 +38,8 @@ export interface VendorInvoiceSettlementSnapshot {
   remainingAmount: number | null;
   lastSettleVoucher: string;
   sourceKey: string;
+  documentNumber?: string;
+  candidateTransactions?: VendorCandidateTransaction[];
 }
 
 export type VendorPaymentSettlementVerificationStatus =
@@ -70,6 +73,11 @@ type VendTransLookupRow = {
   RemainAmountMST?: string | number;
   RemainAmountReportingCurrency?: string | number;
   LastSettleVoucher?: string;
+  DocumentNum?: string;
+  Document?: string;
+  Voucher?: string;
+  TransDate?: string;
+  DocumentDate?: string;
 };
 
 type VendorPaymentSettledInvoiceRow = {
@@ -183,17 +191,50 @@ export class VendorInvoiceJournalService {
       );
       const invoiceRowsAcrossVendors =
         rowsByInvoice.get(this.normalizeInvoiceValue(request.invoice)) ?? [];
-      const matchingAcrossVendors = invoiceRowsAcrossVendors.find(
+      const matchingAcrossVendors = invoiceRowsAcrossVendors.filter(
         (r) =>
           this.normalizeVendorAccount(r.AccountNum) ===
           this.normalizeVendorAccount(request.vendorAccount),
       );
+      const allMatchingVendorInvoiceRows =
+        invoiceRows.length > 0 ? invoiceRows : matchingAcrossVendors;
       const row =
-        invoiceRows[0] ?? matchingAcrossVendors ?? invoiceRowsAcrossVendors[0];
+        invoiceRows[0] ?? matchingAcrossVendors[0] ?? invoiceRowsAcrossVendors[0];
 
       const exists =
         invoiceRowsAcrossVendors.length > 0 || invoiceRows.length > 0;
-      const belongsToVendor = Boolean(invoiceRows[0] || matchingAcrossVendors);
+      const belongsToVendor = Boolean(invoiceRows[0] || matchingAcrossVendors[0]);
+
+      const candidateTransactions: VendorCandidateTransaction[] = (
+        allMatchingVendorInvoiceRows.length > 0
+          ? allMatchingVendorInvoiceRows
+          : invoiceRowsAcrossVendors
+      ).map((r) => {
+        const rem = this.firstDefinedNumber(
+          r.RemainAmountCur,
+          r.RemainAmountMST,
+          r.RemainAmountReportingCurrency,
+        );
+        const orig = this.firstDefinedNumber(
+          r.AmountCur,
+          r.AmountMST,
+          r.AmountReportingCurrency,
+        );
+        const isClosed = this.readNoYes(r.Closed);
+        return {
+          vendorAccount: String(r.AccountNum ?? '').trim(),
+          documentNumber: String(r.DocumentNum || r.Document || '').trim(),
+          invoiceNumber: String(r.Invoice ?? '').trim(),
+          currencyCode: String(r.CurrencyCode ?? '').trim(),
+          originalAmount: Math.abs(orig ?? 0),
+          openAmount: Math.abs(rem ?? orig ?? 0),
+          voucher: String(r.Voucher ?? '').trim(),
+          sourceKey: String(r.SourceKey ?? '').trim(),
+          isOpen: isClosed !== null ? !isClosed : (rem ?? 0) > 0,
+          transDate: String(r.TransDate ?? '').trim(),
+          lastSettleVoucher: String(r.LastSettleVoucher ?? '').trim(),
+        };
+      });
 
       snapshots.set(
         VendorInvoiceJournalService.pairKey(
@@ -207,6 +248,7 @@ export class VendorInvoiceJournalService {
           row,
           exists,
           belongsToVendor,
+          candidateTransactions,
         ),
       );
     }
@@ -569,6 +611,7 @@ export class VendorInvoiceJournalService {
     row: VendTransLookupRow | undefined,
     exists: boolean,
     belongsToVendor: boolean,
+    candidates: VendorCandidateTransaction[] = [],
   ): VendorInvoiceSettlementSnapshot {
     if (!row || !exists) {
       return {
@@ -584,6 +627,8 @@ export class VendorInvoiceJournalService {
         remainingAmount: null,
         lastSettleVoucher: '',
         sourceKey: '',
+        documentNumber: '',
+        candidateTransactions: [],
       };
     }
 
@@ -623,6 +668,8 @@ export class VendorInvoiceJournalService {
       remainingAmount,
       lastSettleVoucher: String(row.LastSettleVoucher ?? '').trim(),
       sourceKey: String(row.SourceKey ?? '').trim(),
+      documentNumber: String(row.DocumentNum || row.Document || '').trim(),
+      candidateTransactions: candidates,
     };
   }
 

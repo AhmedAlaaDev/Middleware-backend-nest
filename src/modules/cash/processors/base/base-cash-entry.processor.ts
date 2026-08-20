@@ -31,7 +31,11 @@ import {
   analyzeCashWithholding,
   isCashWithholdingLedgerLine,
 } from '@/modules/cash/policies/cash-withholding.policy';
-import { resolveVendorPaymentMarking } from '@/modules/cash/processors/outbound/vendor-payment';
+import {
+  resolveVendorPaymentMarking,
+  VendorInvoiceMatchStatus,
+  VendorInvoiceVerificationService,
+} from '@/modules/cash/processors/outbound/vendor-payment';
 import {
   buildCashLine,
   buildCashMoreThanTwoLines,
@@ -87,6 +91,8 @@ type RawDataInvoiceMap = Map<string, CashEntryRawDataModel[]>;
 export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly logger = new Logger(BaseCashEntryProcessor.name);
   private readonly cashJournalRoutingService = new CashJournalRoutingService();
+  private readonly vendorInvoiceVerificationService =
+    new VendorInvoiceVerificationService();
   private readonly cashOutExchangeRateService: CashOutExchangeRateService;
   private readonly generalJournalService: GeneralJournalService;
   private readonly d365VendorService?: VendorService;
@@ -699,6 +705,68 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         errors.push(
           `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendor}.`,
         );
+      } else {
+        const hasCandidatesOrAmounts =
+          Boolean(snapshot.candidateTransactions?.length) ||
+          (typeof snapshot.originalAmount === 'number' &&
+            Number.isFinite(snapshot.originalAmount)) ||
+          (typeof snapshot.remainingAmount === 'number' &&
+            Number.isFinite(snapshot.remainingAmount));
+
+        if (hasCandidatesOrAmounts) {
+          const docNum = String(line.DOCUMENT ?? '').trim();
+          const withholdingLineInGroup = lines.find(
+            (l) =>
+              l.UniqueId === line.UniqueId && isCashWithholdingLedgerLine(l),
+          );
+          const withholdingAmount = withholdingLineInGroup
+            ? Number(
+                withholdingLineInGroup.CREDITAMOUNT ||
+                  withholdingLineInGroup.DEBITAMOUNT ||
+                  0,
+              )
+            : 0;
+
+          const candidates =
+            snapshot.candidateTransactions &&
+            snapshot.candidateTransactions.length > 0
+              ? snapshot.candidateTransactions
+              : [
+                  {
+                    vendorAccount: snapshot.vendorAccount || vendor,
+                    documentNumber: snapshot.documentNumber || docNum,
+                    invoiceNumber: snapshot.invoice || invoice,
+                    currencyCode:
+                      snapshot.currencyCode || String(line.CURRENCYCODE ?? ''),
+                    originalAmount: snapshot.originalAmount ?? 0,
+                    openAmount:
+                      snapshot.remainingAmount ?? snapshot.originalAmount ?? 0,
+                    sourceKey: snapshot.sourceKey,
+                    lastSettleVoucher: snapshot.lastSettleVoucher,
+                    isOpen: snapshot.isOpen ?? true,
+                  },
+                ];
+
+          const verifyResult = this.vendorInvoiceVerificationService.verify(
+            {
+              company: this.company,
+              vendorAccount: vendor,
+              documentNumber: docNum,
+              invoiceNumber: invoice,
+              netPaymentAmount: Number(line.DEBITAMOUNT ?? 0),
+              withholdingAmount,
+              currencyCode: String(line.CURRENCYCODE ?? ''),
+              allowPartialPayment: false,
+            },
+            candidates,
+          );
+
+          if (verifyResult.status !== VendorInvoiceMatchStatus.MATCHED) {
+            errors.push(
+              `Line ${line.LINENUMBER}${uniqueIdTag}: ${verifyResult.reason}`,
+            );
+          }
+        }
       }
     }
 
@@ -1790,6 +1858,72 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           'CurrencyCode',
           `Vendor invoice ${invoice} is in currency ${snapshot.currencyCode}, but the payment line is ${line.CurrencyCode}.`,
         );
+      } else {
+        const hasCandidatesOrAmounts =
+          Boolean(snapshot.candidateTransactions?.length) ||
+          (typeof snapshot.originalAmount === 'number' &&
+            Number.isFinite(snapshot.originalAmount)) ||
+          (typeof snapshot.remainingAmount === 'number' &&
+            Number.isFinite(snapshot.remainingAmount));
+
+        if (hasCandidatesOrAmounts) {
+          const markedLine = line.MarkedLines?.find(
+            (m) =>
+              String(m.InvoiceNumber ?? '').trim().toLowerCase() ===
+              invoice.toLowerCase(),
+          );
+          const lineDoc =
+            markedLine?.DocumentNumber || String(line.Document ?? '').trim();
+
+          const candidates =
+            snapshot.candidateTransactions &&
+            snapshot.candidateTransactions.length > 0
+              ? snapshot.candidateTransactions
+              : [
+                  {
+                    vendorAccount: snapshot.vendorAccount || vendorAccount,
+                    documentNumber: snapshot.documentNumber || lineDoc,
+                    invoiceNumber: snapshot.invoice || invoice,
+                    currencyCode:
+                      snapshot.currencyCode || String(line.CurrencyCode ?? ''),
+                    originalAmount: snapshot.originalAmount ?? 0,
+                    openAmount:
+                      snapshot.remainingAmount ?? snapshot.originalAmount ?? 0,
+                    sourceKey: snapshot.sourceKey,
+                    lastSettleVoucher: snapshot.lastSettleVoucher,
+                    isOpen: snapshot.isOpen ?? true,
+                  },
+                ];
+
+          const verifyResult = this.vendorInvoiceVerificationService.verify(
+            {
+              company: this.company,
+              vendorAccount,
+              documentNumber: lineDoc,
+              invoiceNumber: invoice,
+              netPaymentAmount: Number(line.DebitAmount ?? 0),
+              withholdingAmount: 0,
+              currencyCode: String(line.CurrencyCode ?? ''),
+              allowPartialPayment: false,
+            },
+            candidates,
+          );
+
+          if (verifyResult.status !== VendorInvoiceMatchStatus.MATCHED) {
+            const field =
+              verifyResult.status ===
+              VendorInvoiceMatchStatus.DOCUMENT_NOT_FOUND
+                ? 'DocumentNumber'
+                : verifyResult.status ===
+                    VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND
+                  ? 'Amount'
+                  : 'MarkedInvoice';
+            line.AddError(
+              field,
+              verifyResult.reason ?? 'Vendor invoice verification failed',
+            );
+          }
+        }
       }
     }
   }

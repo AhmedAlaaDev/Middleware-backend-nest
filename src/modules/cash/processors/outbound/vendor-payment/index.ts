@@ -21,3 +21,19 @@ export {
   isVendorPaymentWithholdingEnabled,
 } from './policies/vendor-payment-withholding.policy';
 export { resolveVendorPaymentOffset } from './policies/vendor-payment-offset.policy';
+export { VendorInvoiceVerificationService } from './services/vendor-invoice-verification.service';
+export {
+  VendorInvoiceMatchStatus,
+  type VendorPaymentAmounts,
+  type VendorCandidateTransaction,
+  type VendorInvoiceVerificationRequest,
+  type VendorInvoiceMatchResult,
+} from './models/vendor-invoice-match-result';
+export {
+  moneyEquals,
+  moneyLessThanOrEqual,
+  moneyRound,
+  calculateVendorPaymentAmounts,
+  getCurrencyDecimals,
+  toMinorUnits,
+} from './utils/money.util';

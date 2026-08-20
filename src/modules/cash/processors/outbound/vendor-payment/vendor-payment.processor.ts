@@ -17,6 +17,7 @@ import {
 import { VendorPaymentDirector } from './vendor-payment.director';
 import { validateVendorPaymentSemantics } from './vendor-payment.semantic-validator';
 import { validateVendorPaymentStructure } from './vendor-payment.structural-validator';
+import { moneyEquals } from './utils/money.util';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { VendorInvoiceSettlementSnapshot } from '@/modules/d365fo/services/vendor-invoice-journal.service';
@@ -113,14 +114,52 @@ export function processVendorPaymentGroup(
       vendorGroup,
     });
 
-    // 6. Validate semantics (post-lookup)
+    // 6. Validate semantics (post-lookup with deterministic verification)
+    const vendorDebitSum = groupLines.reduce(
+      (sum, line) => sum + Number(line.DEBITAMOUNT ?? 0),
+      0,
+    );
+    const withholdingAmount = settlements.reduce((sum, { withholdingLine }) => {
+      return (
+        sum +
+        (withholdingLine
+          ? Number(
+              withholdingLine.CREDITAMOUNT || withholdingLine.DEBITAMOUNT || 0,
+            )
+          : 0)
+      );
+    }, 0);
+    const offsetCredit = Number(paymentOffset.CREDITAMOUNT ?? 0);
+    const currency = String(
+      primaryVendor.CURRENCYCODE || paymentOffset.CURRENCYCODE || '',
+    ).trim();
+
+    let netPaymentAmount = vendorDebitSum;
+    let grossInvoiceAmount = vendorDebitSum;
+
+    if (withholdingAmount > 0) {
+      if (
+        offsetCredit > 0 &&
+        moneyEquals(vendorDebitSum, offsetCredit + withholdingAmount, currency)
+      ) {
+        netPaymentAmount = offsetCredit;
+        grossInvoiceAmount = vendorDebitSum;
+      } else {
+        netPaymentAmount = vendorDebitSum;
+        grossInvoiceAmount = vendorDebitSum + withholdingAmount;
+      }
+    }
+    const documentNumber = String(primaryVendor.DOCUMENT ?? '').trim();
+
     const semanticErrors = validateVendorPaymentSemantics({
       markingResult,
       vendorAccount,
+      documentNumber,
+      netPaymentAmount,
+      withholdingAmount,
+      grossInvoiceAmount,
       sourceId,
-      currencyCode: String(
-        primaryVendor.CURRENCYCODE || paymentOffset.CURRENCYCODE || '',
-      ).trim(),
+      currencyCode: currency,
       invoiceLookup: deps.invoiceLookup,
     });
     if (semanticErrors.length > 0) {
