@@ -4,6 +4,7 @@ export enum DataBatchStatus {
   Posted = 3,
   Canceled = 4,
   Revalidating = 5,
+  Processing = 6,
 }
 
 export enum EntryProcessorTypes {
