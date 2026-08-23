@@ -158,6 +158,185 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('validates repeated source rows against the aggregate D365 invoice amount', async () => {
+    const pair = VendorInvoiceJournalService.pairKey('emp_2', 'Su-000093');
+    const { processor, vendorInvoiceJournalService } = createProcessor({
+      existingPairs: new Set([pair]),
+    });
+    vendorInvoiceJournalService.findInvoiceSettlementSnapshots.mockResolvedValue(
+      new Map([
+        [
+          pair,
+          {
+            company: 'm-p',
+            invoice: 'emp_2',
+            vendorAccount: 'Su-000093',
+            exists: true,
+            belongsToVendor: true,
+            isOpen: true,
+            originalAmount: 4505.04,
+            remainingAmount: 4505.04,
+            candidateTransactions: [
+              {
+                vendorAccount: 'Su-000093',
+                documentNumber: '20026',
+                invoiceNumber: 'emp_2',
+                currencyCode: 'EGP',
+                originalAmount: 4505.04,
+                openAmount: 4505.04,
+                isOpen: true,
+              },
+            ],
+          },
+        ],
+      ]),
+    );
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const lines = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        UniqueId: 503378,
+        LINENUMBER: 18714 + index,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000093',
+        DEBITAMOUNT: 563.13,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '20026',
+        INVOICE: 'emp_2',
+        FINTAGDISPLAYVALUE: 'O26-IMP-OC-1500|Q-1',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      })),
+      {
+        UniqueId: 503378,
+        LINENUMBER: 18722,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-1',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 4505.04,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Vendor Payment',
+        VoucherType: 'Cash',
+      },
+    ].map(
+      (sourceLine) =>
+        new CashEntryRawDataModel(sourceLine as any, 'Freight', false),
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+  });
+
+  it('replaces an accepted source invoice variant with the exact D365 invoice before formatting', async () => {
+    const sourcePair = VendorInvoiceJournalService.pairKey('050', 'RP-000003');
+    const { processor, vendorInvoiceJournalService } = createProcessor({
+      existingPairs: new Set([sourcePair]),
+    });
+    vendorInvoiceJournalService.findInvoiceSettlementSnapshots.mockResolvedValue(
+      new Map([
+        [
+          sourcePair,
+          {
+            company: 'm-p',
+            invoice: '050-1',
+            vendorAccount: 'RP-000003',
+            exists: true,
+            belongsToVendor: true,
+            candidateTransactions: [
+              {
+                vendorAccount: 'RP-000003',
+                documentNumber: '15473',
+                invoiceNumber: '050-1',
+                currencyCode: 'EGP',
+                originalAmount: 9322.54,
+                openAmount: 9322.54,
+                isOpen: true,
+              },
+            ],
+          },
+        ],
+      ]),
+    );
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const lines = vendorPaymentLines('RP-000003');
+    lines[0].INVOICE = '050';
+    lines[0].DOCUMENT = '15473';
+    lines[0].DEBITAMOUNT = 9322.54;
+    lines[1].CREDITAMOUNT = 9322.54;
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+    expect(lines[0].MARKEDINVOICE).toBe('050-1');
+  });
+
+  it('preserves the exact whitespace-bearing D365 invoice for MarkedLines posting', async () => {
+    const sourcePair = VendorInvoiceJournalService.pairKey(
+      'GDY_FV000005995',
+      'Ag-000194',
+    );
+    const { processor, vendorInvoiceJournalService } = createProcessor({
+      existingPairs: new Set([sourcePair]),
+    });
+    vendorInvoiceJournalService.findInvoiceSettlementSnapshots.mockResolvedValue(
+      new Map([
+        [
+          sourcePair,
+          {
+            company: 'm-p',
+            invoice: ' GDY_FV000005995',
+            vendorAccount: 'Ag-000194',
+            exists: true,
+            belongsToVendor: true,
+            candidateTransactions: [
+              {
+                vendorAccount: 'Ag-000194',
+                documentNumber: '17728',
+                invoiceNumber: ' GDY_FV000005995',
+                currencyCode: 'EUR',
+                originalAmount: 6076.44,
+                openAmount: 6076.44,
+                isOpen: true,
+              },
+            ],
+          },
+        ],
+      ]),
+    );
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const lines = vendorPaymentLines('Ag-000194');
+    lines[0].INVOICE = 'GDY_FV000005995 ';
+    lines[0].DOCUMENT = '17728';
+    lines[0].CURRENCYCODE = 'EUR';
+    lines[0].DEBITAMOUNT = 6076.44;
+    lines[1].CURRENCYCODE = 'EUR';
+    lines[1].CREDITAMOUNT = 6076.44;
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync(lines),
+    ).resolves.toBeUndefined();
+    expect(lines[0].MARKEDINVOICE).toBe('GDY_FV000005995');
+    expect(lines[0].ResolvedD365InvoiceNumber).toBe(' GDY_FV000005995');
+
+    jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
+      exchangeRate: 1,
+      reportingRate: 1,
+    });
+    (processor as any).vendorNameMap = new Map();
+    const formatted = (processor as any).buildLines('2066', lines);
+    expect(formatted[0].MarkedLines[0].InvoiceNumber).toBe(' GDY_FV000005995');
+  });
+
   it('loads the vendor group from D365 when the local vendor cache is empty', async () => {
     const pair = VendorInvoiceJournalService.pairKey('INV-2066', 'V-001');
     const d365VendorService = {
@@ -183,23 +362,21 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
           findExistingInvoiceVendorPairs: jest
             .fn()
             .mockResolvedValue(new Set([pair])),
-          findInvoiceSettlementSnapshots: jest
-            .fn()
-            .mockResolvedValue(
-              new Map([
-                [
-                  pair,
-                  {
-                    company: 'm-p',
-                    invoice: 'INV-2066',
-                    vendorAccount: 'VEND-2066',
-                    exists: true,
-                    invoiceExistsAcrossVendors: true,
-                    belongsToVendor: true,
-                  },
-                ],
-              ]),
-            ),
+          findInvoiceSettlementSnapshots: jest.fn().mockResolvedValue(
+            new Map([
+              [
+                pair,
+                {
+                  company: 'm-p',
+                  invoice: 'INV-2066',
+                  vendorAccount: 'VEND-2066',
+                  exists: true,
+                  invoiceExistsAcrossVendors: true,
+                  belongsToVendor: true,
+                },
+              ],
+            ]),
+          ),
         },
         cashOutExchangeRateService: {},
         generalJournalService: {},
@@ -267,11 +444,11 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     const custodyMatches = new Map([
       [
         GeneralJournalService.custodySettlementTargetKey(targets[0]),
-        [{ Voucher: 'CUSTODY-VCH-1', Document: 'DOC-CUSTODY-1' }],
+        [{ Invoice: 'CUSTODY-VCH-1', Document: 'DOC-CUSTODY-1' }],
       ],
       [
         GeneralJournalService.custodySettlementTargetKey(targets[1]),
-        [{ Voucher: 'CUSTODY-VCH-2', Document: 'DOC-CUSTODY-2' }],
+        [{ Invoice: 'CUSTODY-VCH-2', Document: 'DOC-CUSTODY-2' }],
       ],
     ]);
     const { processor } = createProcessor({

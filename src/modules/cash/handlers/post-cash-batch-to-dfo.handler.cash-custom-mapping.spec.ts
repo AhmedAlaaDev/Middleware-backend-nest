@@ -804,6 +804,143 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.PAYMENTNOTES).toBe('Vendor Payment - Freight Jan 2026');
   });
 
+  it('labels a historical Vendor Payment with empty MarkedLines using its invoice', () => {
+    const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            LineNumber: 2,
+            SafeType: 'Vendor Payment',
+            AccountDisplayValue: 'VEND-002',
+            OffsetAccountDisplayValue: 'BANK-002',
+            AccountType: 'Vend',
+            OffsetAccountType: 'Bank',
+            DebitAmount: 500,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-15',
+            VoucherType: 'Cash',
+            Invoice: 'INV-HISTORICAL-002',
+            MarkedInvoice: '',
+            MarkedLines: [],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.MarkedLines).toEqual([]);
+    expect(body.PAYMENTNOTES).toBe('Unmarked - INV-HISTORICAL-002');
+    expect(body.TRANSACTIONTEXT).toBe('Unmarked - INV-HISTORICAL-002');
+  });
+
+  it('preserves the strict settlement identity on a 223304 withholding companion', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: 'Mesco-000015000',
+            LineNumber: 5,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Tr-000031',
+            OffsetAccountType: 'Ledger',
+            OffsetAccountDisplayValue: '223304|1201|012|001',
+            DebitAmount: 367.26,
+            CreditAmount: 0,
+            CurrencyCode: 'EGP',
+            TransDate: '2026-01-18',
+            VoucherType: 'Cash',
+            SafeType: 'Vendor Payment',
+            Description: '396',
+            TransactionText: '396',
+            Invoice: '396',
+            MarkedInvoice: '396',
+            Document: '16476',
+            MarkedLines: [
+              {
+                InvoiceNumber: '396',
+                OperationNumber: 'O26-EXP-OC-206',
+                DocumentNumber: '16476',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      new CashJournalRoutingService().resolve({
+        safeType: 'Vendor Payment',
+        targetProcessor: 'Freight',
+      }),
+    );
+
+    const body = result[0].customLineApiBody;
+    expect(body.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '396',
+        OperationNumber: 'O26-EXP-OC-206',
+        DocumentNumber: '16476',
+        HasWithHoldingLine: true,
+      },
+    ]);
+    expect(body.PAYMENTNOTES).toBe('396');
+    expect(body.TRANSACTIONTEXT).toBe('396');
+    expect(body.debitAmount).toBe(367.26);
+    expect(body.OffsetAccountDisplayValue).toBeUndefined();
+    expect(body.offsetAccountDisplayValue).toContain('223304');
+  });
+
+  it('does not trim the exact D365 invoice identity in MarkedLines', () => {
+    const handler = buildHandler();
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            AccountType: 'Vend',
+            AccountDisplayValue: 'Ag-000194',
+            OffsetAccountType: 'Bank',
+            OffsetAccountDisplayValue: 'BANK-1',
+            DebitAmount: 6076.44,
+            CreditAmount: 0,
+            CurrencyCode: 'EUR',
+            TransDate: '2026-02-28',
+            VoucherType: 'Transfer',
+            SafeType: 'Vendor Payment',
+            MarkedInvoice: 'GDY_FV000005995',
+            MarkedLines: [
+              {
+                InvoiceNumber: ' GDY_FV000005995',
+                OperationNumber: 'O25-IMP-OC-12561',
+                DocumentNumber: '17728',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      new CashJournalRoutingService().resolve({
+        safeType: 'Vendor Payment',
+        targetProcessor: 'Freight',
+      }),
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines[0].InvoiceNumber).toBe(
+      ' GDY_FV000005995',
+    );
+  });
+
   it('rejects a vendor-payment line that has MarkedInvoice without MarkedLines', () => {
     const handler = buildHandler();
 

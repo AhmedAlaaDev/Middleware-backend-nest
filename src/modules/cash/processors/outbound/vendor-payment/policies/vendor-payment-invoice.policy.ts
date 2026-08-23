@@ -1,5 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { sanitizeCashOutboundInvoice } from '@/modules/cash/policies/cash-account.policy';
+import { resolveCashOutboundInvoice } from '@/modules/cash/policies/cash-account.policy';
 
 /**
  * Resolves the normalized invoice value for a Vendor Payment.
@@ -10,15 +10,10 @@ import { sanitizeCashOutboundInvoice } from '@/modules/cash/policies/cash-accoun
  */
 export function resolveVendorPaymentInvoice(
   vendorLine: CashEntryRawDataModel,
-  offsetLine: CashEntryRawDataModel,
+  _offsetLine: CashEntryRawDataModel,
 ): string {
-  const rawInvoice =
-    vendorLine.MARKEDINVOICE ||
-    offsetLine.MARKEDINVOICE ||
-    vendorLine.INVOICE ||
-    offsetLine.INVOICE ||
-    vendorLine.DOCUMENT ||
-    offsetLine.DOCUMENT;
-
-  return sanitizeCashOutboundInvoice(rawInvoice);
+  return resolveCashOutboundInvoice(
+    vendorLine.MARKEDINVOICE,
+    vendorLine.INVOICE,
+  );
 }

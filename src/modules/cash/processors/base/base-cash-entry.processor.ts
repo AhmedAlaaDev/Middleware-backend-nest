@@ -12,14 +12,13 @@ import {
 import {
   isCash22420LedgerDimensionLine,
   isCashNotesReceivableLine,
-  sanitizeCashOutboundInvoice,
+  resolveCashOutboundInvoice,
 } from '@/modules/cash/policies/cash-account.policy';
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
 } from '@/modules/cash/policies/cash-batch.policy';
 import {
-  cashDimensionPartAsString,
   resolveCashOffsetAccountDisplayValue,
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
@@ -40,11 +39,16 @@ import {
   isCashWithholdingLedgerLine,
 } from '@/modules/cash/policies/cash-withholding.policy';
 import {
-  moneyEquals,
+  groupVendorPaymentValidationLines,
   resolveVendorPaymentMarking,
   VendorInvoiceMatchStatus,
   VendorInvoiceVerificationService,
 } from '@/modules/cash/processors/outbound/vendor-payment';
+import { CustodyIssueBuilder } from '@/modules/cash/processors/outbound/custody-issue/custody-issue.builder';
+import { CustodySettlementBuilder } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.builder';
+import { validateCustodySettlementVendorInvoiceShape } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.validator';
+import { CashOutEntryBuilder } from '@/modules/cash/processors/outbound/cash-out-entry.builder';
+import { VendorPaymentLineBuilder } from '@/modules/cash/processors/outbound/vendor-payment/vendor-payment-line.builder';
 import {
   buildCashLine,
   buildCashMoreThanTwoLines,
@@ -74,6 +78,8 @@ import {
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
+import { VendorPaymentDescriptionPolicy } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-payment-description.policy';
+import { VendorPaymentSettlementIntent } from '@/modules/cash/processors/outbound/vendor-payment/models/vendor-payment-marking-result';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
@@ -86,7 +92,6 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { EntryProcessorBase } from '@/modules/entry-processor/entry-processor.base';
 import {
-  EntryDimensionsModel,
   EntryDynDataModel,
   EntryRawDataModel,
 } from '@/modules/entry-processor/models';
@@ -429,7 +434,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           line.AddError('SafeType', message);
         }
 
-        if (shouldValidateCashOutMarkedInvoice) {
+        if (
+          shouldValidateCashOutMarkedInvoice &&
+          line.SafeType === 'Custody Settlement'
+        ) {
+          for (const error of validateCustodySettlementVendorInvoiceShape(
+            line,
+          )) {
+            line.AddError(error.field, error.message);
+          }
+        } else if (shouldValidateCashOutMarkedInvoice) {
           this.validateCashOutMarkedInvoice(line);
         }
       }
@@ -669,10 +683,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const settlementRequests = normalVendorLines
       .map((line) => ({
-        invoice: sanitizeCashOutboundInvoice(
-          line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
-        ),
+        invoice: resolveCashOutboundInvoice(line.MARKEDINVOICE, line.INVOICE),
         vendorAccount: String(line.ACCOUNTDISPLAYVALUE ?? '').trim(),
+        documentNumber: String(line.DOCUMENT ?? '').trim(),
         lineNumber: line.LINENUMBER,
       }))
       .filter(
@@ -683,31 +696,36 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.company,
         settlementRequests,
       );
-    for (const line of normalVendorLines) {
-      const invoice = sanitizeCashOutboundInvoice(
-        line.MARKEDINVOICE || line.INVOICE || line.DOCUMENT,
+    const validationGroups =
+      groupVendorPaymentValidationLines(normalVendorLines);
+    for (const groupLines of validationGroups) {
+      const line = groupLines[0];
+      const invoice = resolveCashOutboundInvoice(
+        line.MARKEDINVOICE,
+        line.INVOICE,
       );
       const vendor = String(line.ACCOUNTDISPLAYVALUE ?? '').trim();
-      const uniqueIdTag = line.UniqueId ? ` (UniqueId ${line.UniqueId})` : '';
+      const addGroupError = (message: string) => {
+        for (const sourceLine of groupLines) {
+          const uniqueIdTag = sourceLine.UniqueId
+            ? ` (UniqueId ${sourceLine.UniqueId})`
+            : '';
+          errors.push(
+            `Line ${sourceLine.LINENUMBER}${uniqueIdTag}: ${message}`,
+          );
+        }
+      };
       if (!invoice) {
-        errors.push(
-          `Line ${line.LINENUMBER}${uniqueIdTag}: Vendor Payment invoice is required for vendor ${vendor}.`,
+        addGroupError(
+          `Vendor Payment invoice is required for vendor ${vendor}.`,
         );
         continue;
       }
       const key = VendorInvoiceJournalService.pairKey(invoice, vendor);
       const snapshot = this.vendorInvoiceSnapshotMap.get(key);
       if (!snapshot?.exists) {
-        errors.push(
-          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} was not found in D365 for vendor ${vendor}.`,
-        );
-      } else if (!snapshot.belongsToVendor) {
-        errors.push(
-          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} does not belong to vendor ${vendor}.`,
-        );
-      } else if (snapshot.isOpen === false) {
-        errors.push(
-          `Line ${line.LINENUMBER}${uniqueIdTag}: vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendor}.`,
+        addGroupError(
+          `vendor transaction was not found in D365. Vendor: ${vendor}.`,
         );
       } else {
         const hasCandidatesOrAmounts =
@@ -719,59 +737,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
         if (hasCandidatesOrAmounts) {
           const docNum = String(line.DOCUMENT ?? '').trim();
-          const withholdingLineInGroup = lines.find(
-            (l) =>
-              isCashWithholdingLedgerLine(l) &&
-              ((line.UniqueId &&
-                String(l.UniqueId ?? '').trim() ===
-                  String(line.UniqueId ?? '').trim()) ||
-                (line.VOUCHER &&
-                  String(l.VOUCHER ?? '').trim() ===
-                    String(line.VOUCHER ?? '').trim())),
+          const vendorDebit = groupLines.reduce(
+            (sum, sourceLine) => sum + Number(sourceLine.DEBITAMOUNT ?? 0),
+            0,
           );
-          const withholdingAmount = withholdingLineInGroup
-            ? Number(
-                withholdingLineInGroup.CREDITAMOUNT ||
-                  withholdingLineInGroup.DEBITAMOUNT ||
-                  0,
-              )
-            : 0;
-
-          const isWithholdingEnabled =
-            withholdingAmount > 0 ||
-            String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
-              'yes' ||
-            (!!line.ITEMWITHHOLDINGTAXGROUPCODE &&
-              String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '' &&
-              String(line.ITEMWITHHOLDINGTAXGROUPCODE).trim() !== '0');
-
-          const vendorDebit = Number(line.DEBITAMOUNT ?? 0);
-          let netPaymentAmount = vendorDebit;
-          let grossInvoiceAmount: number | undefined = undefined;
-
-          if (withholdingAmount > 0) {
-            const candidateOpen =
-              snapshot.remainingAmount || snapshot.originalAmount || 0;
-            if (
-              candidateOpen > 0 &&
-              moneyEquals(
-                candidateOpen,
-                vendorDebit + withholdingAmount,
-                String(line.CURRENCYCODE ?? ''),
-              )
-            ) {
-              netPaymentAmount = vendorDebit;
-              grossInvoiceAmount = candidateOpen;
-            } else if (vendorDebit > withholdingAmount) {
-              netPaymentAmount = vendorDebit - withholdingAmount;
-              grossInvoiceAmount = vendorDebit;
-            } else {
-              grossInvoiceAmount = vendorDebit + withholdingAmount;
-            }
-          } else if (isWithholdingEnabled) {
-            grossInvoiceAmount =
-              snapshot.originalAmount || snapshot.remainingAmount || undefined;
-          }
 
           const candidates =
             snapshot.candidateTransactions &&
@@ -799,19 +768,32 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               vendorAccount: vendor,
               documentNumber: docNum,
               invoiceNumber: invoice,
-              grossInvoiceAmount,
-              netPaymentAmount,
-              withholdingAmount,
+              grossInvoiceAmount: vendorDebit,
+              netPaymentAmount: vendorDebit,
+              withholdingAmount: 0,
               currencyCode: String(line.CURRENCYCODE ?? ''),
               allowPartialPayment: false,
+              skipAmountValidation: true,
             },
             candidates,
           );
 
           if (verifyResult.status !== VendorInvoiceMatchStatus.MATCHED) {
-            errors.push(
-              `Line ${line.LINENUMBER}${uniqueIdTag}: ${verifyResult.reason}`,
+            addGroupError(
+              verifyResult.reason ?? 'Vendor invoice verification failed',
             );
+          } else if (verifyResult.matchedTransaction?.invoiceNumber) {
+            // Validation accepts controlled Finance suffix variants (for
+            // example source 050 vs D365 050-1). Posting must use the exact
+            // D365 identity; the custom settlement endpoint does not apply the
+            // middleware's identity-equivalence policy.
+            const exactD365Invoice =
+              verifyResult.matchedTransaction.invoiceNumber;
+            const canonicalInvoice = exactD365Invoice.trim();
+            for (const sourceLine of groupLines) {
+              sourceLine.MARKEDINVOICE = canonicalInvoice;
+              sourceLine.ResolvedD365InvoiceNumber = exactD365Invoice;
+            }
           }
         }
       }
@@ -862,11 +844,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         errors.push(
           `Line ${line.LINENUMBER}: expected exactly one custody ledger transaction for document ${target.documentNumber}, currency ${target.currency}, amount ${target.amount}, operation ${target.operationNumber}; found ${targetMatches.length}.`,
         );
-      } else if (!line.MARKEDINVOICE) {
+      } else {
         const match = targetMatches[0];
-        line.MARKEDINVOICE = sanitizeCashOutboundInvoice(
-          match.Invoice || match.Voucher || match.Document || line.INVOICE,
-        );
+        // Use the exact D365 identity. Custody issue transactions commonly
+        // have a blank invoice and are matched by document/operation/amount.
+        line.ResolvedD365InvoiceNumber = String(match.Invoice ?? '');
+        line.MARKEDINVOICE = line.ResolvedD365InvoiceNumber;
       }
     }
   }
@@ -942,6 +925,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     invoiceMap: RawDataInvoiceMap,
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
+    const outboundBuilder = this.createCashOutEntryBuilder();
+
     return buildCashInvoiceLines({
       invoiceMap,
       exchangeRateContext,
@@ -951,12 +936,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           lines,
           inbound: this.isInbound(),
           exchangeRateContext: context,
-          buildVendorPayment: (id, groupedLines, context) =>
-            this.buildVendorPaymentLines(id, groupedLines, context),
-          buildCustodySettlement: (id, groupedLines, context) =>
-            this.buildCustodySettlementLines(id, groupedLines, context),
-          buildSourceOutbound: (id, line, context) =>
-            this.buildSourceLineOutbound(id, line, context),
+          buildOutbound: (id, groupedLines, context) =>
+            outboundBuilder.build(id, groupedLines, context),
           buildTwoLines: (id, groupedLines, context) =>
             this.caseTwoLines(id, groupedLines, context),
           buildManyLines: (id, groupedLines, context) =>
@@ -975,17 +956,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
+    const outboundBuilder = this.createCashOutEntryBuilder();
+
     return buildCashLines({
       sourceId,
       lines,
       inbound: this.isInbound(),
       exchangeRateContext,
-      buildVendorPayment: (id, groupedLines, context) =>
-        this.buildVendorPaymentLines(id, groupedLines, context),
-      buildCustodySettlement: (id, groupedLines, context) =>
-        this.buildCustodySettlementLines(id, groupedLines, context),
-      buildSourceOutbound: (id, line, context) =>
-        this.buildSourceLineOutbound(id, line, context),
+      buildOutbound: (id, groupedLines, context) =>
+        outboundBuilder.build(id, groupedLines, context),
       buildTwoLines: (id, groupedLines, context) =>
         this.caseTwoLines(id, groupedLines, context),
       buildManyLines: (id, groupedLines, context) =>
@@ -993,189 +972,37 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     });
   }
 
-  protected buildVendorPaymentLines(
-    sourceId: string,
-    lines: CashEntryRawDataModel[],
-    exchangeRateContext?: CashOutExchangeRateContext,
-  ): CashEntryDynDataModel[] {
-    const withholdingLines = lines.filter((line) =>
-      isCashWithholdingLedgerLine(line),
-    );
-    const vendorLines = lines.filter(
-      (line) => line.IsVendor && Number(line.DEBITAMOUNT) > 0,
-    );
-    const offsetLines = lines.filter(
-      (line) =>
-        Number(line.CREDITAMOUNT) > 0 && !isCashWithholdingLedgerLine(line),
-    );
+  private createCashOutEntryBuilder(): CashOutEntryBuilder {
+    const buildSourceLine = (
+      id: string,
+      line: CashEntryRawDataModel,
+      context?: CashOutExchangeRateContext,
+    ) => this.buildSourceLineOutbound(id, line, context);
 
-    if (vendorLines.length === 0 || offsetLines.length !== 1) {
-      const invalid = new CashEntryDynDataModel(new EntryDimensionsModel(), {
-        SourceIds: [sourceId],
-        SafeType: 'Vendor Payment',
-      });
-      invalid.AddError(
-        'InvalidMapping',
-        `Vendor Payment requires one payment offset and one or more debit Vendor lines. Found ${vendorLines.length} Vendor line(s) and ${offsetLines.length} payment offset(s).`,
-      );
-      return [invalid];
-    }
-
-    const paymentOffset = offsetLines[0];
-    const vendorGroups = new Map<string, CashEntryRawDataModel[]>();
-    for (const vendorLine of vendorLines) {
-      const key = [
-        String(vendorLine.ACCOUNTDISPLAYVALUE ?? '')
-          .trim()
-          .toLowerCase(),
-        String(vendorLine.VendorGroup ?? '')
-          .trim()
-          .toLowerCase(),
-      ].join('|');
-      if (!vendorGroups.has(key)) {
-        vendorGroups.set(key, []);
-      }
-      vendorGroups.get(key)!.push(vendorLine);
-    }
-
-    return [...vendorGroups.values()].map((groupLines) =>
-      this.buildLineOutbound(
-        sourceId,
-        groupLines[0],
-        paymentOffset,
-        'ACCOUNT',
-        exchangeRateContext,
-        groupLines.map((vendorLine) => ({
-          vendorLine,
-          withholdingLine: this.findWithholdingLine(
-            vendorLine,
-            withholdingLines,
+    return new CashOutEntryBuilder(
+      new VendorPaymentLineBuilder(
+        (
+          id,
+          accountLine,
+          offsetLine,
+          amountSource,
+          context,
+          settlements,
+          disableAutomaticWithholdingCalculation,
+        ) =>
+          this.buildLineOutbound(
+            id,
+            accountLine,
+            offsetLine,
+            amountSource,
+            context,
+            settlements,
+            disableAutomaticWithholdingCalculation,
           ),
-        })),
       ),
-    );
-  }
-
-  protected buildCustodySettlementLines(
-    sourceId: string,
-    lines: CashEntryRawDataModel[],
-    exchangeRateContext?: CashOutExchangeRateContext,
-  ): CashEntryDynDataModel[] {
-    const withholdingLines = lines.filter((line) =>
-      isCashWithholdingLedgerLine(line),
-    );
-    const nonWithholdingLines = lines.filter(
-      (line) => !isCashWithholdingLedgerLine(line),
-    );
-
-    let totalWithholdingAmount = 0;
-    for (const wLine of withholdingLines) {
-      totalWithholdingAmount += Number(
-        wLine.CREDITAMOUNT || wLine.DEBITAMOUNT || 0,
-      );
-    }
-
-    const result: CashEntryDynDataModel[] = [];
-
-    for (const rawLine of nonWithholdingLines) {
-      const accountTypeLower = String(rawLine.ACCOUNTTYPE ?? '')
-        .trim()
-        .toLowerCase();
-      const isVendor =
-        rawLine.IsVendor ||
-        accountTypeLower === 'vend' ||
-        accountTypeLower === 'vendor';
-      const rawDebit = Number(rawLine.DEBITAMOUNT || 0);
-
-      const lineToBuild: CashEntryRawDataModel = Object.assign(
-        Object.create(Object.getPrototypeOf(rawLine)),
-        rawLine,
-      );
-
-      if (isVendor && rawDebit > 0 && totalWithholdingAmount > 0) {
-        lineToBuild.DEBITAMOUNT = Math.max(
-          0,
-          rawDebit - totalWithholdingAmount,
-        );
-      }
-
-      lineToBuild.OFFSETACCOUNTTYPE = '' as any;
-      lineToBuild.OFFSETACCOUNTDISPLAYVALUE = '';
-      lineToBuild.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
-
-      if (isVendor) {
-        const rawInvoice =
-          lineToBuild.MARKEDINVOICE ||
-          lineToBuild.INVOICE ||
-          lineToBuild.DOCUMENT;
-        const sanitizedInvoice = sanitizeCashOutboundInvoice(rawInvoice);
-
-        const markingResult = resolveVendorPaymentMarking({
-          settlements: [{ vendorLine: lineToBuild }],
-          offsetLine: lineToBuild,
-          vendorGroup: String(lineToBuild.VendorGroup ?? '').trim(),
-        });
-
-        const dynLine = this.buildSourceLineOutbound(
-          sourceId,
-          lineToBuild,
-          exchangeRateContext,
-        );
-        dynLine.Invoice = sanitizedInvoice;
-        dynLine.MarkedInvoice =
-          markingResult.markedInvoice || sanitizedInvoice;
-        dynLine.MarkedLines = [...markingResult.markedLines];
-        if (dynLine.MarkedInvoice && dynLine.MarkedLines.length === 0) {
-          dynLine.MarkedLines = [
-            {
-              InvoiceNumber: dynLine.MarkedInvoice,
-              OperationNumber: firstCashFinancialTag(
-                dynLine.FinTagDisplayValue,
-              ),
-              DocumentNumber: String(dynLine.Document ?? '').trim(),
-              HasWithHoldingLine: false,
-            },
-          ];
-        }
-        dynLine.SettlementIntent = dynLine.MarkedInvoice
-          ? 'Marked'
-          : 'Unmarked';
-        dynLine.IsWithholdingCalculationEnabled = 'No';
-        dynLine.ItemWithholdingTaxGroupCode = '';
-        result.push(dynLine);
-      } else {
-        const dynLine = this.buildSourceLineOutbound(
-          sourceId,
-          lineToBuild,
-          exchangeRateContext,
-        );
-        dynLine.IsWithholdingCalculationEnabled = 'No';
-        dynLine.ItemWithholdingTaxGroupCode = '';
-        result.push(dynLine);
-      }
-    }
-
-    return result;
-  }
-
-  private findWithholdingLine(
-    vendorLine: CashEntryRawDataModel,
-    withholdingLines: CashEntryRawDataModel[],
-  ): CashEntryRawDataModel | undefined {
-    const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
-    if (invoice) {
-      const invoiceMatch = withholdingLines.find(
-        (line) => sanitizeCashOutboundInvoice(line.INVOICE) === invoice,
-      );
-      if (invoiceMatch) return invoiceMatch;
-    }
-
-    const operation = firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
-    return withholdingLines.find(
-      (line) =>
-        line.DOCUMENT === vendorLine.DOCUMENT &&
-        line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
-        firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+      new CustodySettlementBuilder(buildSourceLine),
+      new CustodyIssueBuilder(buildSourceLine),
+      buildSourceLine,
     );
   }
 
@@ -1480,6 +1307,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       vendorLine: CashEntryRawDataModel;
       withholdingLine?: CashEntryRawDataModel;
     }>,
+    disableAutomaticWithholdingCalculation = false,
   ): CashEntryDynDataModel {
     const dimensionString =
       offsetLine?.ACCOUNTTYPE === 'Ledger'
@@ -1602,17 +1430,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       !!(accountLine as any).hasWithholdingReduction ||
       !!(offsetLine as any).hasWithholdingReduction;
 
-    const rawInvoice =
-      primarySettlement.vendorLine.MARKEDINVOICE ||
-      offsetLine.MARKEDINVOICE ||
-      primarySettlement.vendorLine.INVOICE ||
-      offsetLine.INVOICE ||
-      primarySettlement.vendorLine.DOCUMENT ||
-      offsetLine.DOCUMENT;
+    const rawInvoice = resolveCashOutboundInvoice(
+      primarySettlement.vendorLine.MARKEDINVOICE,
+      primarySettlement.vendorLine.INVOICE,
+    );
     const sanitizedInvoice = markingResult.markedInvoice;
 
     const descriptionSuffix = markingResult.shouldMark ? '' : ' - unmarked';
-    const description = `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
+    const isVendorPaymentRoute = route?.safeType === 'Vendor Payment';
+    const description = isVendorPaymentRoute
+      ? new VendorPaymentDescriptionPolicy().getDescription({
+          settlementState: markingResult.shouldMark
+            ? VendorPaymentSettlementIntent.MARKED
+            : VendorPaymentSettlementIntent.UNMARKED,
+          target: label,
+          monthYear: formattedDate,
+          voucherType: accountLine.VoucherType,
+          invoiceNumber: rawInvoice,
+        })
+      : `${route?.safeType ?? 'Vendor Payment'} - ${label} ${formattedDate} (${accountLine.VoucherType})${descriptionSuffix}`;
 
     const salesTaxGroup = offsetLine.SALESTAXGROUP?.trim()?.toLowerCase() || '';
     const itemSalesTaxGroup =
@@ -1667,41 +1503,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         offsetLine.FINTAGDISPLAYVALUE,
       ),
       CreditAmount: 0,
-      DebitAmount: (() => {
-        const totalVendorDebit = normalizedSettlements.reduce(
-          (sum, { vendorLine }) => sum + Number(vendorLine.DEBITAMOUNT ?? 0),
-          0,
-        );
-        const totalWithholding = normalizedSettlements.reduce(
-          (sum, { withholdingLine }) =>
-            sum +
-            (withholdingLine
-              ? Number(
-                  withholdingLine.CREDITAMOUNT ||
-                    withholdingLine.DEBITAMOUNT ||
-                    0,
-                )
-              : 0),
-          0,
-        );
-        const offsetCredit = Number(offsetLine.CREDITAMOUNT ?? 0);
-        if (totalWithholding > 0) {
-          if (
-            offsetCredit > 0 &&
-            moneyEquals(
-              totalVendorDebit,
-              offsetCredit + totalWithholding,
-              currencyCode,
+      DebitAmount:
+        amountSource === 'ACCOUNT'
+          ? normalizedSettlements.reduce(
+              (sum, { vendorLine }) =>
+                sum + Number(vendorLine.DEBITAMOUNT ?? 0),
+              0,
             )
-          ) {
-            return offsetCredit;
-          }
-          if (totalVendorDebit > totalWithholding) {
-            return totalVendorDebit - totalWithholding;
-          }
-        }
-        return amountSource === 'ACCOUNT' ? totalVendorDebit : offsetCredit;
-      })(),
+          : Number(offsetLine.CREDITAMOUNT ?? offsetLine.DEBITAMOUNT ?? 0),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
@@ -1709,7 +1518,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       OffsetDefaultDimensionDisplayValue: dimensionStr,
       SalesTaxGroup: isTaxable ? 'Taxable' : 'Non-Taxabl',
       ItemSalesTaxGroup: itemSalesTaxGroup,
-      IsWithholdingCalculationEnabled: isWithholding ? 'Yes' : 'No',
+      IsWithholdingCalculationEnabled:
+        isWithholding && !disableAutomaticWithholdingCalculation ? 'Yes' : 'No',
       ItemWithholdingTaxGroupCode:
         primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
         primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
@@ -1719,7 +1529,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         accountLine.POSTINGPROFILE?.trim() ||
         offsetLine.POSTINGPROFILE?.trim() ||
         '',
-      Invoice: sanitizeCashOutboundInvoice(rawInvoice),
+      Invoice: rawInvoice,
       MarkedInvoice: sanitizedInvoice,
       MarkedLines: [...markingResult.markedLines],
       SettlementIntent: markingResult.shouldMark ? 'Marked' : 'Unmarked',
@@ -1880,9 +1690,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : '',
       OffsetCompany: this.company,
       PostingProfile: sourceLine.POSTINGPROFILE,
-      Invoice: sanitizeCashOutboundInvoice(
-        sourceLine.INVOICE || sourceLine.DOCUMENT,
-      ),
+      Invoice: resolveCashOutboundInvoice(sourceLine.INVOICE),
       MarkedInvoice: '',
       SettlementIntent: 'None',
       dataAreaId: this.company,
@@ -2014,6 +1822,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ...new Set(
         lines
           .filter((line) => {
+            if (line.SafeType === 'Custody Settlement') return false;
             try {
               return (
                 this.cashJournalRoutingService.resolve({
@@ -2028,10 +1837,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             }
           })
           .flatMap((line) =>
-            (line.MarkedLines?.length
-              ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
-              : [line.MarkedInvoice || line.Invoice || '']
-            ).map((invoice) => String(invoice).trim()),
+            (line.MarkedLines ?? []).map((markedLine) =>
+              String(markedLine.InvoiceNumber ?? '').trim(),
+            ),
           )
           .filter((invoice) => Boolean(invoice)),
       ),
@@ -2049,15 +1857,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       await this.vendorInvoiceJournalService.findInvoiceSettlementSnapshots(
         this.company,
         lines
-          .filter((line) => Boolean(line.AccountDisplayValue?.trim()))
+          .filter(
+            (line) =>
+              line.SafeType !== 'Custody Settlement' &&
+              Boolean(line.AccountDisplayValue?.trim()),
+          )
           .flatMap((line) =>
-            (line.MarkedLines?.length
-              ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
-              : [line.MarkedInvoice || line.Invoice || '']
-            )
-              .map((invoice) => ({
-                invoice: String(invoice ?? '').trim(),
+            (line.MarkedLines ?? [])
+              .map((markedLine) => ({
+                invoice: String(markedLine.InvoiceNumber ?? '').trim(),
                 vendorAccount: String(line.AccountDisplayValue ?? '').trim(),
+                documentNumber: String(markedLine.DocumentNumber ?? '').trim(),
               }))
               .filter((request) => Boolean(request.invoice)),
           ),
@@ -2084,39 +1894,42 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       return;
     }
 
-    const invoices = line.MarkedLines?.length
-      ? line.MarkedLines.map((markedLine) => markedLine.InvoiceNumber)
-      : [line.MarkedInvoice || ''];
-    for (const invoiceValue of invoices) {
-      const invoice = String(invoiceValue ?? '').trim();
-      if (!invoice) continue;
+    const custodyShapeErrors =
+      validateCustodySettlementVendorInvoiceShape(line);
+    if (custodyShapeErrors.length > 0) {
+      for (const error of custodyShapeErrors) {
+        line.AddError(error.field, error.message);
+      }
+      return;
+    }
+
+    const markedLines = Array.isArray(line.MarkedLines) ? line.MarkedLines : [];
+    if (markedLines.length === 0) return;
+
+    for (const markedLine of markedLines) {
+      const invoice = String(markedLine.InvoiceNumber ?? '').trim();
+      const lineDoc = String(markedLine.DocumentNumber ?? '').trim();
+      if (!invoice) {
+        line.AddError(
+          'MarkedInvoice',
+          'Vendor settlement MarkedLines invoice number is required.',
+        );
+        continue;
+      }
+      if (!lineDoc) {
+        line.AddError(
+          'DocumentNumber',
+          `Vendor settlement MarkedLines document number is required for invoice ${invoice}.`,
+        );
+        continue;
+      }
 
       const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
       const snapshot = this.vendorInvoiceSnapshotMap.get(key);
       if (!snapshot?.exists) {
         line.AddError(
           'MarkedInvoice',
-          `Vendor invoice ${invoice} was not found in D365 for vendor ${vendorAccount}.`,
-        );
-      } else if (!snapshot.belongsToVendor) {
-        line.AddError(
-          'MarkedInvoice',
-          `Vendor invoice ${invoice} does not belong to vendor ${vendorAccount}.`,
-        );
-      } else if (snapshot.isOpen === false) {
-        line.AddError(
-          'MarkedInvoice',
-          `Vendor invoice ${invoice} is already closed/settled in D365 for vendor ${vendorAccount}.`,
-        );
-      } else if (
-        snapshot.currencyCode &&
-        line.CurrencyCode &&
-        snapshot.currencyCode.trim().toLowerCase() !==
-          line.CurrencyCode.trim().toLowerCase()
-      ) {
-        line.AddError(
-          'CurrencyCode',
-          `Vendor invoice ${invoice} is in currency ${snapshot.currencyCode}, but the payment line is ${line.CurrencyCode}.`,
+          `Vendor transaction was not found in D365. Vendor: ${vendorAccount}.`,
         );
       } else {
         const hasCandidatesOrAmounts =
@@ -2127,15 +1940,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             Number.isFinite(snapshot.remainingAmount));
 
         if (hasCandidatesOrAmounts) {
-          const markedLine = line.MarkedLines?.find(
-            (m) =>
-              String(m.InvoiceNumber ?? '')
-                .trim()
-                .toLowerCase() === invoice.toLowerCase(),
-          );
-          const lineDoc =
-            markedLine?.DocumentNumber || String(line.Document ?? '').trim();
-
           const candidates =
             snapshot.candidateTransactions &&
             snapshot.candidateTransactions.length > 0
@@ -2156,9 +1960,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                   },
                 ];
 
-          const isWithholdingEnabled =
-            String(line.IsWithholdingCalculationEnabled ?? '').toLowerCase() ===
-            'yes';
+          const isSourceWithholdingSplit =
+            Boolean(markedLine.HasWithHoldingLine) &&
+            String(line.IsWithholdingCalculationEnabled ?? '').toLowerCase() !==
+              'yes';
+          const settlementAmount = Math.max(
+            Math.abs(Number(line.DebitAmount ?? 0)),
+            Math.abs(Number(line.CreditAmount ?? 0)),
+          );
 
           const verifyResult = this.vendorInvoiceVerificationService.verify(
             {
@@ -2166,13 +1975,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
               vendorAccount,
               documentNumber: lineDoc,
               invoiceNumber: invoice,
-              grossInvoiceAmount: isWithholdingEnabled
+              grossInvoiceAmount: isSourceWithholdingSplit
                 ? undefined
-                : Number(line.DebitAmount ?? 0),
-              netPaymentAmount: Number(line.DebitAmount ?? 0),
+                : settlementAmount,
+              netPaymentAmount: settlementAmount,
               withholdingAmount: 0,
               currencyCode: String(line.CurrencyCode ?? ''),
-              allowPartialPayment: false,
+              allowPartialPayment: isSourceWithholdingSplit,
+              skipAmountValidation: true,
             },
             candidates,
           );
@@ -2211,10 +2021,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     return {
       InvoiceNumber: isCustody
         ? ''
-        : sanitizeCashOutboundInvoice(
-            vendorLine.MARKEDINVOICE ||
-              vendorLine.INVOICE ||
-              vendorLine.DOCUMENT,
+        : resolveCashOutboundInvoice(
+            vendorLine.MARKEDINVOICE,
+            vendorLine.INVOICE,
           ),
       OperationNumber: firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
       DocumentNumber: isCustody ? String(vendorLine.DOCUMENT ?? '').trim() : '',

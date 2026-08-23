@@ -10,6 +10,7 @@ import {
   CashJournalRoute,
   CashJournalRoutingService,
 } from '@/modules/cash/services/cash-journal-routing.service';
+import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import { D365FOCustomerPaymentJournalLineRequest } from '@/modules/d365fo/types';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
@@ -79,13 +80,14 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const route = this.requireRoute();
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
+    const postingLines = this.prepareCashPostingLines(route, typedLines);
     const existingLinesLoader = () =>
       this.activeHeaderStrategy().listLinesForHeader(headerKey, dataAreaId);
 
     return route.lineDirection === 'in'
       ? this.customerPaymentJournalService.postCashInLinesForHeader(
           headerKey,
-          typedLines,
+          postingLines,
           chunkSize,
           dataAreaId,
           existingLinesLoader,
@@ -95,7 +97,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
         )
       : this.customerPaymentJournalService.postCashOutLinesForHeader(
           headerKey,
-          typedLines,
+          postingLines,
           chunkSize,
           dataAreaId,
           existingLinesLoader,
@@ -147,6 +149,93 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       case 'customer-payment':
         return this.customerPaymentStrategy;
     }
+  }
+
+  /**
+   * A Custody Settlement credit reverses a prior custody issue transaction.
+   * That D365 vendor transaction has no invoice value, so it is selected by
+   * vendor + document + operation + amount. Keep the MarkedLines entry, but
+   * never copy a supplier receipt invoice onto the custody-holder account.
+   */
+  private prepareCashPostingLines(
+    route: CashJournalRoute,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+  ): D365FOCustomerPaymentJournalLineRequest[] {
+    return lines.map((line) => {
+      const body = {
+        ...line.customLineApiBody,
+        ...(line.customLineApiBody.AccountNum !== undefined
+          ? {
+              AccountNum: normalizeCashCompositeDisplayValue(
+                line.customLineApiBody.AccountNum,
+              ),
+            }
+          : {}),
+        ...(line.customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE !== undefined
+          ? {
+              DEFAULTDIMENSIONDISPLAYVALUE:
+                normalizeCashCompositeDisplayValue(
+                  line.customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE,
+                ),
+            }
+          : {}),
+        ...(line.customLineApiBody.offsetAccountDisplayValue !== undefined
+          ? {
+              offsetAccountDisplayValue: normalizeCashCompositeDisplayValue(
+                line.customLineApiBody.offsetAccountDisplayValue,
+              ),
+            }
+          : {}),
+        ...(line.customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE !==
+        undefined
+          ? {
+              offsetDEFAULTDIMENSIONDISPLAYVALUE:
+                normalizeCashCompositeDisplayValue(
+                  line.customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE,
+                ),
+            }
+          : {}),
+      };
+      const normalizedLine = { ...line, customLineApiBody: body };
+      if (route.safeType !== 'Custody Settlement') return normalizedLine;
+
+      const isCustodyCredit =
+        String(body.accountTypeStr ?? '').trim().toLowerCase() === 'vendor' &&
+        Number(body.creditAmount ?? 0) > 0;
+      if (!isCustodyCredit) return normalizedLine;
+
+      const sourceMark = body.MarkedLines?.[0];
+      const operationNumber =
+        String(sourceMark?.OperationNumber ?? '').trim() ||
+        String(body.FinTagStr ?? '')
+          .split('|')[0]
+          .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+          .trim();
+      const documentNumber =
+        String(sourceMark?.DocumentNumber ?? '').trim() ||
+        String(body.DocumentNum ?? '').trim();
+
+      if (!documentNumber) {
+        throw new Error(
+          `Custody Settlement vendor credit line ${line.LineNumber ?? '?'} cannot be posted without DocumentNumber in MarkedLines`,
+        );
+      }
+
+      return {
+        ...normalizedLine,
+        customLineApiBody: {
+          ...body,
+          MarkedLines: [
+            {
+              InvoiceNumber: '',
+              OperationNumber: operationNumber,
+              DocumentNumber: documentNumber,
+              HasWithHoldingLine: Boolean(sourceMark?.HasWithHoldingLine),
+            },
+          ],
+        },
+      };
+    });
   }
 
   private requireRoute(): CashJournalRoute {

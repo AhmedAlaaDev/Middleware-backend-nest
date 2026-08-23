@@ -5,12 +5,14 @@ import {
   VendorInvoiceMatchResult,
   VendorInvoiceMatchStatus,
   VendorInvoiceVerificationRequest,
+  VendorInvoiceMatchStrategy,
 } from '../models/vendor-invoice-match-result';
 import {
   calculateVendorPaymentAmounts,
   moneyEquals,
   moneyLessThanOrEqual,
 } from '../utils/money.util';
+import { vendorInvoiceIdentityEquals } from '../policies/vendor-invoice-identity.policy';
 
 @Injectable()
 export class VendorInvoiceVerificationService {
@@ -57,6 +59,29 @@ export class VendorInvoiceVerificationService {
       };
     }
 
+    const requestedTransactionId = this.normalize(request.transactionId);
+    if (requestedTransactionId) {
+      const identityMatches = vendorMatches.filter(
+        (candidate) =>
+          this.normalize(
+            candidate.transactionId || candidate.recId || candidate.sourceKey,
+          ) === requestedTransactionId,
+      );
+      if (identityMatches.length === 1) {
+        return {
+          status: VendorInvoiceMatchStatus.MATCHED,
+          matchedTransaction: identityMatches[0],
+          matchStrategy: VendorInvoiceMatchStrategy.TRANSACTION_ID,
+          candidateCount: {
+            ...candidateCount,
+            document: 1,
+            invoice: 1,
+            amount: 1,
+          },
+        };
+      }
+    }
+
     // -------------------------------------------------------------
     // 2. DOCUMENT NUMBER VERIFICATION
     // -------------------------------------------------------------
@@ -82,8 +107,8 @@ export class VendorInvoiceVerificationService {
     // 3. INVOICE NUMBER VERIFICATION
     // -------------------------------------------------------------
     const invoiceMatches = normalizedReqInvoice
-      ? documentMatches.filter(
-          (c) => this.normalize(c.invoiceNumber) === normalizedReqInvoice,
+      ? documentMatches.filter((c) =>
+          vendorInvoiceIdentityEquals(request.invoiceNumber, c.invoiceNumber),
         )
       : documentMatches;
     candidateCount.invoice = invoiceMatches.length;
@@ -96,6 +121,31 @@ export class VendorInvoiceVerificationService {
         status: VendorInvoiceMatchStatus.INVOICE_NOT_FOUND,
         candidateCount,
         reason: `Vendor and document matched, but invoice was not found. Vendor: ${request.vendorAccount}, Document: ${request.documentNumber || 'n/a'}, Invoice: ${request.invoiceNumber}`,
+      };
+    }
+
+    if (request.skipAmountValidation) {
+      candidateCount.amount = invoiceMatches.length;
+
+      const openInvoiceMatches = invoiceMatches.filter(
+        (candidate) => candidate.isOpen === true,
+      );
+      const matched =
+        openInvoiceMatches.length === 1
+          ? openInvoiceMatches[0]
+          : (openInvoiceMatches[0] ?? invoiceMatches[0]);
+
+      this.logger.log(
+        `[VERIFY] MATCHED: D365 vendor transaction identity verified for Vendor ${request.vendorAccount}, Document ${request.documentNumber || 'n/a'}, Invoice ${request.invoiceNumber || 'n/a'}. Amount validation was skipped because Vendor Payment amounts may be grouped.`,
+      );
+
+      return {
+        status: VendorInvoiceMatchStatus.MATCHED,
+        matchedTransaction: matched,
+        candidateCount,
+        matchStrategy: normalizedReqDoc
+          ? VendorInvoiceMatchStrategy.VENDOR_INVOICE_DOCUMENT
+          : VendorInvoiceMatchStrategy.VENDOR_INVOICE_UNIQUE,
       };
     }
 
@@ -170,42 +220,64 @@ export class VendorInvoiceVerificationService {
       );
     });
 
-    const effectiveMatches =
-      amountMatches.length > 0 ? amountMatches : invoiceMatches;
-    candidateCount.amount = effectiveMatches.length;
+    const hasDocument = Boolean(normalizedReqDoc);
+    candidateCount.amount = amountMatches.length;
+
+    if (amountMatches.length === 0) {
+      this.logger.warn(
+        `[VERIFY] AMOUNT_NOT_FOUND: Vendor ${request.vendorAccount}, document ${request.documentNumber || 'n/a'}, and invoice ${request.invoiceNumber || 'n/a'} matched, but settlement amount ${expectedSettlementAmount} did not match any candidate open/original amount.`,
+      );
+      return {
+        status: VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND,
+        candidateCount,
+        reason: `Vendor, document, and invoice matched, but amount was not found. Vendor: ${request.vendorAccount}, Document: ${request.documentNumber || 'n/a'}, Invoice: ${request.invoiceNumber || 'n/a'}, Amount: ${expectedSettlementAmount}`,
+      };
+    }
 
     // -------------------------------------------------------------
     // 5. AMBIGUOUS MATCH CHECK
     // -------------------------------------------------------------
-    if (effectiveMatches.length > 1) {
+    // Historical VendTrans rows can contain both settled copies and one current
+    // open transaction for the same vendor/document/invoice/amount. Prefer the
+    // single open candidate when it is available; open/closed state must not
+    // reject an otherwise valid settlement request.
+    const openAmountMatches = amountMatches.filter(
+      (candidate) => candidate.isOpen === true,
+    );
+    const resolvedAmountMatches =
+      amountMatches.length > 1 && openAmountMatches.length === 1
+        ? openAmountMatches
+        : amountMatches;
+
+    if (resolvedAmountMatches.length > 1) {
       this.logger.error(
-        `[VERIFY] AMBIGUOUS_MATCH: Found ${effectiveMatches.length} matching D365 vendor transactions for Vendor ${request.vendorAccount}, Document ${request.documentNumber}, Invoice ${request.invoiceNumber}. Posting was stopped to prevent incorrect settlement.`,
+        `[VERIFY] AMBIGUOUS_MATCH: Found ${amountMatches.length} matching D365 vendor transactions for Vendor ${request.vendorAccount}, Document ${request.documentNumber}, Invoice ${request.invoiceNumber}, Amount ${expectedSettlementAmount}. Posting was stopped to prevent incorrect settlement.`,
       );
       return {
         status: VendorInvoiceMatchStatus.AMBIGUOUS_MATCH,
         candidateCount,
         reason: `Multiple D365 vendor transactions matched: Vendor, Document, Invoice. Posting was stopped to prevent incorrect settlement.`,
+        candidateDocuments: resolvedAmountMatches
+          .map((candidate) => candidate.documentNumber)
+          .filter(Boolean),
       };
     }
 
     // -------------------------------------------------------------
     // MATCHED
     // -------------------------------------------------------------
-    const matched = effectiveMatches[0];
-    if (amountMatches.length === 0) {
-      this.logger.warn(
-        `[VERIFY] AMOUNT_MISMATCH_ACCEPTED: Vendor ${request.vendorAccount}, document ${request.documentNumber || 'n/a'}, and invoice ${request.invoiceNumber || 'n/a'} matched. Expected settlement amount ${expectedSettlementAmount} (Net: ${amounts.netPaymentAmount} + WHT: ${amounts.withholdingAmount}) differed from candidate open/original amounts (${matched.openAmount}/${matched.originalAmount}), but accepted per policy.`,
-      );
-    } else {
-      this.logger.log(
-        `[VERIFY] MATCHED: Exact D365 vendor transaction verified for Vendor ${request.vendorAccount}, Document ${request.documentNumber || 'n/a'}, Invoice ${request.invoiceNumber || 'n/a'}, Settlement ${expectedSettlementAmount} (Voucher: ${matched.voucher || matched.sourceKey || 'n/a'}).`,
-      );
-    }
+    const matched = resolvedAmountMatches[0];
+    this.logger.log(
+      `[VERIFY] MATCHED: Exact D365 vendor transaction verified for Vendor ${request.vendorAccount}, Document ${request.documentNumber || 'n/a'}, Invoice ${request.invoiceNumber || 'n/a'}, Settlement ${expectedSettlementAmount} (Voucher: ${matched.voucher || matched.sourceKey || 'n/a'}).`,
+    );
 
     return {
       status: VendorInvoiceMatchStatus.MATCHED,
       matchedTransaction: matched,
       candidateCount,
+      matchStrategy: hasDocument
+        ? VendorInvoiceMatchStrategy.VENDOR_INVOICE_DOCUMENT_AMOUNT
+        : VendorInvoiceMatchStrategy.VENDOR_INVOICE_AMOUNT,
     };
   }
 }

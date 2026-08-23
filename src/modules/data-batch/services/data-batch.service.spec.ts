@@ -112,6 +112,17 @@ function createService(options?: {
 }
 
 describe(DataBatchService.name, () => {
+  it('does not let a stale queue retry cancel an already finalized batch', async () => {
+    const harness = createService();
+
+    await harness.service.markProcessingImportFailedAsync(
+      'batch-1',
+      'stale retry',
+    );
+
+    expect(harness.dataBatchRepo.updateOne).not.toHaveBeenCalled();
+  });
+
   it('stores pre-format errors by source location for the existing error page', async () => {
     const harness = createService();
     const errors = [

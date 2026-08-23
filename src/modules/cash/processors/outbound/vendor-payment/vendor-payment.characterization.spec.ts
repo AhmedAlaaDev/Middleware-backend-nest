@@ -1,4 +1,5 @@
 import { VendorPaymentMarkingResult } from './models/vendor-payment-marking-result';
+import { VendorInvoiceMatchStatus } from './models/vendor-invoice-match-result';
 import { classifyVendorPaymentLines } from './policies/vendor-payment-line.policy';
 import { resolveVendorPaymentMarking } from './policies/vendor-payment-marked-lines.policy';
 import { VendorPaymentBuilder } from './vendor-payment.builder';
@@ -199,6 +200,31 @@ describe('Vendor Payment Marked Lines Policy', () => {
     expect(result.markedInvoice).toBe('');
   });
 
+  it('does not derive an invoice from Document when the source invoice is blank', () => {
+    const vendorLine = rawLine({
+      DEBITAMOUNT: 1000,
+      INVOICE: '',
+      DOCUMENT: 'DOC-ONLY',
+      MARKEDINVOICE: '',
+    });
+    const offsetLine = rawLine({
+      CREDITAMOUNT: 1000,
+      INVOICE: '',
+      DOCUMENT: 'DOC-OFFSET-ONLY',
+      MARKEDINVOICE: '',
+    });
+
+    const result = resolveVendorPaymentMarking({
+      settlements: [{ vendorLine }],
+      offsetLine,
+      vendorGroup: 'Normal',
+    });
+
+    expect(result.shouldMark).toBe(false);
+    expect(result.markedInvoice).toBe('');
+    expect(result.markedLines).toEqual([]);
+  });
+
   it('custody vendor uses DocumentNumber instead of InvoiceNumber', () => {
     const vendorLine = rawLine({
       DEBITAMOUNT: 1000,
@@ -226,7 +252,7 @@ describe('Vendor Payment Semantic Validation', () => {
         {
           InvoiceNumber: 'INV-1',
           OperationNumber: '',
-          DocumentNumber: '',
+          DocumentNumber: 'DOC',
           HasWithHoldingLine: false,
         },
       ],
@@ -263,7 +289,7 @@ describe('Vendor Payment Semantic Validation', () => {
         {
           InvoiceNumber: 'INV-MISSING',
           OperationNumber: '',
-          DocumentNumber: '',
+          DocumentNumber: 'DOC',
           HasWithHoldingLine: false,
         },
       ],
@@ -301,7 +327,7 @@ describe('Vendor Payment Semantic Validation', () => {
         {
           InvoiceNumber: 'INV-WRONG',
           OperationNumber: '',
-          DocumentNumber: '',
+          DocumentNumber: 'DOC',
           HasWithHoldingLine: false,
         },
       ],
@@ -331,6 +357,95 @@ describe('Vendor Payment Semantic Validation', () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('does not belong');
+  });
+
+  it('rejects a marked line whose document number is empty', () => {
+    const marking = VendorPaymentMarkingResult.marked({
+      markedLines: [
+        {
+          InvoiceNumber: 'INV-1',
+          OperationNumber: '',
+          DocumentNumber: '',
+          HasWithHoldingLine: false,
+        },
+      ],
+      markedInvoice: 'INV-1',
+      documentNum: 'TOP-LEVEL-DOC-MUST-NOT-BE-USED',
+      reason: 'test',
+    });
+
+    const errors = validateVendorPaymentSemantics({
+      markingResult: marking,
+      vendorAccount: 'VEND-001',
+      documentNumber: 'TOP-LEVEL-DOC-MUST-NOT-BE-USED',
+      invoiceLookup: () => {
+        throw new Error('lookup must not run for an incomplete marked line');
+      },
+    });
+
+    expect(errors).toEqual([
+      expect.objectContaining({
+        field: 'DocumentNumber',
+        message: expect.stringContaining(
+          'MarkedLines document number is required',
+        ),
+      }),
+    ]);
+  });
+
+  it('verifies every MarkedLines item using its own invoice and document', () => {
+    const marking = VendorPaymentMarkingResult.marked({
+      markedLines: [
+        {
+          InvoiceNumber: 'INV-1',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-1',
+          HasWithHoldingLine: false,
+        },
+        {
+          InvoiceNumber: 'INV-2',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-2',
+          HasWithHoldingLine: false,
+        },
+      ],
+      markedInvoice: 'TOP-LEVEL-INVOICE-MUST-NOT-BE-USED',
+      documentNum: 'TOP-LEVEL-DOC-MUST-NOT-BE-USED',
+      reason: 'test',
+    });
+    const verify = jest.fn().mockReturnValue({
+      status: VendorInvoiceMatchStatus.MATCHED,
+      matchedTransaction: { isOpen: true },
+    });
+
+    const errors = validateVendorPaymentSemantics({
+      markingResult: marking,
+      vendorAccount: 'VEND-001',
+      netPaymentAmount: 100,
+      currencyCode: 'EGP',
+      invoiceLookup: (invoice) =>
+        ({
+          company: 'm-p',
+          invoice,
+          vendorAccount: 'VEND-001',
+          exists: true,
+          belongsToVendor: true,
+          candidateTransactions: [],
+        }) as any,
+      verificationService: { verify } as any,
+    });
+
+    expect(errors).toEqual([]);
+    expect(verify.mock.calls.map(([request]) => request)).toEqual([
+      expect.objectContaining({
+        invoiceNumber: 'INV-1',
+        documentNumber: 'DOC-1',
+      }),
+      expect.objectContaining({
+        invoiceNumber: 'INV-2',
+        documentNumber: 'DOC-2',
+      }),
+    ]);
   });
 
   it('skips lookup check for unmarked result', () => {

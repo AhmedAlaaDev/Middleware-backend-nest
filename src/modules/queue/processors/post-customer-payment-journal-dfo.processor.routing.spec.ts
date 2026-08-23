@@ -235,7 +235,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(legacyStrategy.postHeadersInBatches).not.toHaveBeenCalled();
   });
 
-  it('restores each route context in reverse order during rollback', async () => {
+  it('keeps persisted cash-out headers when a later route fails', async () => {
     const groups = [makeGroup(apRoute, 1), makeGroup(glRoute, 2)];
     const { processor, job, cashStrategy, rollback } = buildProcessor(groups);
     cashStrategy.postLinesForHeader
@@ -248,16 +248,8 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
 
     expect(
       cashStrategy.setRouteContext.mock.calls.map((call) => call[0]),
-    ).toEqual([apRoute, glRoute, glRoute, apRoute]);
-    expect(rollback.rollbackAll).toHaveBeenCalledTimes(2);
-    expect(rollback.rollbackAll.mock.calls[0][1][0]).toMatchObject({
-      headerKey: 'D365-RET-002',
-      route: glRoute,
-    });
-    expect(rollback.rollbackAll.mock.calls[1][1][0]).toMatchObject({
-      headerKey: 'D365-RET-001',
-      route: apRoute,
-    });
+    ).toEqual([apRoute, glRoute]);
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
   });
 
   it('reuses a persisted header on recovery without creating a second header', async () => {
@@ -321,13 +313,11 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
   });
 
-  it('rolls back a header completed by an earlier attempt if a later route fails', async () => {
+  it('retains a completed header and the current persisted header when a later route fails', async () => {
     const completedAp = makeGroup(apRoute, 1);
     const pendingGl = makeGroup(glRoute, 1);
-    const { processor, job, cashStrategy, rollback, jobs } = buildProcessor([
-      completedAp,
-      pendingGl,
-    ]);
+    const { processor, job, cashStrategy, rollback, jobs, batches } =
+      buildProcessor([completedAp, pendingGl]);
     jobs.listGroups.mockResolvedValue([
       {
         index: 0,
@@ -353,15 +343,11 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       'GL line failed',
     );
 
-    expect(rollback.rollbackAll).toHaveBeenCalledTimes(2);
-    expect(rollback.rollbackAll.mock.calls[0][1][0]).toMatchObject({
-      headerKey: 'D365-NEW-GL',
-      route: glRoute,
-    });
-    expect(rollback.rollbackAll.mock.calls[1][1][0]).toMatchObject({
-      headerKey: 'D365-COMPLETED-AP',
-      route: apRoute,
-    });
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
+      'D365-COMPLETED-AP',
+      'D365-NEW-GL',
+    ]);
   });
 
   it('posts nothing when the batch is paused before the first journal', async () => {

@@ -189,7 +189,7 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(groups[2].lines[0].cashDirection).toBe('in');
   });
 
-  it('keeps legacy Custody Issue rows postable through the GL CashOut route', async () => {
+  it('routes legacy Custody Issue rows through the AP Vendor Payment journal', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,
       [

@@ -1,7 +1,24 @@
 import {
   findInvalidCashBankAccountDimensionValue,
+  normalizeCashCompositeDisplayValue,
   sanitizeCashBankAccountDimension,
 } from './cash-dimension.policy';
+
+describe('normalizeCashCompositeDisplayValue', () => {
+  it('removes whitespace from internal dimension segments', () => {
+    expect(
+      normalizeCashCompositeDisplayValue(
+        '124101|1602|016|001|003|201000283 |201000283 |3098',
+      ),
+    ).toBe('124101|1602|016|001|003|201000283|201000283|3098');
+  });
+
+  it('preserves spaces inside a plain account name', () => {
+    expect(normalizeCashCompositeDisplayValue(' ALEXHO EG ')).toBe(
+      'ALEXHO EG',
+    );
+  });
+});
 
 describe('findInvalidCashBankAccountDimensionValue', () => {
   it('flags a bankAccount segment that duplicates the main account', () => {

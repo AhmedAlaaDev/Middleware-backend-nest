@@ -4,9 +4,9 @@ import { firstCashFinancialTag } from '@/modules/cash/policies/cash-invoice.poli
 
 /**
  * Matches a withholding line to a vendor debit line.
- * Preserves the existing matching precedence:
- * 1. By invoice (when possible)
- * 2. By Document + Currency + Operation (fallback)
+ * Matching precedence is invoice-specific first. A UniqueId can contain many
+ * invoices, so using it before invoice would assign the same withholding line
+ * to every invoice in the payment group.
  */
 export function findVendorPaymentWithholdingLine(
   vendorLine: CashEntryRawDataModel,
@@ -14,27 +14,7 @@ export function findVendorPaymentWithholdingLine(
 ): CashEntryRawDataModel | undefined {
   if (withholdingLines.length === 0) return undefined;
 
-  // 1. Match by UniqueId (if both have UniqueId)
-  if (vendorLine.UniqueId) {
-    const uMatch = withholdingLines.find(
-      (line) =>
-        String(line.UniqueId ?? '').trim() ===
-        String(vendorLine.UniqueId ?? '').trim(),
-    );
-    if (uMatch) return uMatch;
-  }
-
-  // 2. Match by VOUCHER (if both have VOUCHER)
-  if (vendorLine.VOUCHER) {
-    const vMatch = withholdingLines.find(
-      (line) =>
-        String(line.VOUCHER ?? '').trim() ===
-        String(vendorLine.VOUCHER ?? '').trim(),
-    );
-    if (vMatch) return vMatch;
-  }
-
-  // 3. Match by invoice (when possible)
+  // 1. Match by invoice (when possible)
   const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
   if (invoice) {
     const invoiceMatch = withholdingLines.find(
@@ -43,15 +23,39 @@ export function findVendorPaymentWithholdingLine(
     if (invoiceMatch) return invoiceMatch;
   }
 
-  // 4. Match by Document + Currency + Operation (fallback)
+  // 2. Match by Document + Currency + Operation.
   const operation = firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
-  return withholdingLines.find(
-    (line) =>
-      String(line.DOCUMENT ?? '').trim() ===
-        String(vendorLine.DOCUMENT ?? '').trim() &&
-      line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
-      firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
-  );
+  const operationMatch = operation
+    ? withholdingLines.find(
+        (line) =>
+          String(line.DOCUMENT ?? '').trim() ===
+            String(vendorLine.DOCUMENT ?? '').trim() &&
+          line.CURRENCYCODE === vendorLine.CURRENCYCODE &&
+          firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+      )
+    : undefined;
+  if (operationMatch) return operationMatch;
+
+  // 3. UniqueId/VOUCHER are last-resort fallbacks only when an invoice- or
+  // operation-specific withholding row is unavailable.
+  if (vendorLine.UniqueId) {
+    const uniqueIdMatch = withholdingLines.find(
+      (line) =>
+        String(line.UniqueId ?? '').trim() ===
+        String(vendorLine.UniqueId ?? '').trim(),
+    );
+    if (uniqueIdMatch) return uniqueIdMatch;
+  }
+
+  if (vendorLine.VOUCHER) {
+    return withholdingLines.find(
+      (line) =>
+        String(line.VOUCHER ?? '').trim() ===
+        String(vendorLine.VOUCHER ?? '').trim(),
+    );
+  }
+
+  return undefined;
 }
 
 /**

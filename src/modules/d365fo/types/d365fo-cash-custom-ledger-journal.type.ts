@@ -55,7 +55,8 @@ export interface TSLedgerJournalTransCustomRequestBody {
   IsWithholdingTaxCalculate?: string;
   ISWITHHOLDINGTAXCALCULATE?: string;
   MARKEDINVOICE?: string | null;
-  MarkedLines?: TSLedgerJournalMarkedLine[];
+  /** Always present; empty means an explicitly unmarked payment. */
+  MarkedLines: TSLedgerJournalMarkedLine[];
   VendorGroup?: string;
 
   offsetAccountDisplayValue?: string;

@@ -1,13 +1,25 @@
 import { VendorPaymentMarkingResult } from '../models/vendor-payment-marking-result';
+
 import { isVendorPaymentWithholdingEnabled } from './vendor-payment-withholding.policy';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { sanitizeCashOutboundInvoice } from '@/modules/cash/policies/cash-account.policy';
+import { resolveCashOutboundInvoice } from '@/modules/cash/policies/cash-account.policy';
 import { firstCashFinancialTag } from '@/modules/cash/policies/cash-invoice.policy';
 
 export interface VendorPaymentSettlement {
   vendorLine: CashEntryRawDataModel;
   withholdingLine?: CashEntryRawDataModel;
+}
+
+function invoiceForD365Posting(vendorLine: CashEntryRawDataModel): string {
+  const exactD365Invoice = String(vendorLine.ResolvedD365InvoiceNumber ?? '');
+  if (resolveCashOutboundInvoice(exactD365Invoice)) {
+    return exactD365Invoice;
+  }
+  return resolveCashOutboundInvoice(
+    vendorLine.MARKEDINVOICE,
+    vendorLine.INVOICE,
+  );
 }
 
 /**
@@ -30,14 +42,10 @@ export function resolveVendorPaymentMarking(options: {
     });
   }
 
-  const rawInvoice =
-    primaryVendorLine.MARKEDINVOICE ||
-    offsetLine.MARKEDINVOICE ||
-    primaryVendorLine.INVOICE ||
-    offsetLine.INVOICE ||
-    primaryVendorLine.DOCUMENT ||
-    offsetLine.DOCUMENT;
-  const sanitizedInvoice = sanitizeCashOutboundInvoice(rawInvoice);
+  const sanitizedInvoice = resolveCashOutboundInvoice(
+    primaryVendorLine.MARKEDINVOICE,
+    primaryVendorLine.INVOICE,
+  );
   const documentNum = String(primaryVendorLine.DOCUMENT ?? '').trim();
 
   if (!sanitizedInvoice) {
@@ -47,12 +55,25 @@ export function resolveVendorPaymentMarking(options: {
     });
   }
 
+  if (
+    !isCustody &&
+    settlements.some(
+      ({ vendorLine }) =>
+        !resolveCashOutboundInvoice(
+          vendorLine.MARKEDINVOICE,
+          vendorLine.INVOICE,
+        ) || !String(vendorLine.DOCUMENT ?? '').trim(),
+    )
+  ) {
+    return VendorPaymentMarkingResult.unmarked({
+      documentNum,
+      reason:
+        'vendor settlement requires invoice and document on every marked line',
+    });
+  }
+
   const markedLines = settlements.map(({ vendorLine, withholdingLine }) => ({
-    InvoiceNumber: isCustody
-      ? ''
-      : sanitizeCashOutboundInvoice(
-          vendorLine.MARKEDINVOICE || vendorLine.INVOICE || vendorLine.DOCUMENT,
-        ),
+    InvoiceNumber: isCustody ? '' : invoiceForD365Posting(vendorLine),
     OperationNumber: firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE),
     // D365 settlement can require the source document even for non-custody
     // vendor payments; do not suppress it when an invoice is also present.

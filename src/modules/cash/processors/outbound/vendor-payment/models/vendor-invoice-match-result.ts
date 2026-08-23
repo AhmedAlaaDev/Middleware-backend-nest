@@ -7,6 +7,14 @@ export enum VendorInvoiceMatchStatus {
   AMBIGUOUS_MATCH = 'AMBIGUOUS_MATCH',
 }
 
+export enum VendorInvoiceMatchStrategy {
+  TRANSACTION_ID = 'transaction-id',
+  VENDOR_INVOICE_DOCUMENT_AMOUNT = 'vendor-invoice-document-amount',
+  VENDOR_INVOICE_DOCUMENT = 'vendor-invoice-document',
+  VENDOR_INVOICE_AMOUNT = 'vendor-invoice-amount',
+  VENDOR_INVOICE_UNIQUE = 'vendor-invoice-unique',
+}
+
 export interface VendorPaymentAmounts {
   grossInvoiceAmount: number;
   netPaymentAmount: number;
@@ -26,6 +34,9 @@ export interface VendorCandidateTransaction {
   isOpen?: boolean;
   transDate?: string;
   lastSettleVoucher?: string;
+  transactionId?: string;
+  recId?: string;
+  transactionDate?: string;
 }
 
 export interface VendorInvoiceVerificationRequest {
@@ -38,11 +49,19 @@ export interface VendorInvoiceVerificationRequest {
   withholdingAmount: number;
   currencyCode: string;
   allowPartialPayment?: boolean;
+  /**
+   * Vendor Payment source rows can contain a grouped payment total that is not
+   * the amount of each marked invoice. In that flow, validate the D365 identity
+   * (vendor/document/invoice) and let D365 apply the requested marked lines.
+   */
+  skipAmountValidation?: boolean;
+  transactionId?: string;
 }
 
 export interface VendorInvoiceMatchResult {
   status: VendorInvoiceMatchStatus;
   matchedTransaction?: VendorCandidateTransaction;
+  matchStrategy?: VendorInvoiceMatchStrategy;
   candidateCount: {
     initial: number;
     vendor: number;
@@ -51,4 +70,5 @@ export interface VendorInvoiceMatchResult {
     amount: number;
   };
   reason?: string;
+  candidateDocuments?: string[];
 }

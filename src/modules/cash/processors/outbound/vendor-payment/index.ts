@@ -21,6 +21,11 @@ export {
   isVendorPaymentWithholdingEnabled,
 } from './policies/vendor-payment-withholding.policy';
 export { resolveVendorPaymentOffset } from './policies/vendor-payment-offset.policy';
+export { groupVendorPaymentValidationLines } from './policies/vendor-payment-validation-group.policy';
+export {
+  aggregateVendorPaymentInvoiceLine,
+  groupVendorPaymentSettlementsByInvoice,
+} from './policies/vendor-payment-settlement-group.policy';
 export { VendorInvoiceVerificationService } from './services/vendor-invoice-verification.service';
 export {
   VendorInvoiceMatchStatus,

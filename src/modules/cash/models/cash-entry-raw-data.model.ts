@@ -34,6 +34,8 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   IsVendorPayment: boolean;
   IsCustodyVendor: boolean;
   VendorGroup: string;
+  /** Exact invoice identity returned by D365; posting may require its whitespace. */
+  ResolvedD365InvoiceNumber: string;
 
   constructor(
     data: EntryRawDataModel,
@@ -82,6 +84,9 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.IsVendorPayment = this.compare(this.SafeType, 'Vendor Payment');
     this.IsCustodyVendor = false;
     this.VendorGroup = s((data as any)?.VendorGroup);
+    this.ResolvedD365InvoiceNumber = String(
+      (data as any)?.ResolvedD365InvoiceNumber ?? '',
+    );
   }
 
   private normalizeSafeType(

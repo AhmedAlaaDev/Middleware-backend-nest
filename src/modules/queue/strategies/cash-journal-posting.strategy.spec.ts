@@ -22,6 +22,26 @@ describe('CashJournalPostingStrategy', () => {
     lineDirection: 'out',
   };
 
+  const custodySettlementRoute: CashJournalRoute = {
+    kind: 'vendor-invoice',
+    module: 'AP',
+    safeType: 'Custody Settlement',
+    targetProcessor: 'Freight',
+    journalName: 'P-Freight',
+    headerApi: 'VendorPaymentJournalHeaders',
+    lineDirection: 'out',
+  };
+
+  const custodyIssueRoute: CashJournalRoute = {
+    kind: 'vendor-invoice',
+    module: 'AP',
+    safeType: 'Custody Issue',
+    targetProcessor: 'Fleet',
+    journalName: 'P-Fleet',
+    headerApi: 'VendorPaymentJournalHeaders',
+    lineDirection: 'out',
+  };
+
   const arRoute: CashJournalRoute = {
     kind: 'customer-payment',
     module: 'AR',
@@ -92,6 +112,12 @@ describe('CashJournalPostingStrategy', () => {
       expectedBatch: 'AP-0001',
     },
     {
+      name: 'Custody Issue AP Vendor Payment',
+      route: custodyIssueRoute,
+      activeStrategy: 'vendorPaymentStrategy' as const,
+      expectedBatch: 'AP-0001',
+    },
+    {
       name: 'GL',
       route: glRoute,
       activeStrategy: 'ledgerStrategy' as const,
@@ -140,6 +166,13 @@ describe('CashJournalPostingStrategy', () => {
     {
       name: 'AP',
       route: apRoute,
+      lineMethod: 'postCashOutLinesForHeader' as const,
+      activeStrategy: 'vendorPaymentStrategy' as const,
+      existingLineNumber: 11,
+    },
+    {
+      name: 'Custody Issue AP Vendor Payment',
+      route: custodyIssueRoute,
       lineMethod: 'postCashOutLinesForHeader' as const,
       activeStrategy: 'vendorPaymentStrategy' as const,
       existingLineNumber: 11,
@@ -232,6 +265,167 @@ describe('CashJournalPostingStrategy', () => {
     expect(
       customerPaymentStrategy.setHeaderCashDirectionContext,
     ).toHaveBeenCalledWith('in');
+  });
+
+  it('targets a Custody Settlement credit by document and operation without copying the supplier invoice', async () => {
+    const harness = buildStrategy();
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 527,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: '5025',
+          accountTypeStr: 'Vendor',
+          debitAmount: 0,
+          creditAmount: 15000,
+          DocumentNum: '20432',
+          FinTagStr: 'O26-IMP-OC-3344|OTHER',
+          MarkedLines: [
+            {
+              InvoiceNumber: '920262100001342781',
+              OperationNumber: 'O26-IMP-OC-3344',
+              DocumentNumber: '20432',
+              HasWithHoldingLine: false,
+            },
+          ],
+        },
+      },
+    ];
+
+    harness.strategy.setRouteContext(custodySettlementRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015027',
+      lines,
+      'm-p',
+      20,
+    );
+
+    const postedLines =
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .calls[0][1];
+    expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '',
+        OperationNumber: 'O26-IMP-OC-3344',
+        DocumentNumber: '20432',
+        HasWithHoldingLine: false,
+      },
+    ]);
+  });
+
+  it('normalizes internal whitespace in an already queued composite ledger account', async () => {
+    const harness = buildStrategy();
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 215,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum:
+            '124101|1602|016|001|003|201000283 |201000283 |3098|3098',
+          accountTypeStr: 'Ledger',
+          debitAmount: 14180,
+          creditAmount: 0,
+          DEFAULTDIMENSIONDISPLAYVALUE:
+            '1602|016|001|003|201000283 |201000283 |3098|3098',
+          offsetAccountDisplayValue: '',
+          offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+          MarkedLines: [],
+        },
+      },
+    ];
+
+    harness.strategy.setRouteContext(custodySettlementRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015139',
+      lines,
+      'm-p',
+      20,
+    );
+
+    const postedBody =
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .calls[0][1][0].customLineApiBody;
+    expect(postedBody.AccountNum).toBe(
+      '124101|1602|016|001|003|201000283|201000283|3098|3098',
+    );
+    expect(postedBody.DEFAULTDIMENSIONDISPLAYVALUE).toBe(
+      '1602|016|001|003|201000283|201000283|3098|3098',
+    );
+  });
+
+  it('normalizes an already queued Vendor Payment withholding offset account', async () => {
+    const harness = buildStrategy();
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 23,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Su-000068',
+          accountTypeStr: 'Vendor',
+          debitAmount: 150,
+          creditAmount: 0,
+          offsetAccountDisplayValue:
+            '223304|1101|011|001|004|201000282 |201000282 |Su-000068',
+          offsetDEFAULTDIMENSIONDISPLAYVALUE:
+            '1101|011|001|004|201000282 |201000282 |Su-000068',
+          MarkedLines: [],
+        },
+      },
+    ];
+
+    harness.strategy.setRouteContext(apRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015021',
+      lines,
+      'm-p',
+      20,
+    );
+
+    const postedBody =
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .calls[0][1][0].customLineApiBody;
+    expect(postedBody.offsetAccountDisplayValue).toBe(
+      '223304|1101|011|001|004|201000282|201000282|Su-000068',
+    );
+    expect(postedBody.offsetDEFAULTDIMENSIONDISPLAYVALUE).toBe(
+      '1101|011|001|004|201000282|201000282|Su-000068',
+    );
+  });
+
+  it('rejects a Custody Settlement vendor credit instead of sending empty MarkedLines', async () => {
+    const harness = buildStrategy();
+    harness.strategy.setRouteContext(custodySettlementRoute);
+
+    expect(() =>
+      harness.strategy.postLinesForHeader(
+        'Mesco-000015139',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 216,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: '3098',
+              accountTypeStr: 'Vendor',
+              debitAmount: 0,
+              creditAmount: 10000,
+              DocumentNum: '',
+              FinTagStr: 'O26-EXP-OC-5044|OTHER',
+              MarkedLines: [],
+            },
+          },
+        ],
+        'm-p',
+        20,
+      ),
+    ).toThrow('cannot be posted without DocumentNumber');
   });
 
   it('returns the generated JournalBatchNumber without changing it', () => {

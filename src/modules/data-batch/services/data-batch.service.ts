@@ -269,7 +269,12 @@ export class DataBatchService {
       );
     }
 
-    await this.persistMissingMasterData(batchId, companyId, entryProcessorType, dynData);
+    await this.persistMissingMasterData(
+      batchId,
+      companyId,
+      entryProcessorType,
+      dynData,
+    );
 
     await this.dataBatchRepo.updateOne(batchId, {
       successCount,
@@ -293,11 +298,20 @@ export class DataBatchService {
     batchId: string,
     message: string,
   ): Promise<void> {
+    const batch = await this.requireBatch(batchId);
+    if (batch.status !== DataBatchStatus.Processing) {
+      this.logger.warn(
+        `Ignoring stale import failure for batch ${batchId}; current status=${batch.status}`,
+      );
+      return;
+    }
     await this.dataBatchRepo.updateOne(batchId, {
       status: DataBatchStatus.Canceled,
       lastReprocessError: message,
     });
-    this.logger.error(`Processing batch import failed: id=${batchId} ${message}`);
+    this.logger.error(
+      `Processing batch import failed: id=${batchId} ${message}`,
+    );
   }
 
   public async processDeferredImportAsync(
@@ -314,10 +328,14 @@ export class DataBatchService {
     const sourceRecords = await this.getSourceRecordsAsync(batchId);
     const rawData = sourceRecords.map((record) => record.data);
     if (rawData.length === 0) {
-      throw new ConflictException(`Batch ${batchId} has no source records to import`);
+      throw new ConflictException(
+        `Batch ${batchId} has no source records to import`,
+      );
     }
 
-    const processor = this.processorFactory.getProcessor(batch.entryProcessorType);
+    const processor = this.processorFactory.getProcessor(
+      batch.entryProcessorType,
+    );
 
     let enriched;
     try {
@@ -336,10 +354,14 @@ export class DataBatchService {
     }
 
     const validated = await processor.validateAsync(enriched, batch.company);
-    const metadata = (enriched as { metadata?: {
-      withholdingRemovedCount?: number;
-      withholdingRemovedAmount?: number;
-    } }).metadata;
+    const metadata = (
+      enriched as {
+        metadata?: {
+          withholdingRemovedCount?: number;
+          withholdingRemovedAmount?: number;
+        };
+      }
+    ).metadata;
 
     await this.finalizeProcessingSuccessAsync(
       batchId,
@@ -353,14 +375,15 @@ export class DataBatchService {
     );
 
     if (voucherNumberSettingLogicalName) {
-      this.updateBatchSettingsAsync(validated, voucherNumberSettingLogicalName).catch(
-        (settingsError: Error) => {
-          this.logger.error(
-            `Failed to update batch settings for ${batchId}: ${settingsError.message}`,
-            settingsError.stack,
-          );
-        },
-      );
+      this.updateBatchSettingsAsync(
+        validated,
+        voucherNumberSettingLogicalName,
+      ).catch((settingsError: Error) => {
+        this.logger.error(
+          `Failed to update batch settings for ${batchId}: ${settingsError.message}`,
+          settingsError.stack,
+        );
+      });
     }
   }
 

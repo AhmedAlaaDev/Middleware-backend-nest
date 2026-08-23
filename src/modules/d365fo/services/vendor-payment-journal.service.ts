@@ -349,4 +349,39 @@ export class VendorPaymentJournalService {
       },
     );
   }
+
+  /**
+   * Preserve a D365-accepted vendor payment line that could not be marked for
+   * settlement, while making its unmarked state explicit to Finance users.
+   */
+  public async updateLineDescription(
+    journalBatchNumber: string,
+    lineNumber: number,
+    dataAreaId: string,
+    transactionText: string,
+  ): Promise<unknown> {
+    const endpoint = `/data/VendorPaymentJournalLines(dataAreaId='${dataAreaId}',JournalBatchNumber='${journalBatchNumber}',LineNumber=${lineNumber})?cross-company=true`;
+    const body = { TransactionText: transactionText.trim() };
+
+    return this.retryService.executeWithRetry(
+      async () =>
+        this.d365foClient.patch<typeof body, unknown>(endpoint, body, {
+          headers: { 'If-Match': '*' },
+        }),
+      {
+        retries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryCondition: (error: unknown) => {
+          if (!(error as any)?.response) return true;
+          const status = (error as any).response?.status;
+          if (status && status >= 500) return true;
+          return (
+            this.dfoErrorExtractor.normalize(error).isConcurrencyConflict ===
+            true
+          );
+        },
+      },
+    );
+  }
 }

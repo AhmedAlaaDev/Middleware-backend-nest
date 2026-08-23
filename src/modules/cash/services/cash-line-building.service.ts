@@ -33,30 +33,19 @@ export function buildCashInvoiceLines(options: {
 }
 
 /**
- * Dispatches one grouped cash invoice to the correct builder.
- * This service owns only routing; the existing line-building implementations
- * remain unchanged behind callbacks.
+ * Dispatches one grouped cash invoice by direction. Cash-Out feature routing
+ * is owned by its single builder facade.
  */
 export function buildCashLines(options: {
   sourceId: string;
   lines: CashEntryRawDataModel[];
   inbound: boolean;
   exchangeRateContext?: CashOutExchangeRateContext;
-  buildVendorPayment: (
+  buildOutbound: (
     sourceId: string,
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ) => CashEntryDynDataModel[];
-  buildCustodySettlement?: (
-    sourceId: string,
-    lines: CashEntryRawDataModel[],
-    exchangeRateContext?: CashOutExchangeRateContext,
-  ) => CashEntryDynDataModel[];
-  buildSourceOutbound: (
-    sourceId: string,
-    line: CashEntryRawDataModel,
-    exchangeRateContext?: CashOutExchangeRateContext,
-  ) => CashEntryDynDataModel;
   buildTwoLines: (
     sourceId: string,
     lines: CashEntryRawDataModel[],
@@ -73,24 +62,13 @@ export function buildCashLines(options: {
     lines,
     inbound,
     exchangeRateContext,
-    buildVendorPayment,
-    buildCustodySettlement,
-    buildSourceOutbound,
+    buildOutbound,
     buildTwoLines,
     buildManyLines,
   } = options;
 
   if (!inbound) {
-    const safeTypes = new Set(lines.map((line) => line.SafeType));
-    if (safeTypes.size === 1 && lines[0]?.IsVendorPayment) {
-      return buildVendorPayment(sourceId, lines, exchangeRateContext);
-    }
-    if (lines.some((line) => line.IsCustodySettlement) && buildCustodySettlement) {
-      return buildCustodySettlement(sourceId, lines, exchangeRateContext);
-    }
-    return lines.map((line) =>
-      buildSourceOutbound(sourceId, line, exchangeRateContext),
-    );
+    return buildOutbound(sourceId, lines, exchangeRateContext);
   }
 
   return lines.length === 2

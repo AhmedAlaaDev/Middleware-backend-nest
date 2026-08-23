@@ -58,6 +58,7 @@ async function bootstrap() {
             ISPREPAYMENT: 'No',
             ITEMWITHHOLDINGTAXGROUP: '',
             MARKEDINVOICE: '',
+            MarkedLines: [],
             offsetAccountDisplayValue: String(
               row['OFFSETACCOUNTDISPLAYVALUE'] || '',
             ),

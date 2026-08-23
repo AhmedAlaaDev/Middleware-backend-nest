@@ -75,3 +75,19 @@ export function sanitizeCashOutboundInvoice(invoice?: string): string {
   if (!trimmed || /^0+$/.test(trimmed)) return '';
   return trimmed;
 }
+
+/**
+ * Returns the first usable outbound invoice candidate.
+ *
+ * Each value is sanitized before selection so placeholder values such as
+ * `0` do not prevent fallback to a real invoice or document number.
+ */
+export function resolveCashOutboundInvoice(
+  ...candidates: Array<string | null | undefined>
+): string {
+  for (const candidate of candidates) {
+    const invoice = sanitizeCashOutboundInvoice(candidate ?? undefined);
+    if (invoice) return invoice;
+  }
+  return '';
+}

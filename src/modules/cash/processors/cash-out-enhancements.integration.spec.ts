@@ -101,7 +101,7 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
   );
 
   it.each(['Freight', 'Fleet'] as const)(
-    'formats OUT-JAN by SafeType and merges Vendor Payment withholding for %s',
+    'formats OUT-JAN by SafeType and splits source Vendor Payment withholding for %s',
     async (target) => {
       const rows = await loadRows('OUT-JAN.xlsx');
       const result = (await createProcessor(target).formatAndEnrichAsync(
@@ -133,8 +133,8 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
         true,
       );
       expect(
-        vendorPayments.some(
-          (line) => line.IsWithholdingCalculationEnabled === 'Yes',
+        vendorPayments.every(
+          (line) => line.IsWithholdingCalculationEnabled === 'No',
         ),
       ).toBe(true);
       expect(
@@ -143,32 +143,45 @@ describe('Cash Out enhancement workbooks - PBIs 2063/2065', () => {
             String(line.AccountDisplayValue).startsWith('223304') ||
             String(line.OffsetAccountDisplayValue).startsWith('223304'),
         ),
-      ).toBe(false);
+      ).toBe(true);
 
       const mergedWithholdingGroup = vendorPayments.filter(
         (line) => line.SourceIds[0] === '468173',
       );
-      expect(mergedWithholdingGroup).toHaveLength(1);
+      expect(mergedWithholdingGroup).toHaveLength(2);
       expect(mergedWithholdingGroup[0]).toMatchObject({
         DebitAmount: 104299,
         OffsetAccountType: 'Bank',
-        IsWithholdingCalculationEnabled: 'Yes',
+        IsWithholdingCalculationEnabled: 'No',
       });
+      expect(mergedWithholdingGroup[1]).toMatchObject({
+        DebitAmount: 923,
+        OffsetAccountType: 'Ledger',
+        IsWithholdingCalculationEnabled: 'No',
+      });
+      expect(
+        String(mergedWithholdingGroup[1].OffsetAccountDisplayValue).startsWith(
+          '223304',
+        ),
+      ).toBe(true);
 
       const multiMarkingGroup = vendorPayments.filter(
         (line) => line.SourceIds[0] === '467706',
       );
-      expect(multiMarkingGroup).toHaveLength(1);
-      expect(multiMarkingGroup[0].MarkedLines.length).toBeGreaterThan(1);
+      expect(multiMarkingGroup.length).toBeGreaterThan(1);
+      const multiMarkingPayment = multiMarkingGroup.find(
+        (line) => !String(line.OffsetAccountDisplayValue).startsWith('223304'),
+      )!;
+      expect(multiMarkingPayment.MarkedLines.length).toBeGreaterThan(1);
       expect(
         new Set(
-          multiMarkingGroup[0].MarkedLines.map(
+          multiMarkingPayment.MarkedLines.map(
             (markedLine) => markedLine.InvoiceNumber,
           ),
         ).size,
       ).toBeGreaterThan(1);
       expect(
-        multiMarkingGroup[0].MarkedLines.every(
+        multiMarkingPayment.MarkedLines.every(
           (markedLine) => markedLine.HasWithHoldingLine === true,
         ),
       ).toBe(true);

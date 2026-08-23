@@ -11,6 +11,7 @@ import {
   D365FOVendorInvoiceJournalLineRequest,
 } from '@/modules/d365fo/types';
 import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
+import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /** Max invoices per OR filter chunk (FO does not support OData `in`). */
@@ -58,10 +59,14 @@ export interface VendorPaymentSettlementVerification {
   journalBatchNumber: string;
   journalMarkedInvoice: string;
   settleVoucher: string;
+  journalLineExists: boolean;
 }
 
 type VendTransLookupRow = {
   SourceKey?: string | number;
+  RecId?: string | number;
+  TransactionId?: string | number;
+  VendTransRecId?: string | number;
   Invoice?: string;
   AccountNum?: string;
   CurrencyCode?: string;
@@ -69,9 +74,13 @@ type VendTransLookupRow = {
   AmountCur?: string | number;
   AmountMST?: string | number;
   AmountReportingCurrency?: string | number;
+  ReportingCurrencyAmount?: string | number;
   RemainAmountCur?: string | number;
   RemainAmountMST?: string | number;
   RemainAmountReportingCurrency?: string | number;
+  SettleAmountCur?: string | number;
+  SettleAmountMST?: string | number;
+  SettleAmountReporting?: string | number;
   LastSettleVoucher?: string;
   DocumentNum?: string;
   Document?: string;
@@ -127,24 +136,34 @@ export class VendorInvoiceJournalService {
 
   public async findInvoiceSettlementSnapshots(
     company: string,
-    requests: Array<{ invoice: string; vendorAccount: string }>,
+    requests: Array<{
+      invoice: string;
+      vendorAccount: string;
+      documentNumber?: string;
+    }>,
   ): Promise<Map<VendorInvoiceVendorPairKey, VendorInvoiceSettlementSnapshot>> {
     const normalizedRequests = [
       ...new Map(
         requests
-          .map(({ invoice, vendorAccount }) => ({
+          .map(({ invoice, vendorAccount, documentNumber }) => ({
             invoice: invoice?.trim(),
             vendorAccount: vendorAccount?.trim(),
+            documentNumber: documentNumber?.trim(),
           }))
           .filter(
-            (request): request is { invoice: string; vendorAccount: string } =>
-              Boolean(request.invoice) && Boolean(request.vendorAccount),
+            (
+              request,
+            ): request is {
+              invoice: string;
+              vendorAccount: string;
+              documentNumber: string | undefined;
+            } => Boolean(request.invoice) && Boolean(request.vendorAccount),
           )
           .map((request) => [
-            VendorInvoiceJournalService.pairKey(
+            `${VendorInvoiceJournalService.pairKey(
               request.invoice,
               request.vendorAccount,
-            ),
+            )}|${request.documentNumber?.toLowerCase() ?? ''}`,
             request,
           ]),
       ).values(),
@@ -156,85 +175,72 @@ export class VendorInvoiceJournalService {
     >();
     if (normalizedRequests.length === 0) return snapshots;
 
-    const rowsByInvoice = await this.fetchVendTransRowsByInvoice(
-      company,
-      normalizedRequests.map((request) => request.invoice),
-    );
-
-    const missingVendorAccounts = [
+    // Candidate retrieval follows the same hierarchy as verification:
+    // vendor first, then document, invoice, and amount. Fetching by invoice
+    // first can select another vendor's transaction and reject a valid source
+    // row before the deterministic matcher sees the vendor's own candidates.
+    const vendorAccounts = [
       ...new Set(
         normalizedRequests
-          .filter(
-            (req) =>
-              !(
-                rowsByInvoice.get(this.normalizeInvoiceValue(req.invoice))
-                  ?.length ?? 0
-              ),
-          )
-          .map((req) => req.vendorAccount),
+          .map((request) => request.vendorAccount)
+          .filter(Boolean),
       ),
     ];
-
-    const rowsByVendor =
-      missingVendorAccounts.length > 0
-        ? await this.fetchVendTransRowsByVendor(company, missingVendorAccounts)
-        : new Map<string, VendTransLookupRow[]>();
+    const rowsByVendor = normalizedRequests.every((request) =>
+      Boolean(request.documentNumber),
+    )
+      ? await this.fetchVendTransRowsByVendorAndDocument(
+          company,
+          normalizedRequests.map((request) => ({
+            vendorAccount: request.vendorAccount,
+            documentNumber: request.documentNumber!,
+          })),
+        )
+      : await this.fetchVendTransRowsByVendor(company, vendorAccounts);
 
     for (const request of normalizedRequests) {
       const vendorRows =
         rowsByVendor.get(this.normalizeVendorAccount(request.vendorAccount)) ??
         [];
-      const invoiceRows = vendorRows.filter(
-        (row) =>
-          this.normalizeInvoiceValue(row.Invoice) ===
-          this.normalizeInvoiceValue(request.invoice),
+      const invoiceRows = vendorRows.filter((row) =>
+        vendorInvoiceIdentityEquals(row.Invoice, request.invoice),
       );
-      const invoiceRowsAcrossVendors =
-        rowsByInvoice.get(this.normalizeInvoiceValue(request.invoice)) ?? [];
-      const matchingAcrossVendors = invoiceRowsAcrossVendors.filter(
-        (r) =>
-          this.normalizeVendorAccount(r.AccountNum) ===
-          this.normalizeVendorAccount(request.vendorAccount),
-      );
-      const allMatchingVendorInvoiceRows =
-        invoiceRows.length > 0 ? invoiceRows : matchingAcrossVendors;
-      const row =
-        invoiceRows[0] ?? matchingAcrossVendors[0] ?? invoiceRowsAcrossVendors[0];
+      const row = invoiceRows[0] ?? vendorRows[0];
 
-      const exists =
-        invoiceRowsAcrossVendors.length > 0 || invoiceRows.length > 0;
-      const belongsToVendor = Boolean(invoiceRows[0] || matchingAcrossVendors[0]);
+      // A snapshot now means that this vendor has candidate transactions.
+      // The verification service is responsible for narrowing those rows by
+      // document, then invoice, then amount.
+      const exists = vendorRows.length > 0;
+      const belongsToVendor = vendorRows.length > 0;
 
-      const candidateTransactions: VendorCandidateTransaction[] = (
-        allMatchingVendorInvoiceRows.length > 0
-          ? allMatchingVendorInvoiceRows
-          : invoiceRowsAcrossVendors
-      ).map((r) => {
-        const rem = this.firstDefinedNumber(
-          r.RemainAmountCur,
-          r.RemainAmountMST,
-          r.RemainAmountReportingCurrency,
-        );
-        const orig = this.firstDefinedNumber(
-          r.AmountCur,
-          r.AmountMST,
-          r.AmountReportingCurrency,
-        );
-        const isClosed = this.readNoYes(r.Closed);
-        return {
-          vendorAccount: String(r.AccountNum ?? '').trim(),
-          documentNumber: String(r.DocumentNum || r.Document || '').trim(),
-          invoiceNumber: String(r.Invoice ?? '').trim(),
-          currencyCode: String(r.CurrencyCode ?? '').trim(),
-          originalAmount: Math.abs(orig ?? 0),
-          openAmount: Math.abs(rem ?? orig ?? 0),
-          voucher: String(r.Voucher ?? '').trim(),
-          sourceKey: String(r.SourceKey ?? '').trim(),
-          isOpen: isClosed !== null ? !isClosed : (rem ?? 0) > 0,
-          transDate: String(r.TransDate ?? '').trim(),
-          lastSettleVoucher: String(r.LastSettleVoucher ?? '').trim(),
-        };
-      });
+      const candidateTransactions: VendorCandidateTransaction[] =
+        vendorRows.map((r) => {
+          const orig = this.firstDefinedNumber(
+            r.AmountCur,
+            r.AmountMST,
+            r.AmountReportingCurrency,
+            r.ReportingCurrencyAmount,
+          );
+          const rem = this.resolveRemainingAmount(r, orig);
+          const isClosed = this.readClosedState(r.Closed);
+          return {
+            vendorAccount: String(r.AccountNum ?? '').trim(),
+            documentNumber: String(r.DocumentNum || r.Document || '').trim(),
+            invoiceNumber: String(r.Invoice ?? '').trim(),
+            currencyCode: String(r.CurrencyCode ?? '').trim(),
+            originalAmount: Math.abs(orig ?? 0),
+            openAmount: Math.abs(rem ?? orig ?? 0),
+            voucher: String(r.Voucher ?? '').trim(),
+            sourceKey: String(r.SourceKey ?? '').trim(),
+            recId: String(
+              r.RecId ?? r.TransactionId ?? r.VendTransRecId ?? '',
+            ).trim(),
+            transactionId: String(r.TransactionId ?? '').trim(),
+            isOpen: isClosed !== null ? !isClosed : (rem ?? 0) > 0,
+            transDate: String(r.TransDate ?? '').trim(),
+            lastSettleVoucher: String(r.LastSettleVoucher ?? '').trim(),
+          };
+        });
 
       snapshots.set(
         VendorInvoiceJournalService.pairKey(
@@ -340,6 +346,7 @@ export class VendorInvoiceJournalService {
         journalBatchNumber,
         journalMarkedInvoice,
         settleVoucher: String(journalLine?.SettleVoucher ?? '').trim(),
+        journalLineExists: Boolean(journalLine),
       };
     });
   }
@@ -604,6 +611,103 @@ export class VendorInvoiceJournalService {
     return rowsByVendor;
   }
 
+  /**
+   * Validation normally has both vendor and document. Querying those exact
+   * pairs avoids loading each vendor's complete VendTrans history into memory.
+   */
+  private async fetchVendTransRowsByVendorAndDocument(
+    company: string,
+    targets: Array<{ vendorAccount: string; documentNumber: string }>,
+  ): Promise<Map<string, VendTransLookupRow[]>> {
+    const uniqueTargets = [
+      ...new Map(
+        targets
+          .map((target) => ({
+            vendorAccount: target.vendorAccount?.trim(),
+            documentNumber: target.documentNumber?.trim(),
+          }))
+          .filter(
+            (
+              target,
+            ): target is {
+              vendorAccount: string;
+              documentNumber: string;
+            } =>
+              Boolean(target.vendorAccount) && Boolean(target.documentNumber),
+          )
+          .map((target) => [
+            `${this.normalizeVendorAccount(target.vendorAccount)}|${target.documentNumber.toLowerCase()}`,
+            target,
+          ]),
+      ).values(),
+    ];
+    const rowsByVendor = new Map<string, VendTransLookupRow[]>();
+    if (uniqueTargets.length === 0) return rowsByVendor;
+
+    const chunks = this.chunkArray(
+      uniqueTargets,
+      VENDOR_INVOICE_LOOKUP_CHUNK_SIZE,
+    );
+    const concurrency = 4;
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const wave = chunks.slice(i, i + concurrency);
+      await Promise.all(
+        wave.map(async (chunk) => {
+          const targetFilter = `(${this.queryBuilder.or(
+            ...chunk.map(
+              (target) =>
+                `(${this.queryBuilder.and(
+                  this.queryBuilder.eq('AccountNum', target.vendorAccount),
+                  this.queryBuilder.eq('DocumentNum', target.documentNumber),
+                )})`,
+            ),
+          )})`;
+          let endpoint = this.queryBuilder.buildQuery(
+            '/data/VendTransBiEntities',
+            {
+              select: [
+                'SourceKey',
+                'Invoice',
+                'AccountNum',
+                'CurrencyCode',
+                'Closed',
+                'AmountCur',
+                'SettleAmountCur',
+                'DocumentNum',
+                'Voucher',
+                'TransDate',
+              ],
+              filter: this.queryBuilder.and(
+                this.queryBuilder.eq('dataAreaId', company),
+                targetFilter,
+              ),
+              crossCompany: true,
+            },
+          );
+
+          while (true) {
+            const response = await this.d365foClient.get<VendTransLookupRow>(
+              endpoint,
+              { useCache: false },
+            );
+            for (const row of response.value ?? []) {
+              const vendorAccount = this.normalizeVendorAccount(row.AccountNum);
+              if (!vendorAccount) continue;
+              const bucket = rowsByVendor.get(vendorAccount) ?? [];
+              bucket.push(row);
+              rowsByVendor.set(vendorAccount, bucket);
+            }
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            endpoint = this.getEndpointFromNextLink(nextLink);
+          }
+        }),
+      );
+    }
+
+    return rowsByVendor;
+  }
+
   private toInvoiceSettlementSnapshot(
     company: string,
     invoice: string,
@@ -632,12 +736,14 @@ export class VendorInvoiceJournalService {
       };
     }
 
-    const remainingAmount = this.firstDefinedNumber(
-      row.RemainAmountCur,
-      row.RemainAmountMST,
-      row.RemainAmountReportingCurrency,
+    const originalAmount = this.firstDefinedNumber(
+      row.AmountCur,
+      row.AmountMST,
+      row.AmountReportingCurrency,
+      row.ReportingCurrencyAmount,
     );
-    const closedFlag = this.readNoYes(row.Closed);
+    const remainingAmount = this.resolveRemainingAmount(row, originalAmount);
+    const closedFlag = this.readClosedState(row.Closed);
     const isOpen =
       closedFlag !== null
         ? !closedFlag
@@ -660,11 +766,7 @@ export class VendorInvoiceJournalService {
             : 'UNKNOWN',
       isOpen,
       currencyCode: String(row.CurrencyCode ?? '').trim(),
-      originalAmount: this.firstDefinedNumber(
-        row.AmountCur,
-        row.AmountMST,
-        row.AmountReportingCurrency,
-      ),
+      originalAmount,
       remainingAmount,
       lastSettleVoucher: String(row.LastSettleVoucher ?? '').trim(),
       sourceKey: String(row.SourceKey ?? '').trim(),
@@ -827,6 +929,39 @@ export class VendorInvoiceJournalService {
     if (['yes', 'true', '1'].includes(normalized)) return true;
     if (['no', 'false', '0'].includes(normalized)) return false;
     return null;
+  }
+
+  /** VendTrans `Closed` is a date, with 1900-01-01 representing open. */
+  private readClosedState(value: unknown): boolean | null {
+    const noYes = this.readNoYes(value);
+    if (noYes !== null) return noYes;
+    if (typeof value !== 'string' || !value.trim()) return null;
+
+    const timestamp = Date.parse(value);
+    if (!Number.isFinite(timestamp)) return null;
+    const date = new Date(timestamp);
+    return date.getUTCFullYear() > 1900;
+  }
+
+  private resolveRemainingAmount(
+    row: VendTransLookupRow,
+    originalAmount: number | null,
+  ): number | null {
+    const explicitRemaining = this.firstDefinedNumber(
+      row.RemainAmountCur,
+      row.RemainAmountMST,
+      row.RemainAmountReportingCurrency,
+    );
+    if (explicitRemaining !== null) return Math.abs(explicitRemaining);
+
+    const settledAmount = this.firstDefinedNumber(
+      row.SettleAmountCur,
+      row.SettleAmountMST,
+      row.SettleAmountReporting,
+    );
+    if (originalAmount === null) return null;
+    if (settledAmount === null) return Math.abs(originalAmount);
+    return Math.max(0, Math.abs(originalAmount) - Math.abs(settledAmount));
   }
 
   private readNumber(value: unknown): number {

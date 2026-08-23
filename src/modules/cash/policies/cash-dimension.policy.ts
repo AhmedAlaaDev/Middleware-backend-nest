@@ -39,6 +39,19 @@ export function cashDimensionPartAsString(part: unknown): string {
 }
 
 /**
+ * Trims every segment of a pipe-delimited D365 account/dimension value.
+ * Trimming only the complete string is insufficient because spaces can remain
+ * before an internal `|` and make an otherwise valid dimension fail in D365.
+ */
+export function normalizeCashCompositeDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .split('|')
+    .map((segment) => segment.trim())
+    .join('|');
+}
+
+/**
  * Serializes dimensions for a cash custom API request.
  *
  * `mainAccount` is deliberately excluded. Missing FreightType defaults to

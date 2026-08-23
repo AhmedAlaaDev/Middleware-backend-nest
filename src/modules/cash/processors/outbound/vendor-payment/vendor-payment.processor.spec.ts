@@ -124,14 +124,23 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
       const result = processVendorPaymentGroup('VP-2', lines, defaultDeps);
 
       expect(result.errors).toHaveLength(0);
-      expect(result.lines).toHaveLength(1);
+      expect(result.lines).toHaveLength(2);
       expect(result.lines[0].markedLines[0].HasWithHoldingLine).toBe(true);
       expect(result.lines[0].vendorLine.isWithholdingCalculationEnabled).toBe(
-        'Yes',
+        'No',
       );
       expect(result.lines[0].vendorLine.itemWithholdingTaxGroupCode).toBe(
         'WHT-1',
       );
+      expect(result.lines[0].vendorLine.debitAmount).toBe(950);
+      expect(result.lines[0].vendorLine.offsetAccountDisplayValue).toBe(
+        'BANK-001',
+      );
+      expect(result.lines[1].vendorLine.debitAmount).toBe(50);
+      expect(result.lines[1].vendorLine.offsetAccountDisplayValue).toBe(
+        '223304|dims',
+      );
+      expect(result.lines[1].markedLines).toEqual(result.lines[0].markedLines);
     });
 
     it('sets HasWithHoldingLine when 223304 credit matches by document+currency+operation', () => {
@@ -167,9 +176,15 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
       const result = processVendorPaymentGroup('VP-2b', lines, defaultDeps);
 
       expect(result.errors).toHaveLength(0);
-      expect(result.lines).toHaveLength(1);
-      expect(result.lines[0].markedLines[0].HasWithHoldingLine).toBe(true);
-      expect(result.lines[0].markedLines[0].OperationNumber).toBe('OP-5');
+      expect(result.lines).toHaveLength(2);
+      expect(result.lines[0].markedLines).toHaveLength(0);
+      expect(result.lines[0].vendorLine.description).toBe(
+        'Vendor Payment - Freight Jan 2026 (Cash) - Unmarked',
+      );
+      expect(result.lines[1].markedLines).toHaveLength(0);
+      expect(result.lines[1].vendorLine.description).toBe(
+        'Vendor Payment - Freight Jan 2026 (Cash) - Unmarked',
+      );
     });
 
     it('does NOT set HasWithHoldingLine when no 223304 line matches', () => {
@@ -233,8 +248,12 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
       const result = processVendorPaymentGroup('500407', lines, defaultDeps);
 
       expect(result.errors).toHaveLength(0);
-      expect(result.lines).toHaveLength(1);
+      expect(result.lines).toHaveLength(2);
       expect(result.lines[0].vendorLine.debitAmount).toBeCloseTo(16455.78);
+      expect(result.lines[1].vendorLine.debitAmount).toBeCloseTo(367.26);
+      expect(result.lines[1].vendorLine.offsetAccountDisplayValue).toBe(
+        '223304|dims',
+      );
       expect(result.lines[0].markedInvoice).toBe('171');
       expect(result.lines[0].markedLines).toEqual([
         expect.objectContaining({
@@ -275,7 +294,9 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
       expect(result.lines[0].markingResult.shouldMark).toBe(false);
       expect(result.lines[0].markedInvoice).toBe('');
       expect(result.lines[0].markedLines).toHaveLength(0);
-      expect(result.lines[0].vendorLine.description).toContain('unmarked');
+      expect(result.lines[0].vendorLine.description).toBe(
+        'Vendor Payment - Freight Jan 2026 (Cash) - Unmarked',
+      );
     });
   });
 
@@ -340,7 +361,7 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
   });
 
   describe('invoice already settled', () => {
-    it('returns semantic error for a closed invoice snapshot', () => {
+    it('does not reject a valid identity and amount because the snapshot is closed', () => {
       const lines = [
         rawLine({ DEBITAMOUNT: 1000 }),
         rawLine({
@@ -364,8 +385,8 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
 
       const result = processVendorPaymentGroup('VP-5b', lines, deps);
 
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].message).toContain('already closed/settled');
+      expect(result.errors).toHaveLength(0);
+      expect(result.lines).toHaveLength(1);
     });
   });
 

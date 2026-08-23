@@ -112,13 +112,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(formatted.Description).toContain('DownPayment - Freight');
   });
 
-  it.each([
-    'DownPayment',
-    'CN',
-    'Direct',
-    'Other',
-    'Customer Collection',
-  ])(
+  it.each(['DownPayment', 'CN', 'Direct', 'Other', 'Customer Collection'])(
     'does not apply vendor-invoice validation to the %s non-AP route',
     (safeType) => {
       const processor = createProcessor();
@@ -167,6 +161,80 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(vendorValidation).toHaveBeenCalledWith(line);
   });
 
+  it('keeps Custody Settlement validation structural and does not repeat the D365 invoice lookup', () => {
+    const processor = createProcessor();
+    jest
+      .spyOn(processor as any, 'validateDimensionsForLine')
+      .mockImplementation(() => undefined);
+    const vendorValidation = jest
+      .spyOn(processor as any, 'validateCashOutMarkedInvoice')
+      .mockImplementation(() => undefined);
+    const line = {
+      SourceIds: ['2045'],
+      SafeType: 'Custody Settlement',
+      VoucherType: 'Cash',
+      AccountType: 'Vend',
+      AccountDisplayValue: 'VEND-001',
+      SettlementTargetType: 'VendorInvoice',
+      SettlementIntent: 'Marked',
+      MarkedLines: [
+        {
+          InvoiceNumber: 'INV-001',
+          DocumentNumber: 'DOC-001',
+          OperationNumber: 'OP-001',
+          HasWithHoldingLine: false,
+        },
+      ],
+      AddError: jest.fn(),
+    };
+
+    processor.validateAsync([line] as any);
+
+    expect(vendorValidation).not.toHaveBeenCalled();
+    expect(line.AddError).not.toHaveBeenCalled();
+  });
+
+  it('excludes Custody Settlement lines from the D365 invoice validation lookup', async () => {
+    const processor = createProcessor();
+    const findInvoiceSettlementSnapshots = jest
+      .fn()
+      .mockResolvedValue(new Map());
+    (processor as any).vendorInvoiceJournalService = {
+      findInvoiceSettlementSnapshots,
+    };
+
+    await (processor as any).fetchVendorInvoiceExistsMap([
+      {
+        SafeType: 'Custody Settlement',
+        AccountDisplayValue: 'CUSTODY-VENDOR',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'CUSTODY-INV',
+            DocumentNumber: 'CUSTODY-DOC',
+          },
+        ],
+      },
+      {
+        SafeType: 'Vendor Payment',
+        AccountDisplayValue: 'PAYMENT-VENDOR',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'PAYMENT-INV',
+            DocumentNumber: 'PAYMENT-DOC',
+          },
+        ],
+      },
+    ]);
+
+    expect(findInvoiceSettlementSnapshots).toHaveBeenCalledWith('m-p', [
+      {
+        invoice: 'PAYMENT-INV',
+        vendorAccount: 'PAYMENT-VENDOR',
+        documentNumber: 'PAYMENT-DOC',
+      },
+    ]);
+  });
+
   describe('Bug 2046 - MarkedInvoice clearing & unmarked description rules', () => {
     it('adds a blocking validation error when invoice belongs to another vendor', () => {
       const processor = createProcessor();
@@ -174,6 +242,14 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const line: any = {
         MarkedInvoice: 'INV-MISMATCH',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'INV-MISMATCH',
+            DocumentNumber: 'DOC-MISMATCH',
+            OperationNumber: '',
+            HasWithHoldingLine: false,
+          },
+        ],
         AccountDisplayValue: 'VEND-001',
         Description: 'Vendor Payment - Freight Jan 2026 (Transfer)',
         TransactionText: 'Vendor Payment - Freight Jan 2026 (Transfer)',
@@ -185,7 +261,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(line.MarkedInvoice).toBe('INV-MISMATCH');
       expect(line.AddError).toHaveBeenCalledWith(
         'MarkedInvoice',
-        expect.stringContaining('was not found in D365 for vendor VEND-001'),
+        expect.stringContaining(
+          'Vendor transaction was not found in D365. Vendor: VEND-001',
+        ),
       );
     });
 
@@ -204,6 +282,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           INVOICEAMOUNT: 1000,
           CURRENCYCODE: 'EGP',
           INVOICE: 'INV-2026-PARTIAL',
+          DOCUMENT: 'DOC-2026-PARTIAL',
           SafeType: 'Vendor Payment',
           VoucherType: 'Transfer',
         },
@@ -243,6 +322,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           INVOICEAMOUNT: 1000,
           CURRENCYCODE: 'EGP',
           INVOICE: 'INV-2026-FULL',
+          DOCUMENT: 'DOC-2026-FULL',
           SafeType: 'Vendor Payment',
           VoucherType: 'Transfer',
         },
@@ -283,6 +363,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           ITEMWITHHOLDINGTAXGROUPCODE: 'TAX1',
           CURRENCYCODE: 'EGP',
           INVOICE: 'INV-2026-WITHHOLDING',
+          DOCUMENT: 'DOC-2026-WITHHOLDING',
           SafeType: 'Vendor Payment',
           VoucherType: 'Transfer',
         },
@@ -368,7 +449,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(stats.withholdingRemovedAmount).toBe(10);
     });
 
-    it('PBI 2065: merges withholding into the Vendor Payment offset line', () => {
+    it('PBI 2065: marks payment and withholding as separate reconciled Vendor lines', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -384,6 +465,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           INVOICEAMOUNT: 1000,
           CURRENCYCODE: 'EGP',
           INVOICE: 'INV-2055',
+          DOCUMENT: 'DOC-2055',
           SafeType: 'Vendor Payment',
           VoucherType: 'Transfer',
         },
@@ -422,17 +504,52 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ).applyWithholdingReductions(rawLines);
       expect(processedLines).toHaveLength(3);
 
-      // Vendor Payment produces one gross vendor line; 223304 is not posted separately.
+      // Vendor Payment preserves both source credit portions as separate D365
+      // Vendor lines; middleware does not calculate net withholding.
       const dfoLines = (processor as any).buildLines('2055', processedLines);
-      expect(dfoLines).toHaveLength(1);
+      expect(dfoLines).toHaveLength(2);
 
-      const [bankLine] = dfoLines;
+      const [bankLine, withholdingLine] = dfoLines;
       expect(bankLine.AccountType).toBe('Vend');
       expect(bankLine.AccountDisplayValue).toBe('VEND-001');
       expect(bankLine.OffsetAccountDisplayValue).toBe('BANK-001');
       expect(bankLine.DebitAmount).toBe(950);
-      expect(bankLine.IsWithholdingCalculationEnabled).toBe('Yes');
+      expect(bankLine.IsWithholdingCalculationEnabled).toBe('No');
       expect(bankLine.Invoice).toBe('INV-2055');
+      expect(bankLine.Description).toBe(
+        'Vendor Payment - Freight January 2026 (Transfer)',
+      );
+      expect(bankLine.MarkedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-2055',
+          DocumentNumber: 'DOC-2055',
+          HasWithHoldingLine: true,
+        }),
+      ]);
+
+      expect(withholdingLine.AccountType).toBe('Vend');
+      expect(withholdingLine.AccountDisplayValue).toBe('VEND-001');
+      expect(withholdingLine.OffsetAccountType).toBe('Ledger');
+      expect(withholdingLine.OffsetAccountDisplayValue).toBe('223304-01');
+      expect(withholdingLine.DebitAmount).toBe(50);
+      expect(withholdingLine.IsWithholdingCalculationEnabled).toBe('No');
+      expect(withholdingLine.Invoice).toBe('INV-2055');
+      expect(withholdingLine.Description).toBe(
+        'Vendor Payment - Freight January 2026 (Transfer)',
+      );
+      expect(withholdingLine.MarkedInvoice).toBe('INV-2055');
+      expect(withholdingLine.MarkedLines).toEqual([
+        {
+          InvoiceNumber: 'INV-2055',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-2055',
+          HasWithHoldingLine: true,
+        },
+      ]);
+      expect(withholdingLine.SettlementIntent).toBe('Marked');
+      expect(bankLine.DebitAmount + withholdingLine.DebitAmount).toBe(
+        processedLines[0].DEBITAMOUNT,
+      );
     });
   });
 
@@ -441,7 +558,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       const freightProcessor = createProcessor('Freight');
       const fleetProcessor = createProcessor('Fleet');
 
-      const routeSettleFreight = (freightProcessor as any).resolveCashOutJournalRoute('Custody Settlement');
+      const routeSettleFreight = (
+        freightProcessor as any
+      ).resolveCashOutJournalRoute('Custody Settlement');
       expect(routeSettleFreight).toMatchObject({
         kind: 'vendor-invoice',
         module: 'AP',
@@ -450,7 +569,9 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         safeType: 'Custody Settlement',
       });
 
-      const routeIssueFleet = (fleetProcessor as any).resolveCashOutJournalRoute('Custody Issue');
+      const routeIssueFleet = (
+        fleetProcessor as any
+      ).resolveCashOutJournalRoute('Custody Issue');
       expect(routeIssueFleet).toMatchObject({
         kind: 'vendor-invoice',
         module: 'AP',
@@ -474,6 +595,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
           DEBITAMOUNT: 1000,
           CREDITAMOUNT: 0,
           INVOICE: 'INV-CUST-100',
+          DOCUMENT: 'DOC-CUST-100',
           SafeType: 'Custody Settlement',
           VoucherType: 'Cash',
         },
@@ -510,12 +632,22 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const [vendorLine, safeLine] = dfoLines;
 
-      // Vendor line: amount reduced by withholding (1000 - 50 = 950), invoice marked, no offset account
+      // Vendor line: amount reduced by withholding (1000 - 50 = 950),
+      // invoice retained and marked using the same contract as Vendor Payment.
       expect(vendorLine.AccountType).toBe('Vend');
       expect(vendorLine.AccountDisplayValue).toBe('VEND-CUST-01');
       expect(vendorLine.DebitAmount).toBe(950);
       expect(vendorLine.Invoice).toBe('INV-CUST-100');
       expect(vendorLine.MarkedInvoice).toBe('INV-CUST-100');
+      expect(vendorLine.MarkedLines).toEqual([
+        {
+          InvoiceNumber: 'INV-CUST-100',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-CUST-100',
+          HasWithHoldingLine: true,
+        },
+      ]);
+      expect(vendorLine.SettlementIntent).toBe('Marked');
       expect(vendorLine.OffsetAccountDisplayValue).toBe('');
 
       // Safe line: credit 950, individual line without offset account
@@ -523,6 +655,36 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(safeLine.AccountDisplayValue).toBe('SAFE-001');
       expect(safeLine.CreditAmount).toBe(950);
       expect(safeLine.OffsetAccountDisplayValue).toBe('');
+    });
+
+    it('keeps the invoice beside unmarked Custody Settlement text without using document as invoice', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 10000,
+          LINENUMBER: 1,
+          VOUCHER: 'CUST-SETTLE-UNMARKED',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-CUST-02',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 500,
+          CREDITAMOUNT: 0,
+          INVOICE: 'INV-CUST-UNMARKED',
+          DOCUMENT: '',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+      const [vendorLine] = (processor as any).buildLines('10000', rawLines);
+
+      expect(vendorLine.Invoice).toBe('INV-CUST-UNMARKED');
+      expect(vendorLine.MarkedInvoice).toBe('');
+      expect(vendorLine.MarkedLines).toEqual([]);
+      expect(vendorLine.SettlementIntent).toBe('Unmarked');
+      expect(vendorLine.Description).toBe('Unmarked - INV-CUST-UNMARKED');
+      expect(vendorLine.TransactionText).toBe('Unmarked - INV-CUST-UNMARKED');
     });
   });
 });

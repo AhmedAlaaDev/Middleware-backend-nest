@@ -30,6 +30,7 @@ const ROLLBACK_CHUNK_SIZE = 20;
 
 interface RoutedCreatedHeader extends CreatedHeader {
   route?: CashJournalRoute;
+  persisted?: boolean;
 }
 
 /** Why the worker stopped walking the journals of a batch. */
@@ -127,6 +128,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         headerKey: record.createdHeaderId!,
         dataAreaId: job.data.company,
         route: this.asRoutedGroup(record.payload)?.route,
+        persisted: true,
       }));
     let completedGroups = groups.filter(
       (record) => record.status === QueueJobGroupStatus.COMPLETED,
@@ -176,6 +178,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             headerKey: headerId,
             dataAreaId: job.data.company,
             route: routedGroup?.route,
+            persisted: true,
           });
         }
         try {
@@ -229,7 +232,40 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       ]);
       return 'completed';
     } catch (error) {
-      if (created.length) {
+      if ((job.data.cashDirection ?? 'in') === 'out') {
+        const retainedHeaders = created.filter((header) => header.persisted);
+        const orphanHeaders = created.filter((header) => !header.persisted);
+
+        // Cash-out line requests are checkpointed in D365 by LineNumber.
+        // Keep every persisted header and its successful lines; the next queue
+        // attempt reuses that header and posts only lines not yet present.
+        if (retainedHeaders.length) {
+          await this.storeHeaderIds(
+            job.data.batchId,
+            retainedHeaders.map((header) => header.headerKey),
+          );
+        }
+
+        // A header whose ID could not be persisted cannot be resumed safely;
+        // delete only that orphan, never a checkpointed cash-out header.
+        if (orphanHeaders.length) {
+          const failedToDeleteHeaders = await this.rollbackCreatedHeaders(
+            orphanHeaders,
+            collector,
+            'out',
+          );
+          if (failedToDeleteHeaders.length) {
+            await this.storeHeaderIds(job.data.batchId, failedToDeleteHeaders);
+          }
+          await this.jobs.resetAfterRollback(
+            jobId,
+            orphanHeaders.map((header) => header.headerKey),
+            failedToDeleteHeaders,
+          );
+        } else if (!created.length) {
+          await this.jobs.resetAfterRollback(jobId, []);
+        }
+      } else if (created.length) {
         const failedToDeleteHeaders = await this.rollbackCreatedHeaders(
           created,
           collector,
@@ -267,8 +303,15 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     const headerId = result.headerIds[0];
     // Track the D365 header before persisting its ID so a Mongo failure can
     // still roll the external header back.
-    created.push({ headerKey: headerId, dataAreaId, route });
+    const trackedHeader: RoutedCreatedHeader = {
+      headerKey: headerId,
+      dataAreaId,
+      route,
+      persisted: false,
+    };
+    created.push(trackedHeader);
     await this.jobs.setCreatedHeader(jobId, groupIndex, headerId);
+    trackedHeader.persisted = true;
     return headerId;
   }
 

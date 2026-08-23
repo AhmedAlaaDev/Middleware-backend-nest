@@ -336,10 +336,18 @@ export class CustomerPaymentJournalService {
         );
       }
 
+      const pendingBody = {
+        ...body,
+        journalNum: headerKey,
+      };
       pendingLines.push({
         lineNumber: line.LineNumber,
-        body: { ...body, journalNum: headerKey },
+        body: pendingBody,
       });
+    }
+
+    if (cashDirection === 'out') {
+      this.removeDuplicateSettlementMarks(pendingLines);
     }
 
     const batchSize = this.cashOutBulkBatchSize;
@@ -407,6 +415,43 @@ export class CustomerPaymentJournalService {
         );
       }
       return;
+    }
+
+    // The custom API may return only one overall message for an all-or-nothing
+    // TTS request. For line-specific identity errors, split the failed request
+    // until the bad line is isolated. Successful halves remain posted and a
+    // later worker attempt skips them through the existing-line checkpoint.
+    if (
+      pendingLines.length > 1 &&
+      failures.length === 1 &&
+      !failures[0].correlated &&
+      this.isLineSpecificCashBulkFailure(failures[0].message)
+    ) {
+      const middle = Math.ceil(pendingLines.length / 2);
+      const segments = [
+        pendingLines.slice(0, middle),
+        pendingLines.slice(middle),
+      ];
+      const segmentErrors: string[] = [];
+
+      for (const segment of segments) {
+        try {
+          await this.postCashOutBulkBatch(
+            endpoint,
+            headerKey,
+            segment,
+            dataAreaId,
+            _allowUnmarkedInvoiceRetry,
+            batch,
+            cashDirection,
+          );
+        } catch (error) {
+          segmentErrors.push(this.dfoErrorExtractor.extractMessage(error));
+        }
+      }
+
+      if (segmentErrors.length === 0) return;
+      throw new Error(segmentErrors.join('; '));
     }
 
     if (
@@ -666,23 +711,142 @@ export class CustomerPaymentJournalService {
     );
   }
 
-  private appendUnmarkedDescription(description: string): string {
-    const trimmed = String(description ?? '').trim();
-    if (!trimmed) return 'unmarked';
-    if (trimmed.toLowerCase().includes('unmarked')) return trimmed;
-    return `${trimmed} - unmarked`;
+  private isLineSpecificCashBulkFailure(message: string): boolean {
+    const normalized = String(message ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+    return (
+      (normalized.includes('invoice:') && normalized.includes('vendor:')) ||
+      normalized.includes('taxwithhold::construct')
+    );
+  }
+
+  /**
+   * Prevent opposite debit/credit journal lines from competing for the same
+   * settlement target. Two debit Vendor Payment lines are intentionally not
+   * deduplicated: the main payment and its explicit 223304 withholding
+   * companion each settle their own amount against the supplied invoice.
+   */
+  private removeDuplicateSettlementMarks(
+    pendingLines: CashBulkPendingLine[],
+  ): void {
+    const debitSettlementKeys = new Set<string>();
+
+    for (const line of pendingLines) {
+      if (
+        String(line.body.accountTypeStr ?? '')
+          .trim()
+          .toLowerCase() !== 'vendor' ||
+        Number(line.body.debitAmount ?? 0) <= 0
+      ) {
+        continue;
+      }
+      for (const markedLine of line.body.MarkedLines ?? []) {
+        debitSettlementKeys.add(this.cashSettlementIdentity(markedLine));
+      }
+    }
+
+    for (const line of pendingLines) {
+      if (
+        String(line.body.accountTypeStr ?? '')
+          .trim()
+          .toLowerCase() !== 'vendor' ||
+        Number(line.body.creditAmount ?? 0) <= 0 ||
+        !Array.isArray(line.body.MarkedLines) ||
+        line.body.MarkedLines.length === 0
+      ) {
+        continue;
+      }
+
+      this.removeOwnedSettlementMarks(line, debitSettlementKeys);
+    }
+  }
+
+  private removeOwnedSettlementMarks(
+    line: CashBulkPendingLine,
+    ownedSettlementKeys: ReadonlySet<string>,
+  ): void {
+    const markedLines = line.body.MarkedLines ?? [];
+    const removedMarks = markedLines.filter((markedLine) =>
+      ownedSettlementKeys.has(this.cashSettlementIdentity(markedLine)),
+    );
+    if (removedMarks.length === 0) return;
+
+    const remainingMarks = markedLines.filter(
+      (markedLine) =>
+        !ownedSettlementKeys.has(this.cashSettlementIdentity(markedLine)),
+    );
+    line.body.MarkedLines = remainingMarks;
+    if (remainingMarks.length > 0) return;
+
+    const invoiceDescription = this.markedInvoiceDescription(removedMarks);
+    line.body.PAYMENTNOTES = this.formatUnmarkedDescription(
+      invoiceDescription,
+      line.body.PAYMENTNOTES || line.body.TRANSACTIONTEXT || '',
+    );
+    line.body.TRANSACTIONTEXT = this.formatUnmarkedDescription(
+      invoiceDescription,
+      line.body.TRANSACTIONTEXT || line.body.PAYMENTNOTES || '',
+    );
+  }
+
+  private cashSettlementIdentity(markedLine: {
+    InvoiceNumber?: string;
+    OperationNumber?: string;
+    DocumentNumber?: string;
+  }): string {
+    return [
+      markedLine.InvoiceNumber,
+      markedLine.OperationNumber,
+      markedLine.DocumentNumber,
+    ]
+      .map((value) =>
+        String(value ?? '')
+          .trim()
+          .toLowerCase(),
+      )
+      .join('|');
+  }
+
+  private formatUnmarkedDescription(
+    invoiceNumber: string,
+    currentDescription = '',
+  ): string {
+    const invoice = String(invoiceNumber ?? '').trim();
+    if (invoice) return `Unmarked - ${invoice}`;
+
+    const current = String(currentDescription ?? '').trim();
+    if (!current) return 'Unmarked';
+    if (current.toLowerCase().includes('unmarked')) return current;
+    return `${current} - unmarked`;
+  }
+
+  private markedInvoiceDescription(
+    markedLines: TSLedgerJournalTransCustomRequestBody['MarkedLines'],
+  ): string {
+    return [
+      ...new Set(
+        (markedLines ?? [])
+          .map((line) => String(line.InvoiceNumber ?? '').trim())
+          .filter(Boolean),
+      ),
+    ].join(', ');
   }
 
   private buildUnmarkedCashLine(
     body: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomRequestBody {
     const retryBody = { ...body };
+    const invoiceDescription = this.markedInvoiceDescription(body.MarkedLines);
     retryBody.MarkedLines = [];
     delete (retryBody as any).MARKEDINVOICE;
-    retryBody.PAYMENTNOTES = this.appendUnmarkedDescription(
+    retryBody.PAYMENTNOTES = this.formatUnmarkedDescription(
+      invoiceDescription,
       retryBody.PAYMENTNOTES,
     );
-    retryBody.TRANSACTIONTEXT = this.appendUnmarkedDescription(
+    retryBody.TRANSACTIONTEXT = this.formatUnmarkedDescription(
+      invoiceDescription,
       retryBody.TRANSACTIONTEXT,
     );
     return retryBody;
@@ -786,8 +950,63 @@ export class CustomerPaymentJournalService {
     );
     if (failures.length === 0) return;
 
+    const safelyUnmarked = failures.filter((failure) => {
+      const settleVoucher = failure.settleVoucher.trim().toLowerCase();
+      return (
+        failure.status === 'NOT_VERIFIED' &&
+        failure.journalLineExists === true &&
+        failure.matchedInvoices.length === 0 &&
+        !failure.journalMarkedInvoice.trim() &&
+        (!settleVoucher || settleVoucher === 'none')
+      );
+    });
+
+    for (const failure of safelyUnmarked) {
+      const pendingLine = pendingLines.find(
+        (line) => line.lineNumber === failure.lineNumber,
+      );
+      const description = this.formatUnmarkedDescription(
+        this.markedInvoiceDescription(pendingLine?.body.MarkedLines ?? []) ||
+          failure.expectedInvoices.join(', '),
+        pendingLine?.body.TRANSACTIONTEXT ||
+          pendingLine?.body.PAYMENTNOTES ||
+          '',
+      );
+      await this.vendorPaymentJournalService.updateLineDescription(
+        headerKey,
+        failure.lineNumber,
+        dataAreaId,
+        description,
+      );
+    }
+
+    if (safelyUnmarked.length > 0) {
+      await this.operationalLogs.emit({
+        level: 'warn',
+        message: `D365 persisted ${safelyUnmarked.length} vendor payment line(s) without settlement; the lines were preserved and labelled unmarked`,
+        context: CustomerPaymentJournalService.name,
+        eventType: 'd365fo.cash-out.settlement-fallback',
+        status: 'unmarked',
+        metadata: {
+          journalNum: headerKey,
+          requestNumber: batch.number,
+          requestCount: batch.total,
+          lineNumbers: safelyUnmarked.map((failure) => failure.lineNumber),
+          expectedInvoices: safelyUnmarked.map((failure) => ({
+            lineNumber: failure.lineNumber,
+            invoices: failure.expectedInvoices,
+          })),
+        },
+      });
+    }
+
+    const unsafeFailures = failures.filter(
+      (failure) => !safelyUnmarked.includes(failure),
+    );
+    if (unsafeFailures.length === 0) return;
+
     throw new Error(
-      `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${failures
+      `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
         .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
         .join('; ')}`,
     );

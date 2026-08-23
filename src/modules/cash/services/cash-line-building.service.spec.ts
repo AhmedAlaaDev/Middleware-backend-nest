@@ -23,27 +23,20 @@ describe('cash line building service', () => {
     expect(result).toEqual([{ sourceId: 'first' }, { sourceId: 'second' }]);
   });
 
-  it('keeps outbound vendor-payment routing delegated to the existing callback', () => {
-    const buildVendorPayment = jest.fn(() => ['vendor'] as any);
-    const buildSourceOutbound = jest.fn(() => 'source' as any);
+  it('delegates all outbound feature routing to the Cash-Out builder', () => {
+    const buildOutbound = jest.fn(() => ['vendor'] as any);
     const line = { SafeType: 'Vendor Payment', IsVendorPayment: true } as any;
 
     const result = buildCashLines({
       sourceId: 'invoice-1',
       lines: [line],
       inbound: false,
-      buildVendorPayment,
-      buildSourceOutbound,
+      buildOutbound,
       buildTwoLines: jest.fn(),
       buildManyLines: jest.fn(),
     });
 
     expect(result).toEqual(['vendor']);
-    expect(buildVendorPayment).toHaveBeenCalledWith(
-      'invoice-1',
-      [line],
-      undefined,
-    );
-    expect(buildSourceOutbound).not.toHaveBeenCalled();
+    expect(buildOutbound).toHaveBeenCalledWith('invoice-1', [line], undefined);
   });
 });

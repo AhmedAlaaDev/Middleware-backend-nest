@@ -92,7 +92,48 @@ describe('VendorInvoiceVerificationService', () => {
     expect(result.reason).toContain('invoice was not found');
   });
 
-  it('Case 4: returns MATCHED when vendor, document, and invoice match even if amount differs', () => {
+  it('matches a source invoice to the D365 year-suffixed invoice value', () => {
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: 'DOC-1001',
+        invoiceNumber: '171',
+        netPaymentAmount: 16823.04,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+      },
+      baseCandidates,
+    );
+
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction?.invoiceNumber).toBe('171 - 2026');
+  });
+
+  it('matches a source invoice to the D365 duplicate-sequence invoice value', () => {
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: 'DOC-1001',
+        invoiceNumber: '171',
+        netPaymentAmount: 16823.04,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+      },
+      [
+        {
+          ...baseCandidates[0],
+          invoiceNumber: '171_1',
+        },
+      ],
+    );
+
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction?.invoiceNumber).toBe('171_1');
+  });
+
+  it('Case 4: returns AMOUNT_NOT_FOUND when the final amount does not match', () => {
     const request: VendorInvoiceVerificationRequest = {
       company: 'm-p',
       vendorAccount: 'Tr-000031',
@@ -105,8 +146,29 @@ describe('VendorInvoiceVerificationService', () => {
 
     const result = service.verify(request, baseCandidates);
 
+    expect(result.status).toBe(VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND);
+    expect(result.matchedTransaction).toBeUndefined();
+    expect(result.candidateCount.invoice).toBe(1);
+    expect(result.candidateCount.amount).toBe(0);
+  });
+
+  it('accepts a Vendor Payment identity match when its source amount is a grouped total', () => {
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: 'DOC-1001',
+        invoiceNumber: '171 - 2026',
+        netPaymentAmount: 999999,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+        skipAmountValidation: true,
+      },
+      baseCandidates,
+    );
+
     expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
-    expect(result.matchedTransaction).toBeDefined();
+    expect(result.matchedTransaction?.voucher).toBe('VEND-001');
     expect(result.candidateCount.invoice).toBe(1);
     expect(result.candidateCount.amount).toBe(1);
   });
@@ -168,7 +230,47 @@ describe('VendorInvoiceVerificationService', () => {
 
     expect(result.status).toBe(VendorInvoiceMatchStatus.AMBIGUOUS_MATCH);
     expect(result.candidateCount.amount).toBe(2);
-    expect(result.reason).toContain('Multiple D365 vendor transactions matched');
+    expect(result.reason).toContain(
+      'Multiple D365 vendor transactions matched',
+    );
+  });
+
+  it('prefers the single open transaction over settled historical copies', () => {
+    const candidates: VendorCandidateTransaction[] = [
+      {
+        ...baseCandidates[0],
+        voucher: 'SETTLED-1',
+        openAmount: 0,
+        isOpen: false,
+      },
+      {
+        ...baseCandidates[0],
+        voucher: 'SETTLED-2',
+        openAmount: 0,
+        isOpen: false,
+      },
+      {
+        ...baseCandidates[0],
+        voucher: 'OPEN-1',
+        isOpen: true,
+      },
+    ];
+
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: 'DOC-1001',
+        invoiceNumber: '171',
+        netPaymentAmount: 16823.04,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+      },
+      candidates,
+    );
+
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction?.voucher).toBe('OPEN-1');
   });
 
   it('No WHT payment: correctly verifies standard Net = Invoice amount', () => {
@@ -201,7 +303,7 @@ describe('VendorInvoiceVerificationService', () => {
     expect(result.matchedTransaction?.voucher).toBe('VEND-050');
   });
 
-  it('Incorrect WHT equation: returns MATCHED when vendor, document, and invoice match', () => {
+  it('rejects an incorrect amount after vendor, document, and invoice match', () => {
     const request: VendorInvoiceVerificationRequest = {
       company: 'm-p',
       vendorAccount: 'Tr-000031',
@@ -214,8 +316,8 @@ describe('VendorInvoiceVerificationService', () => {
 
     const result = service.verify(request, baseCandidates);
 
-    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
-    expect(result.matchedTransaction).toBeDefined();
+    expect(result.status).toBe(VendorInvoiceMatchStatus.AMOUNT_NOT_FOUND);
+    expect(result.matchedTransaction).toBeUndefined();
   });
 
   it('Partial payment: matches when settlement (8,500) <= openAmount (20,000)', () => {
@@ -247,5 +349,68 @@ describe('VendorInvoiceVerificationService', () => {
 
     expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
     expect(result.matchedTransaction?.voucher).toBe('VEND-PARTIAL');
+  });
+
+  it('selects the document and amount match when invoice identity is duplicated', () => {
+    const candidates: VendorCandidateTransaction[] = [
+      {
+        ...baseCandidates[0],
+        documentNumber: 'DOC-001',
+        originalAmount: 1000,
+        openAmount: 1000,
+      },
+      {
+        ...baseCandidates[0],
+        documentNumber: 'DOC-002',
+        originalAmount: 2000,
+        openAmount: 2000,
+      },
+    ];
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: 'DOC-002',
+        invoiceNumber: '171 - 2026',
+        netPaymentAmount: 2000,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+      },
+      candidates,
+    );
+    expect(result.status).toBe(VendorInvoiceMatchStatus.MATCHED);
+    expect(result.matchedTransaction?.documentNumber).toBe('DOC-002');
+    expect(result.matchStrategy).toBe('vendor-invoice-document-amount');
+  });
+
+  it('fails safely when amount matches but document is absent and documents differ', () => {
+    const candidates: VendorCandidateTransaction[] = [
+      {
+        ...baseCandidates[0],
+        documentNumber: 'DOC-001',
+        originalAmount: 1000,
+        openAmount: 1000,
+      },
+      {
+        ...baseCandidates[0],
+        documentNumber: 'DOC-002',
+        originalAmount: 1000,
+        openAmount: 1000,
+      },
+    ];
+    const result = service.verify(
+      {
+        company: 'm-p',
+        vendorAccount: 'Tr-000031',
+        documentNumber: '',
+        invoiceNumber: '171 - 2026',
+        netPaymentAmount: 1000,
+        withholdingAmount: 0,
+        currencyCode: 'EGP',
+      },
+      candidates,
+    );
+    expect(result.status).toBe(VendorInvoiceMatchStatus.AMBIGUOUS_MATCH);
+    expect(result.candidateDocuments).toEqual(['DOC-001', 'DOC-002']);
   });
 });

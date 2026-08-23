@@ -12,6 +12,7 @@ import {
 } from '@/modules/cash/commands';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
+import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   CashJournalRoute,
   CashJournalRoutingError,
@@ -353,8 +354,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
-      const accountDisplayValue = line.AccountDisplayValue ?? '';
-      const offsetAccountDisplayValue = line.OffsetAccountDisplayValue ?? '';
+      const accountDisplayValue = normalizeCashCompositeDisplayValue(
+        line.AccountDisplayValue,
+      );
+      const offsetAccountDisplayValue = normalizeCashCompositeDisplayValue(
+        line.OffsetAccountDisplayValue,
+      );
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
         ? line.DefaultDimensionsForAccountDisplayValue
         : line.DefaultDimensionDisplayValue ||
@@ -386,26 +391,55 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       );
 
       const defaultDimDisplayValue =
-        this.toOptionalTrimmedString(defaultDim) ?? '';
+        normalizeCashCompositeDisplayValue(defaultDim);
       const offsetDefaultDimDisplayValue =
-        this.toOptionalTrimmedString(offsetDefaultDim) ?? '';
+        normalizeCashCompositeDisplayValue(offsetDefaultDim);
 
-      const markedInvoice = (
+      const sourceMarkedInvoice = (
         line.MarkedInvoice !== undefined
           ? line.MarkedInvoice
           : line.Invoice || ''
       ).trim();
       const vendorGroup = String(line.VendorGroup ?? '').trim();
-      const markedLines =
+      const sourceMarkedLines =
         line.MarkedLines?.map((markedLine) => ({
-          InvoiceNumber: String(markedLine.InvoiceNumber ?? '').trim(),
+          // D365's custom settlement endpoint compares the stored invoice
+          // identity literally. Validation normalizes; posting preserves it.
+          InvoiceNumber: String(markedLine.InvoiceNumber ?? ''),
           OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
           DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
           HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
         })) ?? [];
+      // MarkedLines is authoritative for every Vendor Payment line, including
+      // Vendor -> 223304 withholding companions. Do not clear or reconstruct
+      // the identity at this posting boundary.
+      const markedInvoice = sourceMarkedInvoice;
+      const markedLines = sourceMarkedLines;
       const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
+      const isExplicitlyUnmarked =
+        String((line as any).SettlementIntent ?? '')
+          .trim()
+          .toLowerCase() === 'unmarked';
+      const isUnmarkedVendorSettlement =
+        cashDirection === 'out' &&
+        accountTypeStr === 'Vendor' &&
+        ['Vendor Payment', 'Custody Settlement'].includes(
+          String((line as any).SafeType ?? '').trim(),
+        ) &&
+        markedLines.length === 0;
+      const unmarkedInvoice =
+        String(line.Invoice ?? '').trim() ||
+        sourceMarkedInvoice ||
+        sourceMarkedLines
+          .map((markedLine) => markedLine.InvoiceNumber.trim())
+          .find(Boolean) ||
+        '';
       const transactionTextValue =
-        line.TransactionText || line.Description || line.Text || '';
+        isExplicitlyUnmarked || isUnmarkedVendorSettlement
+          ? unmarkedInvoice
+            ? `Unmarked - ${unmarkedInvoice}`
+            : 'Unmarked'
+          : line.TransactionText || line.Description || line.Text || '';
       const offsetTransactionTextValue =
         line.OffsetTransactionText || line.PaymentReference || '';
 
@@ -418,6 +452,33 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         throw new BadRequestException(
           `Cash line ${line.LineNumber ?? '?'} has MarkedInvoice "${markedInvoice}" but no MarkedLines. Settlement intent must be resolved before posting.`,
         );
+      }
+
+      // Vendor-invoice settlement has a strict transaction identity contract.
+      // Do not let the fallback below reconstruct an incomplete marked line:
+      // D365 must receive both invoice and document for every marked line.
+      const isVendorInvoiceSettlement =
+        cashDirection === 'out' &&
+        route?.kind === 'vendor-invoice' &&
+        accountTypeStr === 'Vendor' &&
+        markedLines.length > 0;
+      if (isVendorInvoiceSettlement) {
+        const allowsBlankInvoice =
+          String((line as any).SafeType ?? '').trim() ===
+            'Custody Settlement' &&
+          (String((line as any).SettlementTargetType ?? '').trim() ===
+            'CustodyLedger' ||
+            Number(line.CreditAmount ?? 0) > 0);
+        const invalidMarkedLine = markedLines.find(
+          (markedLine) =>
+            (!allowsBlankInvoice && !markedLine.InvoiceNumber.trim()) ||
+            !markedLine.DocumentNumber,
+        );
+        if (invalidMarkedLine) {
+          throw new BadRequestException(
+            `Cash line ${line.LineNumber ?? '?'} has an invalid marked line. Vendor settlement requires both InvoiceNumber and DocumentNumber in every MarkedLines entry.`,
+          );
+        }
       }
 
       const customLineApiBody: TSLedgerJournalTransCustomRequestBody = {
@@ -463,12 +524,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
         ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
 
-        offsetAccountDisplayValue:
-          this.isMainAccountOnlyLine(line, cashDirection, route)
-            ? ''
-            : route && route.kind !== 'vendor-invoice'
-              ? offsetAccountDisplayValue
-              : offsetAccountDisplayValue || accountDisplayValue,
+        offsetAccountDisplayValue: this.isMainAccountOnlyLine(
+          line,
+          cashDirection,
+          route,
+        )
+          ? ''
+          : route && route.kind !== 'vendor-invoice'
+            ? offsetAccountDisplayValue
+            : offsetAccountDisplayValue || accountDisplayValue,
         OffsetAccountTypeStr: offsetAccountTypeStr,
         OffsetCompany: line.OffsetCompany || company,
         OFFSETFINTAGDISPLAYVALUE: line.OffsetFinTagDisplayValue ?? '',
@@ -494,6 +558,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ),
         TRANSACTIONTEXT: transactionTextValue,
         Voucher: '',
+        MarkedLines: [],
       };
 
       // FO JournalLineContract::constructFromJsonObject always does
@@ -505,8 +570,20 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           ? vendorGroup
           : '';
 
-      const effectiveMarkedLines =
-        markedLines.length > 0
+      const isCashOutVendorSettlementLine =
+        cashDirection === 'out' &&
+        accountTypeStr === 'Vendor' &&
+        ['Custody Settlement', 'Custody Issue', 'Vendor Payment'].includes(
+          String((line as any).SafeType ?? '').trim(),
+        );
+      // Cash-out vendor settlement/issue bodies are strict: MarkedLines is the
+      // authoritative settlement contract. Preserve every value from the
+      // array (InvoiceNumber, OperationNumber, DocumentNumber, and
+      // HasWithHoldingLine) and never reconstruct an entry from top-level
+      // invoice/document fields.
+      customLineApiBody.MarkedLines = isCashOutVendorSettlementLine
+        ? markedLines
+        : markedLines.length > 0
           ? markedLines
           : markedInvoice
             ? [
@@ -522,8 +599,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                 },
               ]
             : [];
-
-      customLineApiBody.MarkedLines = effectiveMarkedLines;
       delete customLineApiBody.MARKEDINVOICE;
 
       if (this.isMainAccountOnlyLine(line, cashDirection, route)) {
@@ -813,9 +888,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return value === 'Taxable' || value === 'Non-Taxabl';
   }
 
-  private normalizeTaxGroup(
-    taxGroup: string | undefined | null,
-  ): string {
+  private normalizeTaxGroup(taxGroup: string | undefined | null): string {
     const value = taxGroup?.trim() ?? '';
     if (!value) return 'Non-Taxabl';
 

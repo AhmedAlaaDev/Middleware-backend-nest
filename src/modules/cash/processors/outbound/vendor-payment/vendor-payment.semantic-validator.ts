@@ -4,8 +4,6 @@ import {
 } from './models/vendor-invoice-match-result';
 import { VendorPaymentMarkingResult } from './models/vendor-payment-marking-result';
 import { VendorInvoiceVerificationService } from './services/vendor-invoice-verification.service';
-import { calculateVendorPaymentAmounts, moneyEquals } from './utils/money.util';
-
 import { VendorInvoiceSettlementSnapshot } from '@/modules/d365fo/services/vendor-invoice-journal.service';
 
 export interface VendorPaymentSemanticError {
@@ -39,7 +37,6 @@ export function validateVendorPaymentSemantics(options: {
   const {
     markingResult,
     vendorAccount,
-    documentNumber,
     netPaymentAmount = 0,
     withholdingAmount = 0,
     grossInvoiceAmount,
@@ -61,43 +58,34 @@ export function validateVendorPaymentSemantics(options: {
     const invoice = markedLine.InvoiceNumber;
     if (!invoice) continue; // Custody uses DocumentNumber instead
 
-    const lineDocNumber =
-      markedLine.DocumentNumber || documentNumber || markingResult.documentNum;
+    const lineDocNumber = String(markedLine.DocumentNumber ?? '').trim();
+    if (!lineDocNumber) {
+      errors.push({
+        field: 'DocumentNumber',
+        message: `Vendor settlement MarkedLines document number is required for invoice ${invoice}${sourceTag}.`,
+      });
+      continue;
+    }
     const lookup = invoiceLookup(invoice, vendorAccount);
 
     if (!lookup.exists) {
       errors.push({
         field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice}${sourceTag} was not found in D365 for vendor ${vendorAccount}.`,
-      });
-      continue;
-    }
-
-    if (!lookup.belongsToVendor) {
-      errors.push({
-        field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice}${sourceTag} does not belong to vendor ${vendorAccount}.`,
-      });
-      continue;
-    }
-
-    if (lookup.isOpen === false) {
-      errors.push({
-        field: 'MarkedInvoice',
-        message: `Vendor invoice ${invoice}${sourceTag} is already closed/settled in D365 for vendor ${vendorAccount}.`,
+        message: `Vendor transaction${sourceTag} was not found in D365. Vendor: ${vendorAccount}.`,
       });
       continue;
     }
 
     if (
-      lookup.currencyCode &&
-      currencyCode &&
-      lookup.currencyCode.trim().toLowerCase() !==
-        currencyCode.trim().toLowerCase()
+      !lookup.belongsToVendor &&
+      (!lookup.candidateTransactions ||
+        lookup.candidateTransactions.length === 0)
     ) {
+      // Legacy snapshots do not expose candidate rows. Preserve their explicit
+      // wrong-vendor result; current snapshots always use vendor-first rows.
       errors.push({
-        field: 'CurrencyCode',
-        message: `Vendor invoice ${invoice}${sourceTag} is in currency ${lookup.currencyCode}, but the payment line is ${currencyCode}.`,
+        field: 'MarkedInvoice',
+        message: `Vendor invoice ${invoice}${sourceTag} does not belong to vendor ${vendorAccount}.`,
       });
       continue;
     }
@@ -137,6 +125,7 @@ export function validateVendorPaymentSemantics(options: {
           withholdingAmount,
           currencyCode,
           allowPartialPayment,
+          skipAmountValidation: true,
         },
         candidates,
       );
@@ -154,6 +143,13 @@ export function validateVendorPaymentSemantics(options: {
           message: `${matchResult.reason}${sourceTag}`,
         });
       }
+    } else if (!lookup.belongsToVendor) {
+      // Compatibility for callers that only request the legacy existence check.
+      // The posting path always supplies amounts and uses the full hierarchy.
+      errors.push({
+        field: 'MarkedInvoice',
+        message: `Vendor invoice ${invoice}${sourceTag} does not belong to vendor ${vendorAccount}.`,
+      });
     }
   }
 
