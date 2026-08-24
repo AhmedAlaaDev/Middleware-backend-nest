@@ -1,4 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import { CashInFreightEntryProcessor } from '@/modules/cash/processors/inbound/freight/cash-in-freight-entry.processor';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
@@ -106,30 +107,97 @@ describe('Cash-In: customer account with a source offset line', () => {
       offsetLine({ UniqueId: 536999, LINENUMBER: 22 }),
     ]);
 
-    expect(line.PaymentId).toBe('536999,21');
-    expect(line.LineNumber).toBe(21);
+    expect(line.PaymentId).toBe('536999,22');
+    expect(line.LineNumber).toBe(22);
   });
 
-  it('creates one paired line per customer when one offset serves several customers', () => {
+  it('uses the corresponding customer account for each valid payment line', () => {
     const processor = createProcessor();
     const result = (processor as any).buildLines('1', [
-      customerLine({ ACCOUNTDISPLAYVALUE: 'Customer-001', LINENUMBER: 1 }),
+      customerLine({
+        ACCOUNTDISPLAYVALUE: 'Customer-001',
+        LINENUMBER: 1,
+        INVOICE: 'INV-1',
+      }),
       customerLine({
         ACCOUNTDISPLAYVALUE: 'Customer-002',
         LINENUMBER: 2,
         CREDITAMOUNT: 50,
+        INVOICE: 'INV-2',
       }),
-      offsetLine({ LINENUMBER: 3, DEBITAMOUNT: 150 }),
+      offsetLine({ LINENUMBER: 3, DEBITAMOUNT: 50, INVOICE: 'INV-2' }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].AccountDisplayValue).toBe('Customer-002');
+    expect(result[0].OffsetAccountType).toBe('Petty cash');
+  });
+
+  it('creates one customer-account line per currency-bearing payment offset', () => {
+    const processor = createProcessor();
+    const result = (processor as any).buildLines('1', [
+      customerLine({ CREDITAMOUNT: 150, CURRENCYCODE: 'EGP' }),
+      offsetLine({
+        LINENUMBER: 2,
+        ACCOUNTDISPLAYVALUE: 'BANK-USD',
+        DEBITAMOUNT: 75,
+        CURRENCYCODE: 'USD',
+        DEFAULTDIMENSIONDISPLAYVALUE:
+          '|2001|020|002|002|999999999||||||||||IMPORT||||',
+        FINTAGDISPLAYVALUE: 'BANK-USD-TAG',
+      }),
+      offsetLine({
+        LINENUMBER: 3,
+        ACCOUNTDISPLAYVALUE: 'PETTY-EUR',
+        DEBITAMOUNT: 75,
+        CURRENCYCODE: 'EUR',
+        DEFAULTDIMENSIONDISPLAYVALUE:
+          '|3001|030|003|003|999999999||||||||||IMPORT||||',
+        FINTAGDISPLAYVALUE: 'PETTY-EUR-TAG',
+      }),
     ]);
 
     expect(result).toHaveLength(2);
     expect(result.map((line: any) => line.AccountDisplayValue)).toEqual([
       'Customer-001',
-      'Customer-002',
+      'Customer-001',
     ]);
-    expect(
-      result.every((line: any) => line.OffsetAccountType === 'Petty cash'),
-    ).toBe(true);
+    expect(result.map((line: any) => line.CurrencyCode)).toEqual([
+      'USD',
+      'EUR',
+    ]);
+    expect(result.map((line: any) => line.OffsetAccountDisplayValue)).toEqual([
+      'BANK-USD',
+      'PETTY-EUR',
+    ]);
+    expect(result.map((line: any) => line.FinTagDisplayValue)).toEqual([
+      'BANK-USD-TAG',
+      'PETTY-EUR-TAG',
+    ]);
+  });
+
+  it('uses a unique offset source line for each customer payment with multiple offsets', () => {
+    const processor = createProcessor();
+    const result = (processor as any).buildLines('1', [
+      customerLine({ LINENUMBER: 10, CREDITAMOUNT: 150 }),
+      offsetLine({
+        LINENUMBER: 11,
+        ACCOUNTDISPLAYVALUE: 'BANK-001',
+        DEBITAMOUNT: 50,
+      }),
+      offsetLine({
+        LINENUMBER: 12,
+        ACCOUNTDISPLAYVALUE: 'PETTY-002',
+        DEBITAMOUNT: 100,
+      }),
+    ]);
+
+    expect(result.map((line: any) => line.PaymentId)).toEqual(['1,11', '1,12']);
+    expect(result.map((line: any) => line.LineNumber)).toEqual([11, 12]);
+    expect(result.map((line: any) => line.OffsetAccountDisplayValue)).toEqual([
+      'BANK-001',
+      'PETTY-002',
+    ]);
   });
 
   it('keeps the existing 421103 skip behavior', () => {
@@ -159,12 +227,56 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(result[0].OffsetAccountDisplayValue).toBe('PETTY-001');
   });
 
+  it('skips 421103 and applies the valid Petty Cash currency to the Customer entry', () => {
+    const processor = createProcessor();
+    const customer = customerLine({ CURRENCYCODE: 'EGP', CREDITAMOUNT: 100 });
+    const pettyCash = offsetLine({
+      LINENUMBER: 2,
+      ACCOUNTDISPLAYVALUE: 'PETTY-USD',
+      CURRENCYCODE: 'USD',
+      DEBITAMOUNT: 100,
+    });
+    const settlement = new CashEntryRawDataModel(
+      {
+        UniqueId: 1,
+        LINENUMBER: 3,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE:
+          '421103|1301|013|001|001|101000046||||||||||IMPORT||||',
+        DEBITAMOUNT: 100,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EUR',
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      } as any,
+      'Freight',
+      true,
+    );
+
+    CashIn421103CurrencyPolicy.apply({
+      uniqueId: 1,
+      safeType: 'Customer Collection',
+      lines: [customer, pettyCash, settlement],
+    });
+
+    const [line] = (processor as any).buildLines('1', [
+      customer,
+      pettyCash,
+      settlement,
+    ]);
+
+    expect(line.OffsetAccountDisplayValue).toBe('PETTY-USD');
+    expect(line.CurrencyCode).toBe('USD');
+    expect(line.CreditAmount).toBe(100);
+    expect(line.GetErrors()).not.toContain(
+      'InvalidMapping: No offset line found',
+    );
+  });
+
   it('reports a missing offset when no source offset exists', () => {
     const processor = createProcessor();
-    const [line] = (processor as any).buildLines('1', [customerLine()]);
+    const result = (processor as any).buildLines('1', [customerLine()]);
 
-    expect(line.GetErrors()).toContain(
-      'InvalidMapping: Unable to determine the corresponding non-customer line for the customer transaction.',
-    );
+    expect(result).toEqual([]);
   });
 });

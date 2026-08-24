@@ -122,7 +122,8 @@ export function prepareCashInboundDimensions(options: {
   const dimensionString =
     offsetLine?.ACCOUNTTYPE === 'Ledger'
       ? offsetLine.ACCOUNTDISPLAYVALUE
-      : accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
+      : offsetLine?.DEFAULTDIMENSIONDISPLAYVALUE ||
+        accountLine?.DEFAULTDIMENSIONDISPLAYVALUE;
   const segmentLength = options.getDimensionSegmentLength(dimensionString);
   let dimensions = options.parseDimensionString(dimensionString);
 

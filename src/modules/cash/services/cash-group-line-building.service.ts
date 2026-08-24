@@ -58,6 +58,21 @@ export function buildCashTwoLines(options: {
   buildLine: BuildLine;
 }): CashEntryDynDataModel[] {
   const { sourceId, lines, inbound, exchangeRateContext, buildLine } = options;
+  if (inbound) {
+    const customerLines = lines.filter((line) => line.IsCustomer);
+    const paymentLines = getCashInPaymentLines(lines);
+
+    return paymentLines.map((paymentLine, paymentIndex) =>
+      buildLine(
+        sourceId,
+        resolveCashInCustomerLine(paymentLine, customerLines, paymentIndex),
+        paymentLine,
+        'OFFSET',
+        exchangeRateContext,
+      ),
+    );
+  }
+
   const accountLine = inbound
     ? lines.find((line) => line.IsCustomer)
     : lines.find((line) => line.DEBITAMOUNT > 0);
@@ -96,6 +111,22 @@ export function buildCashMoreThanTwoLines(options: {
     buildLine,
     parseDimensionString,
   } = options;
+
+  if (inbound) {
+    const customerLines = lines.filter((line) => line.IsCustomer);
+    const paymentLines = getCashInPaymentLines(lines);
+
+    return paymentLines.map((paymentLine, paymentIndex) =>
+      buildLine(
+        sourceId,
+        resolveCashInCustomerLine(paymentLine, customerLines, paymentIndex),
+        paymentLine,
+        'OFFSET',
+        exchangeRateContext,
+      ),
+    );
+  }
+
   const accountLines = inbound
     ? lines.filter((line) => line.IsCustomer)
     : lines.filter((line) => line.DEBITAMOUNT > 0);
@@ -146,4 +177,61 @@ export function buildCashMoreThanTwoLines(options: {
       exchangeRateContext,
     ),
   ];
+}
+
+/** Returns only debit-side Cash-In payment rows; 421103 is a settlement row. */
+function getCashInPaymentLines(
+  lines: CashEntryRawDataModel[],
+): CashEntryRawDataModel[] {
+  return lines.filter((line) => {
+    const accountType = String(line.ACCOUNTTYPE ?? '')
+      .trim()
+      .toLowerCase();
+    const isLedgerLine = line.IsLedger || accountType === 'ledger';
+    const isPaymentType =
+      line.IsPettyCash ||
+      line.IsBank ||
+      line.IsLedger ||
+      accountType === 'petty cash' ||
+      accountType === 'bank' ||
+      accountType === 'ledger';
+
+    if (!isPaymentType || Number(line.DEBITAMOUNT ?? 0) <= 0) return false;
+    return !(
+      isLedgerLine &&
+      String(line.ACCOUNTDISPLAYVALUE ?? '')
+        .trim()
+        .startsWith('421103')
+    );
+  });
+}
+
+/** Resolves the customer associated with one payment row without currency grouping. */
+function resolveCashInCustomerLine(
+  paymentLine: CashEntryRawDataModel,
+  customerLines: CashEntryRawDataModel[],
+  paymentIndex: number,
+): CashEntryRawDataModel | undefined {
+  if (customerLines.length <= 1) return customerLines[0];
+
+  const paymentInvoice = String(
+    paymentLine.INVOICE || paymentLine.DOCUMENT || '',
+  )
+    .trim()
+    .toLowerCase();
+  if (paymentInvoice) {
+    const invoiceMatch = customerLines.find(
+      (line) =>
+        String(line.INVOICE || line.DOCUMENT || '')
+          .trim()
+          .toLowerCase() === paymentInvoice,
+    );
+    if (invoiceMatch) return invoiceMatch;
+  }
+
+  const paymentVoucher = String(paymentLine.VOUCHER ?? '').trim();
+  const voucherMatch = customerLines.find(
+    (line) => String(line.VOUCHER ?? '').trim() === paymentVoucher,
+  );
+  return voucherMatch ?? customerLines[paymentIndex] ?? customerLines[0];
 }

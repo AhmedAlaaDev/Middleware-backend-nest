@@ -1216,7 +1216,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [sourceId],
-      LineNumber: accountLine.LINENUMBER,
+      LineNumber:
+        amountSource === 'ACCOUNT'
+          ? accountLine.LINENUMBER
+          : offsetLine.LINENUMBER,
       Description: description,
       TransactionText: description,
       Company: this.company,
@@ -1237,8 +1240,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         isNotesReceivable,
         dimensionStr,
       ),
-      FinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
-      OffsetFinTagDisplayValue: accountLine.FINTAGDISPLAYVALUE,
+      FinTagDisplayValue:
+        offsetLine.FINTAGDISPLAYVALUE || accountLine.FINTAGDISPLAYVALUE,
+      OffsetFinTagDisplayValue:
+        offsetLine.FINTAGDISPLAYVALUE || accountLine.FINTAGDISPLAYVALUE,
       CreditAmount:
         amountSource === 'ACCOUNT'
           ? accountLine.CREDITAMOUNT
@@ -1268,12 +1273,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
-      PaymentId: `${accountLine.UniqueId || sourceId},${accountLine.LINENUMBER}`,
+      PaymentId: `${
+        (amountSource === 'ACCOUNT' ? accountLine : offsetLine).UniqueId ||
+        sourceId
+      },${amountSource === 'ACCOUNT' ? accountLine.LINENUMBER : offsetLine.LINENUMBER}`,
       SafeType: accountLine.SafeType,
       VoucherType: accountLine.VoucherType,
     });
 
-    (dynLine as any).SourceLineNumber = accountLine.LINENUMBER;
+    (dynLine as any).SourceLineNumber =
+      amountSource === 'ACCOUNT'
+        ? accountLine.LINENUMBER
+        : offsetLine.LINENUMBER;
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
       dynLine.AddError(
