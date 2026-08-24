@@ -374,7 +374,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       // D365 assigns line numbers inside each created header. Reindex after
       // route splitting so retry/idempotency checks match the actual header.
-      const lineNumber = groupLineIndex + 1;
+      const lineNumber =
+        cashDirection === 'in' && Number(line.LineNumber) > 0
+          ? Number(line.LineNumber)
+          : groupLineIndex + 1;
       const transactionDate =
         line.TransactionDate || line.TransDate || line.Date || '';
       const credit = Number(line.CreditAmount ?? 0);

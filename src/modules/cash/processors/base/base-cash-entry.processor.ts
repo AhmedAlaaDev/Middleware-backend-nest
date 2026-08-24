@@ -318,6 +318,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       startVoucherNumber: 1,
       maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
     });
+    if (this.isInbound()) {
+      for (const line of updatedDfoLines) {
+        const sourceLineNumber = Number((line as any).SourceLineNumber);
+        if (Number.isFinite(sourceLineNumber) && sourceLineNumber > 0) {
+          line.LineNumber = sourceLineNumber;
+        }
+      }
+    }
     this.logger.debug(
       `[STEP 5] Updated batch and voucher numbers for ${updatedDfoLines.length} lines`,
     );
@@ -1208,6 +1216,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
     const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [sourceId],
+      LineNumber: accountLine.LINENUMBER,
       Description: description,
       TransactionText: description,
       Company: this.company,
@@ -1259,10 +1268,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
-      PaymentId: sourceId,
+      PaymentId: `${accountLine.UniqueId || sourceId},${accountLine.LINENUMBER}`,
       SafeType: accountLine.SafeType,
       VoucherType: accountLine.VoucherType,
     });
+
+    (dynLine as any).SourceLineNumber = accountLine.LINENUMBER;
 
     if (!this.utilsService.isValidDimensionSegmentLength(segmentLength)) {
       dynLine.AddError(

@@ -548,9 +548,22 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     };
 
     expect((handler as any).validateLine(line)).toEqual([]);
-    expect(
-      (handler as any).validateLine({ ...line, cashDirection: 'in' }),
-    ).toContain('customLineApiBody.OffsetAccountTypeStr');
+
+    const cashInLine = {
+      ...line,
+      cashDirection: 'in',
+      customLineApiBody: {
+        ...line.customLineApiBody,
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: '',
+        offsetAccountDisplayValue: '',
+        OffsetAccountTypeStr: '',
+        OffsetCompany: '',
+      },
+    };
+
+    expect((handler as any).validateLine(cashInLine)).toContain(
+      'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
+    );
   });
 
   it('keeps offset fields for a standard Cash Out ledger line', () => {
