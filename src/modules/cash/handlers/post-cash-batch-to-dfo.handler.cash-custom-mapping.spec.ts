@@ -838,7 +838,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.TRANSACTIONTEXT).toBe('Unmarked - INV-HISTORICAL-002');
   });
 
-  it('preserves the strict settlement identity on a 223304 withholding companion', () => {
+  it('posts a 223304 withholding companion as marked with HasWithHoldingLine false', () => {
     const handler = buildHandler();
 
     const result = (handler as any).mapLines(
@@ -888,7 +888,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         InvoiceNumber: '396',
         OperationNumber: 'O26-EXP-OC-206',
         DocumentNumber: '16476',
-        HasWithHoldingLine: true,
+        HasWithHoldingLine: false,
       },
     ]);
     expect(body.PAYMENTNOTES).toBe('396');

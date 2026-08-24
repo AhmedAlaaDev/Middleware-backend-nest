@@ -114,7 +114,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
   /**
-   * Cash-out: cached D365 invoice snapshots keyed by `invoice|vendor`.
+   * Cash-out: cached D365 invoice snapshots keyed by
+   * `invoice|vendor|document` when document is available.
    */
   protected vendorInvoiceSnapshotMap: Map<
     string,
@@ -721,8 +722,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
         continue;
       }
-      const key = VendorInvoiceJournalService.pairKey(invoice, vendor);
-      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      const documentNumber = String(line.DOCUMENT ?? '').trim();
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        this.vendorInvoiceSnapshotMap,
+        invoice,
+        vendor,
+        documentNumber,
+      );
       if (!snapshot?.exists) {
         addGroupError(
           `vendor transaction was not found in D365. Vendor: ${vendor}.`,
@@ -736,7 +742,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             Number.isFinite(snapshot.remainingAmount));
 
         if (hasCandidatesOrAmounts) {
-          const docNum = String(line.DOCUMENT ?? '').trim();
+          const docNum = documentNumber;
           const vendorDebit = groupLines.reduce(
             (sum, sourceLine) => sum + Number(sourceLine.DEBITAMOUNT ?? 0),
             0,
@@ -1410,6 +1416,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       settlements: normalizedSettlements,
       offsetLine,
       vendorGroup: String(accountLine.VendorGroup ?? '').trim(),
+      explicitWithholdingSource: disableAutomaticWithholdingCalculation,
     });
     const isWithholding =
       normalizedSettlements.some(
@@ -1510,7 +1517,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                 sum + Number(vendorLine.DEBITAMOUNT ?? 0),
               0,
             )
-          : Number(offsetLine.CREDITAMOUNT ?? offsetLine.DEBITAMOUNT ?? 0),
+          : Math.max(
+              Math.abs(Number(offsetLine.CREDITAMOUNT ?? 0)),
+              Math.abs(Number(offsetLine.DEBITAMOUNT ?? 0)),
+            ),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
@@ -1924,8 +1934,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         continue;
       }
 
-      const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
-      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        this.vendorInvoiceSnapshotMap,
+        invoice,
+        vendorAccount,
+        lineDoc,
+      );
       if (!snapshot?.exists) {
         line.AddError(
           'MarkedInvoice',

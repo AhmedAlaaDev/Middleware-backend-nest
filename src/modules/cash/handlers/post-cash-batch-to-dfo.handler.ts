@@ -389,6 +389,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       const offsetAccountTypeStr = this.mapEntryAccountTypeStrForCustom(
         line.OffsetAccountType,
       );
+      const isExplicitWithholdingCompanion =
+        cashDirection === 'out' &&
+        accountTypeStr === 'Vendor' &&
+        offsetAccountTypeStr === 'Ledger' &&
+        String(offsetAccountDisplayValue ?? '')
+          .trim()
+          .startsWith('223304');
 
       const defaultDimDisplayValue =
         normalizeCashCompositeDisplayValue(defaultDim);
@@ -408,7 +415,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           InvoiceNumber: String(markedLine.InvoiceNumber ?? ''),
           OperationNumber: String(markedLine.OperationNumber ?? '').trim(),
           DocumentNumber: String(markedLine.DocumentNumber ?? '').trim(),
-          HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+          HasWithHoldingLine: isExplicitWithholdingCompanion
+            ? false
+            : Boolean(markedLine.HasWithHoldingLine),
         })) ?? [];
       // MarkedLines is authoritative for every Vendor Payment line, including
       // Vendor -> 223304 withholding companions. Do not clear or reconstruct

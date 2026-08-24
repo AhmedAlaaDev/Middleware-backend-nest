@@ -31,6 +31,7 @@ export function validateVendorPaymentSemantics(options: {
   invoiceLookup: (
     invoice: string,
     vendor: string,
+    documentNumber?: string,
   ) => VendorInvoiceSettlementSnapshot;
   verificationService?: VendorInvoiceVerificationService;
 }): VendorPaymentSemanticError[] {
@@ -66,7 +67,7 @@ export function validateVendorPaymentSemantics(options: {
       });
       continue;
     }
-    const lookup = invoiceLookup(invoice, vendorAccount);
+    const lookup = invoiceLookup(invoice, vendorAccount, lineDocNumber);
 
     if (!lookup.exists) {
       errors.push({

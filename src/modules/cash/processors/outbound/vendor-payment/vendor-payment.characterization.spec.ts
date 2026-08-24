@@ -175,6 +175,27 @@ describe('Vendor Payment Marked Lines Policy', () => {
     expect(result.markedLines[0].HasWithHoldingLine).toBe(true);
   });
 
+  it('uses only the paired 223304 row when explicit withholding source rows exist', () => {
+    const vendorLine = rawLine({
+      DEBITAMOUNT: 513,
+      INVOICE: '3939',
+      DOCUMENT: '15902',
+    });
+    const sharedOffset = rawLine({
+      CREDITAMOUNT: 999,
+      ITEMWITHHOLDINGTAXGROUPCODE: 'WHT-3%',
+    });
+
+    const result = resolveVendorPaymentMarking({
+      settlements: [{ vendorLine }],
+      offsetLine: sharedOffset,
+      vendorGroup: 'Normal',
+      explicitWithholdingSource: true,
+    });
+
+    expect(result.markedLines[0].HasWithHoldingLine).toBe(false);
+  });
+
   it('produces unmarked result when invoice is blank/zero', () => {
     const vendorLine = rawLine({
       DEBITAMOUNT: 1000,

@@ -134,6 +134,41 @@ export class VendorInvoiceJournalService {
     return `${invoice.trim().toLowerCase()}|${vendorAccount.trim().toLowerCase()}`;
   }
 
+  /**
+   * Build the settlement lookup key in business-match order. Document is part
+   * of the identity so equal invoice numbers under the same vendor cannot
+   * overwrite one another.
+   */
+  public static settlementKey(
+    invoice: string,
+    vendorAccount: string,
+    documentNumber?: string,
+  ): string {
+    const pair = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
+    const document = String(documentNumber ?? '')
+      .trim()
+      .toLowerCase();
+    return document ? `${pair}|${document}` : pair;
+  }
+
+  public static findSettlementSnapshot(
+    snapshots: Map<string, VendorInvoiceSettlementSnapshot>,
+    invoice: string,
+    vendorAccount: string,
+    documentNumber?: string,
+  ): VendorInvoiceSettlementSnapshot | undefined {
+    const exactKey = VendorInvoiceJournalService.settlementKey(
+      invoice,
+      vendorAccount,
+      documentNumber,
+    );
+    const exact = snapshots.get(exactKey);
+    if (exact || !String(documentNumber ?? '').trim()) return exact;
+    return snapshots.get(
+      VendorInvoiceJournalService.pairKey(invoice, vendorAccount),
+    );
+  }
+
   public async findInvoiceSettlementSnapshots(
     company: string,
     requests: Array<{
@@ -160,10 +195,11 @@ export class VendorInvoiceJournalService {
             } => Boolean(request.invoice) && Boolean(request.vendorAccount),
           )
           .map((request) => [
-            `${VendorInvoiceJournalService.pairKey(
+            VendorInvoiceJournalService.settlementKey(
               request.invoice,
               request.vendorAccount,
-            )}|${request.documentNumber?.toLowerCase() ?? ''}`,
+              request.documentNumber,
+            ),
             request,
           ]),
       ).values(),
@@ -202,19 +238,30 @@ export class VendorInvoiceJournalService {
       const vendorRows =
         rowsByVendor.get(this.normalizeVendorAccount(request.vendorAccount)) ??
         [];
-      const invoiceRows = vendorRows.filter((row) =>
+      const requestedDocument = String(request.documentNumber ?? '')
+        .trim()
+        .toLowerCase();
+      const documentRows = requestedDocument
+        ? vendorRows.filter(
+            (row) =>
+              String(row.DocumentNum || row.Document || '')
+                .trim()
+                .toLowerCase() === requestedDocument,
+          )
+        : vendorRows;
+      const invoiceRows = documentRows.filter((row) =>
         vendorInvoiceIdentityEquals(row.Invoice, request.invoice),
       );
-      const row = invoiceRows[0] ?? vendorRows[0];
+      const row = invoiceRows[0] ?? documentRows[0];
 
       // A snapshot now means that this vendor has candidate transactions.
       // The verification service is responsible for narrowing those rows by
       // document, then invoice, then amount.
-      const exists = vendorRows.length > 0;
+      const exists = documentRows.length > 0;
       const belongsToVendor = vendorRows.length > 0;
 
       const candidateTransactions: VendorCandidateTransaction[] =
-        vendorRows.map((r) => {
+        documentRows.map((r) => {
           const orig = this.firstDefinedNumber(
             r.AmountCur,
             r.AmountMST,
@@ -243,9 +290,10 @@ export class VendorInvoiceJournalService {
         });
 
       snapshots.set(
-        VendorInvoiceJournalService.pairKey(
+        VendorInvoiceJournalService.settlementKey(
           request.invoice,
           request.vendorAccount,
+          request.documentNumber,
         ),
         this.toInvoiceSettlementSnapshot(
           company,

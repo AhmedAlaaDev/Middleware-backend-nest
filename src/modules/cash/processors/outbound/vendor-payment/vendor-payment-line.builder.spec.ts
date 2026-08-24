@@ -127,10 +127,13 @@ describe('VendorPaymentLineBuilder', () => {
     ] as any[]);
 
     expect(result).toHaveLength(2);
-    expect(buildVendorLine.mock.calls.map((call) => call[2])).toEqual([
-      payment,
-      withholding,
-    ]);
+    expect(buildVendorLine.mock.calls[0][2]).toMatchObject(withholding);
+    expect(buildVendorLine.mock.calls[1][2]).not.toBe(payment);
+    expect(buildVendorLine.mock.calls[1][2]).toMatchObject({
+      ACCOUNTDISPLAYVALUE: payment.ACCOUNTDISPLAYVALUE,
+      CREDITAMOUNT: 16455.78,
+      DEBITAMOUNT: 0,
+    });
     expect(buildVendorLine.mock.calls.map((call) => call[3])).toEqual([
       'OFFSET',
       'OFFSET',
@@ -143,6 +146,150 @@ describe('VendorPaymentLineBuilder', () => {
     );
     expect(buildVendorLine.mock.calls[0][7]).toBeUndefined();
     expect(buildVendorLine.mock.calls[1][7]).toBeUndefined();
+  });
+
+  it('keeps each invoice main line beside its false-flag 223304 companion', () => {
+    const buildVendorLine = jest.fn((...args: any[]) => ({ args }));
+    const builder = new VendorPaymentLineBuilder(buildVendorLine as any);
+    const payment = line({
+      LINENUMBER: 4,
+      ACCOUNTTYPE: 'Ledger',
+      ACCOUNTDISPLAYVALUE: '223201|dims',
+      CREDITAMOUNT: 4079.7,
+    });
+    const withholding = line({
+      LINENUMBER: 3,
+      ACCOUNTTYPE: 'Ledger',
+      ACCOUNTDISPLAYVALUE: '223304|dims',
+      CREDITAMOUNT: 150,
+      INVOICE: '008',
+      DOCUMENT: '16300',
+    });
+
+    const result = builder.build('471762', [
+      line({
+        LINENUMBER: 1,
+        IsVendor: true,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000009',
+        INVOICE: '008',
+        DOCUMENT: '16300',
+        DEBITAMOUNT: 3000,
+      }),
+      line({
+        LINENUMBER: 2,
+        IsVendor: true,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000009',
+        INVOICE: '008a',
+        DOCUMENT: '16300',
+        DEBITAMOUNT: 1229.7,
+      }),
+      withholding,
+      payment,
+    ] as any[]);
+
+    expect(result).toHaveLength(3);
+    expect(buildVendorLine).toHaveBeenCalledTimes(3);
+    expect(
+      buildVendorLine.mock.calls.map((call) => ({
+        invoice: call[1].INVOICE,
+        amount: call[2].CREDITAMOUNT,
+        offset: call[2].ACCOUNTDISPLAYVALUE,
+        settlements: call[5].map(
+          (settlement: any) => settlement.vendorLine.INVOICE,
+        ),
+      })),
+    ).toEqual([
+      {
+        invoice: '008',
+        amount: 150,
+        offset: '223304|dims',
+        settlements: ['008'],
+      },
+      {
+        invoice: '008',
+        amount: 2850,
+        offset: '223201|dims',
+        settlements: ['008'],
+      },
+      {
+        invoice: '008a',
+        amount: 1229.7,
+        offset: '223201|dims',
+        settlements: ['008a'],
+      },
+    ]);
+  });
+
+  it('aggregates a repeated D365 invoice into one false companion followed by one true main line', () => {
+    const buildVendorLine = jest.fn((...args: any[]) => ({ args }));
+    const builder = new VendorPaymentLineBuilder(buildVendorLine as any);
+    const withholding = line({
+      LINENUMBER: 460,
+      ACCOUNTTYPE: 'Ledger',
+      ACCOUNTDISPLAYVALUE: '223304|dims',
+      CREDITAMOUNT: 27,
+      INVOICE: '3939',
+      DOCUMENT: '15902',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|withholding',
+    });
+
+    const result = builder.build('467706', [
+      line({
+        LINENUMBER: 437,
+        IsVendor: true,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000068',
+        INVOICE: '3939',
+        DOCUMENT: '15902',
+        FINTAGDISPLAYVALUE: 'O25-IMP-AI-12501|first',
+        DEBITAMOUNT: 513,
+      }),
+      line({
+        LINENUMBER: 461,
+        IsVendor: true,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000068',
+        INVOICE: '3939',
+        DOCUMENT: '15902',
+        FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|second',
+        DEBITAMOUNT: 513,
+      }),
+      withholding,
+      line({
+        LINENUMBER: 462,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223201|dims',
+        CREDITAMOUNT: 999,
+      }),
+    ] as any[]);
+
+    expect(result).toHaveLength(2);
+    expect(
+      buildVendorLine.mock.calls.map((call) => ({
+        lineNumber: call[1].LINENUMBER,
+        amount: call[2].CREDITAMOUNT,
+        operation: call[1].FINTAGDISPLAYVALUE.split('|')[0],
+        withholdingLineNumber: call[5][0].withholdingLine?.LINENUMBER,
+        offset: call[2].ACCOUNTDISPLAYVALUE,
+      })),
+    ).toEqual([
+      {
+        lineNumber: 437,
+        amount: 27,
+        operation: 'O25-IMP-AI-12501',
+        withholdingLineNumber: 460,
+        offset: '223304|dims',
+      },
+      {
+        lineNumber: 437,
+        amount: 999,
+        operation: 'O25-IMP-AI-12501',
+        withholdingLineNumber: 460,
+        offset: '223201|dims',
+      },
+    ]);
   });
 
   it('rejects explicit withholding when main plus withholding does not equal the Vendor total', () => {

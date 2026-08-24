@@ -30,8 +30,14 @@ export function resolveVendorPaymentMarking(options: {
   settlements: VendorPaymentSettlement[];
   offsetLine: CashEntryRawDataModel;
   vendorGroup: string;
+  explicitWithholdingSource?: boolean;
 }): VendorPaymentMarkingResult {
-  const { settlements, offsetLine, vendorGroup } = options;
+  const {
+    settlements,
+    offsetLine,
+    vendorGroup,
+    explicitWithholdingSource = false,
+  } = options;
   const isCustody = vendorGroup.toLowerCase() === 'custody';
 
   const primaryVendorLine = settlements[0]?.vendorLine;
@@ -78,11 +84,13 @@ export function resolveVendorPaymentMarking(options: {
     // D365 settlement can require the source document even for non-custody
     // vendor payments; do not suppress it when an invoice is also present.
     DocumentNumber: String(vendorLine.DOCUMENT ?? '').trim(),
-    HasWithHoldingLine: isVendorPaymentWithholdingEnabled({
-      vendorLine,
-      withholdingLine,
-      offsetLine,
-    }),
+    HasWithHoldingLine: explicitWithholdingSource
+      ? Boolean(withholdingLine)
+      : isVendorPaymentWithholdingEnabled({
+          vendorLine,
+          withholdingLine,
+          offsetLine,
+        }),
   }));
 
   return VendorPaymentMarkingResult.marked({

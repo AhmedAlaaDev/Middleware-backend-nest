@@ -14,13 +14,23 @@ export function findVendorPaymentWithholdingLine(
 ): CashEntryRawDataModel | undefined {
   if (withholdingLines.length === 0) return undefined;
 
-  // 1. Match by invoice (when possible)
+  // 1. Match by invoice (when possible). When the same invoice appears more
+  // than once for the vendor/document, operation identifies the exact D365
+  // transaction and must win before the invoice-only fallback.
   const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
   if (invoice) {
-    const invoiceMatch = withholdingLines.find(
+    const invoiceMatches = withholdingLines.filter(
       (line) => sanitizeCashOutboundInvoice(line.INVOICE) === invoice,
     );
-    if (invoiceMatch) return invoiceMatch;
+    const operation = firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
+    const exactOperationMatch = operation
+      ? invoiceMatches.find(
+          (line) =>
+            firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+        )
+      : undefined;
+    if (exactOperationMatch) return exactOperationMatch;
+    if (invoiceMatches.length > 0) return invoiceMatches[0];
   }
 
   // 2. Match by Document + Currency + Operation.
@@ -56,6 +66,63 @@ export function findVendorPaymentWithholdingLine(
   }
 
   return undefined;
+}
+
+/**
+ * Allocates each 223304 source row once. Exact invoice+operation matches are
+ * reserved first so a repeated invoice cannot let an earlier, different
+ * operation steal the withholding row through the invoice-only fallback.
+ */
+export function allocateVendorPaymentWithholdingLines(
+  vendorLines: CashEntryRawDataModel[],
+  withholdingLines: CashEntryRawDataModel[],
+): Map<CashEntryRawDataModel, CashEntryRawDataModel> {
+  const allocation = new Map<
+    CashEntryRawDataModel,
+    CashEntryRawDataModel
+  >();
+  const claimed = new Set<CashEntryRawDataModel>();
+
+  for (const vendorLine of vendorLines) {
+    const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
+    const operation = firstCashFinancialTag(vendorLine.FINTAGDISPLAYVALUE);
+    if (!invoice || !operation) continue;
+
+    const exact = withholdingLines.find(
+      (line) =>
+        !claimed.has(line) &&
+        sanitizeCashOutboundInvoice(line.INVOICE) === invoice &&
+        firstCashFinancialTag(line.FINTAGDISPLAYVALUE) === operation,
+    );
+    if (!exact) continue;
+    allocation.set(vendorLine, exact);
+    claimed.add(exact);
+  }
+
+  for (const vendorLine of vendorLines) {
+    if (allocation.has(vendorLine)) continue;
+    const invoice = sanitizeCashOutboundInvoice(vendorLine.INVOICE);
+    const invoiceWasAlreadyClaimed =
+      Boolean(invoice) &&
+      withholdingLines.some(
+        (line) => sanitizeCashOutboundInvoice(line.INVOICE) === invoice,
+      ) &&
+      !withholdingLines.some(
+        (line) =>
+          !claimed.has(line) &&
+          sanitizeCashOutboundInvoice(line.INVOICE) === invoice,
+      );
+    if (invoiceWasAlreadyClaimed) continue;
+    const match = findVendorPaymentWithholdingLine(
+      vendorLine,
+      withholdingLines.filter((line) => !claimed.has(line)),
+    );
+    if (!match) continue;
+    allocation.set(vendorLine, match);
+    claimed.add(match);
+  }
+
+  return allocation;
 }
 
 /**
