@@ -116,6 +116,25 @@ export function buildCashMoreThanTwoLines(options: {
     const customerLines = lines.filter((line) => line.IsCustomer);
     const paymentLines = getCashInPaymentLines(lines);
 
+    if (paymentLines.length === 1 && customerLines.length > 1) {
+      const groupedCustomerLine = groupCashInCustomerLines(
+        customerLines,
+        paymentLines[0],
+      );
+
+      if (groupedCustomerLine) {
+        return [
+          buildLine(
+            sourceId,
+            groupedCustomerLine,
+            paymentLines[0],
+            'ACCOUNT',
+            exchangeRateContext,
+          ),
+        ];
+      }
+    }
+
     return paymentLines.map((paymentLine, paymentIndex) =>
       buildLine(
         sourceId,
@@ -177,6 +196,56 @@ export function buildCashMoreThanTwoLines(options: {
       exchangeRateContext,
     ),
   ];
+}
+
+/**
+ * Groups repeated Cash-In customer rows only when they resolve to the same
+ * customer account. The generated customer row keeps the single payment
+ * row's source identity so LineNumber and PAYMENTID remain unique and tied
+ * to the sheet payment line, while the customer credit is the grouped sum.
+ *
+ * Different customer accounts intentionally return undefined and continue
+ * through the existing deterministic pairing behavior.
+ */
+function groupCashInCustomerLines(
+  customerLines: CashEntryRawDataModel[],
+  paymentLine: CashEntryRawDataModel,
+): CashEntryRawDataModel | undefined {
+  const firstCustomerLine = customerLines[0];
+  if (!firstCustomerLine) return undefined;
+
+  const customerAccount = normalizeCashInCustomerAccount(firstCustomerLine);
+  if (
+    !customerAccount ||
+    customerLines.some(
+      (line) => normalizeCashInCustomerAccount(line) !== customerAccount,
+    )
+  ) {
+    return undefined;
+  }
+
+  const groupedCreditAmount = customerLines.reduce(
+    (total, line) => total + Number(line.CREDITAMOUNT ?? 0),
+    0,
+  );
+  const groupedDebitAmount = customerLines.reduce(
+    (total, line) => total + Number(line.DEBITAMOUNT ?? 0),
+    0,
+  );
+
+  return {
+    ...firstCustomerLine,
+    UniqueId: paymentLine.UniqueId ?? firstCustomerLine.UniqueId,
+    LINENUMBER: paymentLine.LINENUMBER ?? firstCustomerLine.LINENUMBER,
+    CREDITAMOUNT: groupedCreditAmount,
+    DEBITAMOUNT: groupedDebitAmount,
+  } as CashEntryRawDataModel;
+}
+
+function normalizeCashInCustomerAccount(
+  line: CashEntryRawDataModel,
+): string {
+  return String(line.ACCOUNTDISPLAYVALUE ?? '').trim().toLowerCase();
 }
 
 /** Returns only debit-side Cash-In payment rows; 421103 is a settlement row. */

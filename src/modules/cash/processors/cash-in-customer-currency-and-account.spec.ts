@@ -200,6 +200,92 @@ describe('Cash-In: customer account with a source offset line', () => {
     ]);
   });
 
+  it('creates one customer-main entry for each payment when repeated customer rows use the same account', () => {
+    const processor = createProcessor();
+    const result = (processor as any).buildLines('77', [
+      customerLine({
+        UniqueId: 77,
+        LINENUMBER: 1,
+        ACCOUNTDISPLAYVALUE: 'Customer-001',
+        CREDITAMOUNT: 100,
+        INVOICE: 'INV-A',
+      }),
+      customerLine({
+        UniqueId: 77,
+        LINENUMBER: 2,
+        ACCOUNTDISPLAYVALUE: 'Customer-001',
+        CREDITAMOUNT: 50,
+        INVOICE: 'INV-B',
+      }),
+      offsetLine({
+        UniqueId: 77,
+        LINENUMBER: 3,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-001',
+        DEBITAMOUNT: 50,
+        INVOICE: 'INV-B',
+      }),
+      offsetLine({
+        UniqueId: 77,
+        LINENUMBER: 4,
+        ACCOUNTDISPLAYVALUE: 'PETTY-002',
+        DEBITAMOUNT: 100,
+        INVOICE: 'INV-A',
+      }),
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((line: any) => line.AccountDisplayValue)).toEqual([
+      'Customer-001',
+      'Customer-001',
+    ]);
+    expect(result.map((line: any) => line.OffsetAccountDisplayValue)).toEqual([
+      'BANK-001',
+      'PETTY-002',
+    ]);
+    expect(result.map((line: any) => line.CreditAmount)).toEqual([50, 100]);
+    expect(result.map((line: any) => line.PaymentId)).toEqual([
+      '77,3',
+      '77,4',
+    ]);
+    expect(result.map((line: any) => line.LineNumber)).toEqual([3, 4]);
+  });
+
+  it('groups repeated rows for one customer into one amount against a single payment offset', () => {
+    const processor = createProcessor();
+    const result = (processor as any).buildLines('88', [
+      customerLine({
+        UniqueId: 88,
+        LINENUMBER: 5,
+        ACCOUNTDISPLAYVALUE: 'Customer-001',
+        CREDITAMOUNT: 100,
+      }),
+      customerLine({
+        UniqueId: 88,
+        LINENUMBER: 6,
+        ACCOUNTDISPLAYVALUE: 'Customer-001',
+        CREDITAMOUNT: 50,
+      }),
+      offsetLine({
+        UniqueId: 88,
+        LINENUMBER: 7,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-ONE',
+        DEBITAMOUNT: 999,
+      }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].AccountType).toBe('Cust');
+    expect(result[0].AccountDisplayValue).toBe('Customer-001');
+    expect(result[0].OffsetAccountType).toBe('Bank');
+    expect(result[0].OffsetAccountDisplayValue).toBe('BANK-ONE');
+    expect(result[0].CreditAmount).toBe(150);
+    expect(result[0].DebitAmount).toBe(0);
+    expect(result[0].PaymentId).toBe('88,7');
+    expect(result[0].LineNumber).toBe(7);
+  });
+
   it('keeps the existing 421103 skip behavior', () => {
     const processor = createProcessor();
     const result = (processor as any).buildLines('1', [

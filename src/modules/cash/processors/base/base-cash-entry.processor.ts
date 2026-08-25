@@ -1165,6 +1165,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       exchangeRateContext,
       transactionDate,
       currencyCode,
+      resolveTransaction: (context, date, currency) =>
+        this.cashOutExchangeRateService.resolve(
+          context,
+          date ?? '',
+          currency ?? '',
+        ),
       resolveReporting: (context, date, currency) =>
         this.cashOutExchangeRateService.resolveReporting(
           context,

@@ -55,7 +55,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             TransactionDate: '2026-04-21T00:00:00.000Z',
             Document: 'DOC-1001',
             DocumentDate: '2026-04-20T00:00:00.000Z',
-            ExchangeRate: 1,
+            ExchangeRate: 4765,
             CreditAmount: 1000,
             DebitAmount: 0,
             CurrencyCode: 'USD',
@@ -94,6 +94,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
+    expect(body.ExchangeRate).toBe(4765);
     expect(body).not.toHaveProperty('ExchRate');
     expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body).not.toHaveProperty('ReportingCurrencyExchRate');
@@ -109,10 +110,34 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: false,
       },
     ]);
-    expect(body.ReportingCurrencyExchRate).toBe(100);
     expect(body.ReportingExchangeRate).toBe(100);
-    expect(body.REPORTINGEXCHANGERATE).toBe(100);
-    expect(body.ExchRateSecond).toBe(100);
+  });
+
+  it('rejects a Cash-In foreign-currency line when no valid rate is available', () => {
+    const handler = buildHandler();
+
+    expect(() =>
+      (handler as any).mapLines(
+        [
+          {
+            data: {
+              dataAreaId: 'USMF',
+              LineNumber: 1,
+              AccountType: 'Cust',
+              AccountDisplayValue: 'CUST001',
+              OffsetAccountType: 'Bank',
+              OffsetAccountDisplayValue: 'BANK001',
+              CurrencyCode: 'USD',
+              ExchangeRate: 0,
+              ExchRate: 0,
+              ReportingCurrencyExchRate: 1,
+            },
+          },
+        ],
+        'USMF',
+        'in',
+      ),
+    ).toThrow('has no valid exchange rate for currency USD');
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {

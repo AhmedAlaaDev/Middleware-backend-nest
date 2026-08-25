@@ -45,7 +45,23 @@ describe('Cash line-builder direction boundary', () => {
       .spyOn(processor, 'buildLineOutbound')
       .mockReturnValue([]);
 
-    processor.buildLines('V1', [sourceLine]);
+    const paymentLine = new CashEntryRawDataModel(
+      {
+        UniqueId: 1,
+        LINENUMBER: 2,
+        VOUCHER: 'V1',
+        DEBITAMOUNT: 10,
+        CREDITAMOUNT: 0,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'BANK-1',
+        SafeType: 'Customer Collection',
+        VoucherType: 'Cash',
+      } as any,
+      'Freight',
+      true,
+    );
+
+    processor.buildLines('V1', [sourceLine, paymentLine]);
 
     expect(inbound).toHaveBeenCalled();
     expect(outbound).not.toHaveBeenCalled();
