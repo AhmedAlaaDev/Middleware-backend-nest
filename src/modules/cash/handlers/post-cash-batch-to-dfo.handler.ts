@@ -501,23 +501,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
-        ExchRate:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
-        EXCHANGERATE:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
+        ...(cashDirection === 'out'
+          ? {
+              ExchRate:
+                (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+                  ? 100
+                  : line.ExchRate || 100,
+              EXCHANGERATE:
+                (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+                  ? 100
+                  : line.ExchRate || 100,
+              ReportingCurrencyExchRate:
+                (line.ReportingCurrencyExchRate || 0) * 100,
+              REPORTINGEXCHANGERATE:
+                (line.ReportingCurrencyExchRate || 0) * 100,
+              ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
+            }
+          : {}),
         ExchangeRate:
           (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
             ? 100
             : line.ExchRate || 100,
 
-        ReportingCurrencyExchRate: (line.ReportingCurrencyExchRate || 0) * 100,
         ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
-        REPORTINGEXCHANGERATE: (line.ReportingCurrencyExchRate || 0) * 100,
-        ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
         offsetDEFAULTDIMENSIONDISPLAYVALUE: offsetDefaultDimDisplayValue,
@@ -544,7 +550,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         PAYMENTID: line.PaymentId ?? '',
         PAYMENTMETHODNAME:
           this.toOptionalTrimmedString(line.PaymentMethodName) ?? '',
-        PAYMENTNOTES: transactionTextValue,
+        PAYMENTNOTES:
+          cashDirection === 'in'
+            ? line.Description || line.TransactionText || ''
+            : transactionTextValue,
         PAYMENTREFERENCE: line.PaymentReference ?? '',
         // TODO: mapping is unknown; keeping empty until confirmed.
         PAYMENTSPECIFICATION: '',

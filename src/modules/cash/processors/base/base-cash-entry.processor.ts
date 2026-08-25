@@ -1214,14 +1214,16 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     );
     if (offsetCurrencyWarning) this.logger.warn(offsetCurrencyWarning);
 
+    const sourceDescription =
+      offsetLine.DESCRIPTION || accountLine.DESCRIPTION || description;
     const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [sourceId],
       LineNumber:
         amountSource === 'ACCOUNT'
           ? accountLine.LINENUMBER
           : offsetLine.LINENUMBER,
-      Description: description,
-      TransactionText: description,
+      Description: sourceDescription,
+      TransactionText: sourceDescription,
       Company: this.company,
       AccountType: resolvedAccountType,
       OffsetAccountType: resolvedOffsetAccountType,

@@ -71,6 +71,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             PaymentId: 'PAY123',
             PaymentReference: 'REF123',
             SafeType: 'Spec',
+            Description: 'Excel-derived customer description',
             TransactionText: 'Customer payment',
             MarkedInvoice: 'INV-0001',
             Voucher: '',
@@ -93,7 +94,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchRate');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('ReportingCurrencyExchRate');
+    expect(body).not.toHaveProperty('REPORTINGEXCHANGERATE');
+    expect(body).not.toHaveProperty('ExchRateSecond');
+    expect(body.PAYMENTNOTES).toBe('Excel-derived customer description');
     expect(body).not.toHaveProperty('MARKEDINVOICE');
     expect(body.MarkedLines).toEqual([
       {
