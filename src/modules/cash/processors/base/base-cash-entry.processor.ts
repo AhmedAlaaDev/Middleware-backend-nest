@@ -1252,6 +1252,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           : offsetLine.DEBITAMOUNT,
       DebitAmount: 0,
       CurrencyCode: currencyCode,
+      // Keep both names synchronized. CashEntryDynDataModel exposes the
+      // inbound-friendly ExchangeRate property, while the shared D365
+      // posting mapper reads the common ExchRate property.
+      ExchRate: exchangeRate,
       ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),

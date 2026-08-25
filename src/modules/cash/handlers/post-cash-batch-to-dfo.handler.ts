@@ -519,9 +519,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
             }
           : {}),
         ExchangeRate:
-          (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-            ? 100
-            : line.ExchRate || 100,
+          cashDirection === 'in'
+            ? this.resolveCashInExchangeRate(line)
+            : (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
+              ? 100
+              : line.ExchRate || 100,
 
         ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
 
@@ -624,6 +626,33 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         customLineApiBody,
       };
     });
+  }
+
+  /**
+   * Resolve the single transaction exchange-rate field used by the Cash-In
+   * custom API contract.
+   *
+   * Cash-In lines created by the processor populate both ExchangeRate and
+   * ExchRate for compatibility. The fallback to ExchangeRate also supports
+   * already-formatted batches created before that synchronization fix.
+   * EGP is D365's accounting currency and must be sent as 100. A missing
+   * foreign-currency rate is rejected instead of silently becoming 100.
+   */
+  private resolveCashInExchangeRate(line: CashEntryDynDataModel): number {
+    const currency = String(line.CurrencyCode ?? '').trim().toUpperCase();
+    if (currency === 'EGP') return 100;
+
+    const rate = [line.ExchRate, line.ExchangeRate]
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value) && value > 0);
+
+    if (rate === undefined) {
+      throw new BadRequestException(
+        `Cash-In line ${line.LineNumber ?? '?'} has no valid exchange rate for currency ${currency || '(empty)'}.`,
+      );
+    }
+
+    return rate;
   }
 
   private isMainAccountOnlyLine(
