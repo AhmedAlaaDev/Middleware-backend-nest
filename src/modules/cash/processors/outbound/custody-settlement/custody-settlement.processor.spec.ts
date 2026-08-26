@@ -210,6 +210,98 @@ describe('prepareCustodySettlementLines', () => {
     ).toBe(withholding);
   });
 
+  it('allocates one withholding row to the correct voucher pair when UniqueId spans invoices', () => {
+    const plans = prepareCustodySettlementLines([
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2809,
+        VOUCHER: 'CustSettle-000010285',
+        ACCOUNTDISPLAYVALUE: '3210',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 1.16,
+        INVOICE: '5810269703',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2810,
+        VOUCHER: 'CustSettle-000010285',
+        ACCOUNTDISPLAYVALUE: 'Sl-000036',
+        DEBITAMOUNT: 1.16,
+        CREDITAMOUNT: 0,
+        INVOICE: '5810269703',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2811,
+        VOUCHER: 'CustSettle-000010286',
+        ACCOUNTDISPLAYVALUE: '3210',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 10.87,
+        INVOICE: '5815379577',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2812,
+        VOUCHER: 'CustSettle-000010286',
+        ACCOUNTDISPLAYVALUE: 'Sl-000036',
+        DEBITAMOUNT: 10.87,
+        CREDITAMOUNT: 0,
+        INVOICE: '5815379577',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2813,
+        VOUCHER: 'CustSettle-000010286',
+        ACCOUNTDISPLAYVALUE: '3210',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 1474.08,
+        INVOICE: '5815379577',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2814,
+        VOUCHER: 'CustSettle-000010286',
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223304|dimensions',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 39.84,
+        INVOICE: '',
+        DOCUMENT: '18517',
+      }),
+      line({
+        UniqueId: 492123,
+        LINENUMBER: 2815,
+        VOUCHER: 'CustSettle-000010286',
+        ACCOUNTDISPLAYVALUE: 'Sl-000036',
+        DEBITAMOUNT: 1513.92,
+        CREDITAMOUNT: 0,
+        INVOICE: '5815379577',
+        DOCUMENT: '18517',
+      }),
+    ]);
+
+    expect(
+      plans.map((plan) => plan.markedLines[0]?.HasWithHoldingLine ?? null),
+    ).toEqual([false, false, false, false, true, false, true]);
+    expect(plans[5]).toMatchObject({
+      isWithholdingLine: true,
+      markedInvoice: '5815379577',
+      markedLines: [
+        {
+          InvoiceNumber: '5815379577',
+          OperationNumber: 'OP-1',
+          DocumentNumber: '18517',
+          HasWithHoldingLine: false,
+        },
+      ],
+    });
+  });
+
   it('marks the supplier invoice and targets the custody credit by document and operation', () => {
     const builder = new CustodySettlementBuilder(
       (_sourceId, sourceLine) =>

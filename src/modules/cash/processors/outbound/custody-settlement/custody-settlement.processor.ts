@@ -1,5 +1,5 @@
 import {
-  findCustodySettlementWithholdingLine,
+  allocateCustodySettlementWithholdingLines,
   resolveCustodySettlementMarking,
 } from './custody-settlement-marking.policy';
 
@@ -43,6 +43,11 @@ export function prepareCustodySettlementLines(
 ): CustodySettlementLinePlan[] {
   const withholdingLines = lines.filter(isCashWithholdingLedgerLine);
   const vendorLines = lines.filter(isVendorSourceLine);
+  const withholdingAllocation = allocateCustodySettlementWithholdingLines(
+    lines,
+    vendorLines,
+    withholdingLines,
+  );
 
   return lines.map((rawLine) => {
     const isVendorLine = isVendorSourceLine(rawLine);
@@ -53,7 +58,7 @@ export function prepareCustodySettlementLines(
     ) as CashEntryRawDataModel;
 
     const withholdingLine = isVendorLine
-      ? findCustodySettlementWithholdingLine(line, withholdingLines)
+      ? withholdingAllocation.withholdingByVendorLine.get(rawLine)
       : undefined;
 
     line.OFFSETACCOUNTTYPE = '' as any;
@@ -61,11 +66,8 @@ export function prepareCustodySettlementLines(
     line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
 
     if (isWithholdingLine) {
-      const matchedVendorLine = vendorLines.find(
-        (vendorLine) =>
-          findCustodySettlementWithholdingLine(vendorLine, [rawLine]) ===
-          rawLine,
-      );
+      const matchedVendorLine =
+        withholdingAllocation.invoiceOwnerByWithholdingLine.get(rawLine);
       const marking = matchedVendorLine
         ? resolveCustodySettlementMarking({ vendorLine: matchedVendorLine })
         : undefined;
