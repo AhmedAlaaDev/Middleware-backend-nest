@@ -10,19 +10,29 @@ import { isCashWithholdingLedgerLine } from '@/modules/cash/policies/cash-withho
 export interface CustodySettlementLinePlan {
   line: CashEntryRawDataModel;
   isVendorLine: boolean;
+  isWithholdingLine: boolean;
   markedInvoice: string;
   markedLines: readonly CashEntryMarkedLine[];
+}
+
+function isVendorSourceLine(line: CashEntryRawDataModel): boolean {
+  const accountType = String(line.ACCOUNTTYPE ?? '')
+    .trim()
+    .toLowerCase();
+  return (
+    Boolean(line.IsVendor) || accountType === 'vend' || accountType === 'vendor'
+  );
 }
 
 /**
  * Owns Cash-Out Custody Settlement preparation.
  *
  * Custody Settlement keeps its existing business rules:
- * - withholding ledger rows remain aggregated for the amount calculation;
- * - withholding is deducted from the vendor debit;
+ * - explicit withholding ledger rows are preserved as journal lines;
+ * - the vendor debit remains gross so the preserved lines stay balanced;
  * - MarkedLines only flags withholding matched to that vendor source row;
  * - offsets are cleared;
- * - each non-withholding source row becomes one output line.
+ * - each source row becomes one output line.
  *
  * It deliberately does not decide the journal family. Routing remains in the
  * shared cash routing service so Cash-Out continues to post through the
@@ -32,22 +42,11 @@ export function prepareCustodySettlementLines(
   lines: CashEntryRawDataModel[],
 ): CustodySettlementLinePlan[] {
   const withholdingLines = lines.filter(isCashWithholdingLedgerLine);
-  const nonWithholdingLines = lines.filter(
-    (line) => !isCashWithholdingLedgerLine(line),
-  );
-  const totalWithholdingAmount = withholdingLines.reduce(
-    (sum, line) => sum + Number(line.CREDITAMOUNT || line.DEBITAMOUNT || 0),
-    0,
-  );
+  const vendorLines = lines.filter(isVendorSourceLine);
 
-  return nonWithholdingLines.map((rawLine) => {
-    const accountType = String(rawLine.ACCOUNTTYPE ?? '')
-      .trim()
-      .toLowerCase();
-    const isVendorLine =
-      Boolean(rawLine.IsVendor) ||
-      accountType === 'vend' ||
-      accountType === 'vendor';
+  return lines.map((rawLine) => {
+    const isVendorLine = isVendorSourceLine(rawLine);
+    const isWithholdingLine = isCashWithholdingLedgerLine(rawLine);
     const line = Object.assign(
       Object.create(Object.getPrototypeOf(rawLine)),
       rawLine,
@@ -57,21 +56,34 @@ export function prepareCustodySettlementLines(
       ? findCustodySettlementWithholdingLine(line, withholdingLines)
       : undefined;
 
-    if (isVendorLine && Number(line.DEBITAMOUNT || 0) > 0) {
-      line.DEBITAMOUNT = Math.max(
-        0,
-        Number(line.DEBITAMOUNT || 0) - totalWithholdingAmount,
-      );
-    }
-
     line.OFFSETACCOUNTTYPE = '' as any;
     line.OFFSETACCOUNTDISPLAYVALUE = '';
     line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
+
+    if (isWithholdingLine) {
+      const matchedVendorLine = vendorLines.find(
+        (vendorLine) =>
+          findCustodySettlementWithholdingLine(vendorLine, [rawLine]) ===
+          rawLine,
+      );
+      const marking = matchedVendorLine
+        ? resolveCustodySettlementMarking({ vendorLine: matchedVendorLine })
+        : undefined;
+
+      return {
+        line,
+        isVendorLine: false,
+        isWithholdingLine: true,
+        markedInvoice: marking?.markedInvoice ?? '',
+        markedLines: marking?.markedLines ?? [],
+      };
+    }
 
     if (!isVendorLine) {
       return {
         line,
         isVendorLine,
+        isWithholdingLine: false,
         markedInvoice: '',
         markedLines: [],
       };
@@ -85,6 +97,7 @@ export function prepareCustodySettlementLines(
     return {
       line,
       isVendorLine,
+      isWithholdingLine: false,
       markedInvoice: marking.markedInvoice,
       markedLines: marking.markedLines,
     };

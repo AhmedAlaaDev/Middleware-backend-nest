@@ -1,7 +1,9 @@
+import { PostCashBatchToDFOHandler } from '@/modules/cash/handlers/post-cash-batch-to-dfo.handler';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { resolveCashJournalName } from '@/modules/cash/policies/cash-journal.policy';
 import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
 import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
+import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
 import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 import { DimensionValidationService } from '@/modules/master-data/services/dimension-validation.service';
 
@@ -589,7 +591,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
-    it('subtracts withholding amount from vendor line, skips withholding line, and builds individual lines without offset', () => {
+    it('uploads the withholding ledger row and keeps the gross vendor amount balanced', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -635,16 +637,15 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const dfoLines = (processor as any).buildLines('9999', rawLines);
 
-      // Withholding line is skipped -> 2 lines returned (Vendor line & Safe line)
-      expect(dfoLines).toHaveLength(2);
+      expect(dfoLines).toHaveLength(3);
 
-      const [vendorLine, safeLine] = dfoLines;
+      const [vendorLine, withholdingLine, safeLine] = dfoLines;
 
-      // Vendor line: amount reduced by withholding (1000 - 50 = 950),
-      // invoice retained and marked using the same contract as Vendor Payment.
+      // Vendor line stays gross because the explicit withholding credit is now
+      // included in the journal request.
       expect(vendorLine.AccountType).toBe('Vend');
       expect(vendorLine.AccountDisplayValue).toBe('VEND-CUST-01');
-      expect(vendorLine.DebitAmount).toBe(950);
+      expect(vendorLine.DebitAmount).toBe(1000);
       expect(vendorLine.Invoice).toBe('INV-CUST-100');
       expect(vendorLine.MarkedInvoice).toBe('INV-CUST-100');
       expect(vendorLine.MarkedLines).toEqual([
@@ -658,11 +659,79 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(vendorLine.SettlementIntent).toBe('Marked');
       expect(vendorLine.OffsetAccountDisplayValue).toBe('');
 
+      expect(withholdingLine.AccountType).toBe('Ledger');
+      expect(withholdingLine.AccountDisplayValue).toBe('223304-01');
+      expect(withholdingLine.CreditAmount).toBe(50);
+      expect(withholdingLine.IsWithholdingCalculationEnabled).toBe('No');
+      expect(withholdingLine.MarkedLines).toEqual([
+        {
+          InvoiceNumber: 'INV-CUST-100',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-CUST-100',
+          HasWithHoldingLine: false,
+        },
+      ]);
+      expect(withholdingLine.OffsetAccountDisplayValue).toBe('');
+
       // Safe line: credit 950, individual line without offset account
       expect(safeLine.AccountType).toBe('Petty cash');
       expect(safeLine.AccountDisplayValue).toBe('SAFE-001');
       expect(safeLine.CreditAmount).toBe(950);
       expect(safeLine.OffsetAccountDisplayValue).toBe('');
+      expect(vendorLine.DebitAmount).toBe(
+        withholdingLine.CreditAmount + safeLine.CreditAmount,
+      );
+
+      const routing = new CashJournalRoutingService();
+      const requestLines = (
+        new PostCashBatchToDFOHandler({} as any, {} as any, routing) as any
+      ).mapLines(
+        dfoLines.map((data: any, index: number) => ({
+          id: String(index + 1),
+          data,
+        })),
+        'm-p',
+        'out',
+        routing.resolve({
+          safeType: 'Custody Settlement',
+          targetProcessor: 'Freight',
+        }),
+      );
+
+      expect(requestLines).toHaveLength(3);
+      expect(requestLines[0].customLineApiBody).toMatchObject({
+        AccountNum: 'VEND-CUST-01',
+        accountTypeStr: 'Vendor',
+        debitAmount: 1000,
+        creditAmount: 0,
+        MarkedLines: [
+          {
+            InvoiceNumber: 'INV-CUST-100',
+            OperationNumber: '',
+            DocumentNumber: 'DOC-CUST-100',
+            HasWithHoldingLine: true,
+          },
+        ],
+      });
+      expect(requestLines[1].customLineApiBody).toMatchObject({
+        AccountNum: '223304-01',
+        accountTypeStr: 'Ledger',
+        debitAmount: 0,
+        creditAmount: 50,
+        IsWithholdingTaxCalculate: 'No',
+        ISWITHHOLDINGTAXCALCULATE: 'No',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'INV-CUST-100',
+            OperationNumber: '',
+            DocumentNumber: 'DOC-CUST-100',
+            HasWithHoldingLine: false,
+          },
+        ],
+      });
+      expect(requestLines[1].customLineApiBody).not.toHaveProperty(
+        'offsetAccountDisplayValue',
+      );
     });
 
     it('keeps the invoice beside unmarked Custody Settlement text without using document as invoice', () => {

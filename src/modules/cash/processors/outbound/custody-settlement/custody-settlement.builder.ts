@@ -79,9 +79,19 @@ export class CustodySettlementBuilder {
         dynLine.SettlementTargetType = isCustodyLedger
           ? 'CustodyLedger'
           : 'VendorInvoice';
+      } else if (plan.isWithholdingLine) {
+        // The explicit ledger companion must carry the same settlement
+        // identity, but false tells X++ this row is the withholding row rather
+        // than the vendor row that owns the withholding relationship.
+        dynLine.MarkedInvoice = plan.markedInvoice;
+        dynLine.MarkedLines = plan.markedLines.map((markedLine) => ({
+          ...markedLine,
+          HasWithHoldingLine: false,
+        }));
       }
 
-      // The policy has already deducted withholding from the line amount.
+      // Explicit 223304 source rows are posted as their own ledger lines, so
+      // D365 automatic withholding must stay disabled to avoid duplication.
       dynLine.IsWithholdingCalculationEnabled = 'No';
       dynLine.ItemWithholdingTaxGroupCode = '';
       return dynLine;

@@ -2,8 +2,8 @@ import {
   findCustodySettlementWithholdingLine,
   resolveCustodySettlementMarking,
 } from './custody-settlement-marking.policy';
-import { prepareCustodySettlementLines } from './custody-settlement.processor';
 import { CustodySettlementBuilder } from './custody-settlement.builder';
+import { prepareCustodySettlementLines } from './custody-settlement.processor';
 import { validateCustodySettlementVendorInvoiceShape } from './custody-settlement.validator';
 
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
@@ -29,7 +29,7 @@ function line(
 }
 
 describe('prepareCustodySettlementLines', () => {
-  it('creates one output plan per non-withholding source line', () => {
+  it('preserves the explicit withholding source line and gross vendor debit', () => {
     const plans = prepareCustodySettlementLines([
       line({ LINENUMBER: 1, DEBITAMOUNT: 1000 }),
       line({
@@ -43,8 +43,8 @@ describe('prepareCustodySettlementLines', () => {
       line({ LINENUMBER: 3, ACCOUNTTYPE: 'Ledger', DEBITAMOUNT: 50 }),
     ]);
 
-    expect(plans).toHaveLength(2);
-    expect(plans[0].line.DEBITAMOUNT).toBe(900);
+    expect(plans).toHaveLength(3);
+    expect(plans[0].line.DEBITAMOUNT).toBe(1000);
     expect(plans[0].markedLines).toEqual([
       {
         InvoiceNumber: '050-1',
@@ -53,7 +53,25 @@ describe('prepareCustodySettlementLines', () => {
         HasWithHoldingLine: true,
       },
     ]);
-    expect(plans[1].isVendorLine).toBe(false);
+    expect(plans[1]).toMatchObject({
+      isVendorLine: false,
+      isWithholdingLine: true,
+      line: {
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223304',
+        CREDITAMOUNT: 100,
+      },
+      markedInvoice: '050-1',
+      markedLines: [
+        {
+          InvoiceNumber: '050-1',
+          OperationNumber: 'OP-1',
+          DocumentNumber: '15473',
+          HasWithHoldingLine: false,
+        },
+      ],
+    });
+    expect(plans[2].isVendorLine).toBe(false);
   });
 
   it('does not mark a vendor line when invoice or document is absent', () => {
@@ -161,11 +179,19 @@ describe('prepareCustodySettlementLines', () => {
       }),
     ]);
 
-    expect(plans[0].line.DEBITAMOUNT).toBe(900);
+    expect(plans[0].line.DEBITAMOUNT).toBe(1000);
     expect(plans[0].markedLines[0].HasWithHoldingLine).toBe(true);
-    // Preserve the existing Custody Settlement aggregate amount calculation.
-    expect(plans[1].line.DEBITAMOUNT).toBe(900);
+    expect(plans[1].line.DEBITAMOUNT).toBe(1000);
     expect(plans[1].markedLines[0].HasWithHoldingLine).toBe(false);
+    expect(plans[2].line.ACCOUNTDISPLAYVALUE).toBe('223304');
+    expect(plans[2].markedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-1',
+        OperationNumber: 'OP-1',
+        DocumentNumber: '15473',
+        HasWithHoldingLine: false,
+      },
+    ]);
   });
 
   it('uses vendor-payment matching precedence for custody withholding', () => {
