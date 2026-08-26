@@ -141,6 +141,56 @@ describe('VendorPaymentProcessor (processVendorPaymentGroup)', () => {
         '223304|dims',
       );
       expect(result.lines[1].markedLines).toEqual(result.lines[0].markedLines);
+      expect(result.lines[1].markedLines).toEqual([
+        expect.objectContaining({
+          InvoiceNumber: 'INV-001',
+          DocumentNumber: 'DOC-001',
+          OperationNumber: 'OP-1',
+          HasWithHoldingLine: true,
+        }),
+      ]);
+      expect(
+        result.lines[0].vendorLine.debitAmount +
+          result.lines[1].vendorLine.debitAmount,
+      ).toBe(1000);
+    });
+
+    it('uses a debit-side 223304 source amount without recalculating it', () => {
+      const lines = [
+        rawLine({
+          DEBITAMOUNT: 1000,
+          ITEMWITHHOLDINGTAXGROUPCODE: 'WHT-1',
+        }),
+        rawLine({
+          DEBITAMOUNT: 50,
+          CREDITAMOUNT: 0,
+          IsVendor: false,
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304|dims',
+        }),
+        rawLine({
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 950,
+          IsVendor: false,
+          ACCOUNTTYPE: 'Bank',
+          ACCOUNTDISPLAYVALUE: 'BANK-001',
+        }),
+      ];
+
+      const result = processVendorPaymentGroup('VP-WHT-DEBIT', lines, {
+        ...defaultDeps,
+        invoiceLookup: (invoice: string, vendor: string) => ({
+          ...defaultDeps.invoiceLookup(invoice, vendor),
+          originalAmount: 1000,
+          remainingAmount: 1000,
+        }),
+      });
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.lines).toHaveLength(2);
+      expect(result.lines[0].vendorLine.debitAmount).toBe(950);
+      expect(result.lines[1].vendorLine.debitAmount).toBe(50);
+      expect(result.lines[1].markedLines).toEqual(result.lines[0].markedLines);
     });
 
     it('sets HasWithHoldingLine when 223304 credit matches by document+currency+operation', () => {

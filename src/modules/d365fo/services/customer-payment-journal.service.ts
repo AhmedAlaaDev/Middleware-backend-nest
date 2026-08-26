@@ -350,17 +350,20 @@ export class CustomerPaymentJournalService {
       this.removeDuplicateSettlementMarks(pendingLines);
     }
 
-    const batchSize = this.cashOutBulkBatchSize;
-    const totalBatches = Math.ceil(pendingLines.length / batchSize);
+    const batches = this.chunkCashPendingLines(
+      pendingLines,
+      this.cashOutBulkBatchSize,
+    );
+    const totalBatches = batches.length;
 
-    for (let index = 0; index < pendingLines.length; index += batchSize) {
+    for (const [index, pendingBatch] of batches.entries()) {
       await this.postCashOutBulkBatch(
         endpoint,
         headerKey,
-        pendingLines.slice(index, index + batchSize),
+        pendingBatch,
         dataAreaId,
         allowUnmarkedInvoiceRetry,
-        { number: Math.floor(index / batchSize) + 1, total: totalBatches },
+        { number: index + 1, total: totalBatches },
         cashDirection,
       );
     }
@@ -809,6 +812,62 @@ export class CustomerPaymentJournalService {
       .join('|');
   }
 
+  /**
+   * Keep adjacent journal lines that settle the same vendor transaction in one
+   * FO request. In particular, a main payment and its explicit 223304
+   * companion must share the same TTS; committing the main line in one request
+   * leaves the VendTrans reserved and the next request is rejected as already
+   * marked by the same journal.
+   */
+  private chunkCashPendingLines(
+    pendingLines: CashBulkPendingLine[],
+    maxLines: number,
+  ): CashBulkPendingLine[][] {
+    const atomicGroups: CashBulkPendingLine[][] = [];
+    let currentGroup: CashBulkPendingLine[] = [];
+    let currentKeys = new Set<string>();
+
+    for (const line of pendingLines) {
+      const lineKeys = new Set(
+        (line.body.MarkedLines ?? []).map(
+          (markedLine) =>
+            `${String(line.body.AccountNum ?? '')
+              .trim()
+              .toLowerCase()}|${this.cashSettlementIdentity(markedLine)}`,
+        ),
+      );
+      const sharesSettlement = [...lineKeys].some((key) =>
+        currentKeys.has(key),
+      );
+
+      if (currentGroup.length > 0 && !sharesSettlement) {
+        atomicGroups.push(currentGroup);
+        currentGroup = [];
+        currentKeys = new Set<string>();
+      }
+      currentGroup.push(line);
+      for (const key of lineKeys) currentKeys.add(key);
+    }
+    if (currentGroup.length > 0) atomicGroups.push(currentGroup);
+
+    const batches: CashBulkPendingLine[][] = [];
+    let batch: CashBulkPendingLine[] = [];
+    for (const group of atomicGroups) {
+      if (group.length > maxLines) {
+        throw new Error(
+          `Cash settlement group contains ${group.length} lines, exceeding the D365 request limit of ${maxLines}.`,
+        );
+      }
+      if (batch.length > 0 && batch.length + group.length > maxLines) {
+        batches.push(batch);
+        batch = [];
+      }
+      batch.push(...group);
+    }
+    if (batch.length > 0) batches.push(batch);
+    return batches;
+  }
+
   private formatUnmarkedDescription(
     invoiceNumber: string,
     currentDescription = '',
@@ -1207,14 +1266,28 @@ export class CustomerPaymentJournalService {
       VendorGroup,
       ...rest
     } = line;
+    const normalizedAccountType = String(accountTypeStr ?? '')
+      .trim()
+      .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'];
+    const resolvedVendorGroup =
+      String(VendorGroup ?? '').trim() ||
+      (normalizedAccountType === 'vendor' &&
+      (line.MarkedLines ?? []).some(
+        (markedLine) =>
+          !String(markedLine.InvoiceNumber ?? '').trim() &&
+          Boolean(String(markedLine.DocumentNumber ?? '').trim()) &&
+          Boolean(String(markedLine.OperationNumber ?? '').trim()),
+      )
+        ? 'Custody'
+        : '');
 
     return {
       ...rest,
-      accountTypeStr: String(accountTypeStr ?? '')
-        .trim()
-        .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
+      accountTypeStr: normalizedAccountType,
       // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
-      VendorGroup: VendorGroup ?? '',
+      // The fallback also protects retries of payloads formatted before the
+      // Custody Settlement vendor-group enrichment fix was deployed.
+      VendorGroup: resolvedVendorGroup,
       OffsetDEFAULTDIMENSIONDISPLAYVALUE:
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
       OffsetAccountDisplayValue: line.offsetAccountDisplayValue ?? '',

@@ -593,6 +593,74 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
   });
 
+  it('does not split a main and 223304 companion across the 100-line boundary', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success',
+    });
+    const ordinaryLines: any[] = Array.from({ length: 99 }, (_, index) => ({
+      dataAreaId: 'm-p',
+      LineNumber: index + 1,
+      cashDirection: 'out',
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: `VEND${index + 1}`,
+        accountTypeStr: 'Vendor',
+        debitAmount: 1,
+        MarkedLines: [],
+      },
+    }));
+    const mark = {
+      InvoiceNumber: '008',
+      OperationNumber: 'O26-EXP-OC-6',
+      DocumentNumber: '16300',
+      HasWithHoldingLine: true,
+    };
+    const pair: any[] = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 100,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Su-000009',
+          accountTypeStr: 'Vendor',
+          debitAmount: 2850,
+          MarkedLines: [mark],
+        },
+      },
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 101,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Su-000009',
+          accountTypeStr: 'Vendor',
+          debitAmount: 150,
+          offsetAccountDisplayValue: '223304|dims',
+          MarkedLines: [{ ...mark, HasWithHoldingLine: false }],
+        },
+      },
+    ];
+
+    await service.postCashOutLinesForHeader(
+      'JN-WHT-BOUNDARY',
+      [...ordinaryLines, ...pair],
+      20,
+      'm-p',
+    );
+
+    const requests = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) => body._contract.Lines,
+    );
+    expect(requests.map((lines: any[]) => lines.length)).toEqual([99, 2]);
+    expect(requests[1].map((line: any) => line.debitAmount)).toEqual([
+      2850, 150,
+    ]);
+  });
+
   it('logs the complete bulk request body before sending it', async () => {
     const { service, d365foClient, operationalLogs } = buildService();
     d365foClient.post.mockResolvedValueOnce({
@@ -943,6 +1011,52 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         ],
       },
     });
+  });
+
+  it('repairs VendorGroup for a legacy custody document-operation marked line', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: '1 line(s) processed successfully.',
+    });
+
+    await service.postCashOutLinesForHeader(
+      'Mesco-000015271',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '3066',
+            accountTypeStr: 'Vendor',
+            company: 'm-p',
+            currency: 'EGP',
+            debitAmount: 0,
+            creditAmount: 500,
+            VendorGroup: '',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'O26-EXP-OC-1171',
+                DocumentNumber: '17437',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        } as any,
+      ],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines[0]).toEqual(
+      expect.objectContaining({
+        accountTypeStr: 'vendor',
+        VendorGroup: 'Custody',
+      }),
+    );
   });
 
   it('correlates a bulk API error with the returned journal line number', async () => {

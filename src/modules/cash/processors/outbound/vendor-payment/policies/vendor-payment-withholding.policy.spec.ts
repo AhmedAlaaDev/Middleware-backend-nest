@@ -1,5 +1,8 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { findVendorPaymentWithholdingLine } from './vendor-payment-withholding.policy';
+import {
+  allocateVendorPaymentWithholdingLines,
+  findVendorPaymentWithholdingLine,
+} from './vendor-payment-withholding.policy';
 
 const line = (values: Partial<CashEntryRawDataModel>): CashEntryRawDataModel =>
   values as CashEntryRawDataModel;
@@ -26,5 +29,49 @@ describe('findVendorPaymentWithholdingLine', () => {
         [fallback],
       ),
     ).toBe(fallback);
+  });
+
+  it('uses operation to select the correct withholding row when an invoice repeats', () => {
+    const first = line({
+      INVOICE: '3939',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12501|first',
+    });
+    const exact = line({
+      INVOICE: '3939',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|exact',
+    });
+
+    expect(
+      findVendorPaymentWithholdingLine(
+        line({
+          INVOICE: '3939',
+          FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|vendor',
+        }),
+        [first, exact],
+      ),
+    ).toBe(exact);
+  });
+
+  it('reserves an exact repeated-invoice operation before applying invoice fallback', () => {
+    const earlierVendor = line({
+      INVOICE: '3939',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12501|earlier',
+    });
+    const exactVendor = line({
+      INVOICE: '3939',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|exact',
+    });
+    const withholding = line({
+      INVOICE: '3939',
+      FINTAGDISPLAYVALUE: 'O25-IMP-AI-12510|withholding',
+    });
+
+    const allocation = allocateVendorPaymentWithholdingLines(
+      [earlierVendor, exactVendor],
+      [withholding],
+    );
+
+    expect(allocation.get(earlierVendor)).toBeUndefined();
+    expect(allocation.get(exactVendor)).toBe(withholding);
   });
 });

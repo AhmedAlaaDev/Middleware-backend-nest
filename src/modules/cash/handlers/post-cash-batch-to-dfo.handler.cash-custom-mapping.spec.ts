@@ -55,7 +55,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             TransactionDate: '2026-04-21T00:00:00.000Z',
             Document: 'DOC-1001',
             DocumentDate: '2026-04-20T00:00:00.000Z',
-            ExchangeRate: 1,
+            ExchangeRate: 4765,
             CreditAmount: 1000,
             DebitAmount: 0,
             CurrencyCode: 'USD',
@@ -94,6 +94,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(body).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
+    expect(body.ExchangeRate).toBe(4765);
     expect(body).not.toHaveProperty('ExchRate');
     expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body).not.toHaveProperty('ReportingCurrencyExchRate');
@@ -109,10 +110,34 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: false,
       },
     ]);
-    expect(body.ReportingCurrencyExchRate).toBe(100);
     expect(body.ReportingExchangeRate).toBe(100);
-    expect(body.REPORTINGEXCHANGERATE).toBe(100);
-    expect(body.ExchRateSecond).toBe(100);
+  });
+
+  it('rejects a Cash-In foreign-currency line when no valid rate is available', () => {
+    const handler = buildHandler();
+
+    expect(() =>
+      (handler as any).mapLines(
+        [
+          {
+            data: {
+              dataAreaId: 'USMF',
+              LineNumber: 1,
+              AccountType: 'Cust',
+              AccountDisplayValue: 'CUST001',
+              OffsetAccountType: 'Bank',
+              OffsetAccountDisplayValue: 'BANK001',
+              CurrencyCode: 'USD',
+              ExchangeRate: 0,
+              ExchRate: 0,
+              ReportingCurrencyExchRate: 1,
+            },
+          },
+        ],
+        'USMF',
+        'in',
+      ),
+    ).toThrow('has no valid exchange rate for currency USD');
   });
 
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
@@ -787,6 +812,98 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('EXCHANGERATE');
   });
 
+  it('sends the resolved Custody vendor group to the D365 settlement contract', () => {
+    const handler = buildHandler();
+    const [mapped] = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            SafeType: 'Custody Settlement',
+            SettlementTargetType: 'CustodyLedger',
+            SettlementIntent: 'Marked',
+            AccountType: 'Vend',
+            AccountDisplayValue: '3135',
+            VendorGroup: 'Custody',
+            CreditAmount: 8500,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            TransactionDate: '2026-01-05',
+            Document: '14846',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'O25-IMP-OC-11343',
+                DocumentNumber: '14846',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      new CashJournalRoutingService().resolve({
+        safeType: 'Custody Settlement',
+        targetProcessor: 'Freight',
+      }),
+    );
+
+    expect(mapped.customLineApiBody.VendorGroup).toBe('Custody');
+    expect(mapped.customLineApiBody.MarkedLines).toEqual([
+      expect.objectContaining({
+        DocumentNumber: '14846',
+        OperationNumber: 'O25-IMP-OC-11343',
+      }),
+    ]);
+  });
+
+  it('repairs an empty Custody Settlement vendor group from its document-operation mark', () => {
+    const handler = buildHandler();
+    const [mapped] = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            SafeType: 'Custody Settlement',
+            SettlementIntent: 'Marked',
+            AccountType: 'Vend',
+            AccountDisplayValue: '3066',
+            VendorGroup: '',
+            CreditAmount: 500,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            TransactionDate: '2026-01-05',
+            Document: '17437',
+            MarkedLines: [
+              {
+                InvoiceNumber: '',
+                OperationNumber: 'O26-EXP-OC-1171',
+                DocumentNumber: '17437',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      new CashJournalRoutingService().resolve({
+        safeType: 'Custody Settlement',
+        targetProcessor: 'Freight',
+      }),
+    );
+
+    expect(mapped.customLineApiBody).toEqual(
+      expect.objectContaining({
+        accountTypeStr: 'Vendor',
+        VendorGroup: 'Custody',
+      }),
+    );
+  });
+
   it('preserves explicitly unmarked outbound text without mapper-side rewriting', () => {
     const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
 
@@ -857,7 +974,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.TRANSACTIONTEXT).toBe('Unmarked - INV-HISTORICAL-002');
   });
 
-  it('preserves the strict settlement identity on a 223304 withholding companion', () => {
+  it('posts a 223304 withholding companion as marked with HasWithHoldingLine false', () => {
     const handler = buildHandler();
 
     const result = (handler as any).mapLines(
@@ -907,7 +1024,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         InvoiceNumber: '396',
         OperationNumber: 'O26-EXP-OC-206',
         DocumentNumber: '16476',
-        HasWithHoldingLine: true,
+        HasWithHoldingLine: false,
       },
     ]);
     expect(body.PAYMENTNOTES).toBe('396');

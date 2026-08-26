@@ -17,6 +17,11 @@ export function resolveCashInboundRates(options: {
   exchangeRateContext?: CashOutExchangeRateContext;
   transactionDate?: string;
   currencyCode?: string;
+  resolveTransaction: (
+    context: CashOutExchangeRateContext,
+    transactionDate?: string,
+    currencyCode?: string,
+  ) => CashOutExchangeRateResolution;
   resolveReporting: (
     context: CashOutExchangeRateContext,
     transactionDate?: string,
@@ -34,16 +39,25 @@ export function resolveCashInboundRates(options: {
         options.currencyCode,
       )
     : undefined;
-  const legacyRates = options.fetchLegacyRates(
-    options.transactionDate,
-    options.currencyCode,
-  );
+  const transactionResolution = options.exchangeRateContext
+    ? options.resolveTransaction(
+        options.exchangeRateContext,
+        options.transactionDate,
+        options.currencyCode,
+      )
+    : undefined;
+  const legacyRates = transactionResolution
+    ? undefined
+    : options.fetchLegacyRates(
+        options.transactionDate,
+        options.currencyCode,
+      );
 
   return {
-    exchangeRate: legacyRates.exchangeRate,
+    exchangeRate: transactionResolution?.rate ?? legacyRates!.exchangeRate,
     reportingRate: reportingResolution
       ? reportingResolution.rate
-      : legacyRates.reportingRate,
+      : legacyRates!.reportingRate,
   };
 }
 

@@ -17,6 +17,7 @@ export type {
 } from './vendor-payment.processor';
 export { resolveVendorPaymentInvoice } from './policies/vendor-payment-invoice.policy';
 export {
+  allocateVendorPaymentWithholdingLines,
   findVendorPaymentWithholdingLine,
   isVendorPaymentWithholdingEnabled,
 } from './policies/vendor-payment-withholding.policy';

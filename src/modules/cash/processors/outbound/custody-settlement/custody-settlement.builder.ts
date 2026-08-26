@@ -39,6 +39,11 @@ export class CustodySettlementBuilder {
         // Preserve it so an intentionally unmarked line remains traceable.
         dynLine.Invoice = sourceInvoice;
         if (isCustodyLedger) {
+          // A Custody Settlement credit is the custody-holder side of the
+          // transaction. X++ selects its document/operation settlement branch
+          // from VendorGroup, so do not depend on an optional master-data
+          // enrichment surviving every formatting/retry path.
+          dynLine.VendorGroup = 'Custody';
           const documentNumber = String(plan.line.DOCUMENT ?? '').trim();
           const operationNumber = firstCashFinancialTag(
             plan.line.FINTAGDISPLAYVALUE,

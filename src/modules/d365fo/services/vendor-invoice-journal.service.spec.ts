@@ -87,6 +87,72 @@ describe('VendorInvoiceJournalService settlement candidate retrieval', () => {
     });
   });
 
+  it('keeps equal vendor and invoice values separate by document number', async () => {
+    const service = new VendorInvoiceJournalService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchVendTransRowsByVendorAndDocument')
+      .mockResolvedValue(
+        new Map([
+          [
+            'v-001',
+            [
+              {
+                AccountNum: 'V-001',
+                DocumentNum: 'DOC-1',
+                Invoice: 'INV-1',
+                AmountCur: 100,
+              },
+              {
+                AccountNum: 'V-001',
+                DocumentNum: 'DOC-2',
+                Invoice: 'INV-1',
+                AmountCur: 200,
+              },
+            ],
+          ],
+        ]),
+      );
+
+    const snapshots = await service.findInvoiceSettlementSnapshots('m-p', [
+      { vendorAccount: 'V-001', documentNumber: 'DOC-1', invoice: 'INV-1' },
+      { vendorAccount: 'V-001', documentNumber: 'DOC-2', invoice: 'INV-1' },
+    ]);
+
+    expect(snapshots).toHaveProperty('size', 2);
+    const doc1 = snapshots.get(
+      VendorInvoiceJournalService.settlementKey(
+        'INV-1',
+        'V-001',
+        'DOC-1',
+      ),
+    );
+    const doc2 = snapshots.get(
+      VendorInvoiceJournalService.settlementKey(
+        'INV-1',
+        'V-001',
+        'DOC-2',
+      ),
+    );
+    expect(doc1?.candidateTransactions).toHaveLength(1);
+    expect(doc1?.candidateTransactions?.[0]).toMatchObject({
+      documentNumber: 'DOC-1',
+      originalAmount: 100,
+    });
+    expect(doc2?.candidateTransactions).toHaveLength(1);
+    expect(doc2?.candidateTransactions?.[0]).toMatchObject({
+      documentNumber: 'DOC-2',
+      originalAmount: 200,
+    });
+    expect(
+      snapshots.has(VendorInvoiceJournalService.pairKey('INV-1', 'V-001')),
+    ).toBe(false);
+  });
+
   it('maps the VendTrans closed date and settled amount fields correctly', async () => {
     const service = new VendorInvoiceJournalService(
       {} as any,

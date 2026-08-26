@@ -185,12 +185,16 @@ describe('prepareCustodySettlementLines', () => {
   });
 
   it('marks the supplier invoice and targets the custody credit by document and operation', () => {
-    const builder = new CustodySettlementBuilder((_sourceId, sourceLine) =>
-      new CashEntryDynDataModel({} as any, {
-        AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
-        DebitAmount: sourceLine.DEBITAMOUNT,
-        CreditAmount: sourceLine.CREDITAMOUNT,
-      } as any),
+    const builder = new CustodySettlementBuilder(
+      (_sourceId, sourceLine) =>
+        new CashEntryDynDataModel(
+          {} as any,
+          {
+            AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
+            DebitAmount: sourceLine.DEBITAMOUNT,
+            CreditAmount: sourceLine.CREDITAMOUNT,
+          } as any,
+        ),
     );
 
     const [supplier, custodyHolder] = builder.build('source-1', [
@@ -235,15 +239,20 @@ describe('prepareCustodySettlementLines', () => {
     ]);
     expect(custodyHolder.SettlementIntent).toBe('Marked');
     expect(custodyHolder.SettlementTargetType).toBe('CustodyLedger');
+    expect(custodyHolder.VendorGroup).toBe('Custody');
   });
 
   it('keeps a custody credit MarkedLines entry when operation is blank', () => {
-    const builder = new CustodySettlementBuilder((_sourceId, sourceLine) =>
-      new CashEntryDynDataModel({} as any, {
-        AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
-        DebitAmount: sourceLine.DEBITAMOUNT,
-        CreditAmount: sourceLine.CREDITAMOUNT,
-      } as any),
+    const builder = new CustodySettlementBuilder(
+      (_sourceId, sourceLine) =>
+        new CashEntryDynDataModel(
+          {} as any,
+          {
+            AccountDisplayValue: sourceLine.ACCOUNTDISPLAYVALUE,
+            DebitAmount: sourceLine.DEBITAMOUNT,
+            CreditAmount: sourceLine.CREDITAMOUNT,
+          } as any,
+        ),
     );
 
     const [custodyHolder] = builder.build('source-2', [

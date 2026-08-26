@@ -4,9 +4,10 @@ import { normalizeVendorInvoiceIdentity } from './vendor-invoice-identity.policy
 import { VendorPaymentSettlement } from './vendor-payment-marked-lines.policy';
 
 /**
- * D365 persists one distinct marked invoice on a Vendor Payment journal line.
- * Keep repeated source rows for the same invoice together, but never combine
- * different invoices into one line.
+ * The current X++ standard-vendor settlement resolves VendTrans by vendor and
+ * invoice; OperationNumber is metadata and is not part of that lookup. Keep
+ * repeated source rows for the same vendor/document/invoice together so the
+ * invoice is marked only once.
  */
 export function groupVendorPaymentSettlementsByInvoice(
   settlements: readonly VendorPaymentSettlement[],
@@ -34,7 +35,7 @@ export function groupVendorPaymentSettlementsByInvoice(
   return [...groups.values()];
 }
 
-/** Copies source fields and aggregates only repeated rows of the same invoice. */
+/** Aggregates only rows sharing the same invoice transaction identity. */
 export function aggregateVendorPaymentInvoiceLine(
   settlements: readonly VendorPaymentSettlement[],
 ): CashEntryRawDataModel {

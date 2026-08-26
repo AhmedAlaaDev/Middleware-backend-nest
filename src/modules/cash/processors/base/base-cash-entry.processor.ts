@@ -114,7 +114,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   protected readonly MAX_LINES_PER_BATCH = 1000;
 
   /**
-   * Cash-out: cached D365 invoice snapshots keyed by `invoice|vendor`.
+   * Cash-out: cached D365 invoice snapshots keyed by
+   * `invoice|vendor|document` when document is available.
    */
   protected vendorInvoiceSnapshotMap: Map<
     string,
@@ -596,7 +597,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     errors: string[],
   ): Promise<void> {
     const vendorLines = lines.filter(
-      (line) => line.IsVendorPayment && line.IsVendor,
+      (line) =>
+        (line.IsVendorPayment || line.IsCustodySettlement) && line.IsVendor,
     );
     if (vendorLines.length === 0) return;
 
@@ -681,14 +683,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
       }
     }
-    const normalVendorLines = vendorLines.filter(
+    // Preserve the existing business split: Custody Settlement suppliers are
+    // not subjected to Vendor Payment invoice validation here. They only need
+    // their group enriched, while custody holders continue through the ledger
+    // document/operation target lookup below.
+    const invoiceValidationVendorLines = vendorLines.filter(
+      (line) => line.IsVendorPayment,
+    );
+    const normalVendorLines = invoiceValidationVendorLines.filter(
       (line) => !isCustodyVendor(line),
     );
-    const custodyVendorLines = vendorLines.filter(isCustodyVendor);
-    for (const line of custodyVendorLines) {
+    for (const line of vendorLines.filter(isCustodyVendor)) {
       line.IsCustodyVendor = true;
     }
-
+    // The strict ledger-target lookup belongs to Custody vendors routed
+    // through Vendor Payment. SafeType Custody Settlement already sends its
+    // document/operation MarkedLines to X++; enriching VendorGroup must not
+    // introduce a new blocking pre-format lookup for that flow.
+    const custodyVendorLines =
+      invoiceValidationVendorLines.filter(isCustodyVendor);
     const settlementRequests = normalVendorLines
       .map((line) => ({
         invoice: resolveCashOutboundInvoice(line.MARKEDINVOICE, line.INVOICE),
@@ -729,8 +742,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
         continue;
       }
-      const key = VendorInvoiceJournalService.pairKey(invoice, vendor);
-      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      const documentNumber = String(line.DOCUMENT ?? '').trim();
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        this.vendorInvoiceSnapshotMap,
+        invoice,
+        vendor,
+        documentNumber,
+      );
       if (!snapshot?.exists) {
         addGroupError(
           `vendor transaction was not found in D365. Vendor: ${vendor}.`,
@@ -744,7 +762,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             Number.isFinite(snapshot.remainingAmount));
 
         if (hasCandidatesOrAmounts) {
-          const docNum = String(line.DOCUMENT ?? '').trim();
+          const docNum = documentNumber;
           const vendorDebit = groupLines.reduce(
             (sum, sourceLine) => sum + Number(sourceLine.DEBITAMOUNT ?? 0),
             0,
@@ -1165,6 +1183,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       exchangeRateContext,
       transactionDate,
       currencyCode,
+      resolveTransaction: (context, date, currency) =>
+        this.cashOutExchangeRateService.resolve(
+          context,
+          date ?? '',
+          currency ?? '',
+        ),
       resolveReporting: (context, date, currency) =>
         this.cashOutExchangeRateService.resolveReporting(
           context,
@@ -1252,6 +1276,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
           : offsetLine.DEBITAMOUNT,
       DebitAmount: 0,
       CurrencyCode: currencyCode,
+      // Keep both names synchronized. CashEntryDynDataModel exposes the
+      // inbound-friendly ExchangeRate property, while the shared D365
+      // posting mapper reads the common ExchRate property.
+      ExchRate: exchangeRate,
       ExchangeRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
       CustomerName: this.getCustomerName(accountLine.ACCOUNTDISPLAYVALUE),
@@ -1434,6 +1462,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       settlements: normalizedSettlements,
       offsetLine,
       vendorGroup: String(accountLine.VendorGroup ?? '').trim(),
+      explicitWithholdingSource: disableAutomaticWithholdingCalculation,
     });
     const isWithholding =
       normalizedSettlements.some(
@@ -1534,7 +1563,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
                 sum + Number(vendorLine.DEBITAMOUNT ?? 0),
               0,
             )
-          : Number(offsetLine.CREDITAMOUNT ?? offsetLine.DEBITAMOUNT ?? 0),
+          : Math.max(
+              Math.abs(Number(offsetLine.CREDITAMOUNT ?? 0)),
+              Math.abs(Number(offsetLine.DEBITAMOUNT ?? 0)),
+            ),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ReportingCurrencyExchRate: reportingRate,
@@ -1724,6 +1756,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       DueDate: sourceLine.DUEDATE,
       PaymentId: sourceId,
       SafeType: route?.safeType ?? sourceLine.SafeType,
+      // Pre-validation resolves this from the vendor master. Preserve it so
+      // Custody Settlement reaches the X++ document/operation branch.
+      VendorGroup: sourceLine.VendorGroup ?? '',
     });
 
     if (
@@ -1948,8 +1983,12 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         continue;
       }
 
-      const key = VendorInvoiceJournalService.pairKey(invoice, vendorAccount);
-      const snapshot = this.vendorInvoiceSnapshotMap.get(key);
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        this.vendorInvoiceSnapshotMap,
+        invoice,
+        vendorAccount,
+        lineDoc,
+      );
       if (!snapshot?.exists) {
         line.AddError(
           'MarkedInvoice',

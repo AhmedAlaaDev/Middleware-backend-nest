@@ -9,7 +9,7 @@ import {
 } from './policies/vendor-payment-marked-lines.policy';
 import { resolveVendorPaymentOffset } from './policies/vendor-payment-offset.policy';
 import {
-  findVendorPaymentWithholdingLine,
+  allocateVendorPaymentWithholdingLines,
   isVendorPaymentWithholdingEnabled,
 } from './policies/vendor-payment-withholding.policy';
 import {
@@ -29,6 +29,7 @@ export interface VendorPaymentProcessorDependencies {
   invoiceLookup: (
     invoice: string,
     vendor: string,
+    documentNumber?: string,
   ) => VendorInvoiceSettlementSnapshot;
   resolveExchangeRate: (
     date: string,
@@ -72,6 +73,10 @@ export function processVendorPaymentGroup(
   const results: VendorPaymentJournalLines[] = [];
   const allErrors: Array<{ field: string; message: string }> = [];
   const descriptionPolicy = new VendorPaymentDescriptionPolicy();
+  const withholdingAllocation = allocateVendorPaymentWithholdingLines(
+    classification.vendorDebitLines,
+    classification.withholdingLines,
+  );
 
   // Group vendor lines by vendor account + vendor group
   const vendorGroups = new Map<string, CashEntryRawDataModel[]>();
@@ -99,10 +104,7 @@ export function processVendorPaymentGroup(
     const settlements: VendorPaymentSettlement[] = groupLines.map(
       (vendorLine) => ({
         vendorLine,
-        withholdingLine: findVendorPaymentWithholdingLine(
-          vendorLine,
-          classification.withholdingLines,
-        ),
+        withholdingLine: withholdingAllocation.get(vendorLine),
       }),
     );
 
@@ -114,6 +116,9 @@ export function processVendorPaymentGroup(
       settlements,
       offsetLine: paymentOffset,
       vendorGroup,
+      explicitWithholdingSource: settlements.some(({ withholdingLine }) =>
+        Boolean(withholdingLine),
+      ),
     });
 
     // 6. Validate semantics (post-lookup with deterministic verification)
@@ -267,6 +272,7 @@ export function processVendorPaymentGroup(
         settlements: [settlement],
         offsetLine: withholdingLine,
         vendorGroup,
+        explicitWithholdingSource: true,
       });
       const companionDescription = descriptionPolicy.getDescription({
         settlementState: companionMarking.shouldMark
@@ -292,8 +298,9 @@ export function processVendorPaymentGroup(
           settlement.vendorLine.ACCOUNTDISPLAYVALUE ?? '',
         ).trim(),
         vendorGroup: String(settlement.vendorLine.VendorGroup ?? vendorGroup),
-        debitAmount: Number(
-          withholdingLine.CREDITAMOUNT || withholdingLine.DEBITAMOUNT || 0,
+        debitAmount: Math.max(
+          Math.abs(Number(withholdingLine.CREDITAMOUNT ?? 0)),
+          Math.abs(Number(withholdingLine.DEBITAMOUNT ?? 0)),
         ),
         description: companionDescription,
         transactionText: companionDescription,

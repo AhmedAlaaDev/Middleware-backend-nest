@@ -509,7 +509,15 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       const dfoLines = (processor as any).buildLines('2055', processedLines);
       expect(dfoLines).toHaveLength(2);
 
-      const [bankLine, withholdingLine] = dfoLines;
+      const bankLine = dfoLines.find(
+        (line: any) =>
+          !String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      )!;
+      const withholdingLine = dfoLines.find((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      )!;
+      expect(bankLine).toBeDefined();
+      expect(withholdingLine).toBeDefined();
       expect(bankLine.AccountType).toBe('Vend');
       expect(bankLine.AccountDisplayValue).toBe('VEND-001');
       expect(bankLine.OffsetAccountDisplayValue).toBe('BANK-001');
@@ -685,6 +693,64 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(vendorLine.SettlementIntent).toBe('Unmarked');
       expect(vendorLine.Description).toBe('Unmarked - INV-CUST-UNMARKED');
       expect(vendorLine.TransactionText).toBe('Unmarked - INV-CUST-UNMARKED');
+    });
+
+    it('preserves resolved vendor groups on Custody Settlement output lines', () => {
+      const processor = createProcessor();
+      const supplier = new CashEntryRawDataModel(
+        {
+          UniqueId: 10001,
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'Su-000019',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1301|013|001|001||||||||||||||',
+          DEBITAMOUNT: 8135.04,
+          CREDITAMOUNT: 0,
+          INVOICE: 'IA2025120309022485',
+          DOCUMENT: '14846',
+          FINTAGDISPLAYVALUE: 'O25-IMP-OC-11343|',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Transfer',
+        } as any,
+        'Freight',
+        false,
+      );
+      supplier.VendorGroup = 'Suppliers';
+      const custodyHolder = new CashEntryRawDataModel(
+        {
+          UniqueId: 10001,
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: '3135',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1301|013|001|001||||||||||||||',
+          DEBITAMOUNT: 0,
+          CREDITAMOUNT: 8500,
+          DOCUMENT: '14846',
+          FINTAGDISPLAYVALUE: 'O25-IMP-OC-11343|',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Transfer',
+        } as any,
+        'Freight',
+        false,
+      );
+      custodyHolder.VendorGroup = 'Custody';
+      custodyHolder.IsCustodyVendor = true;
+
+      const output = (processor as any).buildLines('10001', [
+        supplier,
+        custodyHolder,
+      ]);
+
+      expect(output).toHaveLength(2);
+      expect(output[0].VendorGroup).toBe('Suppliers');
+      expect(output[1].VendorGroup).toBe('Custody');
+      expect(output[1].SettlementTargetType).toBe('CustodyLedger');
+      expect(output[1].MarkedLines).toEqual([
+        expect.objectContaining({
+          DocumentNumber: '14846',
+          OperationNumber: 'O25-IMP-OC-11343',
+        }),
+      ]);
     });
   });
 });

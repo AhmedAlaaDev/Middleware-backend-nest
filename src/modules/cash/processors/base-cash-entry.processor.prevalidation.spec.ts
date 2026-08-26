@@ -426,6 +426,59 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(lines[0].MARKEDINVOICE).toBe('CUSTODY-TARGET-1');
   });
 
+  it('enriches Custody Settlement vendor groups before formatting', async () => {
+    const { processor, generalJournalService } = createProcessor({
+      custodyAccounts: ['3135'],
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510537,
+        LINENUMBER: 17016,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 8135.04,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'IA2025120309022485',
+        DOCUMENT: '14846',
+        FINTAGDISPLAYVALUE: 'O25-IMP-OC-11343|',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510537,
+        LINENUMBER: 17017,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 8500,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        FINTAGDISPLAYVALUE: 'O25-IMP-OC-11343|',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync([supplier, custody]),
+    ).resolves.toBeUndefined();
+
+    expect(supplier.VendorGroup).toBe('Trade');
+    expect(custody.VendorGroup).toBe('Custody');
+    expect(custody.IsCustodyVendor).toBe(true);
+    expect(
+      generalJournalService.findCustodySettlementTargets,
+    ).not.toHaveBeenCalled();
+  });
+
   it('preserves multiple resolved custody ledger markings through formatting', async () => {
     const targets: CustodySettlementTarget[] = [
       {
