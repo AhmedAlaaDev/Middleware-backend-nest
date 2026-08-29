@@ -74,6 +74,7 @@ describe('CashJournalPostingStrategy', () => {
 
   const buildStrategy = () => {
     const customerPaymentJournalService = {
+      validateCashOutSettlementTargets: jest.fn().mockResolvedValue(undefined),
       postCashInLinesForHeader: jest
         .fn()
         .mockResolvedValue([{ headerId: 'AR-0001', lineNumber: 1 }]),
@@ -324,8 +325,7 @@ describe('CashJournalPostingStrategy', () => {
         cashDirection: 'out',
         customLineApiBody: {
           journalNum: '',
-          AccountNum:
-            '124101|1602|016|001|003|201000283 |201000283 |3098|3098',
+          AccountNum: '124101|1602|016|001|003|201000283 |201000283 |3098|3098',
           accountTypeStr: 'Ledger',
           debitAmount: 14180,
           creditAmount: 0,
@@ -398,7 +398,7 @@ describe('CashJournalPostingStrategy', () => {
     );
   });
 
-  it('rejects a Custody Settlement vendor credit instead of sending empty MarkedLines', async () => {
+  it('rejects a Custody Settlement vendor credit instead of sending empty MarkedLines', () => {
     const harness = buildStrategy();
     harness.strategy.setRouteContext(custodySettlementRoute);
 

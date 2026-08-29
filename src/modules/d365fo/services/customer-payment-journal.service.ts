@@ -11,6 +11,8 @@ import {
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
 import { IConfig, ResilienceConfig } from '@/config';
+import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
+import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalHeaderResponse,
@@ -246,6 +248,98 @@ export class CustomerPaymentJournalService {
     );
   }
 
+  /**
+   * Validate every standard vendor settlement identity before creating a D365
+   * journal header. Custody settlement uses document/operation matching in X++
+   * and is intentionally excluded from invoice/vendor preflight.
+   */
+  public async validateCashOutSettlementTargets(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const targets = lines.flatMap((line) => {
+      const body = line.customLineApiBody;
+      if (!body) {
+        throw new NonRetryableDfoPostingError(
+          `Missing customLineApiBody on cash-out line ${line.LineNumber}`,
+        );
+      }
+
+      const vendorGroup = String(body.VendorGroup ?? '')
+        .trim()
+        .toLowerCase();
+      const accountType = String(body.accountTypeStr ?? '')
+        .trim()
+        .toLowerCase();
+      if (vendorGroup === 'custody' || accountType !== 'vendor') return [];
+
+      const vendorAccount = String(body.AccountNum ?? '').trim();
+      return (body.MarkedLines ?? [])
+        .map((markedLine) => ({
+          lineNumber: line.LineNumber,
+          invoice: String(markedLine.InvoiceNumber ?? '').trim(),
+          vendorAccount,
+          documentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+        }))
+        .filter(
+          (target) => Boolean(target.invoice) && Boolean(target.vendorAccount),
+        );
+    });
+
+    if (targets.length === 0) return;
+
+    const snapshots =
+      await this.vendorInvoiceJournalService.findInvoiceSettlementSnapshots(
+        dataAreaId,
+        targets,
+      );
+    const failures = targets.filter((target) => {
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        snapshots,
+        target.invoice,
+        target.vendorAccount,
+        target.documentNumber,
+      );
+      const normalizedVendor = target.vendorAccount.toLowerCase();
+      const normalizedDocument = target.documentNumber.toLowerCase();
+
+      return !(snapshot?.candidateTransactions ?? []).some(
+        (candidate) =>
+          String(candidate.vendorAccount ?? '')
+            .trim()
+            .toLowerCase() === normalizedVendor &&
+          (!normalizedDocument ||
+            String(candidate.documentNumber ?? '')
+              .trim()
+              .toLowerCase() === normalizedDocument) &&
+          vendorInvoiceIdentityEquals(candidate.invoiceNumber, target.invoice),
+      );
+    });
+
+    if (failures.length === 0) return;
+
+    const details = failures
+      .map(
+        (failure) =>
+          `line ${failure.lineNumber}: invoice ${failure.invoice} does not belong to vendor ${failure.vendorAccount}`,
+      )
+      .join('; ');
+    await this.operationalLogs.emit({
+      level: 'error',
+      message: `Cash-out settlement preflight rejected ${failures.length} line(s)`,
+      context: CustomerPaymentJournalService.name,
+      eventType: 'd365fo.cash-out.preflight',
+      status: 'rejected',
+      metadata: {
+        company: dataAreaId,
+        failures,
+      },
+    });
+    throw new NonRetryableDfoPostingError(
+      `Cash-out settlement preflight failed: ${details}`,
+    );
+  }
+
   private async postCashLinesForHeader(
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
@@ -291,11 +385,6 @@ export class CustomerPaymentJournalService {
         );
       }
     }
-
-    const successfullyPosted: Array<{
-      headerId: string;
-      lineNumber: number;
-    }> = [];
 
     return this.postCashBulkLinesForHeader(
       endpoint,
@@ -361,10 +450,17 @@ export class CustomerPaymentJournalService {
         endpoint,
         headerKey,
         pendingBatch,
-        dataAreaId,
         allowUnmarkedInvoiceRetry,
         { number: index + 1, total: totalBatches },
-        cashDirection,
+      );
+    }
+
+    if (cashDirection === 'out' && pendingLines.length > 0) {
+      await this.verifyCashOutMarkedSettlements(
+        headerKey,
+        pendingLines,
+        dataAreaId,
+        { number: totalBatches, total: totalBatches },
       );
     }
 
@@ -382,15 +478,13 @@ export class CustomerPaymentJournalService {
     endpoint: string,
     headerKey: string,
     pendingLines: CashBulkPendingLine[],
-    dataAreaId: string,
     _allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
-    cashDirection: 'in' | 'out' = 'out',
   ): Promise<void> {
     if (pendingLines.length === 0) return;
 
     this.logger.log(
-      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
+      `[CASH-CUSTOM] Submitting ${pendingLines.length} cash lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
     );
 
     const result = await this.postCustomCashLines(
@@ -409,52 +503,7 @@ export class CustomerPaymentJournalService {
     });
 
     if (failures.length === 0) {
-      if (cashDirection === 'out') {
-        await this.verifyCashOutMarkedSettlements(
-          headerKey,
-          pendingLines,
-          dataAreaId,
-          batch,
-        );
-      }
       return;
-    }
-
-    // The custom API may return only one overall message for an all-or-nothing
-    // TTS request. For line-specific identity errors, split the failed request
-    // until the bad line is isolated. Successful halves remain posted and a
-    // later worker attempt skips them through the existing-line checkpoint.
-    if (
-      pendingLines.length > 1 &&
-      failures.length === 1 &&
-      !failures[0].correlated &&
-      this.isLineSpecificCashBulkFailure(failures[0].message)
-    ) {
-      const middle = Math.ceil(pendingLines.length / 2);
-      const segments = [
-        pendingLines.slice(0, middle),
-        pendingLines.slice(middle),
-      ];
-      const segmentErrors: string[] = [];
-
-      for (const segment of segments) {
-        try {
-          await this.postCashOutBulkBatch(
-            endpoint,
-            headerKey,
-            segment,
-            dataAreaId,
-            _allowUnmarkedInvoiceRetry,
-            batch,
-            cashDirection,
-          );
-        } catch (error) {
-          segmentErrors.push(this.dfoErrorExtractor.extractMessage(error));
-        }
-      }
-
-      if (segmentErrors.length === 0) return;
-      throw new Error(segmentErrors.join('; '));
     }
 
     if (
@@ -483,10 +532,14 @@ export class CustomerPaymentJournalService {
         retryPendingLines,
       );
       if (retryFailures.length === 0) return;
-      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+      throw new NonRetryableDfoPostingError(
+        this.formatCashBulkFailure(headerKey, retryFailures),
+      );
     }
 
-    throw new Error(this.formatCashBulkFailure(headerKey, failures));
+    throw new NonRetryableDfoPostingError(
+      this.formatCashBulkFailure(headerKey, failures),
+    );
   }
 
   /**
@@ -711,17 +764,6 @@ export class CustomerPaymentJournalService {
       normalized.includes('is greater than the') &&
       (normalized.includes('remain amount') ||
         normalized.includes('remaining amount'))
-    );
-  }
-
-  private isLineSpecificCashBulkFailure(message: string): boolean {
-    const normalized = String(message ?? '')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-    return (
-      (normalized.includes('invoice:') && normalized.includes('vendor:')) ||
-      normalized.includes('taxwithhold::construct')
     );
   }
 
@@ -970,7 +1012,9 @@ export class CustomerPaymentJournalService {
         retries: 0,
       });
     } catch (error: unknown) {
-      throw new Error(this.dfoErrorExtractor.extractMessage(error));
+      throw new NonRetryableDfoPostingError(
+        this.dfoErrorExtractor.extractMessage(error),
+      );
     }
   }
 
@@ -1064,7 +1108,7 @@ export class CustomerPaymentJournalService {
     );
     if (unsafeFailures.length === 0) return;
 
-    throw new Error(
+    throw new NonRetryableDfoPostingError(
       `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
         .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
         .join('; ')}`,

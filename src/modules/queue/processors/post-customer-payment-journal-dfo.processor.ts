@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 
 import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
+import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
@@ -93,7 +94,9 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     } catch (error) {
       const message = dfoErrorMessage(error);
       collector.addHeaderError(message, 'Job processing');
-      const finalAttempt = this.isFinalAttempt(job);
+      const nonRetryable = error instanceof NonRetryableDfoPostingError;
+      if (nonRetryable) job.discard();
+      const finalAttempt = nonRetryable || this.isFinalAttempt(job);
       if (finalAttempt) {
         await this.jobs.markFailed(jobId, message);
         await this.failBatch(job.data.batchId, collector);
@@ -159,6 +162,11 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         const postingStrategy = this.selectStrategy(
           routedGroup,
           job.data.cashDirection ?? 'in',
+        );
+
+        await postingStrategy.validateLinesBeforeHeader?.(
+          record.payload.lines,
+          job.data.company,
         );
 
         const persistedHeaderId = record.createdHeaderId;

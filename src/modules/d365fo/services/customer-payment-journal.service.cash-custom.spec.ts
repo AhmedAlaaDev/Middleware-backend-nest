@@ -1,4 +1,5 @@
 import { CustomerPaymentJournalService } from './customer-payment-journal.service';
+import { VendorInvoiceJournalService } from './vendor-invoice-journal.service';
 
 describe('CustomerPaymentJournalService - cash custom line APIs', () => {
   function buildService() {
@@ -34,6 +35,36 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     const vendorInvoiceJournalService = {
       verifyVendorPaymentJournalSettlements: jest.fn().mockResolvedValue([]),
+      findInvoiceSettlementSnapshots: jest.fn(
+        (
+          _company: string,
+          requests: Array<{
+            invoice: string;
+            vendorAccount: string;
+            documentNumber?: string;
+          }>,
+        ) =>
+          Promise.resolve(
+            new Map(
+              requests.map((request) => [
+                VendorInvoiceJournalService.settlementKey(
+                  request.invoice,
+                  request.vendorAccount,
+                  request.documentNumber,
+                ),
+                {
+                  candidateTransactions: [
+                    {
+                      vendorAccount: request.vendorAccount,
+                      documentNumber: request.documentNumber ?? '',
+                      invoiceNumber: request.invoice,
+                    },
+                  ],
+                },
+              ]),
+            ),
+          ),
+      ),
     };
 
     const operationalLogs = {
@@ -591,6 +622,68 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(sentAccounts).toEqual(
       lines.map((line) => line.customLineApiBody.AccountNum),
     );
+  });
+
+  it('verifies marked settlements once after every bulk request succeeds', async () => {
+    const { service, d365foClient, vendorInvoiceJournalService } =
+      buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'OK',
+    });
+    vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mockImplementation(
+      ({ lines }: any) =>
+        Promise.resolve(
+          lines.map((line: any) => ({
+            lineNumber: line.lineNumber,
+            status: 'VERIFIED',
+            reason: 'verified',
+            expectedVendorAccount: line.vendorAccount,
+            expectedInvoices: line.expectedInvoices,
+            matchedInvoices: line.expectedInvoices,
+            settlementAmount: 1,
+            journalBatchNumber: 'JN-VERIFY-ALL',
+            journalMarkedInvoice: line.expectedInvoices[0],
+            settleVoucher: 'SETTLED',
+            journalLineExists: true,
+          })),
+        ),
+    );
+
+    const lines = Array.from({ length: 101 }, (_, index) => ({
+      dataAreaId: 'm-p',
+      LineNumber: index + 1,
+      cashDirection: 'out',
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: 'VEND-001',
+        accountTypeStr: 'Vendor',
+        MarkedLines: [
+          {
+            InvoiceNumber: `INV-${index + 1}`,
+            OperationNumber: '',
+            DocumentNumber: `DOC-${index + 1}`,
+            HasWithHoldingLine: false,
+          },
+        ],
+      },
+    }));
+
+    await service.postCashOutLinesForHeader(
+      'JN-VERIFY-ALL',
+      lines as any[],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(
+      vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mock
+        .calls[0][0].lines,
+    ).toHaveLength(101);
   });
 
   it('does not split a main and 223304 companion across the 100-line boundary', async () => {
@@ -1414,18 +1507,13 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(d365foClient.post).toHaveBeenCalledTimes(1);
   });
 
-  it('isolates an uncorrelated invoice/vendor failure and keeps successful lines posted', async () => {
+  it('does not recursively split an uncorrelated invoice/vendor failure', async () => {
     const { service, d365foClient } = buildService();
     const invoiceError = {
       StatusCode: 'Failed',
       Message: 'The Invoice: BAD-INV does not belong to Vendor: Ag-000194',
     };
-    d365foClient.post
-      .mockResolvedValueOnce(invoiceError)
-      .mockResolvedValueOnce(invoiceError)
-      .mockResolvedValueOnce({ StatusCode: 'Success', Message: 'OK' })
-      .mockResolvedValueOnce(invoiceError)
-      .mockResolvedValueOnce({ StatusCode: 'Success', Message: 'OK' });
+    d365foClient.post.mockResolvedValueOnce(invoiceError);
 
     const lines = [1, 2, 3].map(
       (lineNumber) =>
@@ -1451,22 +1539,79 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     await expect(
       service.postCashOutLinesForHeader('JN-ISOLATE', lines, 20, 'm-p'),
-    ).rejects.toThrow('line 2');
+    ).rejects.toThrow('BAD-INV');
 
-    expect(d365foClient.post).toHaveBeenCalledTimes(5);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
     expect(
       d365foClient.post.mock.calls.map((call) =>
         call[1]._contract.Lines.map(
           (line: any) => line.MarkedLines[0].DocumentNumber,
         ),
       ),
-    ).toEqual([
-      ['DOC-1', 'DOC-2', 'DOC-3'],
-      ['DOC-1', 'DOC-2'],
-      ['DOC-1'],
-      ['DOC-2'],
-      ['DOC-3'],
-    ]);
+    ).toEqual([['DOC-1', 'DOC-2', 'DOC-3']]);
+  });
+
+  it('rejects an invoice/vendor mismatch during posting preflight', async () => {
+    const {
+      service,
+      d365foClient,
+      vendorInvoiceJournalService,
+      operationalLogs,
+    } = buildService();
+    vendorInvoiceJournalService.findInvoiceSettlementSnapshots.mockResolvedValueOnce(
+      new Map([
+        [
+          VendorInvoiceJournalService.settlementKey(
+            'BAD-INV',
+            'VEND-001',
+            'DOC-1',
+          ),
+          {
+            candidateTransactions: [
+              {
+                vendorAccount: 'VEND-001',
+                documentNumber: 'DOC-1',
+                invoiceNumber: 'OTHER-INV',
+              },
+            ],
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      service.validateCashOutSettlementTargets(
+        [
+          {
+            LineNumber: 14,
+            customLineApiBody: {
+              AccountNum: 'VEND-001',
+              accountTypeStr: 'Vendor',
+              VendorGroup: 'Suppliers',
+              MarkedLines: [
+                {
+                  InvoiceNumber: 'BAD-INV',
+                  OperationNumber: '',
+                  DocumentNumber: 'DOC-1',
+                  HasWithHoldingLine: false,
+                },
+              ],
+            },
+          } as any,
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow(
+      'line 14: invoice BAD-INV does not belong to vendor VEND-001',
+    );
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
+    expect(operationalLogs.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'd365fo.cash-out.preflight',
+        status: 'rejected',
+      }),
+    );
   });
 
   it('does not clear marked settlements for unrelated cash-out errors', async () => {

@@ -6,11 +6,11 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   CashJournalRoute,
   CashJournalRoutingService,
 } from '@/modules/cash/services/cash-journal-routing.service';
-import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import { D365FOCustomerPaymentJournalLineRequest } from '@/modules/d365fo/types';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
@@ -42,6 +42,23 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     if (route.kind === 'customer-payment') {
       this.customerPaymentStrategy.setHeaderCashDirectionContext('in');
     }
+  }
+
+  public validateLinesBeforeHeader(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const route = this.requireRoute();
+    if (route.lineDirection !== 'out') return Promise.resolve();
+
+    const postingLines = this.prepareCashPostingLines(
+      route,
+      lines as D365FOCustomerPaymentJournalLineRequest[],
+    );
+    return this.customerPaymentJournalService.validateCashOutSettlementTargets(
+      postingLines,
+      dataAreaId,
+    );
   }
 
   public async postHeadersInBatches(
@@ -173,10 +190,9 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
           : {}),
         ...(line.customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE !== undefined
           ? {
-              DEFAULTDIMENSIONDISPLAYVALUE:
-                normalizeCashCompositeDisplayValue(
-                  line.customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE,
-                ),
+              DEFAULTDIMENSIONDISPLAYVALUE: normalizeCashCompositeDisplayValue(
+                line.customLineApiBody.DEFAULTDIMENSIONDISPLAYVALUE,
+              ),
             }
           : {}),
         ...(line.customLineApiBody.offsetAccountDisplayValue !== undefined
@@ -200,8 +216,9 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       if (route.safeType !== 'Custody Settlement') return normalizedLine;
 
       const isCustodyCredit =
-        String(body.accountTypeStr ?? '').trim().toLowerCase() === 'vendor' &&
-        Number(body.creditAmount ?? 0) > 0;
+        String(body.accountTypeStr ?? '')
+          .trim()
+          .toLowerCase() === 'vendor' && Number(body.creditAmount ?? 0) > 0;
       if (!isCustodyCredit) return normalizedLine;
 
       const sourceMark = body.MarkedLines?.[0];
