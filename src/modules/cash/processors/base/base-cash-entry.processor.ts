@@ -1303,10 +1303,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
-      PaymentId: `${
+      PaymentId: String(
         (amountSource === 'ACCOUNT' ? accountLine : offsetLine).UniqueId ||
-        sourceId
-      },${amountSource === 'ACCOUNT' ? accountLine.LINENUMBER : offsetLine.LINENUMBER}`,
+          sourceId,
+      ),
       SafeType: accountLine.SafeType,
       VoucherType: accountLine.VoucherType,
     });

@@ -201,8 +201,9 @@ export function buildCashMoreThanTwoLines(options: {
 /**
  * Groups repeated Cash-In customer rows only when they resolve to the same
  * customer account. The generated customer row keeps the single payment
- * row's source identity so LineNumber and PAYMENTID remain unique and tied
- * to the sheet payment line, while the customer credit is the grouped sum.
+ * row's source identity so LineNumber stays tied to the sheet payment line
+ * and PAYMENTID remains the transaction UniqueId, while the customer credit
+ * is the grouped sum.
  *
  * Different customer accounts intentionally return undefined and continue
  * through the existing deterministic pairing behavior.

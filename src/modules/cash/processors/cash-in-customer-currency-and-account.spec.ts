@@ -103,14 +103,14 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.OffsetAccountDisplayValue).toBe('PETTY-001');
   });
 
-  it('sets PaymentId to UniqueId,source-line-number and preserves the sheet line number', () => {
+  it('sets PaymentId to UniqueId only and preserves the sheet line number separately', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [
       customerLine({ UniqueId: 536999, LINENUMBER: 21 }),
       offsetLine({ UniqueId: 536999, LINENUMBER: 22 }),
     ]);
 
-    expect(line.PaymentId).toBe('536999,22');
+    expect(line.PaymentId).toBe('536999');
     expect(line.LineNumber).toBe(22);
   });
 
@@ -195,7 +195,7 @@ describe('Cash-In: customer account with a source offset line', () => {
       }),
     ]);
 
-    expect(result.map((line: any) => line.PaymentId)).toEqual(['1,11', '1,12']);
+    expect(result.map((line: any) => line.PaymentId)).toEqual(['1', '1']);
     expect(result.map((line: any) => line.LineNumber)).toEqual([11, 12]);
     expect(result.map((line: any) => line.OffsetAccountDisplayValue)).toEqual([
       'BANK-001',
@@ -247,10 +247,7 @@ describe('Cash-In: customer account with a source offset line', () => {
       'PETTY-002',
     ]);
     expect(result.map((line: any) => line.CreditAmount)).toEqual([50, 100]);
-    expect(result.map((line: any) => line.PaymentId)).toEqual([
-      '77,3',
-      '77,4',
-    ]);
+    expect(result.map((line: any) => line.PaymentId)).toEqual(['77', '77']);
     expect(result.map((line: any) => line.LineNumber)).toEqual([3, 4]);
   });
 
@@ -285,7 +282,7 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(result[0].OffsetAccountDisplayValue).toBe('BANK-ONE');
     expect(result[0].CreditAmount).toBe(150);
     expect(result[0].DebitAmount).toBe(0);
-    expect(result[0].PaymentId).toBe('88,7');
+    expect(result[0].PaymentId).toBe('88');
     expect(result[0].LineNumber).toBe(7);
   });
 
