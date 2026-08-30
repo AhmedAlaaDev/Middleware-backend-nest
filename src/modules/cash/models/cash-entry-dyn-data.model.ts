@@ -9,6 +9,7 @@ export interface CashEntryMarkedLine {
   OperationNumber: string;
   DocumentNumber: string;
   HasWithHoldingLine: boolean;
+  FullSettlement?: boolean;
 }
 
 export type CashSettlementIntent = 'Marked' | 'Unmarked' | 'None';

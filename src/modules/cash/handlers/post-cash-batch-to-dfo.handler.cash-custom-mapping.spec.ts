@@ -217,9 +217,9 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentNum', 'DOC-2002');
     expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
     expect(body).toHaveProperty('ReportingExchangeRate');
-    expect(body).toHaveProperty('ReportingCurrencyExchRate');
+    expect(body).not.toHaveProperty('ReportingCurrencyExchRate');
   });
 
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
@@ -750,7 +750,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       expect(body).toHaveProperty('DocumentNum', '15936');
       expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
       expect(body).toHaveProperty('ExchangeRate');
-      expect(body).toHaveProperty('EXCHANGERATE');
+      expect(body).not.toHaveProperty('EXCHANGERATE');
     }
   });
 
@@ -809,7 +809,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentNum', '15925');
     expect(body).toHaveProperty('DocumentDate', '2026-01-01T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
-    expect(body).toHaveProperty('EXCHANGERATE');
+    expect(body).not.toHaveProperty('EXCHANGERATE');
   });
 
   it('sends the resolved Custody vendor group to the D365 settlement contract', () => {

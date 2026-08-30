@@ -2,8 +2,8 @@ import {
   findCustodySettlementWithholdingLine,
   resolveCustodySettlementMarking,
 } from './custody-settlement-marking.policy';
-import { prepareCustodySettlementLines } from './custody-settlement.processor';
 import { CustodySettlementBuilder } from './custody-settlement.builder';
+import { prepareCustodySettlementLines } from './custody-settlement.processor';
 import { validateCustodySettlementVendorInvoiceShape } from './custody-settlement.validator';
 
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
@@ -29,7 +29,7 @@ function line(
 }
 
 describe('prepareCustodySettlementLines', () => {
-  it('creates one output plan per non-withholding source line', () => {
+  it('emits a Vendor -> Ledger companion for each matched withholding row', () => {
     const plans = prepareCustodySettlementLines([
       line({ LINENUMBER: 1, DEBITAMOUNT: 1000 }),
       line({
@@ -43,7 +43,7 @@ describe('prepareCustodySettlementLines', () => {
       line({ LINENUMBER: 3, ACCOUNTTYPE: 'Ledger', DEBITAMOUNT: 50 }),
     ]);
 
-    expect(plans).toHaveLength(2);
+    expect(plans).toHaveLength(3);
     expect(plans[0].line.DEBITAMOUNT).toBe(900);
     expect(plans[0].markedLines).toEqual([
       {
@@ -53,7 +53,14 @@ describe('prepareCustodySettlementLines', () => {
         HasWithHoldingLine: true,
       },
     ]);
-    expect(plans[1].isVendorLine).toBe(false);
+    expect(plans[1].isVendorLine).toBe(true);
+    expect(plans[1].line.ACCOUNTTYPE).toBe('Vend');
+    expect(plans[1].line.ACCOUNTDISPLAYVALUE).toBe('RP-000003');
+    expect(plans[1].line.DEBITAMOUNT).toBe(100);
+    expect(plans[1].line.OFFSETACCOUNTTYPE).toBe('Ledger');
+    expect(plans[1].line.OFFSETACCOUNTDISPLAYVALUE).toBe('223304');
+    expect(plans[1].markedLines[0].HasWithHoldingLine).toBe(false);
+    expect(plans[2].isVendorLine).toBe(false);
   });
 
   it('does not mark a vendor line when invoice or document is absent', () => {
@@ -163,9 +170,11 @@ describe('prepareCustodySettlementLines', () => {
 
     expect(plans[0].line.DEBITAMOUNT).toBe(900);
     expect(plans[0].markedLines[0].HasWithHoldingLine).toBe(true);
-    // Preserve the existing Custody Settlement aggregate amount calculation.
-    expect(plans[1].line.DEBITAMOUNT).toBe(900);
+    expect(plans[1].line.DEBITAMOUNT).toBe(100);
     expect(plans[1].markedLines[0].HasWithHoldingLine).toBe(false);
+    // The unrelated vendor does not inherit another vendor's withholding.
+    expect(plans[2].line.DEBITAMOUNT).toBe(1000);
+    expect(plans[2].markedLines[0].HasWithHoldingLine).toBe(false);
   });
 
   it('uses vendor-payment matching precedence for custody withholding', () => {

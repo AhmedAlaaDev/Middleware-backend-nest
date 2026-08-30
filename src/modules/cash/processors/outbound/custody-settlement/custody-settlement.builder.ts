@@ -60,6 +60,13 @@ export class CustodySettlementBuilder {
                   HasWithHoldingLine: Boolean(
                     plan.markedLines[0]?.HasWithHoldingLine,
                   ),
+                  ...(plan.markedLines[0]?.FullSettlement !== undefined
+                    ? {
+                        FullSettlement: Boolean(
+                          plan.markedLines[0].FullSettlement,
+                        ),
+                      }
+                    : {}),
                 },
               ]
             : [];

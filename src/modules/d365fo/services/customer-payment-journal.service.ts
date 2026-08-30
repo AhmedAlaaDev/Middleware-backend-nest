@@ -281,21 +281,11 @@ export class CustomerPaymentJournalService {
         existingLines = new Set(existing.map((l) => l.LineNumber));
       } catch (error) {
         const lookupError = this.dfoErrorExtractor.extractMessage(error);
-        if (existingLinesLoader) {
-          throw new Error(
-            `[CASH-CUSTOM] Could not verify existing lines for routed header ${headerKey}; posting was stopped to prevent duplicates: ${lookupError}`,
-          );
-        }
-        this.logger.warn(
-          `[CASH-CUSTOM] Could not query existing lines for header ${headerKey}: ${lookupError}`,
+        throw new Error(
+          `[CASH-CUSTOM] Could not verify existing lines for header ${headerKey}; posting was stopped to prevent duplicates: ${lookupError}`,
         );
       }
     }
-
-    const successfullyPosted: Array<{
-      headerId: string;
-      lineNumber: number;
-    }> = [];
 
     return this.postCashBulkLinesForHeader(
       endpoint,
@@ -420,53 +410,41 @@ export class CustomerPaymentJournalService {
       return;
     }
 
-    // The custom API may return only one overall message for an all-or-nothing
-    // TTS request. For line-specific identity errors, split the failed request
-    // until the bad line is isolated. Successful halves remain posted and a
-    // later worker attempt skips them through the existing-line checkpoint.
-    if (
-      pendingLines.length > 1 &&
-      failures.length === 1 &&
-      !failures[0].correlated &&
-      this.isLineSpecificCashBulkFailure(failures[0].message)
-    ) {
-      const middle = Math.ceil(pendingLines.length / 2);
-      const segments = [
-        pendingLines.slice(0, middle),
-        pendingLines.slice(middle),
-      ];
-      const segmentErrors: string[] = [];
-
-      for (const segment of segments) {
-        try {
-          await this.postCashOutBulkBatch(
-            endpoint,
-            headerKey,
-            segment,
-            dataAreaId,
-            _allowUnmarkedInvoiceRetry,
-            batch,
-            cashDirection,
-          );
-        } catch (error) {
-          segmentErrors.push(this.dfoErrorExtractor.extractMessage(error));
-        }
-      }
-
-      if (segmentErrors.length === 0) return;
-      throw new Error(segmentErrors.join('; '));
-    }
-
+    // A rejected request is a checkpoint boundary. Stop here and let the
+    // durable queue retry this same journal group after the error is reported;
+    // never split the request and continue posting later lines in this attempt.
     if (
       _allowUnmarkedInvoiceRetry &&
       failures.every((f) =>
         this.isInvoiceAmountGreaterThanRemainingError(f.message),
       )
     ) {
-      const retryPendingLines = pendingLines.map((line) => ({
-        ...line,
-        body: this.buildUnmarkedCashLine(line.body),
-      }));
+      // Never resend lines that D365 reported as successful. An all-or-nothing
+      // response is represented by one correlated failure per submitted line,
+      // so this also retries the complete request only when every line failed.
+      const retryIndexes = [
+        ...new Set(
+          failures
+            .map((failure) => failure.requestIndex)
+            .filter(
+              (requestIndex) =>
+                requestIndex >= 0 && requestIndex < pendingLines.length,
+            ),
+        ),
+      ];
+      if (retryIndexes.length === 0) {
+        throw new Error(
+          this.formatCashBulkFailure(headerKey, failures, cashDirection),
+        );
+      }
+
+      const retryPendingLines = retryIndexes.map((requestIndex) => {
+        const line = pendingLines[requestIndex];
+        return {
+          ...line,
+          body: this.buildUnmarkedCashLine(line.body),
+        };
+      });
 
       const retryResult = await this.postCustomCashLines(
         endpoint,
@@ -483,10 +461,14 @@ export class CustomerPaymentJournalService {
         retryPendingLines,
       );
       if (retryFailures.length === 0) return;
-      throw new Error(this.formatCashBulkFailure(headerKey, retryFailures));
+      throw new Error(
+        this.formatCashBulkFailure(headerKey, retryFailures, cashDirection),
+      );
     }
 
-    throw new Error(this.formatCashBulkFailure(headerKey, failures));
+    throw new Error(
+      this.formatCashBulkFailure(headerKey, failures, cashDirection),
+    );
   }
 
   /**
@@ -689,6 +671,7 @@ export class CustomerPaymentJournalService {
   private formatCashBulkFailure(
     headerKey: string,
     failures: CashBulkLineFailure[],
+    cashDirection: 'in' | 'out' = 'out',
   ): string {
     const details = failures
       .map((failure) =>
@@ -697,7 +680,7 @@ export class CustomerPaymentJournalService {
           : `line ${failure.lineNumber}: ${failure.message}`,
       )
       .join('; ');
-    return `Failed to post cash-out lines for header ${headerKey}: ${details}`;
+    return `Failed to post cash-${cashDirection} lines for header ${headerKey}: ${details}`;
   }
 
   private isInvoiceAmountGreaterThanRemainingError(message: string): boolean {
@@ -711,17 +694,6 @@ export class CustomerPaymentJournalService {
       normalized.includes('is greater than the') &&
       (normalized.includes('remain amount') ||
         normalized.includes('remaining amount'))
-    );
-  }
-
-  private isLineSpecificCashBulkFailure(message: string): boolean {
-    const normalized = String(message ?? '')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-    return (
-      (normalized.includes('invoice:') && normalized.includes('vendor:')) ||
-      normalized.includes('taxwithhold::construct')
     );
   }
 
@@ -919,7 +891,7 @@ export class CustomerPaymentJournalService {
       const result = await this.d365foClient.post<
         TSLedgerJournalTransCustomRequest,
         TSLedgerJournalTransCustomResponseBody
-      >(endpoint, { _contract: body });
+      >(endpoint, { _contract: this.toD365BulkCashLine(body) });
 
       const statusCode = result?.StatusCode;
       if (statusCode === 'Success') {
@@ -1248,30 +1220,21 @@ export class CustomerPaymentJournalService {
   /**
    * Project an internal cash line onto a `_contract.Lines` entry.
    *
-   * Scenario 4 (main account-only): offset account *data* is omitted by sending
-   * empty Offset* values. The keys themselves stay on every line because FO's
-   * `constructFromJsonObject` calls `jsonMap.lookup(...)` without `exists()`
-   * for most members (including VendorGroup / Offset*) and throws
-   * `The value "…" is not found in the map.` when a key is absent.
-   * Lowercase `offset*` aliases are stripped so they cannot collide with the
-   * PascalCase keys FO actually reads.
+   * The X++ constructor performs unconditional map lookups for the core line
+   * members, so those keys are always emitted (with empty values where the
+   * contract permits them). VendorGroup and MarkedLines are optional in X++ and
+   * are emitted only when they are needed. Legacy aliases are never forwarded.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
-    const {
-      offsetDEFAULTDIMENSIONDISPLAYVALUE: _omitOffsetDimAlias,
-      offsetAccountDisplayValue: _omitOffsetAccountAlias,
-      accountTypeStr,
-      VendorGroup,
-      ...rest
-    } = line;
-    const normalizedAccountType = String(accountTypeStr ?? '')
-      .trim()
-      .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'];
+    const accountType = this.normalizeCustomAccountType(line.accountTypeStr);
+    const offsetAccountType = this.normalizeCustomAccountType(
+      line.OffsetAccountTypeStr,
+    );
     const resolvedVendorGroup =
-      String(VendorGroup ?? '').trim() ||
-      (normalizedAccountType === 'vendor' &&
+      String(line.VendorGroup ?? '').trim() ||
+      (accountType === 'Vendor' &&
       (line.MarkedLines ?? []).some(
         (markedLine) =>
           !String(markedLine.InvoiceNumber ?? '').trim() &&
@@ -1281,21 +1244,92 @@ export class CustomerPaymentJournalService {
         ? 'Custody'
         : '');
 
+    const markedLines = (line.MarkedLines ?? []).map((markedLine) => ({
+      InvoiceNumber: String(markedLine.InvoiceNumber ?? ''),
+      OperationNumber: String(markedLine.OperationNumber ?? ''),
+      DocumentNumber: String(markedLine.DocumentNumber ?? ''),
+      HasWithHoldingLine: Boolean(markedLine.HasWithHoldingLine),
+      ...(markedLine.FullSettlement !== undefined
+        ? { FullSettlement: Boolean(markedLine.FullSettlement) }
+        : {}),
+    }));
+
     return {
-      ...rest,
-      accountTypeStr: normalizedAccountType,
-      // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
-      // The fallback also protects retries of payloads formatted before the
-      // Custody Settlement vendor-group enrichment fix was deployed.
-      VendorGroup: resolvedVendorGroup,
-      OffsetDEFAULTDIMENSIONDISPLAYVALUE:
+      JournalNum: String(line.journalNum ?? ''),
+      AccountNum: String(line.AccountNum ?? ''),
+      AccountTypeStr: accountType,
+      BANKTRANSACTIONTYPE: String(line.BANKTRANSACTIONTYPE ?? ''),
+      CENTRALBANKPURPOSECODE: String(line.CENTRALBANKPURPOSECODE ?? ''),
+      CENTRALBANKPURPOSETEXT: String(line.CENTRALBANKPURPOSETEXT ?? ''),
+      Company: String(line.company ?? ''),
+      CreditAmount: Number(line.creditAmount ?? 0),
+      Currency: String(line.currency ?? ''),
+      DebitAmount: Number(line.debitAmount ?? 0),
+      DEFAULTDIMENSIONDISPLAYVALUE: String(
+        line.DEFAULTDIMENSIONDISPLAYVALUE ?? '',
+      ),
+      OffsetDEFAULTDIMENSIONDISPLAYVALUE: String(
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
-      OffsetAccountDisplayValue: line.offsetAccountDisplayValue ?? '',
-      OffsetAccountTypeStr: line.OffsetAccountTypeStr ?? '',
-      OffsetCompany: line.OffsetCompany ?? '',
-      OFFSETFINTAGDISPLAYVALUE: line.OFFSETFINTAGDISPLAYVALUE ?? '',
-      OFFSETTRANSACTIONTEXT: line.OFFSETTRANSACTIONTEXT ?? '',
+      ),
+      FinTagStr: String(line.FinTagStr ?? ''),
+      ISPREPAYMENT: String(line.ISPREPAYMENT ?? 'No'),
+      ITEMWITHHOLDINGTAXGROUP: String(line.ITEMWITHHOLDINGTAXGROUP ?? ''),
+      OffsetAccountDisplayValue: String(line.offsetAccountDisplayValue ?? ''),
+      OffsetAccountTypeStr: offsetAccountType,
+      OffsetCompany: String(line.OffsetCompany ?? ''),
+      OFFSETFINTAGDISPLAYVALUE: String(line.OFFSETFINTAGDISPLAYVALUE ?? ''),
+      OFFSETTRANSACTIONTEXT: String(line.OFFSETTRANSACTIONTEXT ?? ''),
+      PAYMENTID: String(line.PAYMENTID ?? ''),
+      PAYMENTMETHODNAME: String(line.PAYMENTMETHODNAME ?? ''),
+      PAYMENTNOTES: String(line.PAYMENTNOTES ?? ''),
+      PAYMENTREFERENCE: String(line.PAYMENTREFERENCE ?? ''),
+      PAYMENTSPECIFICATION: String(line.PAYMENTSPECIFICATION ?? ''),
+      PostingProfile: String(line.PostingProfile ?? ''),
+      TaxGroup: String(line.TaxGroup ?? ''),
+      TAXITEMGROUP: String(line.TAXITEMGROUP ?? ''),
+      TransDate: String(line.transDate ?? ''),
+      TRANSACTIONTEXT: String(line.TRANSACTIONTEXT ?? ''),
+      DocumentDate: String(line.DocumentDate ?? ''),
+      DocumentNum: String(line.DocumentNum ?? ''),
+      ExchangeRate: this.firstNumericValue(
+        line.ExchangeRate,
+        line.ExchRate,
+        line.EXCHANGERATE,
+      ),
+      ReportingExchangeRate: this.firstNumericValue(
+        line.ReportingExchangeRate,
+        line.ReportingCurrencyExchRate,
+        line.REPORTINGEXCHANGERATE,
+      ),
+      ...(resolvedVendorGroup ? { VendorGroup: resolvedVendorGroup } : {}),
+      ...(markedLines.length > 0 ? { MarkedLines: markedLines } : {}),
     };
+  }
+
+  private normalizeCustomAccountType(
+    value: unknown,
+  ): TSLedgerJournalTransCustomBulkLineRequestBody['AccountTypeStr'] {
+    const normalized =
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value).trim().toLowerCase()
+        : '';
+    if (normalized === 'cust') return 'Cust';
+    if (normalized === 'vend' || normalized === 'vendor') return 'Vendor';
+    if (normalized === 'bank') return 'Bank';
+    if (normalized === 'rcash' || normalized === 'pettycash') return 'RCash';
+    if (normalized === 'ledger') return 'Ledger';
+    return '';
+  }
+
+  private firstNumericValue(...values: unknown[]): number {
+    const value = values
+      .map((candidate) =>
+        candidate === null || candidate === undefined
+          ? Number.NaN
+          : Number(candidate),
+      )
+      .find((candidate) => Number.isFinite(candidate));
+    return value ?? 0;
   }
 
   /**

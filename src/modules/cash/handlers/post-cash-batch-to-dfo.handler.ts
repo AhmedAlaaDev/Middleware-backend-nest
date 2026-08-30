@@ -421,6 +421,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           HasWithHoldingLine: isExplicitWithholdingCompanion
             ? false
             : Boolean(markedLine.HasWithHoldingLine),
+          ...(markedLine.FullSettlement !== undefined
+            ? { FullSettlement: Boolean(markedLine.FullSettlement) }
+            : {}),
         })) ?? [];
       // MarkedLines is authoritative for every Vendor Payment line, including
       // Vendor -> 223304 withholding companions. Do not clear or reconstruct
@@ -528,23 +531,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         currency: line.CurrencyCode ?? '',
         debitAmount: debit,
 
-        ...(cashDirection === 'out'
-          ? {
-              ExchRate:
-                (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-                  ? 100
-                  : line.ExchRate || 100,
-              EXCHANGERATE:
-                (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-                  ? 100
-                  : line.ExchRate || 100,
-              ReportingCurrencyExchRate:
-                (line.ReportingCurrencyExchRate || 0) * 100,
-              REPORTINGEXCHANGERATE:
-                (line.ReportingCurrencyExchRate || 0) * 100,
-              ExchRateSecond: (line.ReportingCurrencyExchRate || 0) * 100,
-            }
-          : {}),
         ExchangeRate:
           cashDirection === 'in'
             ? this.resolveCashInExchangeRate(line)
@@ -559,8 +545,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         FinTagStr: line.FinTagDisplayValue ?? '',
         ISPREPAYMENT: 'No',
         ITEMWITHHOLDINGTAXGROUP: line.ItemWithholdingTaxGroupCode ?? '',
-        IsWithholdingTaxCalculate: line.IsWithholdingCalculationEnabled ?? 'No',
-        ISWITHHOLDINGTAXCALCULATE: line.IsWithholdingCalculationEnabled ?? 'No',
 
         offsetAccountDisplayValue: this.isMainAccountOnlyLine(
           line,
@@ -598,7 +582,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           this.formatDate(line.DocumentDate || transactionDate),
         ),
         TRANSACTIONTEXT: transactionTextValue,
-        Voucher: '',
         MarkedLines: [],
       };
 
@@ -637,6 +620,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                     (line as any).DocumentNumber ?? line.Document ?? '',
                   ).trim(),
                   HasWithHoldingLine: Boolean((line as any).HasWithHoldingLine),
+                  ...((line as any).FullSettlement !== undefined
+                    ? {
+                        FullSettlement: Boolean((line as any).FullSettlement),
+                      }
+                    : {}),
                 },
               ]
             : [];
@@ -666,7 +654,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
    * foreign-currency rate is rejected instead of silently becoming 100.
    */
   private resolveCashInExchangeRate(line: CashEntryDynDataModel): number {
-    const currency = String(line.CurrencyCode ?? '').trim().toUpperCase();
+    const currency = String(line.CurrencyCode ?? '')
+      .trim()
+      .toUpperCase();
     if (currency === 'EGP') return 100;
 
     const rate = [line.ExchRate, line.ExchangeRate]

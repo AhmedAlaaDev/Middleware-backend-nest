@@ -5,7 +5,9 @@
  * - addLedgerJournalTransCustPaym
  * - addLedgerJournalTransVendPaym
  *
- * These endpoints expect strict parameter names (case-sensitive).
+ * The HTTP wire shape is defined by TSLedgerJournalTransCustomBulkLineRequestBody
+ * below. TSLedgerJournalTransCustomRequestBody is retained as the middleware's
+ * internal compatibility shape for already queued records.
  */
 
 export type TSLedgerJournalCustomAccountTypeStr =
@@ -20,6 +22,8 @@ export interface TSLedgerJournalMarkedLine {
   OperationNumber: string;
   DocumentNumber: string;
   HasWithHoldingLine: boolean;
+  /** X++ JournalLineSettlementLine.parmFullSettlement(). */
+  FullSettlement?: boolean;
 }
 
 export interface TSLedgerJournalTransCustomRequestBody {
@@ -44,7 +48,6 @@ export interface TSLedgerJournalTransCustomRequestBody {
   ReportingCurrencyExchRate?: number;
   ReportingExchangeRate?: number;
   REPORTINGEXCHANGERATE?: number;
-  ExchRateSecond?: number;
 
   DEFAULTDIMENSIONDISPLAYVALUE: string;
   offsetDEFAULTDIMENSIONDISPLAYVALUE?: string;
@@ -52,8 +55,6 @@ export interface TSLedgerJournalTransCustomRequestBody {
   FinTagStr: string;
   ISPREPAYMENT: string;
   ITEMWITHHOLDINGTAXGROUP: string;
-  IsWithholdingTaxCalculate?: string;
-  ISWITHHOLDINGTAXCALCULATE?: string;
   MARKEDINVOICE?: string | null;
   /** Always present; empty means an explicitly unmarked payment. */
   MarkedLines: TSLedgerJournalMarkedLine[];
@@ -80,43 +81,61 @@ export interface TSLedgerJournalTransCustomRequestBody {
   DocumentNum: string;
   DocumentDate: string;
   TRANSACTIONTEXT: string;
-  Voucher: string;
 }
 
 export interface TSLedgerJournalTransCustomRequest {
-  _contract: TSLedgerJournalTransCustomRequestBody;
+  _contract: TSLedgerJournalTransCustomBulkLineRequestBody;
 }
 
 /**
- * One entry of the Cash Out `_contract.Lines` collection
- * (`addLedgerJournalTransVendPaym` / JournalLineWrapper).
- *
- * FO builds each line through `JournalLineContract::constructFromJsonObject`,
- * which does case-sensitive map lookups and throws when a key is absent
- * (`The value "…" is not found in the map.`). Offset keys and `VendorGroup`
- * therefore stay present (empty when unused). Lowercase `offset*` aliases are
- * omitted so they cannot collide with the PascalCase keys FO looks up.
+ * Exact wire contract consumed by JournalLineContract::constructFromJsonObject
+ * in SDDDFO. Keep this separate from TSLedgerJournalTransCustomRequestBody,
+ * which is the middleware's backwards-compatible internal shape.
  */
-export type TSLedgerJournalTransCustomBulkLineRequestBody = Omit<
-  TSLedgerJournalTransCustomRequestBody,
-  | 'accountTypeStr'
-  | 'offsetDEFAULTDIMENSIONDISPLAYVALUE'
-  | 'offsetAccountDisplayValue'
-  | 'OffsetAccountTypeStr'
-  | 'OffsetCompany'
-  | 'OFFSETFINTAGDISPLAYVALUE'
-  | 'OFFSETTRANSACTIONTEXT'
-  | 'VendorGroup'
-> & {
-  accountTypeStr: Lowercase<TSLedgerJournalCustomAccountTypeStr> | '';
-  VendorGroup: string;
+export interface TSLedgerJournalTransCustomBulkLineRequestBody {
+  JournalNum: string;
+  AccountNum: string;
+  AccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
+  BANKTRANSACTIONTYPE: string;
+  CENTRALBANKPURPOSECODE: string;
+  CENTRALBANKPURPOSETEXT: string;
+  Company: string;
+  CreditAmount: number;
+  Currency: string;
+  DebitAmount: number;
+  DEFAULTDIMENSIONDISPLAYVALUE: string;
   OffsetDEFAULTDIMENSIONDISPLAYVALUE: string;
+  FinTagStr: string;
+  ISPREPAYMENT: string;
+  ITEMWITHHOLDINGTAXGROUP: string;
   OffsetAccountDisplayValue: string;
   OffsetAccountTypeStr: TSLedgerJournalCustomAccountTypeStr | '';
   OffsetCompany: string;
   OFFSETFINTAGDISPLAYVALUE: string;
   OFFSETTRANSACTIONTEXT: string;
-};
+  PAYMENTID: string;
+  PAYMENTMETHODNAME: string;
+  PAYMENTNOTES: string;
+  PAYMENTREFERENCE: string;
+  PAYMENTSPECIFICATION: string;
+  PostingProfile: string;
+  TaxGroup: string;
+  TAXITEMGROUP: string;
+  TransDate: string;
+  TRANSACTIONTEXT: string;
+  DocumentDate: string;
+  DocumentNum: string;
+  ExchangeRate: number;
+  ReportingExchangeRate: number;
+  VendorGroup?: string;
+  MarkedLines?: Array<{
+    InvoiceNumber: string;
+    OperationNumber: string;
+    DocumentNumber: string;
+    HasWithHoldingLine: boolean;
+    FullSettlement?: boolean;
+  }>;
+}
 
 /** Bulk request body: every journal line of the batch (or chunk) in `Lines`. */
 export interface TSLedgerJournalTransCustomBulkRequestBody {

@@ -589,7 +589,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
-    it('subtracts withholding amount from vendor line, skips withholding line, and builds individual lines without offset', () => {
+    it('subtracts withholding from the main vendor line and sends a companion line without offset on the main line', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -635,10 +635,10 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const dfoLines = (processor as any).buildLines('9999', rawLines);
 
-      // Withholding line is skipped -> 2 lines returned (Vendor line & Safe line)
-      expect(dfoLines).toHaveLength(2);
+      // Withholding is represented by a separate Vendor -> Ledger companion.
+      expect(dfoLines).toHaveLength(3);
 
-      const [vendorLine, safeLine] = dfoLines;
+      const [vendorLine, withholdingLine, safeLine] = dfoLines;
 
       // Vendor line: amount reduced by withholding (1000 - 50 = 950),
       // invoice retained and marked using the same contract as Vendor Payment.
@@ -657,6 +657,20 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ]);
       expect(vendorLine.SettlementIntent).toBe('Marked');
       expect(vendorLine.OffsetAccountDisplayValue).toBe('');
+
+      expect(withholdingLine.AccountType).toBe('Vend');
+      expect(withholdingLine.AccountDisplayValue).toBe('VEND-CUST-01');
+      expect(withholdingLine.DebitAmount).toBe(50);
+      expect(withholdingLine.OffsetAccountType).toBe('Ledger');
+      expect(withholdingLine.OffsetAccountDisplayValue).toBe('223304-01');
+      expect(withholdingLine.MarkedLines).toEqual([
+        {
+          InvoiceNumber: 'INV-CUST-100',
+          OperationNumber: '',
+          DocumentNumber: 'DOC-CUST-100',
+          HasWithHoldingLine: false,
+        },
+      ]);
 
       // Safe line: credit 950, individual line without offset account
       expect(safeLine.AccountType).toBe('Petty cash');
