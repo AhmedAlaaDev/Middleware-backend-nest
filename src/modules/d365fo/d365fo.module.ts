@@ -47,6 +47,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VatNumTableService,
   ],
   exports: [
+    D365FOClientService,
     ODataQueryBuilderService,
     BillingService,
     CustomerService,
