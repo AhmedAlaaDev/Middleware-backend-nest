@@ -51,7 +51,13 @@ export function prepareCustodySettlementLines(
 
     const withholdingLine =
       isVendorLine && Number(line.DEBITAMOUNT || 0) > 0
-        ? findCustodySettlementWithholdingLine(line, withholdingLines)
+        ? findAvailableCustodyWithholdingLine(
+            line,
+            withholdingLines.filter(
+              (candidate) => !consumedWithholdingLines.has(candidate),
+            ),
+            nonWithholdingLines,
+          )
         : undefined;
     if (withholdingLine) consumedWithholdingLines.add(withholdingLine);
 
@@ -120,6 +126,77 @@ export function prepareCustodySettlementLines(
   }
 
   return plans;
+}
+
+function findAvailableCustodyWithholdingLine(
+  vendorLine: CashEntryRawDataModel,
+  availableWithholdingLines: CashEntryRawDataModel[],
+  settlementLines: CashEntryRawDataModel[],
+): CashEntryRawDataModel | undefined {
+  const vendorDebit = Number(vendorLine.DEBITAMOUNT ?? 0);
+  const compatibleMatches = availableWithholdingLines.filter((candidate) => {
+    const amount = custodyWithholdingAmount(candidate);
+    return (
+      amount <= vendorDebit + 0.005 &&
+      findCustodySettlementWithholdingLine(vendorLine, [candidate]) ===
+        candidate
+    );
+  });
+
+  const exactNetMatch = compatibleMatches.find((candidate) => {
+    const expectedNetDebit = vendorDebit - custodyWithholdingAmount(candidate);
+    return settlementLines.some(
+      (creditLine) =>
+        creditLine !== vendorLine &&
+        isVendorCreditLine(creditLine) &&
+        sameCustodySettlementIdentity(vendorLine, creditLine) &&
+        Math.abs(Number(creditLine.CREDITAMOUNT ?? 0) - expectedNetDebit) <=
+          0.005,
+    );
+  });
+
+  return (
+    exactNetMatch ??
+    findCustodySettlementWithholdingLine(vendorLine, compatibleMatches)
+  );
+}
+
+function isVendorCreditLine(line: CashEntryRawDataModel): boolean {
+  const accountType = String(line.ACCOUNTTYPE ?? '')
+    .trim()
+    .toLowerCase();
+  return (
+    (Boolean(line.IsVendor) ||
+      accountType === 'vend' ||
+      accountType === 'vendor') &&
+    Number(line.CREDITAMOUNT ?? 0) > 0
+  );
+}
+
+function sameCustodySettlementIdentity(
+  debitLine: CashEntryRawDataModel,
+  creditLine: CashEntryRawDataModel,
+): boolean {
+  const pairs: Array<[unknown, unknown]> = [
+    [debitLine.UniqueId, creditLine.UniqueId],
+    [debitLine.CURRENCYCODE, creditLine.CURRENCYCODE],
+    [debitLine.INVOICE, creditLine.INVOICE],
+    [debitLine.DOCUMENT, creditLine.DOCUMENT],
+  ];
+
+  return pairs.every(([left, right]) => {
+    const normalizedLeft = normalizeCustodyIdentityValue(left);
+    const normalizedRight = normalizeCustodyIdentityValue(right);
+    return (
+      !normalizedLeft || !normalizedRight || normalizedLeft === normalizedRight
+    );
+  });
+}
+
+function normalizeCustodyIdentityValue(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value).trim()
+    : '';
 }
 
 function custodyWithholdingAmount(line: CashEntryRawDataModel): number {

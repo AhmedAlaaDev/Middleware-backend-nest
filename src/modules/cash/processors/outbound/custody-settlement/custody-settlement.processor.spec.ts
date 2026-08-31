@@ -177,6 +177,61 @@ describe('prepareCustodySettlementLines', () => {
     expect(plans[2].markedLines[0].HasWithHoldingLine).toBe(false);
   });
 
+  it('allocates one shared withholding row once to the amount-compatible custody debit', () => {
+    const plans = prepareCustodySettlementLines([
+      line({
+        LINENUMBER: 839,
+        ACCOUNTDISPLAYVALUE: '3210',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 0.18,
+        INVOICE: '5815372458',
+      }),
+      line({
+        LINENUMBER: 840,
+        ACCOUNTDISPLAYVALUE: 'Sl-000036',
+        DEBITAMOUNT: 0.18,
+        CREDITAMOUNT: 0,
+        INVOICE: '5815372458',
+      }),
+      line({
+        LINENUMBER: 841,
+        ACCOUNTDISPLAYVALUE: '3210',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 290.82,
+        INVOICE: '5815372458',
+      }),
+      line({
+        LINENUMBER: 842,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223304|dimensions',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 7.86,
+        INVOICE: '',
+      }),
+      line({
+        LINENUMBER: 843,
+        ACCOUNTDISPLAYVALUE: 'Sl-000036',
+        DEBITAMOUNT: 298.68,
+        CREDITAMOUNT: 0,
+        INVOICE: '5815372458',
+      }),
+    ]);
+
+    const companions = plans.filter(
+      ({ line: outputLine }) =>
+        outputLine.OFFSETACCOUNTTYPE === 'Ledger' &&
+        String(outputLine.OFFSETACCOUNTDISPLAYVALUE).startsWith('223304'),
+    );
+    const vendorDebits = plans
+      .filter(({ line: outputLine }) => outputLine.ACCOUNTTYPE === 'Vend')
+      .map(({ line: outputLine }) => Number(outputLine.DEBITAMOUNT ?? 0));
+
+    expect(plans).toHaveLength(5);
+    expect(companions).toHaveLength(1);
+    expect(companions[0].line.DEBITAMOUNT).toBe(7.86);
+    expect(vendorDebits).toEqual(expect.arrayContaining([0.18, 290.82, 7.86]));
+  });
+
   it('uses vendor-payment matching precedence for custody withholding', () => {
     const withholding = line({
       UniqueId: 77,
