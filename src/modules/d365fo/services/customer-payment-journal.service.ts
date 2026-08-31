@@ -394,6 +394,7 @@ export class CustomerPaymentJournalService {
       endpoint,
       pendingLines.map((line) => line.body),
       { headerKey, pendingLines, attempt: 'initial', batch },
+      cashDirection,
     );
     const failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
@@ -474,6 +475,7 @@ export class CustomerPaymentJournalService {
           attempt: 'unmarked_retry',
           batch,
         },
+        cashDirection,
       );
       const retryFailures = this.extractCashBulkFailures(
         retryResult,
@@ -889,10 +891,13 @@ export class CustomerPaymentJournalService {
       attempt: CashBulkAttempt;
       batch: CashBulkBatch;
     },
+    cashDirection: 'in' | 'out',
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
     const requestBody: TSLedgerJournalTransCustomBulkRequest = {
       _contract: {
-        Lines: lines.map((line) => this.toD365BulkCashLine(line)),
+        Lines: lines.map((line) =>
+          this.toD365BulkCashLine(line, cashDirection),
+        ),
       },
     };
 
@@ -1194,11 +1199,14 @@ export class CustomerPaymentJournalService {
    * `constructFromJsonObject` calls `jsonMap.lookup(...)` without `exists()`
    * for most members (including VendorGroup / Offset*) and throws
    * `The value "…" is not found in the map.` when a key is absent.
+   * Cash-In always emits MarkedLines as an array so its request shape is
+   * stable. Cash-Out keeps its existing optional MarkedLines behavior.
    * Lowercase `offset*` aliases are stripped so they cannot collide with the
    * PascalCase keys FO actually reads.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
+    cashDirection: 'in' | 'out' = 'out',
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
     const {
       offsetDEFAULTDIMENSIONDISPLAYVALUE: _omitOffsetDimAlias,
@@ -1215,6 +1223,9 @@ export class CustomerPaymentJournalService {
         .toLowerCase() as TSLedgerJournalTransCustomBulkLineRequestBody['accountTypeStr'],
       // Always present: X++ does jsonMap.lookup("VendorGroup") unconditionally.
       VendorGroup: VendorGroup ?? '',
+      ...(cashDirection === 'in'
+        ? { MarkedLines: line.MarkedLines ?? [] }
+        : {}),
       OffsetDEFAULTDIMENSIONDISPLAYVALUE:
         line.offsetDEFAULTDIMENSIONDISPLAYVALUE ?? '',
       OffsetAccountDisplayValue: line.offsetAccountDisplayValue ?? '',

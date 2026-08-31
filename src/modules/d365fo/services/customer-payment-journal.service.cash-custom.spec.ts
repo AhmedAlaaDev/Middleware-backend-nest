@@ -133,6 +133,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           ExchRate: 100,
           EXCHANGERATE: 100,
           ExchangeRate: 100,
+          MarkedLines: [
+            {
+              InvoiceNumber: 'INV-0001',
+              OperationNumber: '',
+              DocumentNumber: 'DOC-1001',
+              HasWithHoldingLine: false,
+            },
+          ],
         },
       },
     ];
@@ -152,6 +160,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate');
+    expect(postedLine.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-0001',
+        OperationNumber: '',
+        DocumentNumber: 'DOC-1001',
+        HasWithHoldingLine: false,
+      },
+    ]);
     expect(postedLine).toHaveProperty('EXCHANGERATE');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,

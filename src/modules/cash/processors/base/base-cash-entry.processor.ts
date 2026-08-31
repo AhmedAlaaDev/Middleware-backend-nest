@@ -56,8 +56,10 @@ import {
 } from '@/modules/cash/services/cash-group-line-building.service';
 import {
   buildCashInboundInvalidLine,
+  buildCashInboundMarkedLines,
   createCashInboundDynamicLine,
   formatCashInboundDescription,
+  isCashInWcaEuBankLine,
   prepareCashInboundDimensions,
   resolveCashInboundDerivedValues,
   resolveCashInboundRates,
@@ -1181,16 +1183,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.fetchExchangeRates(date ?? '', currency ?? ''),
     });
 
-    const resolvedAccountType = resolveCashAccountType(
-      accountLine.ACCOUNTDISPLAYVALUE,
-      accountLine.ACCOUNTTYPE,
-    );
+    const resolvedAccountType = isCashInWcaEuBankLine(accountLine)
+      ? 'Ledger'
+      : resolveCashAccountType(
+          accountLine.ACCOUNTDISPLAYVALUE,
+          accountLine.ACCOUNTTYPE,
+        );
     const resolvedOffsetAccountType = isNotesReceivable
       ? 'Bank'
-      : resolveCashAccountType(
-          offsetLine.ACCOUNTDISPLAYVALUE,
-          offsetLine.ACCOUNTTYPE,
-        );
+      : isCashInWcaEuBankLine(offsetLine)
+        ? 'Ledger'
+        : resolveCashAccountType(
+            offsetLine.ACCOUNTDISPLAYVALUE,
+            offsetLine.ACCOUNTTYPE,
+          );
 
     if (resolvedAccountType !== accountLine.ACCOUNTTYPE) {
       this.logger.log(
@@ -1242,12 +1248,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: resolveCashOffsetAccountDisplayValue(
-        offsetLine,
-        dimensions,
-        isNotesReceivable,
-        dimensionStr,
-      ),
+      OffsetAccountDisplayValue: isCashInWcaEuBankLine(offsetLine)
+        ? '125902'
+        : resolveCashOffsetAccountDisplayValue(
+            offsetLine,
+            dimensions,
+            isNotesReceivable,
+            dimensionStr,
+          ),
       FinTagDisplayValue:
         offsetLine.FINTAGDISPLAYVALUE || accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue:
@@ -1285,12 +1293,17 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       Document: accountLine.DOCUMENT,
       DocumentDate: accountLine.DOCUMENTDATE,
       DueDate: accountLine.DUEDATE,
-      PaymentId: `${
+      PaymentId: String(
         (amountSource === 'ACCOUNT' ? accountLine : offsetLine).UniqueId ||
-        sourceId
-      },${amountSource === 'ACCOUNT' ? accountLine.LINENUMBER : offsetLine.LINENUMBER}`,
+          sourceId,
+      ),
       SafeType: accountLine.SafeType,
       VoucherType: accountLine.VoucherType,
+      MarkedLines: buildCashInboundMarkedLines(
+        accountLine,
+        offsetLine,
+        markedInvoice,
+      ),
     });
 
     (dynLine as any).SourceLineNumber =

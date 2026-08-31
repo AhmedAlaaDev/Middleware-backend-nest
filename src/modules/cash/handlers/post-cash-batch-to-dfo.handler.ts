@@ -354,11 +354,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
-      const accountDisplayValue = normalizeCashCompositeDisplayValue(
-        line.AccountDisplayValue,
+      const accountDisplayValue = this.normalizeCashInWcaEuDisplayValue(
+        normalizeCashCompositeDisplayValue(line.AccountDisplayValue),
+        cashDirection,
       );
-      const offsetAccountDisplayValue = normalizeCashCompositeDisplayValue(
-        line.OffsetAccountDisplayValue,
+      const offsetAccountDisplayValue = this.normalizeCashInWcaEuDisplayValue(
+        normalizeCashCompositeDisplayValue(line.OffsetAccountDisplayValue),
+        cashDirection,
       );
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
         ? line.DefaultDimensionsForAccountDisplayValue
@@ -387,10 +389,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       );
 
       const accountTypeStr = this.mapEntryAccountTypeStrForCustom(
-        line.AccountType,
+        cashDirection === 'in' &&
+        this.isCashInWcaEuAccount(line.AccountDisplayValue)
+          ? 'Ledger'
+          : line.AccountType,
       );
       const offsetAccountTypeStr = this.mapEntryAccountTypeStrForCustom(
-        line.OffsetAccountType,
+        cashDirection === 'in' &&
+        this.isCashInWcaEuAccount(line.OffsetAccountDisplayValue)
+          ? 'Ledger'
+          : line.OffsetAccountType,
       );
 
       const defaultDimDisplayValue =
@@ -653,6 +661,25 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
 
     return rate;
+  }
+
+  private isCashInWcaEuAccount(value: unknown): boolean {
+    return (
+      String(value ?? '')
+        .trim()
+        .toUpperCase()
+        .split('|')[0]
+        ?.trim() === 'WCA-EU'
+    );
+  }
+
+  private normalizeCashInWcaEuDisplayValue(
+    value: string,
+    cashDirection: 'in' | 'out',
+  ): string {
+    return cashDirection === 'in' && this.isCashInWcaEuAccount(value)
+      ? '125902'
+      : value;
   }
 
   private isMainAccountOnlyLine(

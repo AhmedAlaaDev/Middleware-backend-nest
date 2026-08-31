@@ -89,6 +89,44 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.DebitAmount).toBe(0);
   });
 
+  it('builds a stable Cash-In MarkedLines entry from the invoice and document', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({
+        INVOICE: '123456/Invoice',
+        DOCUMENT: 'DOC-123',
+      }),
+      offsetLine({ DOCUMENT: 'DOC-123' }),
+    ]);
+
+    expect(line.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '000123456/Invoice',
+        OperationNumber: '',
+        DocumentNumber: 'DOC-123',
+        HasWithHoldingLine: false,
+      },
+    ]);
+  });
+
+  it('treats the Cash-In WCA-EU bank payment as Ledger account 125902', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({ CURRENCYCODE: 'EUR', CREDITAMOUNT: 100 }),
+      offsetLine({
+        LINENUMBER: 2,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'WCA-EU',
+        CURRENCYCODE: 'EUR',
+        DEBITAMOUNT: 100,
+      }),
+    ]);
+
+    expect(line.OffsetAccountType).toBe('Ledger');
+    expect(line.OffsetAccountDisplayValue).toBe('125902');
+    expect(line.CurrencyCode).toBe('EUR');
+  });
+
   it('uses the offset currency without applying the removed grouping logic', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [
@@ -100,14 +138,14 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.OffsetAccountDisplayValue).toBe('PETTY-001');
   });
 
-  it('sets PaymentId to UniqueId,source-line-number and preserves the sheet line number', () => {
+  it('sets PaymentId to UniqueId only and preserves the sheet line number separately', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [
       customerLine({ UniqueId: 536999, LINENUMBER: 21 }),
       offsetLine({ UniqueId: 536999, LINENUMBER: 22 }),
     ]);
 
-    expect(line.PaymentId).toBe('536999,22');
+    expect(line.PaymentId).toBe('536999');
     expect(line.LineNumber).toBe(22);
   });
 
@@ -192,7 +230,7 @@ describe('Cash-In: customer account with a source offset line', () => {
       }),
     ]);
 
-    expect(result.map((line: any) => line.PaymentId)).toEqual(['1,11', '1,12']);
+    expect(result.map((line: any) => line.PaymentId)).toEqual(['1', '1']);
     expect(result.map((line: any) => line.LineNumber)).toEqual([11, 12]);
     expect(result.map((line: any) => line.OffsetAccountDisplayValue)).toEqual([
       'BANK-001',
@@ -244,10 +282,7 @@ describe('Cash-In: customer account with a source offset line', () => {
       'PETTY-002',
     ]);
     expect(result.map((line: any) => line.CreditAmount)).toEqual([50, 100]);
-    expect(result.map((line: any) => line.PaymentId)).toEqual([
-      '77,3',
-      '77,4',
-    ]);
+    expect(result.map((line: any) => line.PaymentId)).toEqual(['77', '77']);
     expect(result.map((line: any) => line.LineNumber)).toEqual([3, 4]);
   });
 
@@ -282,7 +317,7 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(result[0].OffsetAccountDisplayValue).toBe('BANK-ONE');
     expect(result[0].CreditAmount).toBe(150);
     expect(result[0].DebitAmount).toBe(0);
-    expect(result[0].PaymentId).toBe('88,7');
+    expect(result[0].PaymentId).toBe('88');
     expect(result[0].LineNumber).toBe(7);
   });
 
