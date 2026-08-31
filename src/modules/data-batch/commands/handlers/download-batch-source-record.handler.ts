@@ -77,15 +77,17 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
   }
 
   /**
-   * Prefer headers saved at upload time; append any extra keys found in records.
-   * For older batches without saved headers, keep first-seen order (no alphabetical sort).
+   * Preserve every header saved at upload time, including columns that were
+   * blank in every row and therefore omitted by MongoDB. Append any extra keys
+   * found in records. For older batches without saved headers, keep first-seen
+   * order (no alphabetical sort).
    */
   private resolveHeaders(
     savedHeaders: string[] | undefined,
     presentHeaders: Set<string>,
   ): string[] {
     if (savedHeaders && savedHeaders.length > 0) {
-      const ordered = savedHeaders.filter((h) => presentHeaders.has(h));
+      const ordered = [...savedHeaders];
       for (const key of presentHeaders) {
         if (!ordered.includes(key)) {
           ordered.push(key);
