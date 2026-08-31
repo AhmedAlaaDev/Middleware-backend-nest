@@ -1,7 +1,9 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 
+import { CASH_OUT_TEMPLATE_HEADERS } from '@/modules/cash/services/cash-out-template-validation.service';
 import { DownloadBatchSourceRecordCommand } from '@/modules/data-batch/commands/download-batch-source-record.command';
+import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataSourceRecord } from '@/modules/data-batch/interfaces/data-source-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { ExcelService } from '@/modules/excel/excel.service';
@@ -56,7 +58,11 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
       throw new NotFoundException('No source records found for this batch');
     }
 
-    const headers = this.resolveHeaders(batch.sourceColumnHeaders, headerSet);
+    const headers = this.resolveHeaders(
+      batch.entryProcessorType,
+      batch.sourceColumnHeaders,
+      headerSet,
+    );
     this.logger.log(
       `Collected ${headers.length} column(s) from ${recordCount} source record(s)`,
     );
@@ -83,9 +89,17 @@ export class DownloadBatchSourceRecordHandler implements ICommandHandler<Downloa
    * order (no alphabetical sort).
    */
   private resolveHeaders(
+    entryProcessorType: EntryProcessorTypes,
     savedHeaders: string[] | undefined,
     presentHeaders: Set<string>,
   ): string[] {
+    if (
+      entryProcessorType === EntryProcessorTypes.CashOutFreight ||
+      entryProcessorType === EntryProcessorTypes.CashOutTrucking
+    ) {
+      return [...CASH_OUT_TEMPLATE_HEADERS];
+    }
+
     if (savedHeaders && savedHeaders.length > 0) {
       const ordered = [...savedHeaders];
       for (const key of presentHeaders) {
