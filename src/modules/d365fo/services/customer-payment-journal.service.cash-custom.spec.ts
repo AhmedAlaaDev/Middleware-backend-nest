@@ -1577,26 +1577,34 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
   });
 
-  it('rejects a UniqueId with more than 100 lines before sending any part of it', async () => {
+  it('posts a UniqueId with more than 100 lines in a single request', async () => {
     const { service, d365foClient } = buildService();
-    const lines = Array.from({ length: 101 }, (_, index) => ({
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success',
+    });
+    const lines = Array.from({ length: 186 }, (_, index) => ({
       dataAreaId: 'm-p',
       LineNumber: index + 1,
       cashDirection: 'out',
       customLineApiBody: {
         journalNum: '',
         AccountNum: `VEND-${index + 1}`,
-        PAYMENTID: 'OVERSIZE-UNIQUE-ID',
+        PAYMENTID: '488810',
       },
     }));
 
-    await expect(
-      service.postCashOutLinesForHeader('JN-OVERSIZE', lines as any[], 20, 'm-p'),
-    ).rejects.toThrow(
-      'Cash-out UniqueId OVERSIZE-UNIQUE-ID contains 101 lines, exceeding the D365 request limit of 100. Posting was stopped without sending any part of that UniqueId.',
+    await service.postCashOutLinesForHeader(
+      'JN-OVERSIZE',
+      lines as any[],
+      20,
+      'm-p',
     );
 
-    expect(d365foClient.post).not.toHaveBeenCalled();
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.calls[0][1]._contract.Lines).toHaveLength(
+      186,
+    );
   });
 
   it('skips a failed UniqueId and continues posting later UniqueIds', async () => {

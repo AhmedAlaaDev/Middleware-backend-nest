@@ -76,7 +76,7 @@ export class CustomerPaymentJournalService {
   private readonly cashOutLineEndpoint =
     '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym';
 
-  /** Maximum number of lines allowed in one atomic Cash-Out UniqueId request. */
+  /** Maximum lines per Cash-In custom-service request. Cash-Out sends each UniqueId in full. */
   private readonly cashOutBulkBatchSize = 100;
 
   /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
@@ -300,7 +300,7 @@ export class CustomerPaymentJournalService {
 
     this.logger.log(
       cashDirection === 'out'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} as one request per UniqueId (maximum ${this.cashOutBulkBatchSize} lines per UniqueId)`
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} as one request per UniqueId`
         : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
@@ -1151,14 +1151,6 @@ export class CustomerPaymentJournalService {
         left.priority - right.priority || left.firstIndex - right.firstIndex,
     );
 
-    for (const [uniqueId, group] of orderedGroups) {
-      if (group.lines.length > this.cashOutBulkBatchSize) {
-        throw new Error(
-          `Cash-out UniqueId ${uniqueId} contains ${group.lines.length} lines, exceeding the D365 request limit of ${this.cashOutBulkBatchSize}. Posting was stopped without sending any part of that UniqueId.`,
-        );
-      }
-    }
-
     return orderedGroups.map(([, group]) => group.lines);
   }
 
@@ -1507,7 +1499,6 @@ export class CustomerPaymentJournalService {
         attempt: context.attempt,
         requestNumber: context.batch.number,
         requestCount: context.batch.total,
-        maxLinesPerRequest: this.cashOutBulkBatchSize,
         lineCount,
         lineNumbers: context.pendingLines.map((line) => line.lineNumber),
         settlementIntent: context.pendingLines.some(
