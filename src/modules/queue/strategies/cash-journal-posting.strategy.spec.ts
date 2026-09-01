@@ -714,6 +714,107 @@ describe('CashJournalPostingStrategy', () => {
     ]);
   });
 
+  it('does not OData-mark a UniqueId that was uploaded without settlement', async () => {
+    const harness = buildStrategy();
+    harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mockResolvedValue(
+      {
+        postedLines: [
+          { headerId: 'Mesco-000015604', lineNumber: 1 },
+          { headerId: 'Mesco-000015604', lineNumber: 2 },
+        ],
+        skipped: [
+          {
+            uniqueId: '466596',
+            excelLineNumbers: [900],
+            journalBatchNumber: 'Mesco-000015604',
+            d365LineNumbers: [1],
+            vendorAccount: 'Sl-000020',
+            invoiceNumber: 'INV-MARKED',
+            documentNumber: 'DOC-MARKED',
+            amount: 100,
+            phase: 'settle',
+            error:
+              'Line uploaded without settlement: This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.',
+          },
+        ],
+      },
+    );
+
+    harness.strategy.setRouteContext(custodySettlementRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015604',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          sourceLineNumber: 900,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000020',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            currency: 'EGP',
+            debitAmount: 100,
+            creditAmount: 0,
+            PAYMENTID: '466596',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-MARKED',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-MARKED',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          sourceLineNumber: 901,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            currency: 'EGP',
+            debitAmount: 200,
+            creditAmount: 0,
+            PAYMENTID: '999001',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-OK',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-OK',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      20,
+    );
+
+    expect(
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        continueOnError: true,
+        targets: [expect.objectContaining({ uniqueId: '999001' })],
+      }),
+    );
+    expect(harness.strategy.consumeSkipReport()).toEqual([
+      expect.objectContaining({
+        uniqueId: '466596',
+        phase: 'settle',
+        error: expect.stringContaining('has been marked for settlement'),
+      }),
+    ]);
+  });
+
   it('returns the generated JournalBatchNumber without changing it', () => {
     const { strategy } = buildStrategy();
 

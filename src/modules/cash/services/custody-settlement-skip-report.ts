@@ -83,10 +83,26 @@ export function formatCustodySettlementSkipWarning(
 ): string {
   const phase = row.phase === 'post' ? 'Upload skipped' : 'Settlement skipped';
   const uniqueId = row.uniqueId || '?';
-  const excelLines = row.excelLineNumbers.length
-    ? ` Excel line ${row.excelLineNumbers.join(', ')}`
-    : '';
-  return `${phase}: UniqueId ${uniqueId}${excelLines}: ${row.error}`;
+  return `${phase}: UniqueId ${uniqueId}${formatExcelLineClause(row.excelLineNumbers)}: ${row.error}`;
+}
+
+/** One-line batch status for the UI. Full UniqueId/line detail stays in Excel and the errors page. */
+export function formatCustodySettlementSkipBatchSummary(
+  rows: CustodySettlementSkipRow[],
+): string {
+  const uniqueIds = new Set(
+    rows.map((row) => row.uniqueId).filter((uniqueId) => uniqueId.length > 0),
+  );
+  const excelLines = new Set(rows.flatMap((row) => row.excelLineNumbers));
+  const uploadCount = rows.filter((row) => row.phase === 'post').length;
+  const settlementCount = rows.filter((row) => row.phase === 'settle').length;
+  return [
+    `Skipped lines: ${rows.length} skipped UniqueId issue(s)`,
+    `across ${uniqueIds.size} UniqueId(s)`,
+    `and ${excelLines.size} Excel line(s)`,
+    `(${uploadCount} upload, ${settlementCount} settlement).`,
+    'Open View Errors or download the error Excel for UniqueId, Excel LINENUMBER, and reason.',
+  ].join(' ');
 }
 
 export function toCustodySettlementSkipBatchError(
@@ -123,6 +139,13 @@ export function isCustodySettlementSkipError(
 export function skipErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error ?? 'Unknown error');
+}
+
+function formatExcelLineClause(lines: number[]): string {
+  if (lines.length === 0) return '';
+  if (lines.length === 1) return ` Excel line ${lines[0]}`;
+  const sorted = [...lines].sort((left, right) => left - right);
+  return ` ${lines.length} Excel lines (${sorted[0]}–${sorted[sorted.length - 1]})`;
 }
 
 function uniquePositiveNumbers(

@@ -1,6 +1,7 @@
 import {
   CUSTODY_SETTLEMENT_SKIP_KIND,
   createCustodySettlementSkipRow,
+  formatCustodySettlementSkipBatchSummary,
   formatCustodySettlementSkipWarning,
   isCustodySettlementSkipError,
   toCustodySettlementSkipBatchError,
@@ -35,7 +36,52 @@ describe('custody-settlement-skip-report', () => {
       Error: 'remainder 298.84',
     });
     expect(formatCustodySettlementSkipWarning(row)).toBe(
-      'Settlement skipped: UniqueId 475761 Excel line 839, 841: remainder 298.84',
+      'Settlement skipped: UniqueId 475761 2 Excel lines (839–841): remainder 298.84',
+    );
+  });
+
+  it('keeps already-marked UniqueIds as settlement skips after unmarked upload', () => {
+    const row = createCustodySettlementSkipRow({
+      uniqueId: '466596',
+      excelLineNumbers: [900],
+      journalBatchNumber: 'Mesco-000015604',
+      d365LineNumbers: [1],
+      vendorAccount: 'Sl-000020',
+      invoiceNumber: 'INV-MARKED',
+      documentNumber: 'DOC-MARKED',
+      amount: 100,
+      phase: 'settle',
+      error:
+        'Line uploaded without settlement: This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.',
+    });
+
+    expect(toCustodySettlementSkipExcelRow(row).Phase).toBe('Settlement');
+    expect(toCustodySettlementSkipExcelRow(row).Error).toContain(
+      'has been marked for settlement by Vendor Payment Freight',
+    );
+    expect(formatCustodySettlementSkipWarning(row)).toContain(
+      'Settlement skipped: UniqueId 466596 Excel line 900',
+    );
+  });
+
+  it('summarizes skip rows for the batch UI without listing every Excel line', () => {
+    const rows = [
+      createCustodySettlementSkipRow({
+        uniqueId: '488810',
+        excelLineNumbers: [4267, 4452],
+        phase: 'post',
+        error: 'already marked',
+      }),
+      createCustodySettlementSkipRow({
+        uniqueId: '475761',
+        excelLineNumbers: [841],
+        phase: 'settle',
+        error: 'remainder',
+      }),
+    ];
+
+    expect(formatCustodySettlementSkipBatchSummary(rows)).toBe(
+      'Skipped lines: 2 skipped UniqueId issue(s) across 2 UniqueId(s) and 3 Excel line(s) (1 upload, 1 settlement). Open View Errors or download the error Excel for UniqueId, Excel LINENUMBER, and reason.',
     );
   });
 

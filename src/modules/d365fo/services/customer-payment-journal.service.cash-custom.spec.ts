@@ -1679,6 +1679,158 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
+  it('uploads an already-marked UniqueId without MarkedLines and keeps later UniqueIds marked', async () => {
+    const { service, d365foClient, vendorInvoiceJournalService } =
+      buildService();
+    const alreadyMarked =
+      'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.';
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Error',
+        Message: alreadyMarked,
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Posted unmarked',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Posted',
+      });
+    vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mockResolvedValue(
+      [
+        {
+          lineNumber: 2,
+          status: 'VERIFIED',
+          settleVoucher: 'SelectedTransact',
+          journalLineExists: true,
+          journalMarkedInvoice: 'INV-OK',
+          matchedInvoices: ['INV-OK'],
+          reason: '',
+        },
+      ],
+    );
+
+    const result = await service.postCashOutLinesForHeaderAllowingSkips(
+      'Mesco-000015604',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          sourceLineNumber: 900,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000020',
+            PAYMENTID: '466596',
+            debitAmount: 100,
+            creditAmount: 0,
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-MARKED',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-MARKED',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          sourceLineNumber: 901,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            PAYMENTID: '999001',
+            debitAmount: 200,
+            creditAmount: 0,
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-OK',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-OK',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ] as any[],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(3);
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0].MarkedLines,
+    ).toEqual([expect.objectContaining({ InvoiceNumber: 'INV-MARKED' })]);
+    expect(
+      d365foClient.post.mock.calls[1][1]._contract.Lines[0].MarkedLines,
+    ).toBeUndefined();
+    expect(
+      d365foClient.post.mock.calls[2][1]._contract.Lines[0].MarkedLines,
+    ).toEqual([expect.objectContaining({ InvoiceNumber: 'INV-OK' })]);
+    expect(result.postedLines).toEqual([
+      { headerId: 'Mesco-000015604', lineNumber: 1 },
+      { headerId: 'Mesco-000015604', lineNumber: 2 },
+    ]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        uniqueId: '466596',
+        excelLineNumbers: [900],
+        invoiceNumber: 'INV-MARKED',
+        phase: 'settle',
+        error: expect.stringContaining(alreadyMarked),
+      }),
+    ]);
+    expect(
+      vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not retry already-marked UniqueIds without MarkedLines on Vendor Payment', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Error',
+      Message:
+        'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.',
+    });
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'Mesco-000015604',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'Sl-000020',
+              PAYMENTID: '466596',
+              MarkedLines: [
+                {
+                  InvoiceNumber: 'INV-MARKED',
+                  OperationNumber: '',
+                  DocumentNumber: 'DOC-MARKED',
+                  HasWithHoldingLine: false,
+                },
+              ],
+            },
+          } as any,
+        ],
+        20,
+        'm-p',
+      ),
+    ).rejects.toThrow('has been marked for settlement');
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0].MarkedLines,
+    ).toEqual([expect.objectContaining({ InvoiceNumber: 'INV-MARKED' })]);
+  });
+
   it('fails closed when only part of a UniqueId already exists in D365', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();

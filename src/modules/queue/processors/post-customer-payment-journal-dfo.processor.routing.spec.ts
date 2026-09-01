@@ -473,7 +473,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(batches.updateDfoPostingErrorsAsync).toHaveBeenCalledWith(
       'batch-2045',
       [
-        'Settlement skipped: UniqueId 475761 Excel line 841: Settlement amount 298.86 exceeds remainder 298.84.',
+        'Skipped lines: 1 skipped UniqueId issue(s) across 1 UniqueId(s) and 1 Excel line(s) (0 upload, 1 settlement). Open View Errors or download the error Excel for UniqueId, Excel LINENUMBER, and reason.',
       ],
     );
     expect(batches.updateStatusAsync).toHaveBeenCalledWith(

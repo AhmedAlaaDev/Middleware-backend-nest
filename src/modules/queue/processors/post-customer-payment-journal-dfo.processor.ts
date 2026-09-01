@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
 import {
   CustodySettlementSkipRow,
-  formatCustodySettlementSkipWarning,
+  formatCustodySettlementSkipBatchSummary,
 } from '@/modules/cash/services/custody-settlement-skip-report';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
@@ -404,10 +404,9 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         batchId,
         skipRows,
       );
-      await this.batches.updateDfoPostingErrorsAsync(
-        batchId,
-        skipRows.map((row) => formatCustodySettlementSkipWarning(row)),
-      );
+      await this.batches.updateDfoPostingErrorsAsync(batchId, [
+        formatCustodySettlementSkipBatchSummary(skipRows),
+      ]);
     } else {
       await this.batches.clearDfoPostingErrorsAsync(batchId);
     }

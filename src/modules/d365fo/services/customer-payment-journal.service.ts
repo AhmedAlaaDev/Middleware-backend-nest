@@ -31,6 +31,7 @@ import { OperationalLoggerService } from '@/modules/observability/services/opera
 import { RetryService } from '@/modules/resilience/services/retry.service';
 import {
   createCustodySettlementSkipRow,
+  CustodySettlementSkipPhase,
   CustodySettlementSkipRow,
 } from '@/modules/cash/services/custody-settlement-skip-report';
 
@@ -57,6 +58,11 @@ type CashBulkAttempt = 'initial' | 'unmarked_retry';
 interface CashBulkBatch {
   number: number;
   total: number;
+}
+
+interface CashOutBulkBatchResult {
+  unmarkedSettlements: VendorPaymentJournalSettlementTarget[];
+  settlementSkip?: CustodySettlementSkipRow;
 }
 
 /**
@@ -445,17 +451,20 @@ export class CustomerPaymentJournalService {
 
     for (const [index, pendingBatch] of batches.entries()) {
       try {
-        unmarkedSettlements.push(
-          ...(await this.postCashOutBulkBatch(
-            endpoint,
-            headerKey,
-            pendingBatch,
-            dataAreaId,
-            allowUnmarkedInvoiceRetry,
-            { number: index + 1, total: totalBatches },
-            cashDirection,
-          )),
+        const batchResult = await this.postCashOutBulkBatch(
+          endpoint,
+          headerKey,
+          pendingBatch,
+          dataAreaId,
+          allowUnmarkedInvoiceRetry,
+          { number: index + 1, total: totalBatches },
+          cashDirection,
+          skipFailedUniqueIds,
         );
+        unmarkedSettlements.push(...batchResult.unmarkedSettlements);
+        if (batchResult.settlementSkip) {
+          skipped.push(batchResult.settlementSkip);
+        }
       } catch (error) {
         if (!skipFailedUniqueIds || cashDirection !== 'out') {
           throw error;
@@ -473,8 +482,17 @@ export class CustomerPaymentJournalService {
       }
     }
 
+    const settleBlockedUniqueIds = new Set(
+      skipped
+        .filter((row) => row.phase === 'settle')
+        .map((row) => row.uniqueId)
+        .filter((uniqueId) => uniqueId.length > 0),
+    );
     const settleTargets = unmarkedSettlements.filter(
-      (target) => !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
+      (target) =>
+        !target.uniqueId ||
+        (!skippedUniqueIds.has(target.uniqueId) &&
+          !settleBlockedUniqueIds.has(target.uniqueId)),
     );
     if (cashDirection === 'out' && settleTargets.length > 0) {
       this.logger.log(
@@ -509,6 +527,7 @@ export class CustomerPaymentJournalService {
     headerKey: string,
     pendingBatch: CashBulkPendingLine[],
     error: unknown,
+    phase: CustodySettlementSkipPhase = 'post',
   ): CustodySettlementSkipRow {
     const first = pendingBatch[0];
     const marked = first?.body.MarkedLines?.[0];
@@ -531,7 +550,7 @@ export class CustomerPaymentJournalService {
         marked?.DocumentNumber ?? first?.body.DocumentNum ?? '',
       ).trim(),
       amount: Math.abs(Number(netAmount.toFixed(2))),
-      phase: 'post',
+      phase,
       error,
     });
   }
@@ -540,6 +559,10 @@ export class CustomerPaymentJournalService {
    * Submit exactly one UniqueId (or one Cash-In chunk) to D365. After a
    * successful Cash-Out request, unmarked leftovers from this same journal
    * are returned so the header can OData-mark them after UniqueId upload.
+   *
+   * Custody Settlement UniqueIds that fail because the invoice is already
+   * marked are retried without MarkedLines so the journal line still lands.
+   * That UniqueId is reported as a settlement skip and is not OData-marked.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -549,8 +572,9 @@ export class CustomerPaymentJournalService {
     _allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
     cashDirection: 'in' | 'out' = 'out',
-  ): Promise<VendorPaymentJournalSettlementTarget[]> {
-    if (pendingLines.length === 0) return [];
+    skipFailedUniqueIds = false,
+  ): Promise<CashOutBulkBatchResult> {
+    if (pendingLines.length === 0) return { unmarkedSettlements: [] };
 
     this.logger.log(
       `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
@@ -580,37 +604,31 @@ export class CustomerPaymentJournalService {
           dataAreaId,
           batch,
         );
-        return unmarkedLines
-          .map((line) => this.toUnmarkedODataSettlementTarget(line))
-          .filter((target): target is VendorPaymentJournalSettlementTarget =>
-            Boolean(target),
-          );
+        return {
+          unmarkedSettlements: unmarkedLines
+            .map((line) => this.toUnmarkedODataSettlementTarget(line))
+            .filter((target): target is VendorPaymentJournalSettlementTarget =>
+              Boolean(target),
+            ),
+        };
       }
-      return [];
+      return { unmarkedSettlements: [] };
     }
 
-    // A rejected request is a checkpoint boundary. Stop here and let the
-    // durable queue retry this same journal group after the error is reported;
-    // never split the request and continue posting later lines in this attempt.
-    if (
+    const alreadyMarkedWithoutSettlement =
+      skipFailedUniqueIds &&
+      cashDirection === 'out' &&
+      this.failuresMatch(failures, (message) =>
+        this.isAlreadyMarkedForSettlementError(message),
+      );
+    const remainingAmountUnmarkedRetry =
       _allowUnmarkedInvoiceRetry &&
-      failures.every((f) =>
-        this.isInvoiceAmountGreaterThanRemainingError(f.message),
-      )
-    ) {
-      // Never resend lines that D365 reported as successful. An all-or-nothing
-      // response is represented by one correlated failure per submitted line,
-      // so this also retries the complete request only when every line failed.
-      const retryIndexes = [
-        ...new Set(
-          failures
-            .map((failure) => failure.requestIndex)
-            .filter(
-              (requestIndex) =>
-                requestIndex >= 0 && requestIndex < pendingLines.length,
-            ),
-        ),
-      ];
+      this.failuresMatch(failures, (message) =>
+        this.isInvoiceAmountGreaterThanRemainingError(message),
+      );
+
+    if (alreadyMarkedWithoutSettlement || remainingAmountUnmarkedRetry) {
+      const retryIndexes = this.cashBulkRetryIndexes(failures, pendingLines);
       if (retryIndexes.length === 0) {
         throw new Error(
           this.formatCashBulkFailure(headerKey, failures, cashDirection),
@@ -641,13 +659,32 @@ export class CustomerPaymentJournalService {
         retryPendingLines,
       );
       if (retryFailures.length === 0) {
-        return retryIndexes
-          .map((requestIndex) =>
-            this.toUnmarkedODataSettlementTarget(pendingLines[requestIndex]),
-          )
-          .filter((target): target is VendorPaymentJournalSettlementTarget =>
-            Boolean(target),
+        if (alreadyMarkedWithoutSettlement) {
+          const originalMessage = failures
+            .map((failure) => failure.message)
+            .find((message) => this.isAlreadyMarkedForSettlementError(message));
+          this.logger.warn(
+            `[CASH-CUSTOM] UniqueId uploaded without MarkedLines for header ${headerKey}: ${originalMessage}`,
           );
+          return {
+            unmarkedSettlements: [],
+            settlementSkip: this.toCashOutPostSkipRow(
+              headerKey,
+              pendingLines,
+              `Line uploaded without settlement: ${originalMessage}`,
+              'settle',
+            ),
+          };
+        }
+        return {
+          unmarkedSettlements: retryIndexes
+            .map((requestIndex) =>
+              this.toUnmarkedODataSettlementTarget(pendingLines[requestIndex]),
+            )
+            .filter((target): target is VendorPaymentJournalSettlementTarget =>
+              Boolean(target),
+            ),
+        };
       }
       throw new Error(
         this.formatCashBulkFailure(headerKey, retryFailures, cashDirection),
@@ -663,9 +700,10 @@ export class CustomerPaymentJournalService {
    * Map a FO bulk response onto the lines we submitted.
    *
    * Live `TSAddLedgerJournalResponse` is all-or-nothing (one TTS): only overall
-   * StatusCode/Message are set. A remaining-invoice-amount error is attributed
-   * to every submitted line so the unmarked retry can clear settlements for the
-   * whole chunk. Optional per-line arrays are parsed only when FO returns them.
+   * StatusCode/Message are set. Remaining-amount and already-marked settlement
+   * errors are attributed to every submitted line so the unmarked retry can
+   * clear MarkedLines for the whole UniqueId. Optional per-line arrays are
+   * parsed only when FO returns them.
    */
   private extractCashBulkFailures(
     result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined,
@@ -747,7 +785,10 @@ export class CustomerPaymentJournalService {
 
     // All-or-nothing TTS rolled the chunk back; attribute the message to every
     // submitted line so the caller gets a deterministic per-line failure report.
-    if (this.isInvoiceAmountGreaterThanRemainingError(message)) {
+    if (
+      this.isInvoiceAmountGreaterThanRemainingError(message) ||
+      this.isAlreadyMarkedForSettlementError(message)
+    ) {
       return pendingLines.map((line, requestIndex) => ({
         requestIndex,
         lineNumber: line.lineNumber,
@@ -883,6 +924,44 @@ export class CustomerPaymentJournalService {
       (normalized.includes('remain amount') ||
         normalized.includes('remaining amount'))
     );
+  }
+
+  private isAlreadyMarkedForSettlementError(message: string): boolean {
+    const normalized = String(message ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return (
+      normalized.includes('has been marked for settlement') ||
+      normalized.includes('already marked for settlement')
+    );
+  }
+
+  private failuresMatch(
+    failures: CashBulkLineFailure[],
+    predicate: (message: string) => boolean,
+  ): boolean {
+    return (
+      failures.length > 0 &&
+      failures.every((failure) => predicate(failure.message))
+    );
+  }
+
+  private cashBulkRetryIndexes(
+    failures: CashBulkLineFailure[],
+    pendingLines: CashBulkPendingLine[],
+  ): number[] {
+    return [
+      ...new Set(
+        failures
+          .map((failure) => failure.requestIndex)
+          .filter(
+            (requestIndex) =>
+              requestIndex >= 0 && requestIndex < pendingLines.length,
+          ),
+      ),
+    ];
   }
 
   /**
