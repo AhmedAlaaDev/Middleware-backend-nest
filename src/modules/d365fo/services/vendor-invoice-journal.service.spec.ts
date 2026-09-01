@@ -316,6 +316,11 @@ describe('VendorInvoiceJournalService vendor payment settlement posting', () => 
       },
       { retries: 0 },
     );
+    const vendTransQueryOptions = queryBuilder.buildQuery.mock.calls.find(
+      ([endpoint]: [string]) => endpoint === '/data/VendTransBiEntities',
+    )?.[1];
+    expect(vendTransQueryOptions?.select).toContain('SettleAmountCur');
+    expect(vendTransQueryOptions?.select).not.toContain('RemainAmountCur');
     expect(result).toEqual([
       expect.objectContaining({
         lineNumber: 1,

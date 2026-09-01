@@ -1077,7 +1077,8 @@ export class VendorInvoiceJournalService {
         'AmountCur',
         'AmountMST',
         'SettleAmountCur',
-        'RemainAmountCur',
+        // VendTransBiEntity does not expose RemainAmountCur. The remaining
+        // balance is derived below from AmountCur minus SettleAmountCur.
         'DocumentNum',
         'DueDate',
       ],
