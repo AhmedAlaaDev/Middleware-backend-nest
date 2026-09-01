@@ -125,18 +125,10 @@ describe('VendorInvoiceJournalService settlement candidate retrieval', () => {
 
     expect(snapshots).toHaveProperty('size', 2);
     const doc1 = snapshots.get(
-      VendorInvoiceJournalService.settlementKey(
-        'INV-1',
-        'V-001',
-        'DOC-1',
-      ),
+      VendorInvoiceJournalService.settlementKey('INV-1', 'V-001', 'DOC-1'),
     );
     const doc2 = snapshots.get(
-      VendorInvoiceJournalService.settlementKey(
-        'INV-1',
-        'V-001',
-        'DOC-2',
-      ),
+      VendorInvoiceJournalService.settlementKey('INV-1', 'V-001', 'DOC-2'),
     );
     expect(doc1?.candidateTransactions).toHaveLength(1);
     expect(doc1?.candidateTransactions?.[0]).toMatchObject({
@@ -231,5 +223,105 @@ describe('VendorInvoiceJournalService settlement candidate retrieval', () => {
 
     expect(snapshot?.remainingAmount).toBe(750);
     expect(snapshot?.candidateTransactions?.[0].openAmount).toBe(750);
+  });
+});
+
+describe('VendorInvoiceJournalService vendor payment settlement posting', () => {
+  it('creates and verifies the OData settlement body after resolving invoice due date', async () => {
+    const d365foClient = {
+      get: jest.fn((endpoint: string) => {
+        if (endpoint === '/data/VendTransBiEntities') {
+          return Promise.resolve({
+            value: [
+              {
+                Invoice: 'INV-1',
+                AccountNum: 'Sl-000020',
+                CurrencyCode: 'EGP',
+                Closed: '1900-01-01T12:00:00Z',
+                AmountCur: -500,
+                RemainAmountCur: -500,
+                DocumentNum: 'DOC-1',
+                DueDate: '2026-09-30T12:00:00Z',
+              },
+            ],
+          });
+        }
+        if (endpoint === '/data/VendorPaymentJournalLineSettledInvoices') {
+          const settlementReads = d365foClient.get.mock.calls.filter(
+            ([calledEndpoint]: [string]) =>
+              calledEndpoint ===
+              '/data/VendorPaymentJournalLineSettledInvoices',
+          ).length;
+          return Promise.resolve({
+            value:
+              settlementReads === 1
+                ? []
+                : [
+                    {
+                      JournalLineCompany: 'm-p',
+                      JournalBatchNumber: 'Mesco-000015200',
+                      JournalLineNumber: 1,
+                      InvoiceNumber: 'INV-1',
+                      InvoiceCompany: 'm-p',
+                      SettlementAmountInInvoiceCurrency: -300,
+                      invoiceAccount: 'Sl-000020',
+                    },
+                  ],
+          });
+        }
+        return Promise.resolve({ value: [] });
+      }),
+      post: jest.fn().mockResolvedValue({}),
+    };
+    const queryBuilder = {
+      and: jest.fn(() => 'filter'),
+      or: jest.fn(() => 'line-filter'),
+      eq: jest.fn(() => 'condition'),
+      buildQuery: jest.fn((endpoint: string) => endpoint),
+    };
+    const service = new VendorInvoiceJournalService(
+      d365foClient,
+      queryBuilder as any,
+      {} as any,
+      {} as any,
+    );
+
+    const result = await service.createVendorPaymentJournalLineSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'Mesco-000015200',
+      targets: [
+        {
+          lineNumber: 1,
+          vendorAccount: 'Sl-000020',
+          currencyCode: 'EGP',
+          debitAmount: 300,
+          creditAmount: 0,
+          invoiceNumber: 'INV-1',
+          documentNumber: 'DOC-1',
+        },
+      ],
+    });
+
+    expect(d365foClient.post).toHaveBeenCalledWith(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      {
+        JournalLineCompany: 'm-p',
+        JournalBatchNumber: 'Mesco-000015200',
+        JournalLineNumber: 1,
+        InvoiceNumber: 'INV-1',
+        InvoiceCompany: 'm-p',
+        InvoiceDueDate: '2026-09-30T12:00:00Z',
+        SettlementAmountInInvoiceCurrency: -300,
+        CashDiscountToTakeInInvoiceCurrency: 0,
+      },
+      { retries: 0 },
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        lineNumber: 1,
+        status: 'VERIFIED',
+        matchedInvoices: ['INV-1'],
+      }),
+    ]);
   });
 });

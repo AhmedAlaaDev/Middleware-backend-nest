@@ -5,13 +5,13 @@ import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
+import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
+import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
 import {
   D365FOVendorInvoiceJournalHeaderRequest,
   D365FOVendorInvoiceJournalHeaderResponse,
   D365FOVendorInvoiceJournalLineRequest,
 } from '@/modules/d365fo/types';
-import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
-import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
 import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /** Max invoices per OR filter chunk (FO does not support OData `in`). */
@@ -62,6 +62,27 @@ export interface VendorPaymentSettlementVerification {
   journalLineExists: boolean;
 }
 
+export interface VendorPaymentJournalSettlementTarget {
+  lineNumber: number;
+  vendorAccount: string;
+  currencyCode: string;
+  debitAmount: number;
+  creditAmount: number;
+  invoiceNumber: string;
+  documentNumber: string;
+}
+
+export interface VendorPaymentJournalSettlementPayload {
+  JournalLineCompany: string;
+  JournalBatchNumber: string;
+  JournalLineNumber: number;
+  InvoiceNumber: string;
+  InvoiceCompany: string;
+  InvoiceDueDate: string;
+  SettlementAmountInInvoiceCurrency: number;
+  CashDiscountToTakeInInvoiceCurrency: number;
+}
+
 type VendTransLookupRow = {
   SourceKey?: string | number;
   RecId?: string | number;
@@ -87,6 +108,7 @@ type VendTransLookupRow = {
   Voucher?: string;
   TransDate?: string;
   DocumentDate?: string;
+  DueDate?: string;
 };
 
 type VendorPaymentSettledInvoiceRow = {
@@ -401,6 +423,146 @@ export class VendorInvoiceJournalService {
         journalLineExists: Boolean(journalLine),
       };
     });
+  }
+
+  /**
+   * Create invoice settlement rows after Cash-Out Custody Settlement lines
+   * have been created by addLedgerJournalTransVendPaym.
+   *
+   * This is deliberately an explicit second step. The caller uses it only for
+   * non-Custody vendor groups whose MarkedLines must not reach the X++ request.
+   */
+  public async createVendorPaymentJournalLineSettlements(options: {
+    company: string;
+    journalBatchNumber: string;
+    targets: VendorPaymentJournalSettlementTarget[];
+  }): Promise<VendorPaymentSettlementVerification[]> {
+    const company = String(options.company ?? '').trim();
+    const journalBatchNumber = String(options.journalBatchNumber ?? '').trim();
+    const targets = options.targets.filter(
+      (target) =>
+        target.lineNumber > 0 &&
+        Boolean(target.vendorAccount?.trim()) &&
+        Boolean(target.invoiceNumber?.trim()),
+    );
+    if (targets.length === 0) return [];
+
+    const existingByLine = await this.fetchSettledInvoicesByJournalLine(
+      company,
+      journalBatchNumber,
+      targets.map((target) => target.lineNumber),
+    );
+
+    for (const target of targets) {
+      const existing = this.findMatchingSettlementRow(
+        existingByLine.get(target.lineNumber) ?? [],
+        target,
+      );
+      const settlementAmount = Number(
+        (
+          Number(target.creditAmount ?? 0) - Number(target.debitAmount ?? 0)
+        ).toFixed(2),
+      );
+      if (existing) {
+        if (
+          Math.abs(
+            this.readNumber(existing.SettlementAmountInInvoiceCurrency) -
+              settlementAmount,
+          ) > 0.01
+        ) {
+          throw new Error(
+            `Settlement already exists for cash-out line ${target.lineNumber} and invoice ${target.invoiceNumber} with a different amount.`,
+          );
+        }
+        continue;
+      }
+
+      const invoice = await this.findOpenInvoiceForJournalSettlement(
+        company,
+        target,
+      );
+      const remainingAmount = this.resolveRemainingAmount(
+        invoice,
+        this.firstDefinedNumber(
+          invoice.AmountCur,
+          invoice.AmountMST,
+          invoice.AmountReportingCurrency,
+          invoice.ReportingCurrencyAmount,
+        ),
+      );
+      if (
+        remainingAmount !== null &&
+        Math.abs(settlementAmount) - remainingAmount > 0.01
+      ) {
+        throw new Error(
+          `Settlement amount ${Math.abs(settlementAmount)} for cash-out line ${target.lineNumber} exceeds invoice ${target.invoiceNumber} remainder ${remainingAmount}.`,
+        );
+      }
+
+      const invoiceDueDate = String(invoice.DueDate ?? '').trim();
+      if (!invoiceDueDate) {
+        throw new Error(
+          `Open invoice ${target.invoiceNumber} for vendor ${target.vendorAccount} has no due date.`,
+        );
+      }
+
+      const payload: VendorPaymentJournalSettlementPayload = {
+        JournalLineCompany: company,
+        JournalBatchNumber: journalBatchNumber,
+        JournalLineNumber: target.lineNumber,
+        InvoiceNumber: target.invoiceNumber.trim(),
+        InvoiceCompany: company,
+        InvoiceDueDate: invoiceDueDate,
+        SettlementAmountInInvoiceCurrency: settlementAmount,
+        CashDiscountToTakeInInvoiceCurrency: 0,
+      };
+
+      try {
+        await this.d365foClient.post<
+          VendorPaymentJournalSettlementPayload,
+          VendorPaymentSettledInvoiceRow
+        >('/data/VendorPaymentJournalLineSettledInvoices', payload, {
+          retries: 0,
+        });
+      } catch (error) {
+        // A timeout may happen after D365 commits. Read the entity before
+        // failing so a queue retry cannot create the same settlement twice.
+        const recovered = await this.fetchSettledInvoicesByJournalLine(
+          company,
+          journalBatchNumber,
+          [target.lineNumber],
+        );
+        if (
+          !this.findMatchingSettlementRow(
+            recovered.get(target.lineNumber) ?? [],
+            target,
+          )
+        ) {
+          throw error;
+        }
+      }
+    }
+
+    const verification = await this.verifyVendorPaymentJournalSettlements({
+      company,
+      journalBatchNumber,
+      lines: targets.map((target) => ({
+        lineNumber: target.lineNumber,
+        vendorAccount: target.vendorAccount,
+        expectedInvoices: [target.invoiceNumber],
+      })),
+    });
+    const failures = verification.filter(
+      (result) => result.status !== 'VERIFIED',
+    );
+    if (failures.length > 0) {
+      throw new Error(
+        `Cash-out settlement rows were not verified: ${failures
+          .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
+          .join('; ')}`,
+      );
+    }
+    return verification;
   }
 
   /**
@@ -885,6 +1047,77 @@ export class VendorInvoiceJournalService {
     }
 
     return result;
+  }
+
+  private findMatchingSettlementRow(
+    rows: VendorPaymentSettledInvoiceRow[],
+    target: VendorPaymentJournalSettlementTarget,
+  ): VendorPaymentSettledInvoiceRow | undefined {
+    const invoice = this.normalizeInvoiceValue(target.invoiceNumber);
+    const vendor = this.normalizeVendorAccount(target.vendorAccount);
+    return rows.find(
+      (row) =>
+        this.normalizeInvoiceValue(row.InvoiceNumber) === invoice &&
+        (this.normalizeVendorAccount(row.invoiceAccount) === vendor ||
+          this.normalizeVendorAccount(row.AccountDisplayValue) === vendor),
+    );
+  }
+
+  private async findOpenInvoiceForJournalSettlement(
+    company: string,
+    target: VendorPaymentJournalSettlementTarget,
+  ): Promise<VendTransLookupRow> {
+    const endpoint = this.queryBuilder.buildQuery('/data/VendTransBiEntities', {
+      top: 20,
+      select: [
+        'Invoice',
+        'AccountNum',
+        'CurrencyCode',
+        'Closed',
+        'AmountCur',
+        'AmountMST',
+        'SettleAmountCur',
+        'RemainAmountCur',
+        'DocumentNum',
+        'DueDate',
+      ],
+      filter: this.queryBuilder.and(
+        this.queryBuilder.eq('dataAreaId', company),
+        this.queryBuilder.eq('AccountNum', target.vendorAccount),
+        this.queryBuilder.eq('Invoice', target.invoiceNumber),
+      ),
+      crossCompany: true,
+    });
+    const response = await this.d365foClient.get<VendTransLookupRow>(endpoint, {
+      useCache: false,
+    });
+    const requestedDocument = String(target.documentNumber ?? '')
+      .trim()
+      .toLowerCase();
+    const requestedCurrency = String(target.currencyCode ?? '')
+      .trim()
+      .toLowerCase();
+    const candidates = (response.value ?? []).filter((row) => {
+      const isOpen = this.readClosedState(row.Closed) !== true;
+      const documentMatches =
+        !requestedDocument ||
+        String(row.DocumentNum ?? '')
+          .trim()
+          .toLowerCase() === requestedDocument;
+      const currencyMatches =
+        !requestedCurrency ||
+        String(row.CurrencyCode ?? '')
+          .trim()
+          .toLowerCase() === requestedCurrency;
+      return isOpen && documentMatches && currencyMatches;
+    });
+
+    if (candidates.length !== 1) {
+      throw new Error(
+        `Expected one open invoice transaction for vendor ${target.vendorAccount}, invoice ${target.invoiceNumber}, and document ${target.documentNumber || '(empty)'}, but found ${candidates.length}.`,
+      );
+    }
+    return candidates[0];
   }
 
   private async fetchVendorPaymentJournalLinesByNumber(

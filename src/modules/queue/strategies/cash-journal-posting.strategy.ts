@@ -12,6 +12,10 @@ import {
   CashJournalRoutingService,
 } from '@/modules/cash/services/cash-journal-routing.service';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
+import {
+  VendorInvoiceJournalService,
+  VendorPaymentJournalSettlementTarget,
+} from '@/modules/d365fo/services/vendor-invoice-journal.service';
 import { D365FOCustomerPaymentJournalLineRequest } from '@/modules/d365fo/types';
 import { CustomerPaymentJournalPostingStrategy } from '@/modules/queue/strategies/customer-payment-journal-posting.strategy';
 import { LedgerJournalPostingStrategy } from '@/modules/queue/strategies/ledger-journal-posting.strategy';
@@ -31,6 +35,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
 
   constructor(
     private readonly customerPaymentJournalService: CustomerPaymentJournalService,
+    private readonly vendorInvoiceJournalService: VendorInvoiceJournalService,
     private readonly customerPaymentStrategy: CustomerPaymentJournalPostingStrategy,
     private readonly vendorPaymentStrategy: VendorPaymentJournalPostingStrategy,
     private readonly ledgerStrategy: LedgerJournalPostingStrategy,
@@ -72,7 +77,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     );
   }
 
-  public postLinesForHeader(
+  public async postLinesForHeader(
     headerKey: string,
     lines: unknown[],
     dataAreaId: string,
@@ -80,28 +85,46 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const route = this.requireRoute();
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
-    const postingLines = this.prepareCashPostingLines(route, typedLines);
+    const { postingLines, deferredSettlements } = this.prepareCashPostingLines(
+      route,
+      typedLines,
+    );
     const existingLinesLoader = () =>
       this.activeHeaderStrategy().listLinesForHeader(headerKey, dataAreaId);
 
-    return route.lineDirection === 'in'
-      ? this.customerPaymentJournalService.postCashInLinesForHeader(
-          headerKey,
-          postingLines,
-          chunkSize,
-          dataAreaId,
-          existingLinesLoader,
-          // This is an outbound Cash-Out transaction even though AR routes
-          // use the customer-payment custom API. Preserve task-2031 fallback.
-          true,
-        )
-      : this.customerPaymentJournalService.postCashOutLinesForHeader(
-          headerKey,
-          postingLines,
-          chunkSize,
-          dataAreaId,
-          existingLinesLoader,
-        );
+    const postedLines =
+      route.lineDirection === 'in'
+        ? await this.customerPaymentJournalService.postCashInLinesForHeader(
+            headerKey,
+            postingLines,
+            chunkSize,
+            dataAreaId,
+            existingLinesLoader,
+            // This is an outbound Cash-Out transaction even though AR routes
+            // use the customer-payment custom API. Preserve task-2031 fallback.
+            true,
+          )
+        : await this.customerPaymentJournalService.postCashOutLinesForHeader(
+            headerKey,
+            postingLines,
+            chunkSize,
+            dataAreaId,
+            existingLinesLoader,
+          );
+
+    if (deferredSettlements.length > 0) {
+      // The custom line request must complete first because the OData entity
+      // references the newly-created journal batch and line number.
+      await this.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements(
+        {
+          company: dataAreaId,
+          journalBatchNumber: headerKey,
+          targets: deferredSettlements,
+        },
+      );
+    }
+
+    return postedLines;
   }
 
   public deleteHeader(headerId: string, dataAreaId: string): Promise<void> {
@@ -160,8 +183,12 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   private prepareCashPostingLines(
     route: CashJournalRoute,
     lines: D365FOCustomerPaymentJournalLineRequest[],
-  ): D365FOCustomerPaymentJournalLineRequest[] {
-    return lines.map((line) => {
+  ): {
+    postingLines: D365FOCustomerPaymentJournalLineRequest[];
+    deferredSettlements: VendorPaymentJournalSettlementTarget[];
+  } {
+    const deferredSettlements: VendorPaymentJournalSettlementTarget[] = [];
+    const postingLines = lines.map((line) => {
       const body = {
         ...line.customLineApiBody,
         ...(line.customLineApiBody.AccountNum !== undefined
@@ -198,10 +225,55 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       const normalizedLine = { ...line, customLineApiBody: body };
       if (route.safeType !== 'Custody Settlement') return normalizedLine;
 
-      const isCustodyCredit =
+      const isVendor =
         String(body.accountTypeStr ?? '')
           .trim()
-          .toLowerCase() === 'vendor' && Number(body.creditAmount ?? 0) > 0;
+          .toLowerCase() === 'vendor';
+      const isCustodyVendorGroup =
+        String(body.VendorGroup ?? '')
+          .trim()
+          .toLowerCase() === 'custody';
+      if (!isCustodyVendorGroup) {
+        const markedLines = body.MarkedLines ?? [];
+        if (markedLines.length > 1) {
+          throw new Error(
+            `Custody Settlement line ${line.LineNumber ?? '?'} has ${markedLines.length} invoice marks; OData settlement requires one invoice per journal line.`,
+          );
+        }
+        const markedLine = markedLines[0];
+        if (markedLine && isVendor) {
+          const invoiceNumber = String(markedLine.InvoiceNumber ?? '').trim();
+          if (!invoiceNumber) {
+            throw new Error(
+              `Custody Settlement line ${line.LineNumber ?? '?'} cannot use OData settlement without InvoiceNumber.`,
+            );
+          }
+          deferredSettlements.push({
+            lineNumber: line.LineNumber,
+            vendorAccount: String(body.AccountNum ?? '').trim(),
+            currencyCode: String(body.currency ?? '').trim(),
+            debitAmount: Number(body.debitAmount ?? 0),
+            creditAmount: Number(body.creditAmount ?? 0),
+            invoiceNumber,
+            documentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+          });
+        }
+
+        return {
+          ...normalizedLine,
+          customLineApiBody: {
+            ...body,
+            // Only Custody keeps MarkedLines in addLedgerJournalTransVendPaym.
+            // Other Custody Settlement vendor groups are settled through the
+            // OData entity after this line has been created successfully.
+            MarkedLines: [],
+          },
+        };
+      }
+
+      if (!isVendor) return normalizedLine;
+
+      const isCustodyCredit = Number(body.creditAmount ?? 0) > 0;
       if (!isCustodyCredit) return normalizedLine;
 
       const sourceMark = body.MarkedLines?.[0];
@@ -239,6 +311,8 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
         },
       };
     });
+
+    return { postingLines, deferredSettlements };
   }
 
   private requireRoute(): CashJournalRoute {

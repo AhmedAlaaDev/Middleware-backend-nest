@@ -81,6 +81,11 @@ describe('CashJournalPostingStrategy', () => {
         .fn()
         .mockResolvedValue([{ headerId: 'OUT-0001', lineNumber: 1 }]),
     };
+    const vendorInvoiceJournalService = {
+      createVendorPaymentJournalLineSettlements: jest
+        .fn()
+        .mockResolvedValue([]),
+    };
     const customerPaymentStrategy = {
       ...createHeaderStrategyMock('AR-0001', 31),
       setHeaderCashDirectionContext: jest.fn(),
@@ -90,6 +95,7 @@ describe('CashJournalPostingStrategy', () => {
 
     const strategy = new CashJournalPostingStrategy(
       customerPaymentJournalService as any,
+      vendorInvoiceJournalService as any,
       customerPaymentStrategy as any,
       vendorPaymentStrategy as any,
       ledgerStrategy as any,
@@ -98,6 +104,7 @@ describe('CashJournalPostingStrategy', () => {
     return {
       strategy,
       customerPaymentJournalService,
+      vendorInvoiceJournalService,
       customerPaymentStrategy,
       vendorPaymentStrategy,
       ledgerStrategy,
@@ -278,6 +285,7 @@ describe('CashJournalPostingStrategy', () => {
           journalNum: '',
           AccountNum: '5025',
           accountTypeStr: 'Vendor',
+          VendorGroup: 'Custody',
           debitAmount: 0,
           creditAmount: 15000,
           DocumentNum: '20432',
@@ -315,6 +323,131 @@ describe('CashJournalPostingStrategy', () => {
     ]);
   });
 
+  it('defers non-Custody marks until after Custody Settlement lines are posted', async () => {
+    const harness = buildStrategy();
+    const shiplineMark = {
+      InvoiceNumber: 'INV-SHIP-1',
+      OperationNumber: 'OP-1',
+      DocumentNumber: 'DOC-1',
+      HasWithHoldingLine: false,
+    };
+    const custodyMark = {
+      InvoiceNumber: 'INV-CUSTODY-1',
+      OperationNumber: 'OP-2',
+      DocumentNumber: 'DOC-2',
+      HasWithHoldingLine: false,
+    };
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000020',
+          accountTypeStr: 'Vendor',
+          VendorGroup: 'Shiplines',
+          currency: 'EGP',
+          debitAmount: 300,
+          creditAmount: 0,
+          MarkedLines: [shiplineMark],
+        },
+      },
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 2,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: '3135',
+          accountTypeStr: 'Vendor',
+          VendorGroup: 'Custody',
+          currency: 'EGP',
+          debitAmount: 200,
+          creditAmount: 0,
+          MarkedLines: [custodyMark],
+        },
+      },
+    ];
+
+    harness.strategy.setRouteContext(custodySettlementRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015200',
+      lines,
+      'm-p',
+      20,
+    );
+
+    const postedLines =
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .calls[0][1];
+    expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(postedLines[1].customLineApiBody.MarkedLines).toEqual([custodyMark]);
+    expect(
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements,
+    ).toHaveBeenCalledWith({
+      company: 'm-p',
+      journalBatchNumber: 'Mesco-000015200',
+      targets: [
+        {
+          lineNumber: 1,
+          vendorAccount: 'Sl-000020',
+          currencyCode: 'EGP',
+          debitAmount: 300,
+          creditAmount: 0,
+          invoiceNumber: 'INV-SHIP-1',
+          documentNumber: 'DOC-1',
+        },
+      ],
+    });
+    expect(
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not defer MarkedLines for the separate Vendor Payment route', async () => {
+    const harness = buildStrategy();
+    const mark = {
+      InvoiceNumber: 'INV-VP-1',
+      OperationNumber: 'OP-VP',
+      DocumentNumber: 'DOC-VP',
+      HasWithHoldingLine: false,
+    };
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000020',
+          accountTypeStr: 'Vendor',
+          VendorGroup: 'Shiplines',
+          debitAmount: 300,
+          creditAmount: 0,
+          MarkedLines: [mark],
+        },
+      },
+    ];
+
+    harness.strategy.setRouteContext(apRoute);
+    await harness.strategy.postLinesForHeader('AP-0002', lines, 'm-p', 20);
+
+    const postedLine =
+      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+        .calls[0][1][0];
+    expect(postedLine.customLineApiBody.MarkedLines).toEqual([mark]);
+    expect(
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements,
+    ).not.toHaveBeenCalled();
+  });
+
   it('normalizes internal whitespace in an already queued composite ledger account', async () => {
     const harness = buildStrategy();
     const lines = [
@@ -324,8 +457,7 @@ describe('CashJournalPostingStrategy', () => {
         cashDirection: 'out',
         customLineApiBody: {
           journalNum: '',
-          AccountNum:
-            '124101|1602|016|001|003|201000283 |201000283 |3098|3098',
+          AccountNum: '124101|1602|016|001|003|201000283 |201000283 |3098|3098',
           accountTypeStr: 'Ledger',
           debitAmount: 14180,
           creditAmount: 0,
@@ -402,7 +534,7 @@ describe('CashJournalPostingStrategy', () => {
     const harness = buildStrategy();
     harness.strategy.setRouteContext(custodySettlementRoute);
 
-    expect(() =>
+    await expect(
       harness.strategy.postLinesForHeader(
         'Mesco-000015139',
         [
@@ -414,6 +546,7 @@ describe('CashJournalPostingStrategy', () => {
               journalNum: '',
               AccountNum: '3098',
               accountTypeStr: 'Vendor',
+              VendorGroup: 'Custody',
               debitAmount: 0,
               creditAmount: 10000,
               DocumentNum: '',
@@ -425,7 +558,7 @@ describe('CashJournalPostingStrategy', () => {
         'm-p',
         20,
       ),
-    ).toThrow('cannot be posted without DocumentNumber');
+    ).rejects.toThrow('cannot be posted without DocumentNumber');
   });
 
   it('returns the generated JournalBatchNumber without changing it', () => {
