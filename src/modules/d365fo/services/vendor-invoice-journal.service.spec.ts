@@ -329,4 +329,163 @@ describe('VendorInvoiceJournalService vendor payment settlement posting', () => 
       }),
     ]);
   });
+
+  it('combines main and withholding lines into one gross invoice settlement', async () => {
+    const d365foClient = {
+      post: jest.fn().mockResolvedValue({}),
+      patch: jest.fn(),
+    };
+    const service = new VendorInvoiceJournalService(
+      d365foClient as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchSettledInvoicesByJournalLine')
+      .mockResolvedValue(new Map());
+    jest
+      .spyOn(service as any, 'findOpenInvoiceForJournalSettlement')
+      .mockResolvedValue({
+        AmountCur: -1000,
+        SettleAmountCur: 0,
+        DueDate: '2026-09-30T12:00:00Z',
+      });
+    jest
+      .spyOn(service, 'verifyVendorPaymentJournalSettlements')
+      .mockResolvedValue([
+        {
+          lineNumber: 1,
+          status: 'VERIFIED',
+          reason: 'verified',
+          expectedVendorAccount: 'V-001',
+          expectedInvoices: ['INV-1'],
+          matchedInvoices: ['INV-1'],
+          settlementAmount: -1000,
+          journalBatchNumber: 'JN-1',
+          journalMarkedInvoice: '',
+          settleVoucher: '',
+          journalLineExists: true,
+        },
+      ]);
+
+    await service.createVendorPaymentJournalLineSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'JN-1',
+      targets: [
+        {
+          lineNumber: 1,
+          vendorAccount: 'V-001',
+          currencyCode: 'EGP',
+          debitAmount: 900,
+          creditAmount: 0,
+          invoiceNumber: 'INV-1',
+          documentNumber: 'DOC-1',
+        },
+        {
+          lineNumber: 2,
+          vendorAccount: 'V-001',
+          currencyCode: 'EGP',
+          debitAmount: 100,
+          creditAmount: 0,
+          invoiceNumber: 'INV-1',
+          documentNumber: 'DOC-1',
+        },
+      ],
+    });
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post).toHaveBeenCalledWith(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 1,
+        InvoiceNumber: 'INV-1',
+        SettlementAmountInInvoiceCurrency: -1000,
+      }),
+      { retries: 0 },
+    );
+  });
+
+  it('expands a partial settlement created by an earlier failed attempt', async () => {
+    const d365foClient = {
+      post: jest.fn(),
+      patch: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new VendorInvoiceJournalService(
+      d365foClient as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchSettledInvoicesByJournalLine')
+      .mockResolvedValue(
+        new Map([
+          [
+            1,
+            [
+              {
+                JournalLineNumber: 1,
+                InvoiceNumber: 'INV-1',
+                InvoiceCompany: 'm-p',
+                InvoiceDueDate: '2026-09-30T12:00:00Z',
+                SettlementAmountInInvoiceCurrency: -900,
+                invoiceAccount: 'V-001',
+              },
+            ],
+          ],
+        ]),
+      );
+    jest
+      .spyOn(service, 'verifyVendorPaymentJournalSettlements')
+      .mockResolvedValue([
+        {
+          lineNumber: 1,
+          status: 'VERIFIED',
+          reason: 'verified',
+          expectedVendorAccount: 'V-001',
+          expectedInvoices: ['INV-1'],
+          matchedInvoices: ['INV-1'],
+          settlementAmount: -1000,
+          journalBatchNumber: 'JN-1',
+          journalMarkedInvoice: '',
+          settleVoucher: '',
+          journalLineExists: true,
+        },
+      ]);
+
+    await service.createVendorPaymentJournalLineSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'JN-1',
+      targets: [
+        {
+          lineNumber: 1,
+          vendorAccount: 'V-001',
+          currencyCode: 'EGP',
+          debitAmount: 900,
+          creditAmount: 0,
+          invoiceNumber: 'INV-1',
+          documentNumber: 'DOC-1',
+        },
+        {
+          lineNumber: 2,
+          vendorAccount: 'V-001',
+          currencyCode: 'EGP',
+          debitAmount: 100,
+          creditAmount: 0,
+          invoiceNumber: 'INV-1',
+          documentNumber: 'DOC-1',
+        },
+      ],
+    });
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
+    expect(d365foClient.patch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "JournalBatchNumber='JN-1',JournalLineNumber=1,InvoiceNumber='INV-1'",
+      ),
+      { SettlementAmountInInvoiceCurrency: -1000 },
+      { headers: { 'If-Match': '*' } },
+    );
+  });
 });

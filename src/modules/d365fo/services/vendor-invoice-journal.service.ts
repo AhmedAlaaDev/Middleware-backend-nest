@@ -83,6 +83,11 @@ export interface VendorPaymentJournalSettlementPayload {
   CashDiscountToTakeInInvoiceCurrency: number;
 }
 
+interface AggregatedVendorPaymentJournalSettlementTarget extends VendorPaymentJournalSettlementTarget {
+  lineNumbers: number[];
+  settlementAmount: number;
+}
+
 type VendTransLookupRow = {
   SourceKey?: string | number;
   RecId?: string | number;
@@ -117,6 +122,7 @@ type VendorPaymentSettledInvoiceRow = {
   JournalLineNumber?: string | number;
   InvoiceNumber?: string;
   InvoiceCompany?: string;
+  InvoiceDueDate?: string;
   SettlementAmountInInvoiceCurrency?: string | number;
   CashDiscountToTakeInInvoiceCurrency?: string | number;
   invoiceAccount?: string;
@@ -439,30 +445,39 @@ export class VendorInvoiceJournalService {
   }): Promise<VendorPaymentSettlementVerification[]> {
     const company = String(options.company ?? '').trim();
     const journalBatchNumber = String(options.journalBatchNumber ?? '').trim();
-    const targets = options.targets.filter(
-      (target) =>
-        target.lineNumber > 0 &&
-        Boolean(target.vendorAccount?.trim()) &&
-        Boolean(target.invoiceNumber?.trim()),
+    const targets = this.aggregateVendorPaymentSettlementTargets(
+      options.targets.filter(
+        (target) =>
+          target.lineNumber > 0 &&
+          Boolean(target.vendorAccount?.trim()) &&
+          Boolean(target.invoiceNumber?.trim()),
+      ),
     );
     if (targets.length === 0) return [];
 
     const existingByLine = await this.fetchSettledInvoicesByJournalLine(
       company,
       journalBatchNumber,
-      targets.map((target) => target.lineNumber),
+      targets.flatMap((target) => target.lineNumbers),
     );
+    const verificationLines: Array<{
+      lineNumber: number;
+      vendorAccount: string;
+      expectedInvoices: string[];
+      expectedSettlementAmount: number;
+    }> = [];
 
     for (const target of targets) {
       const existing = this.findMatchingSettlementRow(
-        existingByLine.get(target.lineNumber) ?? [],
+        target.lineNumbers.flatMap(
+          (lineNumber) => existingByLine.get(lineNumber) ?? [],
+        ),
         target,
       );
-      const settlementAmount = Number(
-        (
-          Number(target.creditAmount ?? 0) - Number(target.debitAmount ?? 0)
-        ).toFixed(2),
-      );
+      const settlementAmount = target.settlementAmount;
+      const settlementLineNumber = existing
+        ? this.readNumber(existing.JournalLineNumber)
+        : target.lineNumber;
       if (existing) {
         if (
           Math.abs(
@@ -470,10 +485,24 @@ export class VendorInvoiceJournalService {
               settlementAmount,
           ) > 0.01
         ) {
-          throw new Error(
-            `Settlement already exists for cash-out line ${target.lineNumber} and invoice ${target.invoiceNumber} with a different amount.`,
+          // A previous attempt may have created the first partial mark before
+          // discovering another line for the same invoice. Expand that mark
+          // to the aggregated amount instead of creating a forbidden second
+          // invoice mark.
+          await this.updateVendorPaymentJournalLineSettlement(
+            company,
+            journalBatchNumber,
+            settlementLineNumber,
+            existing,
+            settlementAmount,
           );
         }
+        verificationLines.push({
+          lineNumber: settlementLineNumber,
+          vendorAccount: target.vendorAccount,
+          expectedInvoices: [target.invoiceNumber],
+          expectedSettlementAmount: settlementAmount,
+        });
         continue;
       }
 
@@ -509,7 +538,7 @@ export class VendorInvoiceJournalService {
       const payload: VendorPaymentJournalSettlementPayload = {
         JournalLineCompany: company,
         JournalBatchNumber: journalBatchNumber,
-        JournalLineNumber: target.lineNumber,
+        JournalLineNumber: settlementLineNumber,
         InvoiceNumber: target.invoiceNumber.trim(),
         InvoiceCompany: company,
         InvoiceDueDate: invoiceDueDate,
@@ -530,31 +559,41 @@ export class VendorInvoiceJournalService {
         const recovered = await this.fetchSettledInvoicesByJournalLine(
           company,
           journalBatchNumber,
-          [target.lineNumber],
+          [settlementLineNumber],
         );
         if (
           !this.findMatchingSettlementRow(
-            recovered.get(target.lineNumber) ?? [],
+            recovered.get(settlementLineNumber) ?? [],
             target,
           )
         ) {
           throw error;
         }
       }
+      verificationLines.push({
+        lineNumber: settlementLineNumber,
+        vendorAccount: target.vendorAccount,
+        expectedInvoices: [target.invoiceNumber],
+        expectedSettlementAmount: settlementAmount,
+      });
     }
 
     const verification = await this.verifyVendorPaymentJournalSettlements({
       company,
       journalBatchNumber,
-      lines: targets.map((target) => ({
-        lineNumber: target.lineNumber,
-        vendorAccount: target.vendorAccount,
-        expectedInvoices: [target.invoiceNumber],
-      })),
+      lines: verificationLines,
     });
-    const failures = verification.filter(
-      (result) => result.status !== 'VERIFIED',
-    );
+    const failures = verification.filter((result) => {
+      const expected = verificationLines.find(
+        (line) => line.lineNumber === result.lineNumber,
+      );
+      return (
+        result.status !== 'VERIFIED' ||
+        !expected ||
+        Math.abs(result.settlementAmount - expected.expectedSettlementAmount) >
+          0.01
+      );
+    });
     if (failures.length > 0) {
       throw new Error(
         `Cash-out settlement rows were not verified: ${failures
@@ -1020,6 +1059,7 @@ export class VendorInvoiceJournalService {
           'JournalLineNumber',
           'InvoiceNumber',
           'InvoiceCompany',
+          'InvoiceDueDate',
           'SettlementAmountInInvoiceCurrency',
           'CashDiscountToTakeInInvoiceCurrency',
           'invoiceAccount',
@@ -1060,6 +1100,102 @@ export class VendorInvoiceJournalService {
         this.normalizeInvoiceValue(row.InvoiceNumber) === invoice &&
         (this.normalizeVendorAccount(row.invoiceAccount) === vendor ||
           this.normalizeVendorAccount(row.AccountDisplayValue) === vendor),
+    );
+  }
+
+  /**
+   * D365 permits an invoice to be marked by only one payment journal line at
+   * a time. Combine net payment, withholding companion, and other split lines
+   * for the same vendor invoice into one gross settlement amount.
+   */
+  private aggregateVendorPaymentSettlementTargets(
+    targets: VendorPaymentJournalSettlementTarget[],
+  ): AggregatedVendorPaymentJournalSettlementTarget[] {
+    const groups = new Map<string, VendorPaymentJournalSettlementTarget[]>();
+    for (const target of targets) {
+      const key = [
+        target.vendorAccount,
+        target.invoiceNumber,
+        target.documentNumber,
+        target.currencyCode,
+      ]
+        .map((value) =>
+          String(value ?? '')
+            .trim()
+            .toLowerCase(),
+        )
+        .join('|');
+      const group = groups.get(key) ?? [];
+      group.push(target);
+      groups.set(key, group);
+    }
+
+    return [...groups.values()].map((group) => {
+      const primary = [...group].sort(
+        (left, right) =>
+          Math.abs(
+            Number(right.creditAmount ?? 0) - Number(right.debitAmount ?? 0),
+          ) -
+          Math.abs(
+            Number(left.creditAmount ?? 0) - Number(left.debitAmount ?? 0),
+          ),
+      )[0];
+      const settlementAmount = Number(
+        group
+          .reduce(
+            (sum, target) =>
+              sum +
+              Number(target.creditAmount ?? 0) -
+              Number(target.debitAmount ?? 0),
+            0,
+          )
+          .toFixed(2),
+      );
+      return {
+        ...primary,
+        debitAmount: settlementAmount < 0 ? Math.abs(settlementAmount) : 0,
+        creditAmount: settlementAmount > 0 ? settlementAmount : 0,
+        lineNumbers: group.map((target) => target.lineNumber),
+        settlementAmount,
+      };
+    });
+  }
+
+  private async updateVendorPaymentJournalLineSettlement(
+    company: string,
+    journalBatchNumber: string,
+    lineNumber: number,
+    existing: VendorPaymentSettledInvoiceRow,
+    settlementAmount: number,
+  ): Promise<void> {
+    const invoiceNumber = String(existing.InvoiceNumber ?? '').trim();
+    const invoiceCompany = String(existing.InvoiceCompany ?? company).trim();
+    const invoiceDueDate = String(existing.InvoiceDueDate ?? '').trim();
+    if (!invoiceNumber || !invoiceDueDate) {
+      throw new Error(
+        `Existing settlement for line ${lineNumber} is missing its invoice key.`,
+      );
+    }
+    const escapeKey = (value: string) => value.replace(/'/g, "''");
+    const endpoint =
+      `/data/VendorPaymentJournalLineSettledInvoices(` +
+      `JournalLineCompany='${escapeKey(company)}',` +
+      `JournalBatchNumber='${escapeKey(journalBatchNumber)}',` +
+      `JournalLineNumber=${lineNumber},` +
+      `InvoiceNumber='${escapeKey(invoiceNumber)}',` +
+      `InvoiceCompany='${escapeKey(invoiceCompany)}',` +
+      `InvoiceDueDate=${invoiceDueDate})?cross-company=true`;
+
+    await this.d365foClient.patch<
+      Pick<
+        VendorPaymentJournalSettlementPayload,
+        'SettlementAmountInInvoiceCurrency'
+      >,
+      unknown
+    >(
+      endpoint,
+      { SettlementAmountInInvoiceCurrency: settlementAmount },
+      { headers: { 'If-Match': '*' } },
     );
   }
 
