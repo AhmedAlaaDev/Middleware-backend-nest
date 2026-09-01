@@ -8,6 +8,11 @@ import { ODataQueryBuilderService } from './odata-query-builder.service';
 import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
 import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
 import {
+  createCustodySettlementSkipRow,
+  CustodySettlementSkipRow,
+  skipErrorMessage,
+} from '@/modules/cash/services/custody-settlement-skip-report';
+import {
   D365FOVendorInvoiceJournalHeaderRequest,
   D365FOVendorInvoiceJournalHeaderResponse,
   D365FOVendorInvoiceJournalLineRequest,
@@ -70,6 +75,10 @@ export interface VendorPaymentJournalSettlementTarget {
   creditAmount: number;
   invoiceNumber: string;
   documentNumber: string;
+  /** Excel UniqueId / PAYMENTID. Used only in error text, not sent to D365. */
+  uniqueId?: string;
+  /** Excel LINENUMBER from the source workbook. */
+  sourceLineNumber?: number;
 }
 
 export interface VendorPaymentJournalSettlementPayload {
@@ -86,6 +95,8 @@ export interface VendorPaymentJournalSettlementPayload {
 interface AggregatedVendorPaymentJournalSettlementTarget extends VendorPaymentJournalSettlementTarget {
   lineNumbers: number[];
   settlementAmount: number;
+  uniqueIds: string[];
+  sourceLineNumbers: number[];
 }
 
 type VendTransLookupRow = {
@@ -442,9 +453,13 @@ export class VendorInvoiceJournalService {
     company: string;
     journalBatchNumber: string;
     targets: VendorPaymentJournalSettlementTarget[];
+    continueOnError?: boolean;
+    skipped?: CustodySettlementSkipRow[];
   }): Promise<VendorPaymentSettlementVerification[]> {
     const company = String(options.company ?? '').trim();
     const journalBatchNumber = String(options.journalBatchNumber ?? '').trim();
+    const continueOnError = Boolean(options.continueOnError);
+    const skipped = options.skipped;
     const targets = this.aggregateVendorPaymentSettlementTargets(
       options.targets.filter(
         (target) =>
@@ -468,115 +483,26 @@ export class VendorInvoiceJournalService {
     }> = [];
 
     for (const target of targets) {
-      const existing = this.findMatchingSettlementRow(
-        target.lineNumbers.flatMap(
-          (lineNumber) => existingByLine.get(lineNumber) ?? [],
-        ),
-        target,
-      );
-      const settlementAmount = target.settlementAmount;
-      const settlementLineNumber = existing
-        ? this.readNumber(existing.JournalLineNumber)
-        : target.lineNumber;
-      if (existing) {
-        if (
-          Math.abs(
-            this.readNumber(existing.SettlementAmountInInvoiceCurrency) -
-              settlementAmount,
-          ) > 0.01
-        ) {
-          // A previous attempt may have created the first partial mark before
-          // discovering another line for the same invoice. Expand that mark
-          // to the aggregated amount instead of creating a forbidden second
-          // invoice mark.
-          await this.updateVendorPaymentJournalLineSettlement(
-            company,
-            journalBatchNumber,
-            settlementLineNumber,
-            existing,
-            settlementAmount,
-          );
-        }
-        verificationLines.push({
-          lineNumber: settlementLineNumber,
-          vendorAccount: target.vendorAccount,
-          expectedInvoices: [target.invoiceNumber],
-          expectedSettlementAmount: settlementAmount,
-        });
-        continue;
-      }
-
-      const invoice = await this.findOpenInvoiceForJournalSettlement(
-        company,
-        target,
-      );
-      const remainingAmount = this.resolveRemainingAmount(
-        invoice,
-        this.firstDefinedNumber(
-          invoice.AmountCur,
-          invoice.AmountMST,
-          invoice.AmountReportingCurrency,
-          invoice.ReportingCurrencyAmount,
-        ),
-      );
-      if (
-        remainingAmount !== null &&
-        Math.abs(settlementAmount) - remainingAmount > 0.01
-      ) {
-        throw new Error(
-          `Settlement amount ${Math.abs(settlementAmount)} for cash-out line ${target.lineNumber} exceeds invoice ${target.invoiceNumber} remainder ${remainingAmount}.`,
-        );
-      }
-
-      const invoiceDueDate = String(invoice.DueDate ?? '').trim();
-      if (!invoiceDueDate) {
-        throw new Error(
-          `Open invoice ${target.invoiceNumber} for vendor ${target.vendorAccount} has no due date.`,
-        );
-      }
-
-      const payload: VendorPaymentJournalSettlementPayload = {
-        JournalLineCompany: company,
-        JournalBatchNumber: journalBatchNumber,
-        JournalLineNumber: settlementLineNumber,
-        InvoiceNumber: target.invoiceNumber.trim(),
-        InvoiceCompany: company,
-        InvoiceDueDate: invoiceDueDate,
-        SettlementAmountInInvoiceCurrency: settlementAmount,
-        CashDiscountToTakeInInvoiceCurrency: 0,
-      };
-
       try {
-        await this.d365foClient.post<
-          VendorPaymentJournalSettlementPayload,
-          VendorPaymentSettledInvoiceRow
-        >('/data/VendorPaymentJournalLineSettledInvoices', payload, {
-          retries: 0,
-        });
-      } catch (error) {
-        // A timeout may happen after D365 commits. Read the entity before
-        // failing so a queue retry cannot create the same settlement twice.
-        const recovered = await this.fetchSettledInvoicesByJournalLine(
+        await this.settleOneVendorPaymentJournalTarget({
           company,
           journalBatchNumber,
-          [settlementLineNumber],
-        );
-        if (
-          !this.findMatchingSettlementRow(
-            recovered.get(settlementLineNumber) ?? [],
-            target,
-          )
-        ) {
-          throw error;
-        }
+          target,
+          existingByLine,
+          verificationLines,
+        });
+      } catch (error) {
+        this.recordSettlementSkip({
+          continueOnError,
+          skipped,
+          journalBatchNumber,
+          target,
+          error,
+        });
       }
-      verificationLines.push({
-        lineNumber: settlementLineNumber,
-        vendorAccount: target.vendorAccount,
-        expectedInvoices: [target.invoiceNumber],
-        expectedSettlementAmount: settlementAmount,
-      });
     }
+
+    if (verificationLines.length === 0) return [];
 
     const verification = await this.verifyVendorPaymentJournalSettlements({
       company,
@@ -595,13 +521,198 @@ export class VendorInvoiceJournalService {
       );
     });
     if (failures.length > 0) {
-      throw new Error(
-        `Cash-out settlement rows were not verified: ${failures
-          .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
-          .join('; ')}`,
-      );
+      const message = `Cash-out settlement rows were not verified: ${failures
+        .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
+        .join('; ')}`;
+      if (!continueOnError) {
+        throw new Error(message);
+      }
+      for (const failure of failures) {
+        const target = targets.find(
+          (candidate) =>
+            candidate.lineNumber === failure.lineNumber ||
+            candidate.lineNumbers.includes(failure.lineNumber),
+        );
+        this.recordSettlementSkip({
+          continueOnError: true,
+          skipped,
+          journalBatchNumber,
+          target: target ?? {
+            lineNumber: failure.lineNumber,
+            lineNumbers: [failure.lineNumber],
+            vendorAccount: failure.expectedVendorAccount ?? '',
+            currencyCode: '',
+            debitAmount: 0,
+            creditAmount: 0,
+            invoiceNumber: failure.expectedInvoices?.[0] ?? '',
+            documentNumber: '',
+            settlementAmount: failure.settlementAmount,
+            uniqueIds: [],
+            sourceLineNumbers: [],
+          },
+          error: `${failure.reason}: ${message}`,
+        });
+      }
+      return verification.filter((result) => result.status === 'VERIFIED');
     }
     return verification;
+  }
+
+  private async settleOneVendorPaymentJournalTarget(options: {
+    company: string;
+    journalBatchNumber: string;
+    target: AggregatedVendorPaymentJournalSettlementTarget;
+    existingByLine: Map<number, VendorPaymentSettledInvoiceRow[]>;
+    verificationLines: Array<{
+      lineNumber: number;
+      vendorAccount: string;
+      expectedInvoices: string[];
+      expectedSettlementAmount: number;
+    }>;
+  }): Promise<void> {
+    const { company, journalBatchNumber, target, existingByLine } = options;
+    const existing = this.findMatchingSettlementRow(
+      target.lineNumbers.flatMap(
+        (lineNumber) => existingByLine.get(lineNumber) ?? [],
+      ),
+      target,
+    );
+    const settlementAmount = target.settlementAmount;
+    const settlementLineNumber = existing
+      ? this.readNumber(existing.JournalLineNumber)
+      : target.lineNumber;
+    if (existing) {
+      if (
+        Math.abs(
+          this.readNumber(existing.SettlementAmountInInvoiceCurrency) -
+            settlementAmount,
+        ) > 0.01
+      ) {
+        await this.updateVendorPaymentJournalLineSettlement(
+          company,
+          journalBatchNumber,
+          settlementLineNumber,
+          existing,
+          settlementAmount,
+        );
+      }
+      options.verificationLines.push({
+        lineNumber: settlementLineNumber,
+        vendorAccount: target.vendorAccount,
+        expectedInvoices: [target.invoiceNumber],
+        expectedSettlementAmount: settlementAmount,
+      });
+      return;
+    }
+
+    const invoice = await this.findOpenInvoiceForJournalSettlement(
+      company,
+      target,
+    );
+    const remainingAmount = this.resolveRemainingAmount(
+      invoice,
+      this.firstDefinedNumber(
+        invoice.AmountCur,
+        invoice.AmountMST,
+        invoice.AmountReportingCurrency,
+        invoice.ReportingCurrencyAmount,
+      ),
+    );
+    if (
+      remainingAmount !== null &&
+      Math.abs(settlementAmount) - remainingAmount > 0.01
+    ) {
+      throw new Error(
+        `Settlement amount ${Math.abs(settlementAmount)} for ${this.describeSettlementTarget(target)} exceeds invoice ${target.invoiceNumber} remainder ${remainingAmount}.`,
+      );
+    }
+
+    const invoiceDueDate = String(invoice.DueDate ?? '').trim();
+    if (!invoiceDueDate) {
+      throw new Error(
+        `Open invoice ${target.invoiceNumber} for vendor ${target.vendorAccount} has no due date (${this.describeSettlementTarget(target)}).`,
+      );
+    }
+
+    const payload: VendorPaymentJournalSettlementPayload = {
+      JournalLineCompany: company,
+      JournalBatchNumber: journalBatchNumber,
+      JournalLineNumber: settlementLineNumber,
+      InvoiceNumber: target.invoiceNumber.trim(),
+      InvoiceCompany: company,
+      InvoiceDueDate: invoiceDueDate,
+      SettlementAmountInInvoiceCurrency: settlementAmount,
+      CashDiscountToTakeInInvoiceCurrency: 0,
+    };
+
+    try {
+      await this.d365foClient.post<
+        VendorPaymentJournalSettlementPayload,
+        VendorPaymentSettledInvoiceRow
+      >('/data/VendorPaymentJournalLineSettledInvoices', payload, {
+        retries: 0,
+      });
+    } catch (error) {
+      const recovered = await this.fetchSettledInvoicesByJournalLine(
+        company,
+        journalBatchNumber,
+        [settlementLineNumber],
+      );
+      if (
+        !this.findMatchingSettlementRow(
+          recovered.get(settlementLineNumber) ?? [],
+          target,
+        )
+      ) {
+        throw error;
+      }
+    }
+    options.verificationLines.push({
+      lineNumber: settlementLineNumber,
+      vendorAccount: target.vendorAccount,
+      expectedInvoices: [target.invoiceNumber],
+      expectedSettlementAmount: settlementAmount,
+    });
+  }
+
+  private recordSettlementSkip(options: {
+    continueOnError: boolean;
+    skipped?: CustodySettlementSkipRow[];
+    journalBatchNumber: string;
+    target: AggregatedVendorPaymentJournalSettlementTarget;
+    error: unknown;
+  }): void {
+    const row = createCustodySettlementSkipRow({
+      uniqueId: [
+        ...new Set(
+          [
+            ...(options.target.uniqueIds ?? []),
+            String(options.target.uniqueId ?? '').trim(),
+          ].filter((uniqueId) => uniqueId.length > 0),
+        ),
+      ].join(', '),
+      excelLineNumbers: [
+        ...(options.target.sourceLineNumbers ?? []),
+        options.target.sourceLineNumber,
+      ],
+      journalBatchNumber: options.journalBatchNumber,
+      d365LineNumbers: [
+        ...(options.target.lineNumbers ?? []),
+        options.target.lineNumber,
+      ],
+      vendorAccount: options.target.vendorAccount,
+      invoiceNumber: options.target.invoiceNumber,
+      documentNumber: options.target.documentNumber,
+      amount: Math.abs(Number(options.target.settlementAmount ?? 0)),
+      phase: 'settle',
+      error: options.error,
+    });
+    options.skipped?.push(row);
+    if (!options.continueOnError) {
+      throw options.error instanceof Error
+        ? options.error
+        : new Error(skipErrorMessage(options.error));
+    }
   }
 
   /**
@@ -1156,9 +1267,54 @@ export class VendorInvoiceJournalService {
         debitAmount: settlementAmount < 0 ? Math.abs(settlementAmount) : 0,
         creditAmount: settlementAmount > 0 ? settlementAmount : 0,
         lineNumbers: group.map((target) => target.lineNumber),
+        uniqueIds: this.collectSettlementUniqueIds(group),
+        sourceLineNumbers: this.collectSettlementSourceLineNumbers(group),
         settlementAmount,
       };
     });
+  }
+
+  private collectSettlementUniqueIds(
+    targets: VendorPaymentJournalSettlementTarget[],
+  ): string[] {
+    return [
+      ...new Set(
+        targets
+          .map((target) => String(target.uniqueId ?? '').trim())
+          .filter((uniqueId) => uniqueId.length > 0),
+      ),
+    ];
+  }
+
+  private collectSettlementSourceLineNumbers(
+    targets: VendorPaymentJournalSettlementTarget[],
+  ): number[] {
+    return [
+      ...new Set(
+        targets
+          .map((target) => Number(target.sourceLineNumber))
+          .filter((lineNumber) => Number.isFinite(lineNumber) && lineNumber > 0),
+      ),
+    ];
+  }
+
+  private describeSettlementTarget(
+    target: VendorPaymentJournalSettlementTarget & { uniqueIds?: string[] },
+  ): string {
+    const uniqueIds = [
+      ...new Set(
+        [...(target.uniqueIds ?? []), String(target.uniqueId ?? '').trim()].filter(
+          (uniqueId) => uniqueId.length > 0,
+        ),
+      ),
+    ];
+    const uniqueIdSuffix =
+      uniqueIds.length === 0
+        ? ''
+        : uniqueIds.length === 1
+          ? ` (Excel UniqueId ${uniqueIds[0]})`
+          : ` (Excel UniqueIds ${uniqueIds.join(', ')})`;
+    return `cash-out line ${target.lineNumber}${uniqueIdSuffix}`;
   }
 
   private async updateVendorPaymentJournalLineSettlement(
@@ -1251,7 +1407,7 @@ export class VendorInvoiceJournalService {
 
     if (candidates.length !== 1) {
       throw new Error(
-        `Expected one open invoice transaction for vendor ${target.vendorAccount}, invoice ${target.invoiceNumber}, and document ${target.documentNumber || '(empty)'}, but found ${candidates.length}.`,
+        `Expected one open invoice transaction for vendor ${target.vendorAccount}, invoice ${target.invoiceNumber}, and document ${target.documentNumber || '(empty)'}, but found ${candidates.length} (${this.describeSettlementTarget(target)}).`,
       );
     }
     return candidates[0];

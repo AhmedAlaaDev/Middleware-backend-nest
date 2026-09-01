@@ -31,7 +31,12 @@ import {
   CashOutFreightDocDto,
   CashOutTruckingDocDto,
   PostToDFODto,
+  VendorPaymentSettlementUploadDto,
 } from '@/modules/cash/dtos';
+import {
+  VendorPaymentSettlementImportResponse,
+  VendorPaymentSettlementImportService,
+} from '@/modules/cash/services/vendor-payment-settlement-import.service';
 import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import {
@@ -53,6 +58,7 @@ export class CashController {
     private readonly commandBus: CommandBus,
     private readonly logs: ApplicationLogQueryService,
     private readonly queues: QueueService,
+    private readonly vendorPaymentSettlements: VendorPaymentSettlementImportService,
   ) {}
 
   /**
@@ -129,6 +135,31 @@ export class CashController {
     return this.commandBus.execute(
       new ProcessCashInTruckingCommand(file.buffer, companyId),
     );
+  }
+
+  /**
+   * Mark existing vendor-payment journal lines from a D365 Excel export.
+   * Every row is checked against the live journal line and open invoice before
+   * a settlement record is created. Existing records are skipped safely.
+   */
+  @Post('VendorPayment-Settlement-Document')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.ADMIN)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description:
+      'Upload a vendor payment journal Excel export and optionally validate it without posting.',
+    type: VendorPaymentSettlementUploadDto,
+  })
+  @ApiOperation({
+    summary: 'Settle vendor-payment journal lines from an Excel export',
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public settleVendorPaymentsFromExcel(
+    @ExcelFile() file: MulterFile,
+    @Body() body: VendorPaymentSettlementUploadDto,
+  ): Promise<VendorPaymentSettlementImportResponse> {
+    return this.vendorPaymentSettlements.process(file.buffer, body.dryRun);
   }
 
   /** Post a cash batch to its task-2045 AP, GL, or AR journal route. */

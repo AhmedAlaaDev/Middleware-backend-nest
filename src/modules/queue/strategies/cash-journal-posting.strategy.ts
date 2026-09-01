@@ -11,6 +11,10 @@ import {
   CashJournalRoute,
   CashJournalRoutingService,
 } from '@/modules/cash/services/cash-journal-routing.service';
+import {
+  createCustodySettlementSkipRow,
+  CustodySettlementSkipRow,
+} from '@/modules/cash/services/custody-settlement-skip-report';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import {
   VendorInvoiceJournalService,
@@ -32,6 +36,7 @@ import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/
 export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   private route?: CashJournalRoute;
   private readonly routingService = new CashJournalRoutingService();
+  private skipReport: CustodySettlementSkipRow[] = [];
 
   constructor(
     private readonly customerPaymentJournalService: CustomerPaymentJournalService,
@@ -44,6 +49,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   public setRouteContext(route: CashJournalRoute): void {
     this.assertRouteIntegrity(route);
     this.route = route;
+    this.skipReport = [];
     if (route.kind === 'customer-payment') {
       this.customerPaymentStrategy.setHeaderCashDirectionContext('in');
     }
@@ -77,6 +83,12 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     );
   }
 
+  public consumeSkipReport(): CustodySettlementSkipRow[] {
+    const rows = this.skipReport;
+    this.skipReport = [];
+    return rows;
+  }
+
   public async postLinesForHeader(
     headerKey: string,
     lines: unknown[],
@@ -85,41 +97,66 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const route = this.requireRoute();
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
-    const { postingLines, deferredSettlements } = this.prepareCashPostingLines(
-      route,
-      typedLines,
-    );
+    const skipFailedUniqueIds = route.safeType === 'Custody Settlement';
+    const { postingLines, deferredSettlements, skipped } =
+      this.prepareCashPostingLines(route, typedLines, skipFailedUniqueIds);
+    this.skipReport.push(...skipped);
     const existingLinesLoader = () =>
       this.activeHeaderStrategy().listLinesForHeader(headerKey, dataAreaId);
 
-    const postedLines =
-      route.lineDirection === 'in'
-        ? await this.customerPaymentJournalService.postCashInLinesForHeader(
-            headerKey,
-            postingLines,
-            chunkSize,
-            dataAreaId,
-            existingLinesLoader,
-            // This is an outbound Cash-Out transaction even though AR routes
-            // use the customer-payment custom API. Preserve task-2031 fallback.
-            true,
-          )
-        : await this.customerPaymentJournalService.postCashOutLinesForHeader(
-            headerKey,
-            postingLines,
-            chunkSize,
-            dataAreaId,
-            existingLinesLoader,
-          );
+    let postedLines: Array<{ headerId: string; lineNumber: number }>;
+    if (route.lineDirection === 'in') {
+      postedLines =
+        await this.customerPaymentJournalService.postCashInLinesForHeader(
+          headerKey,
+          postingLines,
+          chunkSize,
+          dataAreaId,
+          existingLinesLoader,
+          // This is an outbound Cash-Out transaction even though AR routes
+          // use the customer-payment custom API. Preserve task-2031 fallback.
+          true,
+        );
+    } else if (skipFailedUniqueIds) {
+      const posted = await this.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips(
+        headerKey,
+        postingLines,
+        chunkSize,
+        dataAreaId,
+        existingLinesLoader,
+      );
+      postedLines = posted.postedLines;
+      this.skipReport.push(...posted.skipped);
+    } else {
+      postedLines =
+        await this.customerPaymentJournalService.postCashOutLinesForHeader(
+          headerKey,
+          postingLines,
+          chunkSize,
+          dataAreaId,
+          existingLinesLoader,
+        );
+    }
 
-    if (deferredSettlements.length > 0) {
+    const skippedUniqueIds = new Set(
+      this.skipReport
+        .map((row) => row.uniqueId)
+        .filter((uniqueId) => uniqueId.length > 0),
+    );
+    const settleTargets = deferredSettlements.filter(
+      (target) => !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
+    );
+
+    if (settleTargets.length > 0) {
       // The custom line request must complete first because the OData entity
       // references the newly-created journal batch and line number.
       await this.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements(
         {
           company: dataAreaId,
           journalBatchNumber: headerKey,
-          targets: deferredSettlements,
+          targets: settleTargets,
+          continueOnError: skipFailedUniqueIds,
+          skipped: skipFailedUniqueIds ? this.skipReport : undefined,
         },
       );
     }
@@ -183,11 +220,71 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   private prepareCashPostingLines(
     route: CashJournalRoute,
     lines: D365FOCustomerPaymentJournalLineRequest[],
+    skipFailedUniqueIds = false,
   ): {
     postingLines: D365FOCustomerPaymentJournalLineRequest[];
     deferredSettlements: VendorPaymentJournalSettlementTarget[];
+    skipped: CustodySettlementSkipRow[];
   } {
     const deferredSettlements: VendorPaymentJournalSettlementTarget[] = [];
+    const skipped: CustodySettlementSkipRow[] = [];
+    const skippedUniqueIds = new Set<string>();
+    const skippedLineNumbers = new Set<number>();
+
+    const skipLine = (
+      line: D365FOCustomerPaymentJournalLineRequest,
+      error: string,
+    ) => {
+      const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
+      if (uniqueId && skippedUniqueIds.has(uniqueId)) return;
+      if (uniqueId) skippedUniqueIds.add(uniqueId);
+      else if (Number(line.LineNumber) > 0) {
+        skippedLineNumbers.add(Number(line.LineNumber));
+      }
+      const marked = line.customLineApiBody?.MarkedLines?.[0];
+      skipped.push(
+        createCustodySettlementSkipRow({
+          uniqueId,
+          excelLineNumbers: [
+            line.sourceLineNumber,
+            ...lines
+              .filter(
+                (candidate) =>
+                  String(candidate.customLineApiBody?.PAYMENTID ?? '').trim() ===
+                  uniqueId,
+              )
+              .map((candidate) => candidate.sourceLineNumber),
+          ],
+          journalBatchNumber: String(
+            line.customLineApiBody?.journalNum ?? '',
+          ).trim(),
+          d365LineNumbers: [
+            line.LineNumber,
+            ...lines
+              .filter(
+                (candidate) =>
+                  String(candidate.customLineApiBody?.PAYMENTID ?? '').trim() ===
+                  uniqueId,
+              )
+              .map((candidate) => candidate.LineNumber),
+          ],
+          vendorAccount: String(
+            line.customLineApiBody?.AccountNum ?? '',
+          ).trim(),
+          invoiceNumber: String(marked?.InvoiceNumber ?? '').trim(),
+          documentNumber: String(
+            marked?.DocumentNumber ?? line.customLineApiBody?.DocumentNum ?? '',
+          ).trim(),
+          amount: Math.abs(
+            Number(line.customLineApiBody?.creditAmount ?? 0) -
+              Number(line.customLineApiBody?.debitAmount ?? 0),
+          ),
+          phase: 'post',
+          error,
+        }),
+      );
+    };
+
     const postingLines = lines.map((line) => {
       const body = {
         ...line.customLineApiBody,
@@ -236,18 +333,25 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       if (!isCustodyVendorGroup) {
         const markedLines = body.MarkedLines ?? [];
         if (markedLines.length > 1) {
-          throw new Error(
-            `Custody Settlement line ${line.LineNumber ?? '?'} has ${markedLines.length} invoice marks; OData settlement requires one invoice per journal line.`,
-          );
+          const message = `Custody Settlement line ${line.LineNumber ?? '?'} has ${markedLines.length} invoice marks; OData settlement requires one invoice per journal line.`;
+          if (skipFailedUniqueIds) {
+            skipLine(line, message);
+            return normalizedLine;
+          }
+          throw new Error(message);
         }
         const markedLine = markedLines[0];
         if (markedLine && isVendor) {
           const invoiceNumber = String(markedLine.InvoiceNumber ?? '').trim();
           if (!invoiceNumber) {
-            throw new Error(
-              `Custody Settlement line ${line.LineNumber ?? '?'} cannot use OData settlement without InvoiceNumber.`,
-            );
+            const message = `Custody Settlement line ${line.LineNumber ?? '?'} cannot use OData settlement without InvoiceNumber.`;
+            if (skipFailedUniqueIds) {
+              skipLine(line, message);
+              return normalizedLine;
+            }
+            throw new Error(message);
           }
+          const uniqueId = String(body.PAYMENTID ?? '').trim();
           deferredSettlements.push({
             lineNumber: line.LineNumber,
             vendorAccount: String(body.AccountNum ?? '').trim(),
@@ -256,6 +360,10 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
             creditAmount: Number(body.creditAmount ?? 0),
             invoiceNumber,
             documentNumber: String(markedLine.DocumentNumber ?? '').trim(),
+            ...(uniqueId ? { uniqueId } : {}),
+            ...(Number(line.sourceLineNumber) > 0
+              ? { sourceLineNumber: Number(line.sourceLineNumber) }
+              : {}),
           });
         }
 
@@ -288,9 +396,12 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
         String(body.DocumentNum ?? '').trim();
 
       if (!documentNumber) {
-        throw new Error(
-          `Custody Settlement vendor credit line ${line.LineNumber ?? '?'} cannot be posted without DocumentNumber in MarkedLines`,
-        );
+        const message = `Custody Settlement vendor credit line ${line.LineNumber ?? '?'} cannot be posted without DocumentNumber in MarkedLines`;
+        if (skipFailedUniqueIds) {
+          skipLine(line, message);
+          return normalizedLine;
+        }
+        throw new Error(message);
       }
 
       return {
@@ -312,7 +423,18 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       };
     });
 
-    return { postingLines, deferredSettlements };
+    return {
+      postingLines: postingLines.filter((line) => {
+        if (skippedLineNumbers.has(Number(line.LineNumber))) return false;
+        const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
+        return !uniqueId || !skippedUniqueIds.has(uniqueId);
+      }),
+      deferredSettlements: deferredSettlements.filter(
+        (target) =>
+          !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
+      ),
+      skipped,
+    };
   }
 
   private requireRoute(): CashJournalRoute {

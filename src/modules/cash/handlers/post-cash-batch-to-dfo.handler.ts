@@ -354,11 +354,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
-      const accountDisplayValue = normalizeCashCompositeDisplayValue(
-        line.AccountDisplayValue,
+      const accountDisplayValue = this.normalizeCashInWcaEuDisplayValue(
+        normalizeCashCompositeDisplayValue(line.AccountDisplayValue),
+        cashDirection,
       );
-      const offsetAccountDisplayValue = normalizeCashCompositeDisplayValue(
-        line.OffsetAccountDisplayValue,
+      const offsetAccountDisplayValue = this.normalizeCashInWcaEuDisplayValue(
+        normalizeCashCompositeDisplayValue(line.OffsetAccountDisplayValue),
+        cashDirection,
       );
       const defaultDim = line.DefaultDimensionsForAccountDisplayValue
         ? line.DefaultDimensionsForAccountDisplayValue
@@ -374,10 +376,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       // D365 assigns line numbers inside each created header. Reindex after
       // route splitting so retry/idempotency checks match the actual header.
-      const lineNumber =
-        cashDirection === 'in' && Number(line.LineNumber) > 0
-          ? Number(line.LineNumber)
-          : groupLineIndex + 1;
+      // Excel LINENUMBER is preserved separately as sourceLineNumber.
+      const lineNumber = groupLineIndex + 1;
       const transactionDate =
         line.TransactionDate || line.TransDate || line.Date || '';
       const credit = Number(line.CreditAmount ?? 0);
@@ -387,10 +387,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       );
 
       const accountTypeStr = this.mapEntryAccountTypeStrForCustom(
-        line.AccountType,
+        cashDirection === 'in' &&
+        this.isCashInWcaEuAccount(line.AccountDisplayValue)
+          ? 'Ledger'
+          : line.AccountType,
       );
       const offsetAccountTypeStr = this.mapEntryAccountTypeStrForCustom(
-        line.OffsetAccountType,
+        cashDirection === 'in' &&
+        this.isCashInWcaEuAccount(line.OffsetAccountDisplayValue)
+          ? 'Ledger'
+          : line.OffsetAccountType,
       );
       const isExplicitWithholdingCompanion =
         cashDirection === 'out' &&
@@ -639,6 +645,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         LineNumber: lineNumber,
         cashDirection,
         customLineApiBody,
+        ...(Number(line.SourceLineNumber) > 0
+          ? { sourceLineNumber: Number(line.SourceLineNumber) }
+          : {}),
       };
     });
   }
@@ -670,6 +679,25 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
 
     return rate;
+  }
+
+  private isCashInWcaEuAccount(value: unknown): boolean {
+    return (
+      String(value ?? '')
+        .trim()
+        .toUpperCase()
+        .split('|')[0]
+        ?.trim() === 'WCA-EU'
+    );
+  }
+
+  private normalizeCashInWcaEuDisplayValue(
+    value: string,
+    cashDirection: 'in' | 'out',
+  ): string {
+    return cashDirection === 'in' && this.isCashInWcaEuAccount(value)
+      ? '125902'
+      : value;
   }
 
   private isMainAccountOnlyLine(

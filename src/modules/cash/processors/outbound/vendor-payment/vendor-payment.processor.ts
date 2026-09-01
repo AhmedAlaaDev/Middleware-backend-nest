@@ -237,10 +237,12 @@ export function processVendorPaymentGroup(
       isWithholdingCalculationEnabled:
         isWithholding && !hasExplicitWithholding ? 'Yes' : 'No',
       itemWithholdingTaxGroupCode:
-        primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
-        primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
-        paymentOffset.ITEMWITHHOLDINGTAXGROUPCODE ||
-        '',
+        hasExplicitWithholding
+          ? ''
+          : primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
+            primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
+            paymentOffset.ITEMWITHHOLDINGTAXGROUPCODE ||
+            '',
       postingProfile:
         primaryVendor.POSTINGPROFILE?.trim() ||
         paymentOffset.POSTINGPROFILE?.trim() ||
@@ -314,6 +316,7 @@ export function processVendorPaymentGroup(
           withholdingLine.FINTAGDISPLAYVALUE || '',
         ),
         isWithholdingCalculationEnabled: 'No',
+        itemWithholdingTaxGroupCode: '',
         invoice: resolveVendorPaymentInvoice(
           settlement.vendorLine,
           withholdingLine,

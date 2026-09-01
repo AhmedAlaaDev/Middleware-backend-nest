@@ -4,6 +4,7 @@ import { join } from 'path';
 import { BadRequestException } from '@nestjs/common';
 
 import {
+  CASH_OUT_OPTIONAL_TEMPLATE_HEADERS,
   CASH_OUT_TEMPLATE_HEADERS,
   CashOutTemplateValidationService,
 } from './cash-out-template-validation.service';
@@ -50,5 +51,15 @@ describe('CashOutTemplateValidationService - PBI 2063', () => {
       expect(message).toContain('duplicate columns: VoucherType');
       expect(message).toContain('blank column header');
     }
+  });
+
+  it('accepts legacy 47-column exports that omit optional Cash-Out fields', () => {
+    const legacyHeaders = CASH_OUT_TEMPLATE_HEADERS.filter(
+      (header) =>
+        !CASH_OUT_OPTIONAL_TEMPLATE_HEADERS.includes(header as never),
+    );
+
+    expect(legacyHeaders).toHaveLength(47);
+    expect(() => service.assertSupported(legacyHeaders)).not.toThrow();
   });
 });

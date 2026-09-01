@@ -33,19 +33,6 @@ function paymentOffsetForInvoice(
   );
 }
 
-function aggregateWithholdingLines(
-  lines: CashEntryRawDataModel[],
-): CashEntryRawDataModel | undefined {
-  const first = lines[0];
-  if (!first) return undefined;
-  const amount = lines.reduce((sum, line) => sum + sourceLineAmount(line), 0);
-  const creditSide = Math.abs(Number(first.CREDITAMOUNT ?? 0)) > 0;
-  return Object.assign(Object.create(Object.getPrototypeOf(first)), first, {
-    CREDITAMOUNT: creditSide ? amount : 0,
-    DEBITAMOUNT: creditSide ? 0 : amount,
-  });
-}
-
 type BuildVendorLine = (
   sourceId: string,
   accountLine: CashEntryRawDataModel,
@@ -190,20 +177,19 @@ export class VendorPaymentLineBuilder {
           const currency = String(
             aggregatedVendorLine.CURRENCYCODE || paymentOffset.CURRENCYCODE || '',
           );
-          const withholdingLine = aggregateWithholdingLines(
-            [
-              ...new Set(
-                invoiceSettlements
-                  .map((settlement) => settlement.withholdingLine)
-                  .filter(
-                    (line): line is CashEntryRawDataModel => Boolean(line),
-                  ),
-              ),
-            ],
+          const invoiceWithholdingLines = [
+            ...new Set(
+              invoiceSettlements
+                .map((settlement) => settlement.withholdingLine)
+                .filter(
+                  (line): line is CashEntryRawDataModel => Boolean(line),
+                ),
+            ),
+          ];
+          const withholdingAmount = invoiceWithholdingLines.reduce(
+            (sum, line) => sum + sourceLineAmount(line),
+            0,
           );
-          const withholdingAmount = withholdingLine
-            ? sourceLineAmount(withholdingLine)
-            : 0;
           const invoicePaymentAmount = moneyRound(
             Number(aggregatedVendorLine.DEBITAMOUNT ?? 0) - withholdingAmount,
             currency,
@@ -224,24 +210,35 @@ export class VendorPaymentLineBuilder {
             return [invalid];
           }
 
-          const settlementTarget: VendorPaymentSettlement = {
-            vendorLine: aggregatedVendorLine,
-            withholdingLine,
-          };
-
-          // The false-flag 223304 portion must be marked before the true-flag
-          // main portion. The latter is allowed to extend the current invoice
-          // settlement in the same X++ TTS; reversing the order leaves the
-          // companion silently unmarked.
-          if (withholdingLine) {
+          // Emit one false-flag 223304 companion for every source withholding
+          // row. Never aggregate or drop source withholding transactions.
+          // Companions must be marked before the main line in the same X++ TTS.
+          for (const withholdingLine of invoiceWithholdingLines) {
+            const settlement = invoiceSettlements.find(
+              (candidate) => candidate.withholdingLine === withholdingLine,
+            );
+            if (!settlement) {
+              const invalid = new CashEntryDynDataModel(
+                new EntryDimensionsModel(),
+                {
+                  SourceIds: [sourceId],
+                  SafeType: 'Vendor Payment',
+                },
+              );
+              invalid.AddError(
+                'WithholdingAllocation',
+                `Vendor Payment withholding row ${String(withholdingLine.LINENUMBER ?? '?')} was not paired with a Vendor line.`,
+              );
+              return [invalid];
+            }
             results.push(
               this.buildVendorLine(
                 sourceId,
-                aggregatedVendorLine,
+                settlement.vendorLine,
                 withholdingLine,
                 'OFFSET',
                 exchangeRateContext,
-                [settlementTarget],
+                [settlement],
                 true,
               ),
             );
@@ -253,7 +250,7 @@ export class VendorPaymentLineBuilder {
               paymentOffsetForInvoice(paymentOffset, invoicePaymentAmount),
               'OFFSET',
               exchangeRateContext,
-              [settlementTarget],
+              invoiceSettlements,
               true,
             ),
           );

@@ -56,8 +56,10 @@ import {
 } from '@/modules/cash/services/cash-group-line-building.service';
 import {
   buildCashInboundInvalidLine,
+  buildCashInboundMarkedLines,
   createCashInboundDynamicLine,
   formatCashInboundDescription,
+  isCashInWcaEuBankLine,
   prepareCashInboundDimensions,
   resolveCashInboundDerivedValues,
   resolveCashInboundRates,
@@ -319,14 +321,6 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       startVoucherNumber: 1,
       maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
     });
-    if (this.isInbound()) {
-      for (const line of updatedDfoLines) {
-        const sourceLineNumber = Number((line as any).SourceLineNumber);
-        if (Number.isFinite(sourceLineNumber) && sourceLineNumber > 0) {
-          line.LineNumber = sourceLineNumber;
-        }
-      }
-    }
     this.logger.debug(
       `[STEP 5] Updated batch and voucher numbers for ${updatedDfoLines.length} lines`,
     );
@@ -445,14 +439,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
 
         if (
           shouldValidateCashOutMarkedInvoice &&
-          line.SafeType === 'Custody Settlement'
+          line.SettlementTargetType !== 'CustodyLedger'
         ) {
-          for (const error of validateCustodySettlementVendorInvoiceShape(
-            line,
-          )) {
-            line.AddError(error.field, error.message);
-          }
-        } else if (shouldValidateCashOutMarkedInvoice) {
           this.validateCashOutMarkedInvoice(line);
         }
       }
@@ -826,6 +814,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             const canonicalInvoice = exactD365Invoice.trim();
             for (const sourceLine of groupLines) {
               sourceLine.MARKEDINVOICE = canonicalInvoice;
+              sourceLine.INVOICE = exactD365Invoice;
               sourceLine.ResolvedD365InvoiceNumber = exactD365Invoice;
             }
           }
@@ -1207,16 +1196,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         this.fetchExchangeRates(date ?? '', currency ?? ''),
     });
 
-    const resolvedAccountType = resolveCashAccountType(
-      accountLine.ACCOUNTDISPLAYVALUE,
-      accountLine.ACCOUNTTYPE,
-    );
+    const resolvedAccountType = isCashInWcaEuBankLine(accountLine)
+      ? 'Ledger'
+      : resolveCashAccountType(
+          accountLine.ACCOUNTDISPLAYVALUE,
+          accountLine.ACCOUNTTYPE,
+        );
     const resolvedOffsetAccountType = isNotesReceivable
       ? 'Bank'
-      : resolveCashAccountType(
-          offsetLine.ACCOUNTDISPLAYVALUE,
-          offsetLine.ACCOUNTTYPE,
-        );
+      : isCashInWcaEuBankLine(offsetLine)
+        ? 'Ledger'
+        : resolveCashAccountType(
+            offsetLine.ACCOUNTDISPLAYVALUE,
+            offsetLine.ACCOUNTTYPE,
+          );
 
     if (resolvedAccountType !== accountLine.ACCOUNTTYPE) {
       this.logger.log(
@@ -1268,12 +1261,14 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       }),
       TransactionDate: accountLine.TRANSDATE,
       AccountDisplayValue: accountLine.ACCOUNTDISPLAYVALUE,
-      OffsetAccountDisplayValue: resolveCashOffsetAccountDisplayValue(
-        offsetLine,
-        dimensions,
-        isNotesReceivable,
-        dimensionStr,
-      ),
+      OffsetAccountDisplayValue: isCashInWcaEuBankLine(offsetLine)
+        ? '125902'
+        : resolveCashOffsetAccountDisplayValue(
+            offsetLine,
+            dimensions,
+            isNotesReceivable,
+            dimensionStr,
+          ),
       FinTagDisplayValue:
         offsetLine.FINTAGDISPLAYVALUE || accountLine.FINTAGDISPLAYVALUE,
       OffsetFinTagDisplayValue:
@@ -1317,6 +1312,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ),
       SafeType: accountLine.SafeType,
       VoucherType: accountLine.VoucherType,
+      MarkedLines: buildCashInboundMarkedLines(
+        accountLine,
+        offsetLine,
+        markedInvoice,
+      ),
     });
 
     (dynLine as any).SourceLineNumber =
@@ -1584,10 +1584,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ItemSalesTaxGroup: itemSalesTaxGroup,
       IsWithholdingCalculationEnabled:
         isWithholding && !disableAutomaticWithholdingCalculation ? 'Yes' : 'No',
-      ItemWithholdingTaxGroupCode:
-        primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
-        primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
-        offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
+      ItemWithholdingTaxGroupCode: disableAutomaticWithholdingCalculation
+        ? ''
+        : primarySettlement.vendorLine.ITEMWITHHOLDINGTAXGROUPCODE ||
+          primarySettlement.withholdingLine?.ITEMWITHHOLDINGTAXGROUPCODE ||
+          offsetLine.ITEMWITHHOLDINGTAXGROUPCODE,
       OffsetCompany: this.company,
       PostingProfile:
         accountLine.POSTINGPROFILE?.trim() ||
@@ -1767,6 +1768,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       // Pre-validation resolves this from the vendor master. Preserve it so
       // Custody Settlement reaches the X++ document/operation branch.
       VendorGroup: sourceLine.VendorGroup ?? '',
+      ...(Number(sourceLine.LINENUMBER) > 0
+        ? { SourceLineNumber: Number(sourceLine.LINENUMBER) }
+        : {}),
     });
 
     if (
@@ -1889,7 +1893,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       ...new Set(
         lines
           .filter((line) => {
-            if (line.SafeType === 'Custody Settlement') return false;
+            if (line.SettlementTargetType === 'CustodyLedger') return false;
             try {
               return (
                 this.cashJournalRoutingService.resolve({
@@ -1926,7 +1930,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         lines
           .filter(
             (line) =>
-              line.SafeType !== 'Custody Settlement' &&
+              line.SettlementTargetType !== 'CustodyLedger' &&
               Boolean(line.AccountDisplayValue?.trim()),
           )
           .flatMap((line) =>

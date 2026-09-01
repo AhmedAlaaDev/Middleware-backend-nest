@@ -34,6 +34,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     const vendorInvoiceJournalService = {
       verifyVendorPaymentJournalSettlements: jest.fn().mockResolvedValue([]),
+      createVendorPaymentJournalLineSettlements: jest
+        .fn()
+        .mockResolvedValue([]),
     };
 
     const operationalLogs = {
@@ -160,6 +163,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           ExchRate: 100,
           EXCHANGERATE: 100,
           ExchangeRate: 100,
+          MarkedLines: [
+            {
+              InvoiceNumber: 'INV-0001',
+              OperationNumber: '',
+              DocumentNumber: 'DOC-1001',
+              HasWithHoldingLine: false,
+            },
+          ],
         },
       },
     ];
@@ -179,6 +190,14 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(postedLine).toHaveProperty('DocumentNum', 'DOC-1001');
     expect(postedLine).toHaveProperty('DocumentDate', '2026-04-20T00:00:00');
     expect(postedLine).toHaveProperty('ExchangeRate');
+    expect(postedLine.MarkedLines).toEqual([
+      {
+        InvoiceNumber: 'INV-0001',
+        OperationNumber: '',
+        DocumentNumber: 'DOC-1001',
+        HasWithHoldingLine: false,
+      },
+    ]);
     expect(postedLine).not.toHaveProperty('EXCHANGERATE');
     expect(
       vendorPaymentJournalService.updateLineFinancialTags,
@@ -686,31 +705,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
-  it('rejects a UniqueId larger than the 100-line D365 safety limit', async () => {
-    const { service, d365foClient } = buildService();
-    const lines = Array.from({ length: 101 }, (_, index) => ({
-      dataAreaId: 'm-p',
-      LineNumber: index + 1,
-      cashDirection: 'out',
-      customLineApiBody: {
-        journalNum: '',
-        AccountNum: `VEND-${index + 1}`,
-        PAYMENTID: 'TOO-LARGE',
-      },
-    }));
 
-    await expect(
-      service.postCashOutLinesForHeader(
-        'JN-TOO-LARGE',
-        lines as any[],
-        20,
-        'm-p',
-      ),
-    ).rejects.toThrow(
-      'Cash-out UniqueId TOO-LARGE contains 101 lines, exceeding the D365 request limit of 100.',
-    );
-    expect(d365foClient.post).not.toHaveBeenCalled();
-  });
 
   it('logs the complete bulk request body before sending it', async () => {
     const { service, d365foClient, operationalLogs } = buildService();
@@ -892,6 +887,10 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
               journalNum: '',
               AccountNum: 'RP-000003',
               accountTypeStr: 'Vendor',
+              currency: 'EGP',
+              debitAmount: 100,
+              creditAmount: 0,
+              PAYMENTID: 'UNMARKED-1',
               TRANSACTIONTEXT: '050-1',
               MarkedLines: [
                 {
@@ -912,6 +911,28 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(
       vendorPaymentJournalService.updateLineDescription,
     ).toHaveBeenCalledWith('JN-UNMARKED', 187, 'm-p', 'Unmarked - 050-1');
+    expect(
+      vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements,
+    ).toHaveBeenCalledWith({
+      company: 'm-p',
+      journalBatchNumber: 'JN-UNMARKED',
+      targets: [
+        expect.objectContaining({
+          lineNumber: 187,
+          vendorAccount: 'RP-000003',
+          invoiceNumber: '050-1',
+          documentNumber: '15473',
+          uniqueId: 'UNMARKED-1',
+        }),
+      ],
+      continueOnError: false,
+      skipped: undefined,
+    });
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post.mock.invocationCallOrder[0]).toBeLessThan(
+      vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements.mock
+        .invocationCallOrder[0],
+    );
     expect(operationalLogs.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'd365fo.cash-out.settlement-fallback',
@@ -1556,6 +1577,100 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
   });
 
+  it('rejects a UniqueId with more than 100 lines before sending any part of it', async () => {
+    const { service, d365foClient } = buildService();
+    const lines = Array.from({ length: 101 }, (_, index) => ({
+      dataAreaId: 'm-p',
+      LineNumber: index + 1,
+      cashDirection: 'out',
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: `VEND-${index + 1}`,
+        PAYMENTID: 'OVERSIZE-UNIQUE-ID',
+      },
+    }));
+
+    await expect(
+      service.postCashOutLinesForHeader('JN-OVERSIZE', lines as any[], 20, 'm-p'),
+    ).rejects.toThrow(
+      'Cash-out UniqueId OVERSIZE-UNIQUE-ID contains 101 lines, exceeding the D365 request limit of 100. Posting was stopped without sending any part of that UniqueId.',
+    );
+
+    expect(d365foClient.post).not.toHaveBeenCalled();
+  });
+
+  it('skips a failed UniqueId and continues posting later UniqueIds', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post
+      .mockResolvedValueOnce({
+        StatusCode: 'Error',
+        Message: 'Dimension combination is not valid.',
+      })
+      .mockResolvedValueOnce({
+        StatusCode: 'Success',
+        Message: 'Posted',
+      });
+
+    const lines = [
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 1,
+        sourceLineNumber: 841,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000036',
+          PAYMENTID: '475761',
+          debitAmount: 298.86,
+          creditAmount: 0,
+          MarkedLines: [
+            {
+              InvoiceNumber: '5815372458',
+              OperationNumber: '',
+              DocumentNumber: '16760',
+              HasWithHoldingLine: false,
+            },
+          ],
+        },
+      },
+      {
+        dataAreaId: 'm-p',
+        LineNumber: 2,
+        sourceLineNumber: 900,
+        cashDirection: 'out',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: 'Sl-000020',
+          PAYMENTID: '999001',
+          debitAmount: 100,
+          creditAmount: 0,
+        },
+      },
+    ];
+
+    const result = await service.postCashOutLinesForHeaderAllowingSkips(
+      'JN-SKIP',
+      lines as any[],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(2);
+    expect(result.postedLines).toEqual([
+      { headerId: 'JN-SKIP', lineNumber: 2 },
+    ]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        uniqueId: '475761',
+        excelLineNumbers: [841],
+        d365LineNumbers: [1],
+        invoiceNumber: '5815372458',
+        phase: 'post',
+        error: expect.stringContaining('Dimension combination is not valid.'),
+      }),
+    ]);
+  });
+
   it('fails closed when only part of a UniqueId already exists in D365', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
@@ -1580,6 +1695,75 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
 
     expect(d365foClient.post).not.toHaveBeenCalled();
+  });
+
+  it('skips a partially present UniqueId and continues later UniqueIds on the Custody Settlement path', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValueOnce([
+      { LineNumber: 1 },
+    ]);
+    d365foClient.post.mockResolvedValueOnce({
+      StatusCode: 'Success',
+      Message: 'Posted',
+    });
+
+    const result = await service.postCashOutLinesForHeaderAllowingSkips(
+      'JN-RESUME',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          sourceLineNumber: 841,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            PAYMENTID: 'PARTIAL-UNIQUE-ID',
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          sourceLineNumber: 842,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            PAYMENTID: 'PARTIAL-UNIQUE-ID',
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 3,
+          sourceLineNumber: 900,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000020',
+            PAYMENTID: 'NEXT-UNIQUE-ID',
+          },
+        },
+      ] as any[],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines[0].PAYMENTID,
+    ).toBe('NEXT-UNIQUE-ID');
+    expect(result.postedLines).toEqual([
+      { headerId: 'JN-RESUME', lineNumber: 3 },
+    ]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        uniqueId: 'PARTIAL-UNIQUE-ID',
+        excelLineNumbers: [841, 842],
+        phase: 'post',
+        error: expect.stringContaining('only partially present in D365'),
+      }),
+    ]);
   });
 
   it('retries only correlated failed lines, never lines already reported successful', async () => {
@@ -1752,7 +1936,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     );
     expect(
       d365foClient.post.mock.calls[1][1]._contract.Lines[0],
-    ).not.toHaveProperty('MarkedLines');
+    ).toHaveProperty('MarkedLines', []);
   });
 
   it('fails closed when routed-line idempotency lookup cannot be verified', async () => {

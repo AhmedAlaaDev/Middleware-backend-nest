@@ -28,6 +28,11 @@ export interface D365FOCustomerPaymentJournalLineRequest {
   dataAreaId: string;
   LineNumber: number;
   /**
+   * Excel LINENUMBER from the source workbook. Cash-out reindexes LineNumber
+   * for D365, so this is the identity used in skip/error Excel reports.
+   */
+  sourceLineNumber?: number;
+  /**
    * Used by cash posting pipeline to route cash-in/out line posting to the
    * correct custom ledger journal transaction API.
    */

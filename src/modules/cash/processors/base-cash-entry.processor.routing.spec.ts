@@ -161,7 +161,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     expect(vendorValidation).toHaveBeenCalledWith(line);
   });
 
-  it('keeps Custody Settlement validation structural and does not repeat the D365 invoice lookup', () => {
+  it('validates a Custody Settlement supplier invoice and skips the custody-holder ledger line', () => {
     const processor = createProcessor();
     jest
       .spyOn(processor as any, 'validateDimensionsForLine')
@@ -169,12 +169,12 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     const vendorValidation = jest
       .spyOn(processor as any, 'validateCashOutMarkedInvoice')
       .mockImplementation(() => undefined);
-    const line = {
+    const supplier = {
       SourceIds: ['2045'],
       SafeType: 'Custody Settlement',
       VoucherType: 'Cash',
       AccountType: 'Vend',
-      AccountDisplayValue: 'VEND-001',
+      AccountDisplayValue: 'Su-000019',
       SettlementTargetType: 'VendorInvoice',
       SettlementIntent: 'Marked',
       MarkedLines: [
@@ -187,15 +187,37 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       ],
       AddError: jest.fn(),
     };
+    const holder = {
+      SourceIds: ['2045'],
+      SafeType: 'Custody Settlement',
+      VoucherType: 'Cash',
+      AccountType: 'Vend',
+      AccountDisplayValue: '3135',
+      SettlementTargetType: 'CustodyLedger',
+      SettlementIntent: 'Marked',
+      MarkedLines: [
+        {
+          InvoiceNumber: '',
+          DocumentNumber: 'DOC-001',
+          OperationNumber: 'OP-001',
+          HasWithHoldingLine: false,
+        },
+      ],
+      AddError: jest.fn(),
+    };
 
-    processor.validateAsync([line] as any);
+    processor.validateAsync([supplier, holder] as any);
 
-    expect(vendorValidation).not.toHaveBeenCalled();
-    expect(line.AddError).not.toHaveBeenCalled();
+    expect(vendorValidation).toHaveBeenCalledWith(supplier);
+    expect(vendorValidation).not.toHaveBeenCalledWith(holder);
+    expect(supplier.AddError).not.toHaveBeenCalled();
+    expect(holder.AddError).not.toHaveBeenCalled();
   });
 
-  it('excludes Custody Settlement lines from the D365 invoice validation lookup', async () => {
-    const processor = createProcessor();
+  it.each(['Freight', 'Fleet'] as const)(
+    'includes non-Custody Custody Settlement supplier invoices in the D365 invoice validation lookup (%s)',
+    async (target) => {
+    const processor = createProcessor(target);
     const findInvoiceSettlementSnapshots = jest
       .fn()
       .mockResolvedValue(new Map());
@@ -206,11 +228,23 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     await (processor as any).fetchVendorInvoiceExistsMap([
       {
         SafeType: 'Custody Settlement',
+        SettlementTargetType: 'CustodyLedger',
         AccountDisplayValue: 'CUSTODY-VENDOR',
         MarkedLines: [
           {
             InvoiceNumber: 'CUSTODY-INV',
             DocumentNumber: 'CUSTODY-DOC',
+          },
+        ],
+      },
+      {
+        SafeType: 'Custody Settlement',
+        SettlementTargetType: 'VendorInvoice',
+        AccountDisplayValue: 'SUPPLIER-VENDOR',
+        MarkedLines: [
+          {
+            InvoiceNumber: 'SUPPLIER-INV',
+            DocumentNumber: 'SUPPLIER-DOC',
           },
         ],
       },
@@ -227,6 +261,11 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     ]);
 
     expect(findInvoiceSettlementSnapshots).toHaveBeenCalledWith('m-p', [
+      {
+        invoice: 'SUPPLIER-INV',
+        vendorAccount: 'SUPPLIER-VENDOR',
+        documentNumber: 'SUPPLIER-DOC',
+      },
       {
         invoice: 'PAYMENT-INV',
         vendorAccount: 'PAYMENT-VENDOR',

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models';
+import { CashOutTruckingEntryProcessor } from '@/modules/cash/processors/outbound/fleet/cash-out-trucking-entry.processor';
 import { CashOutFreightEntryProcessor } from '@/modules/cash/processors/outbound/freight/cash-out-freight-entry.processor';
 import {
   CustodySettlementTarget,
@@ -35,6 +36,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     custodyAccounts?: string[];
     existingPairs?: Set<string>;
     custodyMatches?: Map<string, any[]>;
+    trucking?: boolean;
   }) => {
     const custodyAccounts = new Set(options?.custodyAccounts ?? []);
     const existingPairs = options?.existingPairs ?? new Set();
@@ -69,7 +71,10 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
         .fn()
         .mockResolvedValue(options?.custodyMatches ?? new Map()),
     };
-    const processor = new CashOutFreightEntryProcessor(
+    const Processor = options?.trucking
+      ? CashOutTruckingEntryProcessor
+      : CashOutFreightEntryProcessor;
+    const processor = new Processor(
       { execute: jest.fn() } as any,
       {
         queryBus: {
@@ -275,6 +280,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
       (processor as any).validateCashOutSourceAsync(lines),
     ).resolves.toBeUndefined();
     expect(lines[0].MARKEDINVOICE).toBe('050-1');
+    expect(lines[0].INVOICE).toBe('050-1');
   });
 
   it('preserves the exact whitespace-bearing D365 invoice for MarkedLines posting', async () => {
@@ -326,6 +332,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
       (processor as any).validateCashOutSourceAsync(lines),
     ).resolves.toBeUndefined();
     expect(lines[0].MARKEDINVOICE).toBe('GDY_FV000005995');
+    expect(lines[0].INVOICE).toBe(' GDY_FV000005995');
     expect(lines[0].ResolvedD365InvoiceNumber).toBe(' GDY_FV000005995');
 
     jest.spyOn(processor as any, 'fetchExchangeRates').mockReturnValue({
@@ -542,6 +549,310 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
         lineNumber: 17018,
       },
     ]);
+  });
+
+  it('reports the same Custody Settlement supplier invoice error for CashOutTrucking', async () => {
+    const { processor } = createProcessor({
+      custodyAccounts: ['3135'],
+      trucking: true,
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510538,
+        LINENUMBER: 17018,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 8135.04,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'WRONG-INVOICE',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Fleet',
+      true,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510538,
+        LINENUMBER: 17019,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 8135.04,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Fleet',
+      true,
+    );
+
+    let response: any;
+    try {
+      await (processor as any).validateCashOutSourceAsync([supplier, custody]);
+    } catch (error) {
+      expect(error).toBeInstanceOf(BadRequestException);
+      response = (error as BadRequestException).getResponse();
+    }
+
+    expect(response?.errors).toContain(
+      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365. Vendor: Su-000019.',
+    );
+  });
+
+  it('leaves an optional Custody Settlement supplier invoice unmarked', async () => {
+    const { processor, vendorInvoiceJournalService } = createProcessor({
+      custodyAccounts: ['3135'],
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510539,
+        LINENUMBER: 17020,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510539,
+        LINENUMBER: 17021,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync([supplier, custody]),
+    ).resolves.toBeUndefined();
+    expect(
+      vendorInvoiceJournalService.findInvoiceSettlementSnapshots,
+    ).toHaveBeenCalledWith('m-p', []);
+  });
+
+  it('copies D365 canonical invoice onto a Custody Settlement supplier source line', async () => {
+    const sourcePair = VendorInvoiceJournalService.pairKey(
+      '050',
+      'Su-000019',
+    );
+    const { processor } = createProcessor({
+      custodyAccounts: ['3135'],
+      existingPairs: new Set([sourcePair]),
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    (processor as any).vendorInvoiceJournalService.findInvoiceSettlementSnapshots =
+      jest.fn().mockResolvedValue(
+        new Map([
+          [
+            sourcePair,
+            {
+              company: 'm-p',
+              invoice: '050-1',
+              vendorAccount: 'Su-000019',
+              exists: true,
+              belongsToVendor: true,
+              candidateTransactions: [
+                {
+                  vendorAccount: 'Su-000019',
+                  documentNumber: '14846',
+                  invoiceNumber: '050-1',
+                  currencyCode: 'EGP',
+                  originalAmount: 100,
+                  openAmount: 100,
+                  isOpen: true,
+                },
+              ],
+            },
+          ],
+        ]),
+      );
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510540,
+        LINENUMBER: 17022,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        INVOICE: '050',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510540,
+        LINENUMBER: 17023,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync([supplier, custody]),
+    ).resolves.toBeUndefined();
+    expect(supplier.MARKEDINVOICE).toBe('050-1');
+    expect(supplier.INVOICE).toBe('050-1');
+    expect(supplier.ResolvedD365InvoiceNumber).toBe('050-1');
+  });
+
+  it('fails a Custody Settlement supplier invoice that belongs to another vendor', async () => {
+    const { processor } = createProcessor({
+      custodyAccounts: ['3135'],
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510541,
+        LINENUMBER: 17024,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'OTHER-VENDOR-INV',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510541,
+        LINENUMBER: 17025,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    let response: any;
+    try {
+      await (processor as any).validateCashOutSourceAsync([supplier, custody]);
+    } catch (error) {
+      expect(error).toBeInstanceOf(BadRequestException);
+      response = (error as BadRequestException).getResponse();
+    }
+
+    expect(response?.errors).toContain(
+      'Line 17024 (UniqueId 510541): vendor transaction was not found in D365. Vendor: Su-000019.',
+    );
+  });
+
+  it('fails a Custody Settlement supplier invoice that does not match the document', async () => {
+    const sourcePair = VendorInvoiceJournalService.pairKey(
+      'INV-DOC',
+      'Su-000019',
+    );
+    const { processor } = createProcessor({
+      custodyAccounts: ['3135'],
+      existingPairs: new Set([sourcePair]),
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    (processor as any).vendorInvoiceJournalService.findInvoiceSettlementSnapshots =
+      jest.fn().mockResolvedValue(
+        new Map([
+          [
+            sourcePair,
+            {
+              company: 'm-p',
+              invoice: 'INV-DOC',
+              vendorAccount: 'Su-000019',
+              exists: true,
+              belongsToVendor: true,
+              candidateTransactions: [
+                {
+                  vendorAccount: 'Su-000019',
+                  documentNumber: 'OTHER-DOC',
+                  invoiceNumber: 'INV-DOC',
+                  currencyCode: 'EGP',
+                  originalAmount: 100,
+                  openAmount: 100,
+                  isOpen: true,
+                },
+              ],
+            },
+          ],
+        ]),
+      );
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510542,
+        LINENUMBER: 17026,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'INV-DOC',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510542,
+        LINENUMBER: 17027,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 100,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    let response: any;
+    try {
+      await (processor as any).validateCashOutSourceAsync([supplier, custody]);
+    } catch (error) {
+      expect(error).toBeInstanceOf(BadRequestException);
+      response = (error as BadRequestException).getResponse();
+    }
+
+    expect(response?.errors?.[0]).toEqual(
+      expect.stringMatching(
+        /Line 17026 \(UniqueId 510542\): .*document/i,
+      ),
+    );
   });
 
   it('preserves multiple resolved custody ledger markings through formatting', async () => {

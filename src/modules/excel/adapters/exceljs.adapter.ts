@@ -36,7 +36,18 @@ export class ExcelJsAdapter extends IExcelAdapter {
       );
     }
 
-    const worksheet = workbook.worksheets[0];
+    // Some D365 exports contain a blank/helper sheet before the actual data
+    // sheet. Cash-Out validation needs the sheet whose first row contains the
+    // headers, not simply workbook.worksheets[0].
+    const worksheet =
+      workbook.worksheets.find((candidate) => {
+        const values = candidate.getRow(1).values as any[];
+        return values
+          .slice(1)
+          .some(
+            (value) => value != null && String(value).trim().length > 0,
+          );
+      }) ?? workbook.worksheets[0];
     if (!worksheet) return { headers: [], rows: [] };
     const headerRow = worksheet.getRow(1).values as any[];
     const headers = headerRow

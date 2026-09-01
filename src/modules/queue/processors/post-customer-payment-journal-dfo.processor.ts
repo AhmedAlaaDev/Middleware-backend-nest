@@ -2,6 +2,10 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
 import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
+import {
+  CustodySettlementSkipRow,
+  formatCustodySettlementSkipWarning,
+} from '@/modules/cash/services/custody-settlement-skip-report';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
@@ -98,6 +102,13 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
         await this.jobs.markFailed(jobId, message);
         await this.failBatch(job.data.batchId, collector);
       } else {
+        // Expose the exact failure immediately while BullMQ waits for the next
+        // attempt. A successful resume clears this transient error; a final
+        // failure keeps it and moves the batch to Canceled.
+        await this.batches.updateDfoPostingErrorsAsync(
+          job.data.batchId,
+          collector.getFormattedErrorMessages(),
+        );
         await this.jobs.markRetrying(jobId, message);
       }
       await this.emit(
@@ -133,6 +144,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     let completedGroups = groups.filter(
       (record) => record.status === QueueJobGroupStatus.COMPLETED,
     ).length;
+    const skipRows: CustodySettlementSkipRow[] = [];
 
     try {
       for (const record of groups) {
@@ -217,6 +229,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             LINE_CHUNK_SIZE,
           );
         }
+        skipRows.push(...this.cashJournalStrategy.consumeSkipReport());
         await this.jobs.completeGroup(jobId, record.index);
         completedGroups += 1;
         await job.updateProgress({
@@ -224,12 +237,16 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           totalGroups: groups.length,
         });
       }
-      await this.completeBatch(job.data.batchId, [
-        ...groups
-          .map((group) => group.createdHeaderId)
-          .filter((id): id is string => Boolean(id)),
-        ...created.map((header) => header.headerKey),
-      ]);
+      await this.completeBatch(
+        job.data.batchId,
+        [
+          ...groups
+            .map((group) => group.createdHeaderId)
+            .filter((id): id is string => Boolean(id)),
+          ...created.map((header) => header.headerKey),
+        ],
+        skipRows,
+      );
       return 'completed';
     } catch (error) {
       if ((job.data.cashDirection ?? 'in') === 'out') {
@@ -379,9 +396,21 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
   private async completeBatch(
     batchId: string,
     headerIds: string[],
+    skipRows: CustodySettlementSkipRow[] = [],
   ): Promise<void> {
     await this.storeHeaderIds(batchId, headerIds);
-    await this.batches.clearDfoPostingErrorsAsync(batchId);
+    if (skipRows.length > 0) {
+      await this.batches.appendCustodySettlementSkipErrorsAsync(
+        batchId,
+        skipRows,
+      );
+      await this.batches.updateDfoPostingErrorsAsync(
+        batchId,
+        skipRows.map((row) => formatCustodySettlementSkipWarning(row)),
+      );
+    } else {
+      await this.batches.clearDfoPostingErrorsAsync(batchId);
+    }
     await this.batches.updateStatusAsync(batchId, DataBatchStatus.Posted);
   }
 

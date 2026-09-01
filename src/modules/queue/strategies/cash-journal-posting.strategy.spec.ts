@@ -80,6 +80,10 @@ describe('CashJournalPostingStrategy', () => {
       postCashOutLinesForHeader: jest
         .fn()
         .mockResolvedValue([{ headerId: 'OUT-0001', lineNumber: 1 }]),
+      postCashOutLinesForHeaderAllowingSkips: jest.fn().mockResolvedValue({
+        postedLines: [{ headerId: 'OUT-0001', lineNumber: 1 }],
+        skipped: [],
+      }),
     };
     const vendorInvoiceJournalService = {
       createVendorPaymentJournalLineSettlements: jest
@@ -311,7 +315,7 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedLines =
-      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
         .calls[0][1];
     expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([
       {
@@ -341,6 +345,7 @@ describe('CashJournalPostingStrategy', () => {
       {
         dataAreaId: 'm-p',
         LineNumber: 1,
+        sourceLineNumber: 841,
         cashDirection: 'out',
         customLineApiBody: {
           journalNum: '',
@@ -350,6 +355,7 @@ describe('CashJournalPostingStrategy', () => {
           currency: 'EGP',
           debitAmount: 300,
           creditAmount: 0,
+          PAYMENTID: '475761',
           MarkedLines: [shiplineMark],
         },
       },
@@ -379,7 +385,7 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedLines =
-      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
         .calls[0][1];
     expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([]);
     expect(postedLines[1].customLineApiBody.MarkedLines).toEqual([custodyMark]);
@@ -398,12 +404,16 @@ describe('CashJournalPostingStrategy', () => {
           creditAmount: 0,
           invoiceNumber: 'INV-SHIP-1',
           documentNumber: 'DOC-1',
+          uniqueId: '475761',
+          sourceLineNumber: 841,
         },
       ],
+      continueOnError: true,
+      skipped: [],
     });
     expect(
-      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
-        .invocationCallOrder[0],
+      harness.customerPaymentJournalService
+        .postCashOutLinesForHeaderAllowingSkips.mock.invocationCallOrder[0],
     ).toBeLessThan(
       harness.vendorInvoiceJournalService
         .createVendorPaymentJournalLineSettlements.mock.invocationCallOrder[0],
@@ -479,7 +489,7 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedBody =
-      harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
         .calls[0][1][0].customLineApiBody;
     expect(postedBody.AccountNum).toBe(
       '124101|1602|016|001|003|201000283|201000283|3098|3098',
@@ -530,35 +540,178 @@ describe('CashJournalPostingStrategy', () => {
     );
   });
 
-  it('rejects a Custody Settlement vendor credit instead of sending empty MarkedLines', async () => {
+  it('skips a Custody Settlement vendor credit without DocumentNumber and keeps posting', async () => {
     const harness = buildStrategy();
     harness.strategy.setRouteContext(custodySettlementRoute);
 
-    await expect(
-      harness.strategy.postLinesForHeader(
-        'Mesco-000015139',
-        [
-          {
-            dataAreaId: 'm-p',
-            LineNumber: 216,
-            cashDirection: 'out',
-            customLineApiBody: {
-              journalNum: '',
-              AccountNum: '3098',
-              accountTypeStr: 'Vendor',
-              VendorGroup: 'Custody',
-              debitAmount: 0,
-              creditAmount: 10000,
-              DocumentNum: '',
-              FinTagStr: 'O26-EXP-OC-5044|OTHER',
-              MarkedLines: [],
-            },
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015139',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 216,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '3098',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Custody',
+            debitAmount: 0,
+            creditAmount: 10000,
+            DocumentNum: '',
+            FinTagStr: 'O26-EXP-OC-5044|OTHER',
+            PAYMENTID: 'SKIP-CREDIT',
+            MarkedLines: [],
           },
-        ],
-        'm-p',
-        20,
-      ),
-    ).rejects.toThrow('cannot be posted without DocumentNumber');
+        },
+      ],
+      'm-p',
+      20,
+    );
+
+    expect(
+      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips,
+    ).toHaveBeenCalledWith(
+      'Mesco-000015139',
+      [],
+      20,
+      'm-p',
+      expect.any(Function),
+    );
+    const skipped = harness.strategy.consumeSkipReport();
+    expect(skipped).toEqual([
+      expect.objectContaining({
+        uniqueId: 'SKIP-CREDIT',
+        phase: 'post',
+        error: expect.stringContaining('cannot be posted without DocumentNumber'),
+      }),
+    ]);
+  });
+
+  it('posts later UniqueIds after an upload skip, then records settlement failures against the source Excel', async () => {
+    const harness = buildStrategy();
+    const failedPostSkip = {
+      uniqueId: '475761',
+      excelLineNumbers: [841],
+      journalBatchNumber: 'Mesco-000015200',
+      d365LineNumbers: [1],
+      vendorAccount: 'Sl-000036',
+      invoiceNumber: '5815372458',
+      documentNumber: '16760',
+      amount: 298.86,
+      phase: 'post' as const,
+      error: 'Dimension combination is not valid.',
+    };
+    harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mockResolvedValue(
+      {
+        postedLines: [{ headerId: 'Mesco-000015200', lineNumber: 2 }],
+        skipped: [failedPostSkip],
+      },
+    );
+    harness.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements.mockImplementation(
+      async (options: {
+        targets: Array<{ uniqueId?: string }>;
+        skipped?: Array<Record<string, unknown>>;
+      }) => {
+        expect(options.targets).toEqual([
+          expect.objectContaining({ uniqueId: '999001', invoiceNumber: 'INV-OK' }),
+        ]);
+        options.skipped?.push({
+          uniqueId: '999001',
+          excelLineNumbers: [900],
+          journalBatchNumber: 'Mesco-000015200',
+          d365LineNumbers: [2],
+          vendorAccount: 'Sl-000020',
+          invoiceNumber: 'INV-OK',
+          documentNumber: 'DOC-OK',
+          amount: 100,
+          phase: 'settle',
+          error:
+            'Settlement amount 100 for cash-out line 2 (Excel UniqueId 999001) exceeds invoice INV-OK remainder 99.98.',
+        });
+        return [];
+      },
+    );
+
+    harness.strategy.setRouteContext(custodySettlementRoute);
+    await harness.strategy.postLinesForHeader(
+      'Mesco-000015200',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          sourceLineNumber: 841,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            currency: 'EGP',
+            debitAmount: 298.86,
+            creditAmount: 0,
+            PAYMENTID: '475761',
+            MarkedLines: [
+              {
+                InvoiceNumber: '5815372458',
+                OperationNumber: '',
+                DocumentNumber: '16760',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          sourceLineNumber: 900,
+          cashDirection: 'out',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000020',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            currency: 'EGP',
+            debitAmount: 100,
+            creditAmount: 0,
+            PAYMENTID: '999001',
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-OK',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-OK',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      20,
+    );
+
+    expect(
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        continueOnError: true,
+        targets: [expect.objectContaining({ uniqueId: '999001' })],
+      }),
+    );
+    expect(harness.strategy.consumeSkipReport()).toEqual([
+      expect.objectContaining({
+        uniqueId: '475761',
+        phase: 'post',
+        excelLineNumbers: [841],
+      }),
+      expect.objectContaining({
+        uniqueId: '999001',
+        phase: 'settle',
+        excelLineNumbers: [900],
+        error: expect.stringContaining('exceeds invoice INV-OK remainder'),
+      }),
+    ]);
   });
 
   it('returns the generated JournalBatchNumber without changing it', () => {

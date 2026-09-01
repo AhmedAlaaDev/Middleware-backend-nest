@@ -50,6 +50,10 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
+import {
+  CustodySettlementSkipRow,
+  toCustodySettlementSkipBatchError,
+} from '@/modules/cash/services/custody-settlement-skip-report';
 
 @Injectable()
 export class DataBatchService {
@@ -706,6 +710,26 @@ export class DataBatchService {
    */
   public async clearDfoPostingErrorsAsync(batchId: string): Promise<void> {
     await this.dataBatchRepo.updateOne(batchId, { dfoPostingErrors: [] });
+  }
+
+  /**
+   * Persist Custody Settlement UniqueIds/lines that were skipped during
+   * D365 upload or OData settlement. These do not increment errorCount so
+   * a later retry is not blocked by format-time validation.
+   */
+  public async appendCustodySettlementSkipErrorsAsync(
+    batchId: string,
+    rows: CustodySettlementSkipRow[],
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const batch = await this.requireBatch(batchId);
+    const validationRunId =
+      batch.activeValidationRunId || 'custody-settlement-posting';
+    await this.dataBatchErrorRepo.insertMany(
+      rows.map((row) =>
+        toCustodySettlementSkipBatchError(batchId, validationRunId, row),
+      ),
+    );
   }
 
   /**

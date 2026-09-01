@@ -22,6 +22,15 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     headerApi: 'LedgerJournalHeaders',
     lineDirection: 'out',
   };
+  const custodySettlementRoute: CashJournalRoute = {
+    kind: 'vendor-invoice',
+    module: 'AP',
+    safeType: 'Custody Settlement',
+    targetProcessor: 'Freight',
+    journalName: 'P-Freight',
+    headerApi: 'VendorPaymentJournalHeaders',
+    lineDirection: 'out',
+  };
 
   const makeGroup = (route: CashJournalRoute, lineNumber = 1) => ({
     route,
@@ -53,12 +62,16 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
         .mockResolvedValueOnce({ headerIds: ['D365-RET-001'], responses: [] })
         .mockResolvedValueOnce({ headerIds: ['D365-RET-002'], responses: [] }),
       postLinesForHeader: jest.fn().mockResolvedValue([]),
+      consumeSkipReport: jest.fn().mockReturnValue([]),
     };
     const batches = {
       getByIdAsync: jest.fn().mockResolvedValue({ dfoIds: [] }),
       updateDfoIdsAsync: jest.fn().mockResolvedValue(undefined),
       clearDfoPostingErrorsAsync: jest.fn().mockResolvedValue(undefined),
       updateDfoPostingErrorsAsync: jest.fn().mockResolvedValue(undefined),
+      appendCustodySettlementSkipErrorsAsync: jest
+        .fn()
+        .mockResolvedValue(undefined),
       updateStatusAsync: jest.fn().mockResolvedValue(undefined),
     };
     const rollback = {
@@ -252,6 +265,31 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
   });
 
+  it('stores the exact posting error before an automatic retry', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, batches, jobs } = buildProcessor([
+      group,
+    ]);
+    job.opts.attempts = 3;
+    cashStrategy.postLinesForHeader.mockRejectedValue(
+      new Error('line 7: vendor account is blocked'),
+    );
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'line 7: vendor account is blocked',
+    );
+
+    expect(batches.updateDfoPostingErrorsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      ['[Job processing] - line 7: vendor account is blocked'],
+    );
+    expect(batches.updateStatusAsync).not.toHaveBeenCalled();
+    expect(jobs.markRetrying).toHaveBeenCalledWith(
+      'job-2045',
+      'line 7: vendor account is blocked',
+    );
+  });
+
   it('reuses a persisted header on recovery without creating a second header', async () => {
     const group = makeGroup(glRoute);
     const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
@@ -396,5 +434,52 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       expect.objectContaining({ completedGroups: 1, totalGroups: 2 }),
     );
     expect(batches.updateStatusAsync).not.toHaveBeenCalled();
+  });
+
+  it('completes a Custody Settlement job when UniqueIds are skipped and writes them to the error Excel', async () => {
+    const group = makeGroup(custodySettlementRoute);
+    const { processor, job, cashStrategy, batches, jobs } = buildProcessor([
+      group,
+    ]);
+    cashStrategy.consumeSkipReport.mockReturnValue([
+      {
+        uniqueId: '475761',
+        excelLineNumbers: [841],
+        journalBatchNumber: 'D365-RET-001',
+        d365LineNumbers: [4],
+        vendorAccount: 'Sl-000036',
+        invoiceNumber: '5815372458',
+        documentNumber: '16760',
+        amount: 298.86,
+        phase: 'settle',
+        error: 'Settlement amount 298.86 exceeds remainder 298.84.',
+      },
+    ]);
+
+    await processor.process(job as any);
+
+    expect(jobs.markCompleted).toHaveBeenCalledWith('job-2045');
+    expect(jobs.markFailed).not.toHaveBeenCalled();
+    expect(batches.appendCustodySettlementSkipErrorsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      [
+        expect.objectContaining({
+          uniqueId: '475761',
+          excelLineNumbers: [841],
+          phase: 'settle',
+        }),
+      ],
+    );
+    expect(batches.updateDfoPostingErrorsAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      [
+        'Settlement skipped: UniqueId 475761 Excel line 841: Settlement amount 298.86 exceeds remainder 298.84.',
+      ],
+    );
+    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      DataBatchStatus.Posted,
+    );
+    expect(batches.clearDfoPostingErrorsAsync).not.toHaveBeenCalled();
   });
 });

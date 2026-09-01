@@ -13,6 +13,41 @@ import {
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
+/** Cash-In source alias for the EUR working-capital ledger account. */
+export function isCashInWcaEuBankLine(
+  line?: CashEntryRawDataModel,
+): boolean {
+  if (!line) return false;
+  const accountType = String(line.ACCOUNTTYPE ?? '').trim().toLowerCase();
+  const account = String(line.ACCOUNTDISPLAYVALUE ?? '')
+    .trim()
+    .toUpperCase()
+    .split('|')[0]
+    ?.trim();
+  return accountType === 'bank' && account === 'WCA-EU';
+}
+
+/** Builds the stable Cash-In marked-line contract from the inbound source. */
+export function buildCashInboundMarkedLines(
+  accountLine: CashEntryRawDataModel,
+  offsetLine: CashEntryRawDataModel,
+  markedInvoice: string,
+): CashEntryDynDataModel['MarkedLines'] {
+  const invoiceNumber = String(markedInvoice ?? '').trim();
+  if (!invoiceNumber) return [];
+
+  return [
+    {
+      InvoiceNumber: invoiceNumber,
+      OperationNumber: '',
+      DocumentNumber: String(
+        accountLine.DOCUMENT || offsetLine.DOCUMENT || '',
+      ).trim(),
+      HasWithHoldingLine: false,
+    },
+  ];
+}
+
 export function resolveCashInboundRates(options: {
   exchangeRateContext?: CashOutExchangeRateContext;
   transactionDate?: string;
@@ -149,8 +184,16 @@ export function prepareCashInboundDimensions(options: {
   // (or matches a known Ledger-only main account) can never resolve against
   // `BankAccountTable` in D365FO, and must be cleared before it reaches the
   // dimension combination sent to D365FO.
-  const clearedBankAccountDimension =
+  let clearedBankAccountDimension =
     sanitizeCashBankAccountDimension(dimensions);
+
+  if (
+    (isCashInWcaEuBankLine(accountLine) || isCashInWcaEuBankLine(offsetLine)) &&
+    String(dimensions.bankAccount ?? '').trim().toUpperCase() === 'WCA-EU'
+  ) {
+    clearedBankAccountDimension = String(dimensions.bankAccount).trim();
+    dimensions.bankAccount = undefined;
+  }
 
   return {
     dimensionString,

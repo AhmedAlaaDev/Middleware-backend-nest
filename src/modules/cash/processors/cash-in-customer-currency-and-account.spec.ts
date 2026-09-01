@@ -92,6 +92,44 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.ExchangeRate).toBe(1);
   });
 
+  it('builds a stable Cash-In MarkedLines entry from the invoice and document', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({
+        INVOICE: '123456/Invoice',
+        DOCUMENT: 'DOC-123',
+      }),
+      offsetLine({ DOCUMENT: 'DOC-123' }),
+    ]);
+
+    expect(line.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '000123456/Invoice',
+        OperationNumber: '',
+        DocumentNumber: 'DOC-123',
+        HasWithHoldingLine: false,
+      },
+    ]);
+  });
+
+  it('treats the Cash-In WCA-EU bank payment as Ledger account 125902', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({ CURRENCYCODE: 'EUR', CREDITAMOUNT: 100 }),
+      offsetLine({
+        LINENUMBER: 2,
+        ACCOUNTTYPE: 'Bank',
+        ACCOUNTDISPLAYVALUE: 'WCA-EU',
+        CURRENCYCODE: 'EUR',
+        DEBITAMOUNT: 100,
+      }),
+    ]);
+
+    expect(line.OffsetAccountType).toBe('Ledger');
+    expect(line.OffsetAccountDisplayValue).toBe('125902');
+    expect(line.CurrencyCode).toBe('EUR');
+  });
+
   it('uses the offset currency without applying the removed grouping logic', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [

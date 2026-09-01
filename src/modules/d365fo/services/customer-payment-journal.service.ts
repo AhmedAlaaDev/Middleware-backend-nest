@@ -6,6 +6,7 @@ import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 import {
   VendorInvoiceJournalService,
+  VendorPaymentJournalSettlementTarget,
   VendorPaymentSettlementVerification,
 } from './vendor-invoice-journal.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
@@ -28,6 +29,10 @@ import {
 import { LogPayloadService } from '@/modules/observability/services/log-payload.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { RetryService } from '@/modules/resilience/services/retry.service';
+import {
+  createCustodySettlementSkipRow,
+  CustodySettlementSkipRow,
+} from '@/modules/cash/services/custody-settlement-skip-report';
 
 export type CashJournalExistingLinesLoader = () => Promise<
   Array<{ LineNumber: number }>
@@ -35,6 +40,7 @@ export type CashJournalExistingLinesLoader = () => Promise<
 
 interface CashBulkPendingLine {
   lineNumber: number;
+  sourceLineNumber?: number;
   body: TSLedgerJournalTransCustomRequestBody;
 }
 
@@ -208,7 +214,7 @@ export class CustomerPaymentJournalService {
     existingLinesLoader?: CashJournalExistingLinesLoader,
     allowUnmarkedInvoiceRetry = false,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
-    return this.postCashLinesForHeader(
+    const result = await this.postCashLinesForHeader(
       headerKey,
       lines,
       chunkSize,
@@ -216,7 +222,9 @@ export class CustomerPaymentJournalService {
       'in',
       existingLinesLoader,
       allowUnmarkedInvoiceRetry,
+      false,
     );
+    return result.postedLines;
   }
 
   /**
@@ -231,6 +239,35 @@ export class CustomerPaymentJournalService {
     existingLinesLoader?: CashJournalExistingLinesLoader,
     allowUnmarkedInvoiceRetry = false,
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    const result = await this.postCashLinesForHeader(
+      headerKey,
+      lines,
+      chunkSize,
+      dataAreaId,
+      'out',
+      existingLinesLoader,
+      allowUnmarkedInvoiceRetry,
+      false,
+    );
+    return result.postedLines;
+  }
+
+  /**
+   * Custody Settlement posting path: one UniqueId request can fail without
+   * stopping later UniqueIds. Failed groups are returned as skip rows so the
+   * caller can write them to the source-mapped Excel report.
+   */
+  public async postCashOutLinesForHeaderAllowingSkips(
+    headerKey: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    chunkSize: number = 20,
+    dataAreaId?: string,
+    existingLinesLoader?: CashJournalExistingLinesLoader,
+    allowUnmarkedInvoiceRetry = false,
+  ): Promise<{
+    postedLines: Array<{ headerId: string; lineNumber: number }>;
+    skipped: CustodySettlementSkipRow[];
+  }> {
     return this.postCashLinesForHeader(
       headerKey,
       lines,
@@ -239,6 +276,7 @@ export class CustomerPaymentJournalService {
       'out',
       existingLinesLoader,
       allowUnmarkedInvoiceRetry,
+      true,
     );
   }
 
@@ -250,7 +288,11 @@ export class CustomerPaymentJournalService {
     cashDirection: 'in' | 'out',
     existingLinesLoader?: CashJournalExistingLinesLoader,
     allowUnmarkedInvoiceRetry = cashDirection === 'out',
-  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    skipFailedUniqueIds = false,
+  ): Promise<{
+    postedLines: Array<{ headerId: string; lineNumber: number }>;
+    skipped: CustodySettlementSkipRow[];
+  }> {
     const endpoint =
       cashDirection === 'in'
         ? this.cashInLineEndpoint
@@ -291,6 +333,7 @@ export class CustomerPaymentJournalService {
       dataAreaId || lines[0]?.dataAreaId || '',
       allowUnmarkedInvoiceRetry,
       cashDirection,
+      skipFailedUniqueIds,
     );
   }
 
@@ -302,15 +345,66 @@ export class CustomerPaymentJournalService {
     dataAreaId: string,
     allowUnmarkedInvoiceRetry: boolean,
     cashDirection: 'in' | 'out',
-  ): Promise<Array<{ headerId: string; lineNumber: number }>> {
+    skipFailedUniqueIds = false,
+  ): Promise<{
+    postedLines: Array<{ headerId: string; lineNumber: number }>;
+    skipped: CustodySettlementSkipRow[];
+  }> {
     const pendingLines: CashBulkPendingLine[] = [];
+    const skipped: CustodySettlementSkipRow[] = [];
+    const skippedUniqueIds = new Set<string>();
+    const skippedLineNumbers = new Set<number>();
 
     if (cashDirection === 'out') {
-      this.assertCashOutUniqueIdAtomicity(lines, existingLines, headerKey);
+      const atomicity = this.inspectCashOutUniqueIdAtomicity(
+        lines,
+        existingLines,
+        headerKey,
+      );
+      if (!skipFailedUniqueIds) {
+        this.assertCashOutUniqueIdAtomicity(atomicity, headerKey);
+      } else {
+        for (const line of atomicity.missingPaymentIdLines) {
+          skipped.push(
+            this.toCashOutPostSkipRow(
+              headerKey,
+              [
+                {
+                  lineNumber: line.LineNumber,
+                  sourceLineNumber: line.sourceLineNumber,
+                  body: line.customLineApiBody,
+                },
+              ],
+              `Cash-out line ${line.LineNumber} in header ${headerKey} is missing PAYMENTID (source UniqueId).`,
+            ),
+          );
+          skippedLineNumbers.add(line.LineNumber);
+        }
+        for (const group of atomicity.partialGroups) {
+          skippedUniqueIds.add(group.uniqueId);
+          skipped.push(
+            this.toCashOutPostSkipRow(
+              headerKey,
+              group.lines.map((line) => ({
+                lineNumber: line.LineNumber,
+                sourceLineNumber: line.sourceLineNumber,
+                body: line.customLineApiBody,
+              })),
+              `Cash-out UniqueId ${group.uniqueId} is only partially present in D365 for header ${headerKey} (${group.existingCount}/${group.lineNumbers.length} lines). Posting was skipped to preserve UniqueId atomicity.`,
+            ),
+          );
+          this.logger.warn(
+            `[CASH-CUSTOM] Skipping UniqueId ${group.uniqueId} for header ${headerKey}: partial UniqueId in D365 (${group.existingCount}/${group.lineNumbers.length} lines)`,
+          );
+        }
+      }
     }
 
     for (const line of lines) {
       if (existingLines.has(line.LineNumber)) continue;
+      if (skippedLineNumbers.has(line.LineNumber)) continue;
+      const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
+      if (uniqueId && skippedUniqueIds.has(uniqueId)) continue;
 
       const body = line.customLineApiBody;
       if (!body) {
@@ -332,6 +426,7 @@ export class CustomerPaymentJournalService {
       };
       pendingLines.push({
         lineNumber: line.LineNumber,
+        sourceLineNumber: line.sourceLineNumber,
         body: pendingBody,
       });
     }
@@ -342,34 +437,109 @@ export class CustomerPaymentJournalService {
 
     const batches =
       cashDirection === 'out'
-        ? this.groupCashOutPendingLinesByUniqueId(
-            pendingLines,
-            this.cashOutBulkBatchSize,
-          )
+        ? this.groupCashOutPendingLinesByUniqueId(pendingLines)
         : this.chunkCashPendingLines(pendingLines, this.cashOutBulkBatchSize);
     const totalBatches = batches.length;
 
+    const unmarkedSettlements: VendorPaymentJournalSettlementTarget[] = [];
+
     for (const [index, pendingBatch] of batches.entries()) {
-      await this.postCashOutBulkBatch(
-        endpoint,
-        headerKey,
-        pendingBatch,
-        dataAreaId,
-        allowUnmarkedInvoiceRetry,
-        { number: index + 1, total: totalBatches },
-        cashDirection,
+      try {
+        unmarkedSettlements.push(
+          ...(await this.postCashOutBulkBatch(
+            endpoint,
+            headerKey,
+            pendingBatch,
+            dataAreaId,
+            allowUnmarkedInvoiceRetry,
+            { number: index + 1, total: totalBatches },
+            cashDirection,
+          )),
+        );
+      } catch (error) {
+        if (!skipFailedUniqueIds || cashDirection !== 'out') {
+          throw error;
+        }
+        const skipRow = this.toCashOutPostSkipRow(
+          headerKey,
+          pendingBatch,
+          error,
+        );
+        skipped.push(skipRow);
+        if (skipRow.uniqueId) skippedUniqueIds.add(skipRow.uniqueId);
+        this.logger.warn(
+          `[CASH-CUSTOM] Skipping UniqueId ${skipRow.uniqueId || '?'} for header ${headerKey}: ${skipRow.error}`,
+        );
+      }
+    }
+
+    const settleTargets = unmarkedSettlements.filter(
+      (target) => !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
+    );
+    if (cashDirection === 'out' && settleTargets.length > 0) {
+      this.logger.log(
+        `[CASH-CUSTOM] Marking ${settleTargets.length} unmarked vendor settlement(s) for header ${headerKey} after UniqueId upload`,
+      );
+      await this.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements(
+        {
+          company: dataAreaId,
+          journalBatchNumber: headerKey,
+          targets: settleTargets,
+          continueOnError: skipFailedUniqueIds,
+          skipped: skipFailedUniqueIds ? skipped : undefined,
+        },
       );
     }
 
-    return lines.map((line) => ({
-      headerId: headerKey,
-      lineNumber: line.LineNumber,
-    }));
+    const postedLines = lines
+      .filter((line) => {
+        if (skippedLineNumbers.has(line.LineNumber)) return false;
+        const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
+        return !uniqueId || !skippedUniqueIds.has(uniqueId);
+      })
+      .map((line) => ({
+        headerId: headerKey,
+        lineNumber: line.LineNumber,
+      }));
+
+    return { postedLines, skipped };
+  }
+
+  private toCashOutPostSkipRow(
+    headerKey: string,
+    pendingBatch: CashBulkPendingLine[],
+    error: unknown,
+  ): CustodySettlementSkipRow {
+    const first = pendingBatch[0];
+    const marked = first?.body.MarkedLines?.[0];
+    const uniqueId = String(first?.body.PAYMENTID ?? '').trim();
+    const netAmount = pendingBatch.reduce(
+      (sum, line) =>
+        sum +
+        Number(line.body.creditAmount ?? 0) -
+        Number(line.body.debitAmount ?? 0),
+      0,
+    );
+    return createCustodySettlementSkipRow({
+      uniqueId,
+      excelLineNumbers: pendingBatch.map((line) => line.sourceLineNumber),
+      journalBatchNumber: headerKey,
+      d365LineNumbers: pendingBatch.map((line) => line.lineNumber),
+      vendorAccount: String(first?.body.AccountNum ?? '').trim(),
+      invoiceNumber: String(marked?.InvoiceNumber ?? '').trim(),
+      documentNumber: String(
+        marked?.DocumentNumber ?? first?.body.DocumentNum ?? '',
+      ).trim(),
+      amount: Math.abs(Number(netAmount.toFixed(2))),
+      phase: 'post',
+      error,
+    });
   }
 
   /**
-   * Submit one request holding up to {@link cashOutBulkBatchSize} lines of the
-   * journal batch and fail closed on any D365 rejection.
+   * Submit exactly one UniqueId (or one Cash-In chunk) to D365. After a
+   * successful Cash-Out request, unmarked leftovers from this same journal
+   * are returned so the header can OData-mark them after UniqueId upload.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -379,8 +549,8 @@ export class CustomerPaymentJournalService {
     _allowUnmarkedInvoiceRetry: boolean,
     batch: CashBulkBatch,
     cashDirection: 'in' | 'out' = 'out',
-  ): Promise<void> {
-    if (pendingLines.length === 0) return;
+  ): Promise<VendorPaymentJournalSettlementTarget[]> {
+    if (pendingLines.length === 0) return [];
 
     this.logger.log(
       `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
@@ -390,6 +560,7 @@ export class CustomerPaymentJournalService {
       endpoint,
       pendingLines.map((line) => line.body),
       { headerKey, pendingLines, attempt: 'initial', batch },
+      cashDirection,
     );
     const failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
@@ -403,14 +574,19 @@ export class CustomerPaymentJournalService {
 
     if (failures.length === 0) {
       if (cashDirection === 'out') {
-        await this.verifyCashOutMarkedSettlements(
+        const unmarkedLines = await this.verifyCashOutMarkedSettlements(
           headerKey,
           pendingLines,
           dataAreaId,
           batch,
         );
+        return unmarkedLines
+          .map((line) => this.toUnmarkedODataSettlementTarget(line))
+          .filter((target): target is VendorPaymentJournalSettlementTarget =>
+            Boolean(target),
+          );
       }
-      return;
+      return [];
     }
 
     // A rejected request is a checkpoint boundary. Stop here and let the
@@ -458,12 +634,21 @@ export class CustomerPaymentJournalService {
           attempt: 'unmarked_retry',
           batch,
         },
+        cashDirection,
       );
       const retryFailures = this.extractCashBulkFailures(
         retryResult,
         retryPendingLines,
       );
-      if (retryFailures.length === 0) return;
+      if (retryFailures.length === 0) {
+        return retryIndexes
+          .map((requestIndex) =>
+            this.toUnmarkedODataSettlementTarget(pendingLines[requestIndex]),
+          )
+          .filter((target): target is VendorPaymentJournalSettlementTarget =>
+            Boolean(target),
+          );
+      }
       throw new Error(
         this.formatCashBulkFailure(headerKey, retryFailures, cashDirection),
       );
@@ -844,19 +1029,32 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Validate the durable retry boundary before filtering already-posted lines.
+   * Inspect the durable retry boundary before filtering already-posted lines.
    * A Cash-Out request is atomic per source UniqueId, so a partially existing
    * group must never be resumed as an incomplete request.
    */
-  private assertCashOutUniqueIdAtomicity(
+  private inspectCashOutUniqueIdAtomicity(
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: ReadonlySet<number>,
-    headerKey: string,
-  ): void {
+    _headerKey: string,
+  ): {
+    missingPaymentIdLines: D365FOCustomerPaymentJournalLineRequest[];
+    partialGroups: Array<{
+      uniqueId: string;
+      lineNumbers: number[];
+      existingCount: number;
+      lines: D365FOCustomerPaymentJournalLineRequest[];
+    }>;
+  } {
     const groups = new Map<
       string,
-      { lineNumbers: number[]; existingCount: number }
+      {
+        lineNumbers: number[];
+        existingCount: number;
+        lines: D365FOCustomerPaymentJournalLineRequest[];
+      }
     >();
+    const missingPaymentIdLines: D365FOCustomerPaymentJournalLineRequest[] = [];
 
     for (const line of lines) {
       // The normal pending-line validation below owns the missing-body error
@@ -865,29 +1063,51 @@ export class CustomerPaymentJournalService {
       if (!line.customLineApiBody) continue;
       const uniqueId = String(line.customLineApiBody.PAYMENTID ?? '').trim();
       if (!uniqueId) {
-        throw new Error(
-          `Cash-out line ${line.LineNumber} in header ${headerKey} is missing PAYMENTID (source UniqueId).`,
-        );
+        missingPaymentIdLines.push(line);
+        continue;
       }
 
       const group = groups.get(uniqueId) ?? {
         lineNumbers: [],
         existingCount: 0,
+        lines: [],
       };
       group.lineNumbers.push(line.LineNumber);
+      group.lines.push(line);
       if (existingLines.has(line.LineNumber)) group.existingCount++;
       groups.set(uniqueId, group);
     }
 
-    for (const [uniqueId, group] of groups) {
-      if (
-        group.existingCount > 0 &&
-        group.existingCount < group.lineNumbers.length
-      ) {
-        throw new Error(
-          `Cash-out UniqueId ${uniqueId} is only partially present in D365 for header ${headerKey} (${group.existingCount}/${group.lineNumbers.length} lines). Posting was stopped to preserve UniqueId atomicity.`,
-        );
-      }
+    return {
+      missingPaymentIdLines,
+      partialGroups: [...groups.entries()]
+        .filter(
+          ([, group]) =>
+            group.existingCount > 0 &&
+            group.existingCount < group.lineNumbers.length,
+        )
+        .map(([uniqueId, group]) => ({ uniqueId, ...group })),
+    };
+  }
+
+  private assertCashOutUniqueIdAtomicity(
+    atomicity: ReturnType<
+      CustomerPaymentJournalService['inspectCashOutUniqueIdAtomicity']
+    >,
+    headerKey: string,
+  ): void {
+    const missing = atomicity.missingPaymentIdLines[0];
+    if (missing) {
+      throw new Error(
+        `Cash-out line ${missing.LineNumber} in header ${headerKey} is missing PAYMENTID (source UniqueId).`,
+      );
+    }
+
+    const partial = atomicity.partialGroups[0];
+    if (partial) {
+      throw new Error(
+        `Cash-out UniqueId ${partial.uniqueId} is only partially present in D365 for header ${headerKey} (${partial.existingCount}/${partial.lineNumbers.length} lines). Posting was stopped to preserve UniqueId atomicity.`,
+      );
     }
   }
 
@@ -899,7 +1119,6 @@ export class CustomerPaymentJournalService {
    */
   private groupCashOutPendingLinesByUniqueId(
     pendingLines: CashBulkPendingLine[],
-    maxLines: number,
   ): CashBulkPendingLine[][] {
     const groups = new Map<
       string,
@@ -933,14 +1152,47 @@ export class CustomerPaymentJournalService {
     );
 
     for (const [uniqueId, group] of orderedGroups) {
-      if (group.lines.length > maxLines) {
+      if (group.lines.length > this.cashOutBulkBatchSize) {
         throw new Error(
-          `Cash-out UniqueId ${uniqueId} contains ${group.lines.length} lines, exceeding the D365 request limit of ${maxLines}.`,
+          `Cash-out UniqueId ${uniqueId} contains ${group.lines.length} lines, exceeding the D365 request limit of ${this.cashOutBulkBatchSize}. Posting was stopped without sending any part of that UniqueId.`,
         );
       }
     }
 
     return orderedGroups.map(([, group]) => group.lines);
+  }
+
+  private toUnmarkedODataSettlementTarget(
+    line: CashBulkPendingLine | undefined,
+  ): VendorPaymentJournalSettlementTarget | undefined {
+    if (!line) return undefined;
+    const vendorAccount = String(line.body.AccountNum ?? '').trim();
+    const vendorGroup = String(line.body.VendorGroup ?? '')
+      .trim()
+      .toLowerCase();
+    const accountType = String(line.body.accountTypeStr ?? '')
+      .trim()
+      .toLowerCase();
+    if (!vendorAccount || accountType !== 'vendor' || vendorGroup === 'custody') {
+      return undefined;
+    }
+    const marked = line.body.MarkedLines?.[0];
+    const invoiceNumber = String(marked?.InvoiceNumber ?? '').trim();
+    if (!invoiceNumber) return undefined;
+    const uniqueId = String(line.body.PAYMENTID ?? '').trim();
+    return {
+      lineNumber: line.lineNumber,
+      vendorAccount,
+      currencyCode: String(line.body.currency ?? '').trim(),
+      debitAmount: Number(line.body.debitAmount ?? 0),
+      creditAmount: Number(line.body.creditAmount ?? 0),
+      invoiceNumber,
+      documentNumber: String(marked?.DocumentNumber ?? '').trim(),
+      ...(uniqueId ? { uniqueId } : {}),
+      ...(Number(line.sourceLineNumber) > 0
+        ? { sourceLineNumber: Number(line.sourceLineNumber) }
+        : {}),
+    };
   }
 
   private formatUnmarkedDescription(
@@ -1023,10 +1275,13 @@ export class CustomerPaymentJournalService {
       attempt: CashBulkAttempt;
       batch: CashBulkBatch;
     },
+    cashDirection: 'in' | 'out',
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
     const requestBody: TSLedgerJournalTransCustomBulkRequest = {
       _contract: {
-        Lines: lines.map((line) => this.toD365BulkCashLine(line)),
+        Lines: lines.map((line) =>
+          this.toD365BulkCashLine(line, cashDirection),
+        ),
       },
     };
 
@@ -1054,7 +1309,7 @@ export class CustomerPaymentJournalService {
     pendingLines: CashBulkPendingLine[],
     dataAreaId: string,
     batch: CashBulkBatch,
-  ): Promise<void> {
+  ): Promise<CashBulkPendingLine[]> {
     const verificationTargets = pendingLines
       .map((line) => ({
         lineNumber: line.lineNumber,
@@ -1070,7 +1325,7 @@ export class CustomerPaymentJournalService {
           Boolean(line.vendorAccount) && line.expectedInvoices.length > 0,
       );
 
-    if (verificationTargets.length === 0) return;
+    if (verificationTargets.length === 0) return [];
 
     const verification = await this.pollCashOutSettlementVerification(
       dataAreaId,
@@ -1082,7 +1337,7 @@ export class CustomerPaymentJournalService {
     const failures = verification.filter(
       (result) => result.status !== 'VERIFIED',
     );
-    if (failures.length === 0) return;
+    if (failures.length === 0) return [];
 
     const safelyUnmarked = failures.filter((failure) => {
       const settleVoucher = failure.settleVoucher.trim().toLowerCase();
@@ -1137,13 +1392,18 @@ export class CustomerPaymentJournalService {
     const unsafeFailures = failures.filter(
       (failure) => !safelyUnmarked.includes(failure),
     );
-    if (unsafeFailures.length === 0) return;
+    if (unsafeFailures.length > 0) {
+      throw new Error(
+        `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
+          .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
+          .join('; ')}`,
+      );
+    }
 
-    throw new Error(
-      `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
-        .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
-        .join('; ')}`,
+    const unmarkedLineNumbers = new Set(
+      safelyUnmarked.map((failure) => failure.lineNumber),
     );
+    return pendingLines.filter((line) => unmarkedLineNumbers.has(line.lineNumber));
   }
 
   private async pollCashOutSettlementVerification(
@@ -1325,11 +1585,13 @@ export class CustomerPaymentJournalService {
    *
    * The X++ constructor performs unconditional map lookups for the core line
    * members, so those keys are always emitted (with empty values where the
-   * contract permits them). VendorGroup and MarkedLines are optional in X++ and
-   * are emitted only when they are needed. Legacy aliases are never forwarded.
+   * contract permits them). Cash-In always emits MarkedLines as an array so
+   * its request shape is stable. Cash-Out preserves its existing optional
+   * MarkedLines behavior. Legacy aliases are never forwarded.
    */
   private toD365BulkCashLine(
     line: TSLedgerJournalTransCustomRequestBody,
+    cashDirection: 'in' | 'out' = 'out',
   ): TSLedgerJournalTransCustomBulkLineRequestBody {
     const accountType = this.normalizeCustomAccountType(line.accountTypeStr);
     const offsetAccountType = this.normalizeCustomAccountType(
@@ -1405,7 +1667,11 @@ export class CustomerPaymentJournalService {
         line.REPORTINGEXCHANGERATE,
       ),
       ...(resolvedVendorGroup ? { VendorGroup: resolvedVendorGroup } : {}),
-      ...(markedLines.length > 0 ? { MarkedLines: markedLines } : {}),
+      ...(cashDirection === 'in'
+        ? { MarkedLines: markedLines }
+        : markedLines.length > 0
+          ? { MarkedLines: markedLines }
+          : {}),
     };
   }
 

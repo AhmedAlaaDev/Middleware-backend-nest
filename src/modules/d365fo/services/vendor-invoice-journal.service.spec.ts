@@ -406,6 +406,145 @@ describe('VendorInvoiceJournalService vendor payment settlement posting', () => 
     );
   });
 
+  it('includes the Excel UniqueId when a settlement exceeds the invoice remainder', async () => {
+    const service = new VendorInvoiceJournalService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchSettledInvoicesByJournalLine')
+      .mockResolvedValue(new Map());
+    jest
+      .spyOn(service as any, 'findOpenInvoiceForJournalSettlement')
+      .mockResolvedValue({
+        AmountCur: -298.84,
+        SettleAmountCur: 0,
+        DueDate: '2026-01-28T12:00:00Z',
+      });
+
+    await expect(
+      service.createVendorPaymentJournalLineSettlements({
+        company: 'm-p',
+        journalBatchNumber: 'JN-1',
+        targets: [
+          {
+            lineNumber: 4,
+            vendorAccount: 'Sl-000036',
+            currencyCode: 'USD',
+            debitAmount: 298.86,
+            creditAmount: 0,
+            invoiceNumber: '5815372458',
+            documentNumber: '16760',
+            uniqueId: '475761',
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      'Settlement amount 298.86 for cash-out line 4 (Excel UniqueId 475761) exceeds invoice 5815372458 remainder 298.84.',
+    );
+  });
+
+  it('skips a remainder failure and continues settling later invoices when continueOnError is set', async () => {
+    const d365foClient = {
+      post: jest.fn().mockResolvedValue({}),
+      patch: jest.fn(),
+    };
+    const service = new VendorInvoiceJournalService(
+      d365foClient as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchSettledInvoicesByJournalLine')
+      .mockResolvedValue(new Map());
+    jest
+      .spyOn(service as any, 'findOpenInvoiceForJournalSettlement')
+      .mockImplementation(async (_company: string, target: { invoiceNumber: string }) =>
+        target.invoiceNumber === '5815372458'
+          ? {
+              AmountCur: -298.84,
+              SettleAmountCur: 0,
+              DueDate: '2026-01-28T12:00:00Z',
+            }
+          : {
+              AmountCur: -100,
+              SettleAmountCur: 0,
+              DueDate: '2026-01-28T12:00:00Z',
+            },
+      );
+    jest
+      .spyOn(service, 'verifyVendorPaymentJournalSettlements')
+      .mockResolvedValue([
+        {
+          lineNumber: 6,
+          status: 'VERIFIED',
+          reason: 'verified',
+          expectedVendorAccount: 'Sl-000036',
+          expectedInvoices: ['INV-OK'],
+          matchedInvoices: ['INV-OK'],
+          settlementAmount: -100,
+          journalBatchNumber: 'JN-1',
+          journalMarkedInvoice: '',
+          settleVoucher: '',
+          journalLineExists: true,
+        },
+      ]);
+
+    const skipped: Array<{ uniqueId: string; phase: string; error: string }> =
+      [];
+    await service.createVendorPaymentJournalLineSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'JN-1',
+      continueOnError: true,
+      skipped: skipped as any,
+      targets: [
+        {
+          lineNumber: 4,
+          vendorAccount: 'Sl-000036',
+          currencyCode: 'USD',
+          debitAmount: 298.86,
+          creditAmount: 0,
+          invoiceNumber: '5815372458',
+          documentNumber: '16760',
+          uniqueId: '475761',
+          sourceLineNumber: 841,
+        },
+        {
+          lineNumber: 6,
+          vendorAccount: 'Sl-000036',
+          currencyCode: 'USD',
+          debitAmount: 100,
+          creditAmount: 0,
+          invoiceNumber: 'INV-OK',
+          documentNumber: 'DOC-OK',
+          uniqueId: '999001',
+          sourceLineNumber: 900,
+        },
+      ],
+    });
+
+    expect(skipped).toEqual([
+      expect.objectContaining({
+        uniqueId: '475761',
+        excelLineNumbers: [841],
+        phase: 'settle',
+        invoiceNumber: '5815372458',
+      }),
+    ]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(d365foClient.post).toHaveBeenCalledWith(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 6,
+        InvoiceNumber: 'INV-OK',
+      }),
+      { retries: 0 },
+    );
+  });
+
   it('expands a partial settlement created by an earlier failed attempt', async () => {
     const d365foClient = {
       post: jest.fn(),

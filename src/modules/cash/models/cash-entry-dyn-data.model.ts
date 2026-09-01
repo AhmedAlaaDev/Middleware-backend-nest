@@ -62,6 +62,8 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
   /** Voucher type */
   VoucherType: EntryVoucherType;
   SettlementTargetType: 'VendorInvoice' | 'CustodyLedger' | 'None';
+  /** Excel LINENUMBER. Survives cash-out journal reindexing of LineNumber. */
+  SourceLineNumber?: number;
 
   constructor(
     dimensionModel: EntryDimensionsModel,
@@ -93,5 +95,9 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
     this.SafeType = data.SafeType || ('' as EntrySafeType);
     this.VoucherType = data.VoucherType || ('' as EntryVoucherType);
     this.SettlementTargetType = data.SettlementTargetType || 'None';
+    this.SourceLineNumber =
+      Number(data.SourceLineNumber) > 0
+        ? Number(data.SourceLineNumber)
+        : undefined;
   }
 }
