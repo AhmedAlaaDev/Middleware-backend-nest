@@ -427,8 +427,13 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
   });
 
   it('enriches Custody Settlement vendor groups before formatting', async () => {
+    const supplierPair = VendorInvoiceJournalService.pairKey(
+      'IA2025120309022485',
+      'Su-000019',
+    );
     const { processor, generalJournalService } = createProcessor({
       custodyAccounts: ['3135'],
+      existingPairs: new Set([supplierPair]),
     });
     jest
       .spyOn(processor as any, 'collectSourceDimensionErrors')
@@ -477,6 +482,66 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     expect(
       generalJournalService.findCustodySettlementTargets,
     ).not.toHaveBeenCalled();
+  });
+
+  it('reports an invalid Custody Settlement supplier invoice during pre-format validation', async () => {
+    const { processor, vendorInvoiceJournalService } = createProcessor({
+      custodyAccounts: ['3135'],
+    });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    const supplier = new CashEntryRawDataModel(
+      {
+        UniqueId: 510538,
+        LINENUMBER: 17018,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: 'Su-000019',
+        DEBITAMOUNT: 8135.04,
+        CURRENCYCODE: 'EGP',
+        INVOICE: 'WRONG-INVOICE',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+    const custody = new CashEntryRawDataModel(
+      {
+        UniqueId: 510538,
+        LINENUMBER: 17019,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '3135',
+        CREDITAMOUNT: 8135.04,
+        CURRENCYCODE: 'EGP',
+        DOCUMENT: '14846',
+        SafeType: 'Custody Settlement',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    let response: any;
+    try {
+      await (processor as any).validateCashOutSourceAsync([supplier, custody]);
+    } catch (error) {
+      expect(error).toBeInstanceOf(BadRequestException);
+      response = (error as BadRequestException).getResponse();
+    }
+
+    expect(response?.errors).toContain(
+      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365. Vendor: Su-000019.',
+    );
+    expect(
+      vendorInvoiceJournalService.findInvoiceSettlementSnapshots,
+    ).toHaveBeenCalledWith('m-p', [
+      {
+        invoice: 'WRONG-INVOICE',
+        vendorAccount: 'Su-000019',
+        documentNumber: '14846',
+        lineNumber: 17018,
+      },
+    ]);
   });
 
   it('preserves multiple resolved custody ledger markings through formatting', async () => {

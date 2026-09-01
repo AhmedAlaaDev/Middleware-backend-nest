@@ -70,11 +70,7 @@ export class CustomerPaymentJournalService {
   private readonly cashOutLineEndpoint =
     '/api/services/TSLedgerJournalServiceGroup/ServiceBasic/addLedgerJournalTransVendPaym';
 
-  /**
-   * Journal lines sent per cash-out request. All lines of a journal batch go
-   * out through the `Lines` collection, split into requests of this size so a
-   * large journal stays inside the endpoint's request size and timeout limits.
-   */
+  /** Maximum number of lines allowed in one atomic Cash-Out UniqueId request. */
   private readonly cashOutBulkBatchSize = 100;
 
   /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
@@ -262,7 +258,7 @@ export class CustomerPaymentJournalService {
 
     this.logger.log(
       cashDirection === 'out'
-        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} in bulk requests of up to ${this.cashOutBulkBatchSize} lines`
+        ? `[CASH-CUSTOM] Preparing ${lines.length} cash-out lines for header ${headerKey} as one request per UniqueId (maximum ${this.cashOutBulkBatchSize} lines per UniqueId)`
         : `[CASH-CUSTOM] Posting ${lines.length} cash-in lines for header ${headerKey} in chunks of ${chunkSize}`,
     );
 
@@ -309,6 +305,10 @@ export class CustomerPaymentJournalService {
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const pendingLines: CashBulkPendingLine[] = [];
 
+    if (cashDirection === 'out') {
+      this.assertCashOutUniqueIdAtomicity(lines, existingLines, headerKey);
+    }
+
     for (const line of lines) {
       if (existingLines.has(line.LineNumber)) continue;
 
@@ -340,10 +340,13 @@ export class CustomerPaymentJournalService {
       this.removeDuplicateSettlementMarks(pendingLines);
     }
 
-    const batches = this.chunkCashPendingLines(
-      pendingLines,
-      this.cashOutBulkBatchSize,
-    );
+    const batches =
+      cashDirection === 'out'
+        ? this.groupCashOutPendingLinesByUniqueId(
+            pendingLines,
+            this.cashOutBulkBatchSize,
+          )
+        : this.chunkCashPendingLines(pendingLines, this.cashOutBulkBatchSize);
     const totalBatches = batches.length;
 
     for (const [index, pendingBatch] of batches.entries()) {
@@ -838,6 +841,106 @@ export class CustomerPaymentJournalService {
     }
     if (batch.length > 0) batches.push(batch);
     return batches;
+  }
+
+  /**
+   * Validate the durable retry boundary before filtering already-posted lines.
+   * A Cash-Out request is atomic per source UniqueId, so a partially existing
+   * group must never be resumed as an incomplete request.
+   */
+  private assertCashOutUniqueIdAtomicity(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    existingLines: ReadonlySet<number>,
+    headerKey: string,
+  ): void {
+    const groups = new Map<
+      string,
+      { lineNumbers: number[]; existingCount: number }
+    >();
+
+    for (const line of lines) {
+      // The normal pending-line validation below owns the missing-body error
+      // and preserves its existing correlation. Atomicity only needs bodies
+      // that actually carry a source identity.
+      if (!line.customLineApiBody) continue;
+      const uniqueId = String(line.customLineApiBody.PAYMENTID ?? '').trim();
+      if (!uniqueId) {
+        throw new Error(
+          `Cash-out line ${line.LineNumber} in header ${headerKey} is missing PAYMENTID (source UniqueId).`,
+        );
+      }
+
+      const group = groups.get(uniqueId) ?? {
+        lineNumbers: [],
+        existingCount: 0,
+      };
+      group.lineNumbers.push(line.LineNumber);
+      if (existingLines.has(line.LineNumber)) group.existingCount++;
+      groups.set(uniqueId, group);
+    }
+
+    for (const [uniqueId, group] of groups) {
+      if (
+        group.existingCount > 0 &&
+        group.existingCount < group.lineNumbers.length
+      ) {
+        throw new Error(
+          `Cash-out UniqueId ${uniqueId} is only partially present in D365 for header ${headerKey} (${group.existingCount}/${group.lineNumbers.length} lines). Posting was stopped to preserve UniqueId atomicity.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Build exactly one Cash-Out request per source UniqueId. Groups containing
+   * a Custody vendor are sent first, followed by other non-empty vendor groups,
+   * then groups whose VendorGroup is empty. Map insertion order makes the sort
+   * stable inside each priority and line order is never changed inside a group.
+   */
+  private groupCashOutPendingLinesByUniqueId(
+    pendingLines: CashBulkPendingLine[],
+    maxLines: number,
+  ): CashBulkPendingLine[][] {
+    const groups = new Map<
+      string,
+      { lines: CashBulkPendingLine[]; priority: number; firstIndex: number }
+    >();
+
+    for (const [index, line] of pendingLines.entries()) {
+      const uniqueId = String(line.body.PAYMENTID ?? '').trim();
+      if (!uniqueId) {
+        throw new Error(
+          `Cash-out line ${line.lineNumber} is missing PAYMENTID (source UniqueId).`,
+        );
+      }
+
+      const vendorGroup = String(line.body.VendorGroup ?? '').trim();
+      const linePriority =
+        vendorGroup.toLowerCase() === 'custody' ? 0 : vendorGroup ? 1 : 2;
+      const group = groups.get(uniqueId) ?? {
+        lines: [],
+        priority: 2,
+        firstIndex: index,
+      };
+      group.lines.push(line);
+      group.priority = Math.min(group.priority, linePriority);
+      groups.set(uniqueId, group);
+    }
+
+    const orderedGroups = [...groups.entries()].sort(
+      ([, left], [, right]) =>
+        left.priority - right.priority || left.firstIndex - right.firstIndex,
+    );
+
+    for (const [uniqueId, group] of orderedGroups) {
+      if (group.lines.length > maxLines) {
+        throw new Error(
+          `Cash-out UniqueId ${uniqueId} contains ${group.lines.length} lines, exceeding the D365 request limit of ${maxLines}.`,
+        );
+      }
+    }
+
+    return orderedGroups.map(([, group]) => group.lines);
   }
 
   private formatUnmarkedDescription(

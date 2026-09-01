@@ -49,7 +49,30 @@ function buildProcessor(vendorGroupMap: Record<string, string>) {
       dimensionService: new DimensionValidationService(),
       taxGroupService: {},
       freeTextInvoiceService: {},
-      vendorInvoiceJournalService: {},
+      vendorInvoiceJournalService: {
+        findInvoiceSettlementSnapshots: jest
+          .fn()
+          .mockImplementation((company: string, requests: any[]) =>
+            Promise.resolve(
+              new Map(
+                requests.map((request) => [
+                  `${String(request.invoice).trim().toLowerCase()}|${String(
+                    request.vendorAccount,
+                  )
+                    .trim()
+                    .toLowerCase()}`,
+                  {
+                    company,
+                    invoice: request.invoice,
+                    vendorAccount: request.vendorAccount,
+                    exists: true,
+                    belongsToVendor: true,
+                  },
+                ]),
+              ),
+            ),
+          ),
+      },
       cashOutExchangeRateService: {
         load: jest.fn().mockResolvedValue(undefined),
       },

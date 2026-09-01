@@ -683,12 +683,20 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         );
       }
     }
-    // Preserve the existing business split: Custody Settlement suppliers are
-    // not subjected to Vendor Payment invoice validation here. They only need
-    // their group enriched, while custody holders continue through the ledger
-    // document/operation target lookup below.
+    // Vendor Payment lines keep their existing validation. A non-Custody
+    // supplier debit inside Custody Settlement follows the same vendor /
+    // document / invoice lookup when the source supplied an invoice. Missing
+    // supplier invoices remain intentionally unmarked; custody holders still
+    // use the ledger document/operation lookup below.
     const invoiceValidationVendorLines = vendorLines.filter(
-      (line) => line.IsVendorPayment,
+      (line) =>
+        line.IsVendorPayment ||
+        (line.IsCustodySettlement &&
+          !isCustodyVendor(line) &&
+          Number(line.DEBITAMOUNT ?? 0) > 0 &&
+          Boolean(
+            resolveCashOutboundInvoice(line.MARKEDINVOICE, line.INVOICE),
+          )),
     );
     const normalVendorLines = invoiceValidationVendorLines.filter(
       (line) => !isCustodyVendor(line),
