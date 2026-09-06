@@ -32,6 +32,16 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     lineDirection: 'out',
   };
 
+  const custodySettlementFleetRoute: CashJournalRoute = {
+    kind: 'vendor-invoice',
+    module: 'AP',
+    safeType: 'Custody Settlement',
+    targetProcessor: 'Fleet',
+    journalName: 'P-Fleet',
+    headerApi: 'VendorPaymentJournalHeaders',
+    lineDirection: 'out',
+  };
+
   const makeGroup = (route: CashJournalRoute, lineNumber = 1) => ({
     route,
     header: {
@@ -436,8 +446,13 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(batches.updateStatusAsync).not.toHaveBeenCalled();
   });
 
-  it('completes a Custody Settlement job when UniqueIds are skipped and writes them to the error Excel', async () => {
-    const group = makeGroup(custodySettlementRoute);
+  it.each([
+    ['Freight', custodySettlementRoute],
+    ['Fleet', custodySettlementFleetRoute],
+  ] as const)(
+    'completes a Custody Settlement %s job when UniqueIds are skipped and writes them to the error Excel',
+    async (_target, route) => {
+    const group = makeGroup(route);
     const { processor, job, cashStrategy, batches, jobs } = buildProcessor([
       group,
     ]);
@@ -481,5 +496,6 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       DataBatchStatus.Posted,
     );
     expect(batches.clearDfoPostingErrorsAsync).not.toHaveBeenCalled();
-  });
+    },
+  );
 });

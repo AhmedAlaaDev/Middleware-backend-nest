@@ -118,7 +118,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       case EntryProcessorTypes.CashOutTrucking:
         return 'Fleet';
       default:
-        // Task 2045 uses Target Processor only for outbound Vendor Payment.
+        // Cash-In does not choose P-Freight vs P-Fleet.
         return undefined;
     }
   }
@@ -645,6 +645,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         LineNumber: lineNumber,
         cashDirection,
         customLineApiBody,
+        groupInvoice: String(
+          line.Invoice ||
+            markedLines[0]?.InvoiceNumber ||
+            sourceMarkedInvoice ||
+            '',
+        ).trim(),
         ...(Number(line.SourceLineNumber) > 0
           ? { sourceLineNumber: Number(line.SourceLineNumber) }
           : {}),

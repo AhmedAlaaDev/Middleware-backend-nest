@@ -477,6 +477,47 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect((handler as any).validateLine(result[0], route)).toEqual([]);
   });
 
+  it('keeps the full ledger dimension combination on a Custody Settlement 223304 line', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Ledger',
+            AccountDisplayValue: '223304|1301|013|001|001',
+            DefaultDimensionDisplayValue: '1301|013|001|001|||||||||||||||',
+            TransactionDate: '2026-01-28T00:00:00.000Z',
+            CreditAmount: 95.3,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            SafeType: 'Custody Settlement',
+            TransactionText: 'Withholding',
+          },
+        },
+      ],
+      'm-p',
+      'out',
+      route,
+    );
+
+    // D365 builds the LedgerDimension from AccountNum. Sending only the main
+    // account posts 223304 with blank dimension segments.
+    const body = result[0].customLineApiBody;
+    expect(body.AccountNum).toBe('223304|1301|013|001|001');
+    expect(body.accountTypeStr).toBe('Ledger');
+    expect(body.DEFAULTDIMENSIONDISPLAYVALUE).toBe(
+      '1301|013|001|001|||||||||||||||',
+    );
+    expect(
+      Object.keys(body).filter((key) => key.toLowerCase().startsWith('offset')),
+    ).toEqual([]);
+  });
+
   it.each([
     ['Vend', 'Vendor'],
     ['Petty cash', 'RCash'],

@@ -10,10 +10,12 @@ import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash
 import {
   CashJournalRoute,
   CashJournalRoutingService,
+  isCustodySettlementSkipRoute,
 } from '@/modules/cash/services/cash-journal-routing.service';
 import {
   createCustodySettlementSkipRow,
   CustodySettlementSkipRow,
+  isAlreadyMarkedUnmarkedUploadSkip,
 } from '@/modules/cash/services/custody-settlement-skip-report';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import {
@@ -97,7 +99,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
   ): Promise<Array<{ headerId: string; lineNumber: number }>> {
     const route = this.requireRoute();
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
-    const skipFailedUniqueIds = route.safeType === 'Custody Settlement';
+    const skipFailedUniqueIds = isCustodySettlementSkipRoute(route);
     const { postingLines, deferredSettlements, skipped } =
       this.prepareCashPostingLines(route, typedLines, skipFailedUniqueIds);
     this.skipReport.push(...skipped);
@@ -140,6 +142,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
 
     const skippedUniqueIds = new Set(
       this.skipReport
+        .filter((row) => !isAlreadyMarkedUnmarkedUploadSkip(row))
         .map((row) => row.uniqueId)
         .filter((uniqueId) => uniqueId.length > 0),
     );
@@ -410,7 +413,10 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
           ...body,
           MarkedLines: [
             {
-              InvoiceNumber: '',
+              // Keep InvoiceNumber for OData fallback when X++ skips an
+              // already-marked open trans. VendorGroup stays Custody, so
+              // addLedgerJournalTransVendPaym still settles by document.
+              InvoiceNumber: String(sourceMark?.InvoiceNumber ?? '').trim(),
               OperationNumber: operationNumber,
               DocumentNumber: documentNumber,
               HasWithHoldingLine: Boolean(sourceMark?.HasWithHoldingLine),

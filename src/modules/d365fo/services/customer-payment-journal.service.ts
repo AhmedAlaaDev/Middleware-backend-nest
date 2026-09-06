@@ -33,6 +33,7 @@ import {
   createCustodySettlementSkipRow,
   CustodySettlementSkipPhase,
   CustodySettlementSkipRow,
+  isAlreadyMarkedUnmarkedUploadSkip,
 } from '@/modules/cash/services/custody-settlement-skip-report';
 
 export type CashJournalExistingLinesLoader = () => Promise<
@@ -42,6 +43,7 @@ export type CashJournalExistingLinesLoader = () => Promise<
 interface CashBulkPendingLine {
   lineNumber: number;
   sourceLineNumber?: number;
+  groupInvoice?: string;
   body: TSLedgerJournalTransCustomRequestBody;
 }
 
@@ -365,7 +367,7 @@ export class CustomerPaymentJournalService {
       const atomicity = this.inspectCashOutUniqueIdAtomicity(
         lines,
         existingLines,
-        headerKey,
+        skipFailedUniqueIds,
       );
       if (!skipFailedUniqueIds) {
         this.assertCashOutUniqueIdAtomicity(atomicity, headerKey);
@@ -387,13 +389,14 @@ export class CustomerPaymentJournalService {
           skippedLineNumbers.add(line.LineNumber);
         }
         for (const group of atomicity.partialGroups) {
-          skippedUniqueIds.add(group.uniqueId);
+          skippedUniqueIds.add(group.atomicKey);
           skipped.push(
             this.toCashOutPostSkipRow(
               headerKey,
               group.lines.map((line) => ({
                 lineNumber: line.LineNumber,
                 sourceLineNumber: line.sourceLineNumber,
+                groupInvoice: line.groupInvoice,
                 body: line.customLineApiBody,
               })),
               `Cash-out UniqueId ${group.uniqueId} is only partially present in D365 for header ${headerKey} (${group.existingCount}/${group.lineNumbers.length} lines). Posting was skipped to preserve UniqueId atomicity.`,
@@ -410,7 +413,17 @@ export class CustomerPaymentJournalService {
       if (existingLines.has(line.LineNumber)) continue;
       if (skippedLineNumbers.has(line.LineNumber)) continue;
       const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
-      if (uniqueId && skippedUniqueIds.has(uniqueId)) continue;
+      if (
+        uniqueId &&
+        skippedUniqueIds.has(
+          this.cashOutLineGroupKey(
+            uniqueId,
+            line.groupInvoice,
+            skipFailedUniqueIds,
+          ),
+        )
+      )
+        continue;
 
       const body = line.customLineApiBody;
       if (!body) {
@@ -433,6 +446,7 @@ export class CustomerPaymentJournalService {
       pendingLines.push({
         lineNumber: line.LineNumber,
         sourceLineNumber: line.sourceLineNumber,
+        groupInvoice: String(line.groupInvoice ?? '').trim(),
         body: pendingBody,
       });
     }
@@ -443,7 +457,10 @@ export class CustomerPaymentJournalService {
 
     const batches =
       cashDirection === 'out'
-        ? this.groupCashOutPendingLinesByUniqueId(pendingLines)
+        ? this.groupCashOutPendingLinesByUniqueId(
+            pendingLines,
+            skipFailedUniqueIds,
+          )
         : this.chunkCashPendingLines(pendingLines, this.cashOutBulkBatchSize);
     const totalBatches = batches.length;
 
@@ -475,7 +492,13 @@ export class CustomerPaymentJournalService {
           error,
         );
         skipped.push(skipRow);
-        if (skipRow.uniqueId) skippedUniqueIds.add(skipRow.uniqueId);
+        skippedUniqueIds.add(
+          this.cashOutLineGroupKey(
+            skipRow.uniqueId,
+            pendingBatch[0]?.groupInvoice,
+            skipFailedUniqueIds,
+          ),
+        );
         this.logger.warn(
           `[CASH-CUSTOM] Skipping UniqueId ${skipRow.uniqueId || '?'} for header ${headerKey}: ${skipRow.error}`,
         );
@@ -484,16 +507,26 @@ export class CustomerPaymentJournalService {
 
     const settleBlockedUniqueIds = new Set(
       skipped
-        .filter((row) => row.phase === 'settle')
+        .filter(
+          (row) =>
+            row.phase === 'settle' &&
+            !isAlreadyMarkedUnmarkedUploadSkip(row),
+        )
         .map((row) => row.uniqueId)
         .filter((uniqueId) => uniqueId.length > 0),
     );
-    const settleTargets = unmarkedSettlements.filter(
-      (target) =>
-        !target.uniqueId ||
-        (!skippedUniqueIds.has(target.uniqueId) &&
-          !settleBlockedUniqueIds.has(target.uniqueId)),
-    );
+    const settleTargets = unmarkedSettlements.filter((target) => {
+      if (!target.uniqueId) return true;
+      const skipKey = this.cashOutLineGroupKey(
+        target.uniqueId,
+        target.invoiceNumber,
+        skipFailedUniqueIds,
+      );
+      return (
+        !skippedUniqueIds.has(skipKey) &&
+        !settleBlockedUniqueIds.has(target.uniqueId)
+      );
+    });
     if (cashDirection === 'out' && settleTargets.length > 0) {
       this.logger.log(
         `[CASH-CUSTOM] Marking ${settleTargets.length} unmarked vendor settlement(s) for header ${headerKey} after UniqueId upload`,
@@ -513,7 +546,14 @@ export class CustomerPaymentJournalService {
       .filter((line) => {
         if (skippedLineNumbers.has(line.LineNumber)) return false;
         const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
-        return !uniqueId || !skippedUniqueIds.has(uniqueId);
+        if (!uniqueId) return true;
+        return !skippedUniqueIds.has(
+          this.cashOutLineGroupKey(
+            uniqueId,
+            line.groupInvoice,
+            skipFailedUniqueIds,
+          ),
+        );
       })
       .map((line) => ({
         headerId: headerKey,
@@ -549,7 +589,7 @@ export class CustomerPaymentJournalService {
       documentNumber: String(
         marked?.DocumentNumber ?? first?.body.DocumentNum ?? '',
       ).trim(),
-      amount: Math.abs(Number(netAmount.toFixed(2))),
+      amount: Math.abs(netAmount),
       phase,
       error,
     });
@@ -560,9 +600,9 @@ export class CustomerPaymentJournalService {
    * successful Cash-Out request, unmarked leftovers from this same journal
    * are returned so the header can OData-mark them after UniqueId upload.
    *
-   * Custody Settlement UniqueIds that fail because the invoice is already
-   * marked are retried without MarkedLines so the journal line still lands.
-   * That UniqueId is reported as a settlement skip and is not OData-marked.
+   * Custody Settlement UniqueIds that fail because X++ hit an already-marked
+   * open trans are retried without MarkedLines so the journal line still lands.
+   * The line is then OData-marked the same way as the D365 settlement form.
    */
   private async postCashOutBulkBatch(
     endpoint: string,
@@ -663,18 +703,28 @@ export class CustomerPaymentJournalService {
           const originalMessage = failures
             .map((failure) => failure.message)
             .find((message) => this.isAlreadyMarkedForSettlementError(message));
+          const odataTargets = retryIndexes
+            .map((requestIndex) =>
+              this.toUnmarkedODataSettlementTarget(pendingLines[requestIndex]),
+            )
+            .filter((target): target is VendorPaymentJournalSettlementTarget =>
+              Boolean(target),
+            );
           this.logger.warn(
-            `[CASH-CUSTOM] UniqueId uploaded without MarkedLines for header ${headerKey}: ${originalMessage}`,
+            `[CASH-CUSTOM] UniqueId uploaded without MarkedLines for header ${headerKey}: ${originalMessage}. ${odataTargets.length} line(s) will be OData-marked the same way as the settlement form.`,
           );
-          return {
-            unmarkedSettlements: [],
-            settlementSkip: this.toCashOutPostSkipRow(
-              headerKey,
-              pendingLines,
-              `Line uploaded without settlement: ${originalMessage}`,
-              'settle',
-            ),
-          };
+          if (odataTargets.length === 0) {
+            return {
+              unmarkedSettlements: [],
+              settlementSkip: this.toCashOutPostSkipRow(
+                headerKey,
+                pendingLines,
+                `Line uploaded without settlement: ${originalMessage}`,
+                'settle',
+              ),
+            };
+          }
+          return { unmarkedSettlements: odataTargets };
         }
         return {
           unmarkedSettlements: retryIndexes
@@ -932,6 +982,7 @@ export class CustomerPaymentJournalService {
       .replace(/\s+/g, ' ')
       .trim();
 
+    // D365 names the journal "Vendor Payment Freight" or "Vendor Payment Fleet".
     return (
       normalized.includes('has been marked for settlement') ||
       normalized.includes('already marked for settlement')
@@ -995,6 +1046,9 @@ export class CustomerPaymentJournalService {
           .trim()
           .toLowerCase() !== 'vendor' ||
         Number(line.body.creditAmount ?? 0) <= 0 ||
+        String(line.body.VendorGroup ?? '')
+          .trim()
+          .toLowerCase() === 'custody' ||
         !Array.isArray(line.body.MarkedLines) ||
         line.body.MarkedLines.length === 0
       ) {
@@ -1115,11 +1169,12 @@ export class CustomerPaymentJournalService {
   private inspectCashOutUniqueIdAtomicity(
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: ReadonlySet<number>,
-    _headerKey: string,
+    splitByInvoice = false,
   ): {
     missingPaymentIdLines: D365FOCustomerPaymentJournalLineRequest[];
     partialGroups: Array<{
       uniqueId: string;
+      atomicKey: string;
       lineNumbers: number[];
       existingCount: number;
       lines: D365FOCustomerPaymentJournalLineRequest[];
@@ -1128,6 +1183,7 @@ export class CustomerPaymentJournalService {
     const groups = new Map<
       string,
       {
+        uniqueId: string;
         lineNumbers: number[];
         existingCount: number;
         lines: D365FOCustomerPaymentJournalLineRequest[];
@@ -1136,9 +1192,6 @@ export class CustomerPaymentJournalService {
     const missingPaymentIdLines: D365FOCustomerPaymentJournalLineRequest[] = [];
 
     for (const line of lines) {
-      // The normal pending-line validation below owns the missing-body error
-      // and preserves its existing correlation. Atomicity only needs bodies
-      // that actually carry a source identity.
       if (!line.customLineApiBody) continue;
       const uniqueId = String(line.customLineApiBody.PAYMENTID ?? '').trim();
       if (!uniqueId) {
@@ -1146,7 +1199,13 @@ export class CustomerPaymentJournalService {
         continue;
       }
 
-      const group = groups.get(uniqueId) ?? {
+      const atomicKey = this.cashOutLineGroupKey(
+        uniqueId,
+        line.groupInvoice,
+        splitByInvoice,
+      );
+      const group = groups.get(atomicKey) ?? {
+        uniqueId,
         lineNumbers: [],
         existingCount: 0,
         lines: [],
@@ -1154,7 +1213,7 @@ export class CustomerPaymentJournalService {
       group.lineNumbers.push(line.LineNumber);
       group.lines.push(line);
       if (existingLines.has(line.LineNumber)) group.existingCount++;
-      groups.set(uniqueId, group);
+      groups.set(atomicKey, group);
     }
 
     return {
@@ -1165,7 +1224,7 @@ export class CustomerPaymentJournalService {
             group.existingCount > 0 &&
             group.existingCount < group.lineNumbers.length,
         )
-        .map(([uniqueId, group]) => ({ uniqueId, ...group })),
+        .map(([atomicKey, group]) => ({ atomicKey, ...group })),
     };
   }
 
@@ -1191,13 +1250,14 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Build exactly one Cash-Out request per source UniqueId. Groups containing
-   * a Custody vendor are sent first, followed by other non-empty vendor groups,
-   * then groups whose VendorGroup is empty. Map insertion order makes the sort
-   * stable inside each priority and line order is never changed inside a group.
+   * Build Cash-Out requests per source UniqueId. Custody Settlement UniqueIds
+   * that contain several invoices are split so each invoice is its own TTS.
+   * Groups containing a Custody vendor are sent first, followed by other
+   * non-empty vendor groups, then groups whose VendorGroup is empty.
    */
   private groupCashOutPendingLinesByUniqueId(
     pendingLines: CashBulkPendingLine[],
+    splitByInvoice = false,
   ): CashBulkPendingLine[][] {
     const groups = new Map<
       string,
@@ -1215,14 +1275,20 @@ export class CustomerPaymentJournalService {
       const vendorGroup = String(line.body.VendorGroup ?? '').trim();
       const linePriority =
         vendorGroup.toLowerCase() === 'custody' ? 0 : vendorGroup ? 1 : 2;
-      const group = groups.get(uniqueId) ?? {
+      const groupKey = this.cashOutLineGroupKey(
+        uniqueId,
+        line.groupInvoice ||
+          String(line.body.MarkedLines?.[0]?.InvoiceNumber ?? '').trim(),
+        splitByInvoice,
+      );
+      const group = groups.get(groupKey) ?? {
         lines: [],
         priority: 2,
         firstIndex: index,
       };
       group.lines.push(line);
       group.priority = Math.min(group.priority, linePriority);
-      groups.set(uniqueId, group);
+      groups.set(groupKey, group);
     }
 
     const orderedGroups = [...groups.entries()].sort(
@@ -1233,18 +1299,27 @@ export class CustomerPaymentJournalService {
     return orderedGroups.map(([, group]) => group.lines);
   }
 
+  private cashOutLineGroupKey(
+    uniqueId: string,
+    groupInvoice: string | undefined,
+    splitByInvoice: boolean,
+  ): string {
+    if (!splitByInvoice) return uniqueId;
+    return `${uniqueId}::${String(groupInvoice ?? '').trim()}`;
+  }
+
   private toUnmarkedODataSettlementTarget(
     line: CashBulkPendingLine | undefined,
   ): VendorPaymentJournalSettlementTarget | undefined {
     if (!line) return undefined;
     const vendorAccount = String(line.body.AccountNum ?? '').trim();
-    const vendorGroup = String(line.body.VendorGroup ?? '')
-      .trim()
-      .toLowerCase();
     const accountType = String(line.body.accountTypeStr ?? '')
       .trim()
       .toLowerCase();
-    if (!vendorAccount || accountType !== 'vendor' || vendorGroup === 'custody') {
+    if (
+      !vendorAccount ||
+      (accountType && accountType !== 'vendor' && accountType !== 'vend')
+    ) {
       return undefined;
     }
     const marked = line.body.MarkedLines?.[0];

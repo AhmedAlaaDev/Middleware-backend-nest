@@ -43,4 +43,9 @@ export interface D365FOCustomerPaymentJournalLineRequest {
    * IMPORTANT: This must be built in the cash module handler (not in the service).
    */
   customLineApiBody: TSLedgerJournalTransCustomRequestBody;
+  /**
+   * Source invoice used to keep Custody Settlement UniqueIds that contain
+   * several invoices in separate X++ requests. Not sent to Finance.
+   */
+  groupInvoice?: string;
 }

@@ -1,5 +1,5 @@
 import {
-  findCustodySettlementWithholdingLine,
+  allocateCustodySettlementWithholdingLines,
   resolveCustodySettlementMarking,
 } from './custody-settlement-marking.policy';
 
@@ -17,13 +17,16 @@ export interface CustodySettlementLinePlan {
 /**
  * Owns Cash-Out Custody Settlement preparation.
  *
- * Custody Settlement keeps its existing business rules:
- * - withholding is deducted from the main vendor debit;
- * - each matched 223304 row is emitted as a Vendor -> Ledger companion;
- * - MarkedLines only flags withholding matched to that vendor source row;
- * - offsets are cleared on the main custody rows;
- * - each matched withholding row becomes a separate Vendor -> Ledger output
- *   line, preserving the same settlement identity shape as Vendor Payment.
+ * Every source row is posted; none is dropped or merged away:
+ * - a 223304 row matched to a vendor debit becomes a Vendor -> 223304 line,
+ *   the same shape Vendor Payment posts, so Finance shows the vendor account
+ *   with withholding as its offset instead of a bare ledger line. That vendor
+ *   debit is reduced by the withholding, so the two lines together still
+ *   settle the gross invoice amount;
+ * - a 223304 row with no matching vendor debit stays its own ledger line;
+ * - all other vendor debit/credit amounts stay exactly as the source;
+ * - MarkedLines still flags withholding that belongs to that vendor row;
+ * - offsets are cleared on the main custody rows.
  *
  * It deliberately does not decide the journal family. Routing remains in the
  * shared cash routing service so Cash-Out continues to post through the
@@ -36,8 +39,23 @@ export function prepareCustodySettlementLines(
   const nonWithholdingLines = lines.filter(
     (line) => !isCashWithholdingLedgerLine(line),
   );
-  const consumedWithholdingLines = new Set<CashEntryRawDataModel>();
+  const vendorDebitLines = nonWithholdingLines.filter((rawLine) => {
+    const accountType = String(rawLine.ACCOUNTTYPE ?? '')
+      .trim()
+      .toLowerCase();
+    const isVendorLine =
+      Boolean(rawLine.IsVendor) ||
+      accountType === 'vend' ||
+      accountType === 'vendor';
+    return isVendorLine && Number(rawLine.DEBITAMOUNT || 0) > 0;
+  });
+  const withholdingByVendor = allocateCustodySettlementWithholdingLines(
+    vendorDebitLines,
+    withholdingLines,
+    lines,
+  );
   const plans: CustodySettlementLinePlan[] = [];
+  const withholdingPostedAsOffset = new Set<CashEntryRawDataModel>();
 
   for (const rawLine of nonWithholdingLines) {
     const accountType = String(rawLine.ACCOUNTTYPE ?? '')
@@ -48,30 +66,6 @@ export function prepareCustodySettlementLines(
       accountType === 'vend' ||
       accountType === 'vendor';
     const line = cloneCashSettlementLine(rawLine);
-
-    const withholdingLine =
-      isVendorLine && Number(line.DEBITAMOUNT || 0) > 0
-        ? findAvailableCustodyWithholdingLine(
-            line,
-            withholdingLines.filter(
-              (candidate) => !consumedWithholdingLines.has(candidate),
-            ),
-            nonWithholdingLines,
-          )
-        : undefined;
-    if (withholdingLine) consumedWithholdingLines.add(withholdingLine);
-
-    // Keep the existing net vendor amount. The matching withholding row is
-    // emitted below as a separate Vendor -> Ledger companion, exactly like the
-    // Vendor Payment flow, so the journal remains balanced.
-    if (isVendorLine && withholdingLine && Number(line.DEBITAMOUNT || 0) > 0) {
-      line.DEBITAMOUNT = Math.max(
-        0,
-        Number(line.DEBITAMOUNT || 0) -
-          custodyWithholdingAmount(withholdingLine),
-      );
-    }
-
     clearCustodySettlementOffset(line);
 
     if (!isVendorLine) {
@@ -84,10 +78,33 @@ export function prepareCustodySettlementLines(
       continue;
     }
 
+    const withholdingLine =
+      Number(line.DEBITAMOUNT || 0) > 0
+        ? withholdingByVendor.get(rawLine)
+        : undefined;
     const marking = resolveCustodySettlementMarking({
       vendorLine: line,
       withholdingLine,
     });
+
+    const companion = withholdingLine
+      ? buildCustodyWithholdingCompanion(line, withholdingLine)
+      : undefined;
+    if (companion && withholdingLine) {
+      // Vendor Payment marks the companion before the main line inside the
+      // same X++ settlement transaction. Keep that order here too.
+      plans.push({
+        line: companion,
+        isVendorLine: true,
+        markedInvoice: marking.markedInvoice,
+        markedLines: marking.markedLines,
+      });
+      line.DEBITAMOUNT = subtractCustodyAmount(
+        Number(line.DEBITAMOUNT || 0),
+        custodyWithholdingAmount(withholdingLine),
+      );
+      withholdingPostedAsOffset.add(withholdingLine);
+    }
 
     plans.push({
       line,
@@ -95,28 +112,20 @@ export function prepareCustodySettlementLines(
       markedInvoice: marking.markedInvoice,
       markedLines: marking.markedLines,
     });
-
-    if (withholdingLine) {
-      const companion = buildCustodyWithholdingCompanion(line, withholdingLine);
-      const companionMarking = resolveCustodySettlementMarking({
-        vendorLine: companion,
-      });
-      plans.push({
-        line: companion,
-        isVendorLine: true,
-        markedInvoice: companionMarking.markedInvoice,
-        markedLines: companionMarking.markedLines,
-      });
-    }
   }
 
-  // A malformed source group must not silently lose a withholding row. There
-  // is no vendor identity to build a companion from, so preserve the original
-  // ledger row and let normal account validation report any invalid shape.
   for (const withholdingLine of withholdingLines) {
-    if (consumedWithholdingLines.has(withholdingLine)) continue;
+    if (withholdingPostedAsOffset.has(withholdingLine)) continue;
     const line = cloneCashSettlementLine(withholdingLine);
     clearCustodySettlementOffset(line);
+    if (!String(line.INVOICE ?? '').trim()) {
+      const owner = [...withholdingByVendor.entries()].find(
+        ([, allocated]) => allocated === withholdingLine,
+      )?.[0];
+      if (owner) {
+        line.INVOICE = String(owner.INVOICE ?? owner.MARKEDINVOICE ?? '').trim();
+      }
+    }
     plans.push({
       line,
       isVendorLine: false,
@@ -128,81 +137,54 @@ export function prepareCustodySettlementLines(
   return plans;
 }
 
-function findAvailableCustodyWithholdingLine(
-  vendorLine: CashEntryRawDataModel,
-  availableWithholdingLines: CashEntryRawDataModel[],
-  settlementLines: CashEntryRawDataModel[],
-): CashEntryRawDataModel | undefined {
-  const vendorDebit = Number(vendorLine.DEBITAMOUNT ?? 0);
-  const compatibleMatches = availableWithholdingLines.filter((candidate) => {
-    const amount = custodyWithholdingAmount(candidate);
-    return (
-      amount <= vendorDebit + 0.005 &&
-      findCustodySettlementWithholdingLine(vendorLine, [candidate]) ===
-        candidate
-    );
-  });
-
-  const exactNetMatch = compatibleMatches.find((candidate) => {
-    const expectedNetDebit = vendorDebit - custodyWithholdingAmount(candidate);
-    return settlementLines.some(
-      (creditLine) =>
-        creditLine !== vendorLine &&
-        isVendorCreditLine(creditLine) &&
-        sameCustodySettlementIdentity(vendorLine, creditLine) &&
-        Math.abs(Number(creditLine.CREDITAMOUNT ?? 0) - expectedNetDebit) <=
-          0.005,
-    );
-  });
-
-  return (
-    exactNetMatch ??
-    findCustodySettlementWithholdingLine(vendorLine, compatibleMatches)
-  );
-}
-
-function isVendorCreditLine(line: CashEntryRawDataModel): boolean {
-  const accountType = String(line.ACCOUNTTYPE ?? '')
-    .trim()
-    .toLowerCase();
-  return (
-    (Boolean(line.IsVendor) ||
-      accountType === 'vend' ||
-      accountType === 'vendor') &&
-    Number(line.CREDITAMOUNT ?? 0) > 0
-  );
-}
-
-function sameCustodySettlementIdentity(
-  debitLine: CashEntryRawDataModel,
-  creditLine: CashEntryRawDataModel,
-): boolean {
-  const pairs: Array<[unknown, unknown]> = [
-    [debitLine.UniqueId, creditLine.UniqueId],
-    [debitLine.CURRENCYCODE, creditLine.CURRENCYCODE],
-    [debitLine.INVOICE, creditLine.INVOICE],
-    [debitLine.DOCUMENT, creditLine.DOCUMENT],
-  ];
-
-  return pairs.every(([left, right]) => {
-    const normalizedLeft = normalizeCustodyIdentityValue(left);
-    const normalizedRight = normalizeCustodyIdentityValue(right);
-    return (
-      !normalizedLeft || !normalizedRight || normalizedLeft === normalizedRight
-    );
-  });
-}
-
-function normalizeCustodyIdentityValue(value: unknown): string {
-  return typeof value === 'string' || typeof value === 'number'
-    ? String(value).trim()
-    : '';
-}
-
 function custodyWithholdingAmount(line: CashEntryRawDataModel): number {
-  const credit = Number(line.CREDITAMOUNT ?? 0);
-  if (credit !== 0) return Math.abs(credit);
-  return Math.abs(Number(line.DEBITAMOUNT ?? 0));
+  const credit = Math.abs(Number(line.CREDITAMOUNT ?? 0));
+  const debit = Math.abs(Number(line.DEBITAMOUNT ?? 0));
+  return credit > 0 ? credit : debit;
+}
+
+/**
+ * Subtracts without changing the precision of the source amount. Excel cash
+ * rows carry more than two decimals, so currency-decimal rounding would move
+ * money; this only removes binary floating-point noise.
+ */
+function subtractCustodyAmount(amount: number, subtrahend: number): number {
+  return Number((amount - subtrahend).toFixed(6));
+}
+
+/**
+ * Turns one 223304 source row into the vendor line that carries it as an
+ * offset. The vendor identity, invoice and dimensions come from the settled
+ * vendor row; only the amount and the offset account come from the 223304 row.
+ * Returns undefined when the withholding cannot fit inside the vendor debit,
+ * so the caller keeps posting that row as its own ledger line.
+ */
+function buildCustodyWithholdingCompanion(
+  vendorLine: CashEntryRawDataModel,
+  withholdingLine: CashEntryRawDataModel,
+): CashEntryRawDataModel | undefined {
+  const amount = custodyWithholdingAmount(withholdingLine);
+  if (amount <= 0 || amount > Number(vendorLine.DEBITAMOUNT || 0)) {
+    return undefined;
+  }
+
+  const companion = cloneCashSettlementLine(vendorLine);
+  // Keep the source row identity of the withholding line for traceability.
+  companion.LINENUMBER = withholdingLine.LINENUMBER;
+  companion.DEBITAMOUNT = amount;
+  companion.CREDITAMOUNT = 0;
+  companion.OFFSETACCOUNTTYPE = 'Ledger' as any;
+  companion.OFFSETACCOUNTDISPLAYVALUE = String(
+    withholdingLine.ACCOUNTDISPLAYVALUE ?? '',
+  );
+  companion.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
+  companion.OFFSETFINTAGDISPLAYVALUE = String(
+    withholdingLine.FINTAGDISPLAYVALUE ?? '',
+  );
+  companion.OFFSETTEXT = String(
+    withholdingLine.TEXT ?? vendorLine.TEXT ?? '',
+  );
+  return companion;
 }
 
 function cloneCashSettlementLine(
@@ -219,41 +201,4 @@ function clearCustodySettlementOffset(line: CashEntryRawDataModel): void {
   line.OFFSETACCOUNTDISPLAYVALUE = '';
   line.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = '';
   line.OFFSETFINTAGDISPLAYVALUE = '';
-}
-
-/**
- * Converts the source 223304 ledger row into the same Vendor -> Ledger
- * companion line emitted by Vendor Payment. The vendor invoice/document stay
- * on the companion mark, while HasWithHoldingLine is false because this row is
- * the withholding transaction itself.
- */
-function buildCustodyWithholdingCompanion(
-  vendorLine: CashEntryRawDataModel,
-  withholdingLine: CashEntryRawDataModel,
-): CashEntryRawDataModel {
-  const companion = cloneCashSettlementLine(vendorLine);
-  const amount = custodyWithholdingAmount(withholdingLine);
-
-  companion.ACCOUNTTYPE = 'Vend' as any;
-  companion.ACCOUNTDISPLAYVALUE = vendorLine.ACCOUNTDISPLAYVALUE;
-  companion.DEBITAMOUNT = amount;
-  companion.CREDITAMOUNT = 0;
-  companion.IsVendor = true;
-  companion.IsLedger = false;
-  companion.IsCustodyVendor = false;
-  companion.OFFSETACCOUNTTYPE = 'Ledger' as any;
-  companion.OFFSETACCOUNTDISPLAYVALUE = withholdingLine.ACCOUNTDISPLAYVALUE;
-  companion.OFFSETDEFAULTDIMENSIONDISPLAYVALUE =
-    withholdingLine.DEFAULTDIMENSIONDISPLAYVALUE;
-  companion.OFFSETFINTAGDISPLAYVALUE = withholdingLine.FINTAGDISPLAYVALUE || '';
-  companion.PAYMENTMETHOD =
-    withholdingLine.PAYMENTMETHOD || vendorLine.PAYMENTMETHOD;
-  companion.PAYMENTREFERENCE =
-    withholdingLine.PAYMENTREFERENCE || vendorLine.PAYMENTREFERENCE;
-  companion.DESCRIPTION = withholdingLine.DESCRIPTION || vendorLine.DESCRIPTION;
-  companion.TEXT = withholdingLine.TEXT || vendorLine.TEXT;
-  companion.ITEMWITHHOLDINGTAXGROUPCODE = '';
-  companion.ISWITHHOLDINGCALCULATIONENABLED = 'No';
-
-  return companion;
 }

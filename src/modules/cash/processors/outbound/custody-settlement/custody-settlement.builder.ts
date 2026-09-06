@@ -88,7 +88,8 @@ export class CustodySettlementBuilder {
           : 'VendorInvoice';
       }
 
-      // The policy has already deducted withholding from the line amount.
+      // Withholding is posted from the source amount, either as the offset of
+      // a vendor line or as its own ledger line. D365 must not recalculate it.
       dynLine.IsWithholdingCalculationEnabled = 'No';
       dynLine.ItemWithholdingTaxGroupCode = '';
       return dynLine;

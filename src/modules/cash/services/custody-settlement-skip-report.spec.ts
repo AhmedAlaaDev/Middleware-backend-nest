@@ -3,6 +3,7 @@ import {
   createCustodySettlementSkipRow,
   formatCustodySettlementSkipBatchSummary,
   formatCustodySettlementSkipWarning,
+  isAlreadyMarkedUnmarkedUploadSkip,
   isCustodySettlementSkipError,
   toCustodySettlementSkipBatchError,
   toCustodySettlementSkipExcelRow,
@@ -62,6 +63,7 @@ describe('custody-settlement-skip-report', () => {
     expect(formatCustodySettlementSkipWarning(row)).toContain(
       'Settlement skipped: UniqueId 466596 Excel line 900',
     );
+    expect(isAlreadyMarkedUnmarkedUploadSkip(row)).toBe(true);
   });
 
   it('summarizes skip rows for the batch UI without listing every Excel line', () => {

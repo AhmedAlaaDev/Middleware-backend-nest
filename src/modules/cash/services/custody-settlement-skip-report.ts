@@ -130,10 +130,25 @@ export function toCustodySettlementSkipBatchError(
 
 export function isCustodySettlementSkipError(
   enhancedData: Record<string, unknown> | undefined,
-): enhancedData is Record<string, unknown> & CustodySettlementSkipRow & {
-  kind: typeof CUSTODY_SETTLEMENT_SKIP_KIND;
-} {
+): enhancedData is Record<string, unknown> &
+  CustodySettlementSkipRow & {
+    kind: typeof CUSTODY_SETTLEMENT_SKIP_KIND;
+  } {
   return enhancedData?.kind === CUSTODY_SETTLEMENT_SKIP_KIND;
+}
+
+/**
+ * UniqueIds uploaded without MarkedLines after an already-marked X++ error.
+ * They stay in the skip Excel as settlement skips, but must still be
+ * OData-marked the same way as the D365 settlement form.
+ */
+export function isAlreadyMarkedUnmarkedUploadSkip(
+  row: Pick<CustodySettlementSkipRow, 'phase' | 'error'>,
+): boolean {
+  if (row.phase !== 'settle') return false;
+  return String(row.error ?? '')
+    .trim()
+    .startsWith('Line uploaded without settlement:');
 }
 
 export function skipErrorMessage(error: unknown): string {

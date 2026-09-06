@@ -30,6 +30,10 @@ export class SyncJobMongoRepository implements SyncJobRepository {
     const update: Partial<SyncJob> = { status };
     if (errorMessage !== undefined) {
       update.errorMessage = errorMessage;
+    } else if (status !== SyncJobStatus.FAILED) {
+      // A queue retry reuses the same document, so a job that is no longer
+      // failed must stop reporting the previous error.
+      update.errorMessage = '';
     }
     await this.model.findByIdAndUpdate(id, update).exec();
   }
@@ -53,9 +57,8 @@ export class SyncJobMongoRepository implements SyncJobRepository {
 
   async findLatestBySyncType(syncType: string): Promise<ISyncJob | null> {
     // Find the latest job that starts with the sync type
-    const regex = new RegExp(`^${syncType}-`);
     const doc = await this.model
-      .findOne({ name: regex })
+      .findOne({ name: this.syncTypeNameFilter(syncType) })
       .lean()
       .sort({ created_at: -1 })
       .exec();
@@ -64,16 +67,22 @@ export class SyncJobMongoRepository implements SyncJobRepository {
   }
 
   async hasPendingOrProcessingJob(syncType: string): Promise<boolean> {
-    const regex = new RegExp(`^${syncType}-`);
     const count = await this.model
       .countDocuments({
-        name: regex,
+        name: this.syncTypeNameFilter(syncType),
         status: {
           $in: [SyncJobStatus.PENDING, SyncJobStatus.PROCESSING],
         },
       })
       .exec();
     return count > 0;
+  }
+
+  // Job names are `<syncType>-<scope>-<timestamp>`, so the sync type is a
+  // literal prefix and must not be interpreted as a regex pattern.
+  private syncTypeNameFilter(syncType: string): RegExp {
+    const escaped = syncType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped}-`);
   }
 
   private toInterface(doc: any): ISyncJob {

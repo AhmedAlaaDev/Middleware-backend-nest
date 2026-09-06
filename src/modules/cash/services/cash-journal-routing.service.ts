@@ -47,10 +47,24 @@ export class CashJournalRoutingError extends Error {
 }
 
 /**
+ * Custody Settlement skip-and-report, including already-marked unmarked
+ * UniqueId upload, applies to both Freight (P-Freight) and Fleet (P-Fleet).
+ */
+export function isCustodySettlementSkipRoute(
+  route: Pick<CashJournalRoute, 'safeType' | 'journalName'>,
+): boolean {
+  return (
+    route.safeType === 'Custody Settlement' &&
+    (route.journalName === 'P-Freight' || route.journalName === 'P-Fleet')
+  );
+}
+
+/**
  * Task 2045 routing matrix for cash-out journal headers.
  *
- * Safe Type chooses the D365 journal module. Target Processor is consulted
- * only for Vendor Payment; all other rules deliberately ignore it.
+ * Safe Type chooses the D365 journal module. Target Processor chooses
+ * P-Fleet vs P-Freight for Vendor Payment, Custody Settlement, and
+ * Custody Issue. Other Safe Types ignore it.
  */
 @Injectable()
 export class CashJournalRoutingService {

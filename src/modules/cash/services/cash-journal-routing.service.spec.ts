@@ -2,6 +2,7 @@ import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
+  isCustodySettlementSkipRoute,
 } from './cash-journal-routing.service';
 
 describe('CashJournalRoutingService - task 2045', () => {
@@ -38,6 +39,19 @@ describe('CashJournalRoutingService - task 2045', () => {
         safeType: 'Vendor Payment',
         targetProcessor: 'Freight',
         journalName: 'P-Freight',
+        headerApi: 'VendorPaymentJournalHeaders',
+        lineDirection: 'out',
+      },
+    },
+    {
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Fleet',
+      expected: {
+        kind: 'vendor-invoice',
+        module: 'AP',
+        safeType: 'Custody Settlement',
+        targetProcessor: 'Fleet',
+        journalName: 'P-Fleet',
         headerApi: 'VendorPaymentJournalHeaders',
         lineDirection: 'out',
       },
@@ -135,6 +149,13 @@ describe('CashJournalRoutingService - task 2045', () => {
     ['VENDOR-PAYMENT', ' freight ', 'Vendor Payment', 'Freight', 'P-Freight'],
     [
       ' custody_settlement ',
+      ' fLeEt ',
+      'Custody Settlement',
+      'Fleet',
+      'P-Fleet',
+    ],
+    [
+      ' custody_settlement ',
       ' freight ',
       'Custody Settlement',
       'Freight',
@@ -214,4 +235,39 @@ describe('CashJournalRoutingService - task 2045', () => {
       ).toThrow(/expected Fleet or Freight/);
     },
   );
+
+  it('enables skip-and-report for Custody Settlement on Freight and Fleet journals', () => {
+    expect(
+      isCustodySettlementSkipRoute(
+        service.resolve({
+          safeType: 'Custody Settlement',
+          targetProcessor: 'Freight',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCustodySettlementSkipRoute(
+        service.resolve({
+          safeType: 'Custody Settlement',
+          targetProcessor: 'Fleet',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCustodySettlementSkipRoute(
+        service.resolve({
+          safeType: 'Vendor Payment',
+          targetProcessor: 'Freight',
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isCustodySettlementSkipRoute(
+        service.resolve({
+          safeType: 'Vendor Payment',
+          targetProcessor: 'Fleet',
+        }),
+      ),
+    ).toBe(false);
+  });
 });

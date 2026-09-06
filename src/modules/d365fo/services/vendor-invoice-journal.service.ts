@@ -1251,16 +1251,12 @@ export class VendorInvoiceJournalService {
             Number(left.creditAmount ?? 0) - Number(left.debitAmount ?? 0),
           ),
       )[0];
-      const settlementAmount = Number(
-        group
-          .reduce(
-            (sum, target) =>
-              sum +
-              Number(target.creditAmount ?? 0) -
-              Number(target.debitAmount ?? 0),
-            0,
-          )
-          .toFixed(2),
+      const settlementAmount = group.reduce(
+        (sum, target) =>
+          sum +
+          Number(target.creditAmount ?? 0) -
+          Number(target.debitAmount ?? 0),
+        0,
       );
       return {
         ...primary,

@@ -131,6 +131,39 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     },
   );
 
+  it.each([
+    [EntryProcessorTypes.CashOutFreight, 'Freight', 'P-Freight'],
+    [EntryProcessorTypes.CashOutTrucking, 'Fleet', 'P-Fleet'],
+  ] as const)(
+    'routes Custody Settlement processor %s to AP %s',
+    async (entryProcessorType, targetProcessor, journalName) => {
+      const { handler, queueService } = buildHandler(entryProcessorType, [
+        makeLine({
+          SafeType: 'Custody Settlement',
+          VendorGroup: 'Shiplines',
+        }),
+      ]);
+
+      await handler.execute({ batchId: 'batch-2045' } as any);
+
+      const groups = queueService.addDurableJob.mock.calls[0][3];
+      expect(groups).toHaveLength(1);
+      expect(groups[0].route).toEqual(
+        expect.objectContaining({
+          kind: 'vendor-invoice',
+          module: 'AP',
+          safeType: 'Custody Settlement',
+          targetProcessor,
+          journalName,
+          headerApi: 'VendorPaymentJournalHeaders',
+        }),
+      );
+      expect(groups[0].header).toMatchObject({
+        JournalName: journalName,
+      });
+    },
+  );
+
   it('keeps Cash-In on the backward-compatible version-1 payload', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashInFreight,

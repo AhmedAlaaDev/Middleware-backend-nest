@@ -32,6 +32,16 @@ describe('CashJournalPostingStrategy', () => {
     lineDirection: 'out',
   };
 
+  const custodySettlementFleetRoute: CashJournalRoute = {
+    kind: 'vendor-invoice',
+    module: 'AP',
+    safeType: 'Custody Settlement',
+    targetProcessor: 'Fleet',
+    journalName: 'P-Fleet',
+    headerApi: 'VendorPaymentJournalHeaders',
+    lineDirection: 'out',
+  };
+
   const custodyIssueRoute: CashJournalRoute = {
     kind: 'vendor-invoice',
     module: 'AP',
@@ -278,7 +288,7 @@ describe('CashJournalPostingStrategy', () => {
     ).toHaveBeenCalledWith('in');
   });
 
-  it('targets a Custody Settlement credit by document and operation without copying the supplier invoice', async () => {
+  it('keeps the custody document-operation mark and retains invoice for OData fallback', async () => {
     const harness = buildStrategy();
     const lines = [
       {
@@ -319,7 +329,7 @@ describe('CashJournalPostingStrategy', () => {
         .calls[0][1];
     expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([
       {
-        InvoiceNumber: '',
+        InvoiceNumber: '920262100001342781',
         OperationNumber: 'O26-IMP-OC-3344',
         DocumentNumber: '20432',
         HasWithHoldingLine: false,
@@ -419,6 +429,42 @@ describe('CashJournalPostingStrategy', () => {
         .createVendorPaymentJournalLineSettlements.mock.invocationCallOrder[0],
     );
   });
+
+  it.each([
+    ['Freight', custodySettlementRoute],
+    ['Fleet', custodySettlementFleetRoute],
+  ] as const)(
+    'uses UniqueId skip-and-report for Custody Settlement %s',
+    async (_target, route) => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(route);
+
+      await harness.strategy.postLinesForHeader(
+        'Mesco-000015604',
+        [
+          {
+            dataAreaId: 'm-p',
+            LineNumber: 1,
+            cashDirection: 'out',
+            customLineApiBody: {
+              journalNum: '',
+              AccountNum: 'Sl-000020',
+              PAYMENTID: '466596',
+            },
+          },
+        ],
+        'm-p',
+        20,
+      );
+
+      expect(
+        harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        harness.customerPaymentJournalService.postCashOutLinesForHeader,
+      ).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not defer MarkedLines for the separate Vendor Payment route', async () => {
     const harness = buildStrategy();
@@ -714,7 +760,7 @@ describe('CashJournalPostingStrategy', () => {
     ]);
   });
 
-  it('does not OData-mark a UniqueId that was uploaded without settlement', async () => {
+  it('OData-marks a UniqueId that was uploaded without settlement after an already-marked X++ error', async () => {
     const harness = buildStrategy();
     harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mockResolvedValue(
       {
@@ -803,9 +849,19 @@ describe('CashJournalPostingStrategy', () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         continueOnError: true,
-        targets: [expect.objectContaining({ uniqueId: '999001' })],
+        targets: expect.arrayContaining([
+          expect.objectContaining({
+            uniqueId: '466596',
+            invoiceNumber: 'INV-MARKED',
+          }),
+          expect.objectContaining({ uniqueId: '999001' }),
+        ]),
       }),
     );
+    expect(
+      harness.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements
+        .mock.calls[0][0].targets,
+    ).toHaveLength(2);
     expect(harness.strategy.consumeSkipReport()).toEqual([
       expect.objectContaining({
         uniqueId: '466596',

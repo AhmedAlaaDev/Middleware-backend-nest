@@ -1748,11 +1748,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         : '',
       SalesTaxGroup: sourceLine.SALESTAXGROUP,
       ItemSalesTaxGroup: sourceLine.ITEMSALESTAXGROUP,
-      IsWithholdingCalculationEnabled:
-        isCustodySettlement && sourceHasWithholding ? 'Yes' : 'No',
-      ItemWithholdingTaxGroupCode: isCustodySettlement
-        ? sourceLine.ITEMWITHHOLDINGTAXGROUPCODE
-        : '',
+      IsWithholdingCalculationEnabled: 'No',
+      ItemWithholdingTaxGroupCode: '',
       OffsetCompany: this.company,
       PostingProfile: sourceLine.POSTINGPROFILE,
       Invoice: resolveCashOutboundInvoice(sourceLine.INVOICE),
@@ -2186,8 +2183,8 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   /**
    * Identify withholding 223304 source lines for stats and later routing.
    * Lines are kept unchanged — the vendor line retains its full amount
-   * (invoice + tax). Vendor Payment absorbs the 223304 amount into its gross
-   * vendor line, while Custody Settlement keeps it as an independent line.
+   * (invoice + tax). Vendor Payment posts each 223304 row as a companion
+   * Vendor line. Custody Settlement always posts 223304 as its own ledger line.
    */
   protected applyWithholdingReductions(lines: CashEntryRawDataModel[]): {
     lines: CashEntryRawDataModel[];

@@ -652,6 +652,173 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
+  it('posts each invoice of a Custody Settlement UniqueId in its own request', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success',
+    });
+
+    const line = (
+      lineNumber: number,
+      invoice: string,
+      debit: number,
+      credit: number,
+      vendorGroup = '',
+    ) => ({
+      dataAreaId: 'm-p',
+      LineNumber: lineNumber,
+      cashDirection: 'out',
+      groupInvoice: invoice,
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: debit > 0 ? 'Sl-000036' : '3210',
+        accountTypeStr: 'Vendor',
+        debitAmount: debit,
+        creditAmount: credit,
+        PAYMENTID: '475848',
+        VendorGroup: vendorGroup,
+        MarkedLines: [
+          {
+            InvoiceNumber: invoice,
+            OperationNumber: 'OP-1',
+            DocumentNumber: '16627',
+            HasWithHoldingLine: false,
+          },
+        ],
+      },
+    });
+
+    await service.postCashOutLinesForHeaderAllowingSkips(
+      'JN-SPLIT',
+      [
+        line(1, '5810265983', 0, 1.59, 'Custody'),
+        line(2, '5810265983', 1.59, 0),
+        line(3, '5815371117', 0, 33.2889, 'Custody'),
+        line(4, '5815371117', 34.1886, 0),
+      ] as any[],
+      20,
+      'm-p',
+    );
+
+    const requests = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) => body._contract.Lines,
+    );
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.map((posted: any[]) =>
+        posted.map((row) => row.MarkedLines?.[0]?.InvoiceNumber || row.AccountNum),
+      ),
+    ).toEqual([
+      ['5810265983', '5810265983'],
+      ['5815371117', '5815371117'],
+    ]);
+  });
+
+  it('keeps a 223304 ledger companion in the same invoice request', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: 'Success',
+    });
+
+    await service.postCashOutLinesForHeaderAllowingSkips(
+      'JN-WHT-SPLIT',
+      [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          cashDirection: 'out',
+          groupInvoice: '5815371117',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '3210',
+            accountTypeStr: 'Vendor',
+            creditAmount: 33.2889,
+            PAYMENTID: '475848',
+            VendorGroup: 'Custody',
+            MarkedLines: [
+              {
+                InvoiceNumber: '5815371117',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '16627',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          cashDirection: 'out',
+          groupInvoice: '5815371117',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: '223304',
+            accountTypeStr: 'Ledger',
+            creditAmount: 0.9,
+            PAYMENTID: '475848',
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 3,
+          cashDirection: 'out',
+          groupInvoice: '5815371117',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            debitAmount: 34.1886,
+            PAYMENTID: '475848',
+            MarkedLines: [
+              {
+                InvoiceNumber: '5815371117',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '16627',
+                HasWithHoldingLine: true,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 4,
+          cashDirection: 'out',
+          groupInvoice: '5810265983',
+          customLineApiBody: {
+            journalNum: '',
+            AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            debitAmount: 1.59,
+            PAYMENTID: '475848',
+            MarkedLines: [
+              {
+                InvoiceNumber: '5810265983',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '16627',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ] as any[],
+      20,
+      'm-p',
+    );
+
+    const requests = d365foClient.post.mock.calls.map(
+      ([, body]: [string, any]) => body._contract.Lines,
+    );
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.map((posted: any[]) => posted.map((row: any) => row.AccountNum)),
+    ).toEqual([
+      ['3210', '223304', 'Sl-000036'],
+      ['Sl-000036'],
+    ]);
+  });
+
   it('keeps a main and 223304 companion with the same UniqueId in one request', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValue({
@@ -1679,11 +1846,20 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
-  it('uploads an already-marked UniqueId without MarkedLines and keeps later UniqueIds marked', async () => {
+  it.each([
+    [
+      'Freight',
+      'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.',
+    ],
+    [
+      'Fleet',
+      'This transaction has been marked for settlement by Vendor Payment Fleet Mesco-000015604 in company m-p.',
+    ],
+  ] as const)(
+    'uploads an already-marked %s UniqueId without MarkedLines and OData-marks it',
+    async (_target, alreadyMarked) => {
     const { service, d365foClient, vendorInvoiceJournalService } =
       buildService();
-    const alreadyMarked =
-      'This transaction has been marked for settlement by Vendor Payment Freight Mesco-000015604 in company m-p.';
     d365foClient.post
       .mockResolvedValueOnce({
         StatusCode: 'Error',
@@ -1722,6 +1898,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           customLineApiBody: {
             journalNum: '',
             AccountNum: 'Sl-000020',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            currency: 'EGP',
             PAYMENTID: '466596',
             debitAmount: 100,
             creditAmount: 0,
@@ -1775,19 +1954,23 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       { headerId: 'Mesco-000015604', lineNumber: 1 },
       { headerId: 'Mesco-000015604', lineNumber: 2 },
     ]);
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        uniqueId: '466596',
-        excelLineNumbers: [900],
-        invoiceNumber: 'INV-MARKED',
-        phase: 'settle',
-        error: expect.stringContaining(alreadyMarked),
-      }),
-    ]);
+    expect(result.skipped).toEqual([]);
     expect(
       vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements,
-    ).not.toHaveBeenCalled();
-  });
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        continueOnError: true,
+        targets: [
+          expect.objectContaining({
+            uniqueId: '466596',
+            invoiceNumber: 'INV-MARKED',
+            lineNumber: 1,
+          }),
+        ],
+      }),
+    );
+    },
+  );
 
   it('does not retry already-marked UniqueIds without MarkedLines on Vendor Payment', async () => {
     const { service, d365foClient } = buildService();

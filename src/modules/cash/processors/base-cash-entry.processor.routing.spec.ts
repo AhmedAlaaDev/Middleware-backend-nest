@@ -69,6 +69,20 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     },
   );
 
+  it.each([
+    ['Freight', 'P-Freight'],
+    ['Fleet', 'P-Fleet'],
+  ] as const)(
+    'formats Custody Settlement target %s with journal %s',
+    (target, expectedJournal) => {
+      const processor = createProcessor(target);
+
+      expect(resolveJournalName(processor, 'Custody Settlement')).toBe(
+        expectedJournal,
+      );
+    },
+  );
+
   it('formats outbound DownPayment as an AR customer-payment line', () => {
     const processor = createProcessor();
     const rawLines = [
@@ -616,6 +630,17 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
         safeType: 'Custody Settlement',
       });
 
+      const routeSettleFleet = (
+        fleetProcessor as any
+      ).resolveCashOutJournalRoute('Custody Settlement');
+      expect(routeSettleFleet).toMatchObject({
+        kind: 'vendor-invoice',
+        module: 'AP',
+        headerApi: 'VendorPaymentJournalHeaders',
+        journalName: 'P-Fleet',
+        safeType: 'Custody Settlement',
+      });
+
       const routeIssueFleet = (
         fleetProcessor as any
       ).resolveCashOutJournalRoute('Custody Issue');
@@ -628,7 +653,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       });
     });
 
-    it('subtracts withholding from the main vendor line and sends a companion line without offset on the main line', () => {
+    it('keeps Excel vendor and withholding amounts on Custody Settlement lines', () => {
       const processor = createProcessor();
       const rawLines = [
         {
@@ -674,15 +699,22 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       const dfoLines = (processor as any).buildLines('9999', rawLines);
 
-      // Withholding is represented by a separate Vendor -> Ledger companion.
       expect(dfoLines).toHaveLength(3);
 
-      const [vendorLine, withholdingLine, safeLine] = dfoLines;
+      const withholdingLine = dfoLines.find((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      const vendorLine = dfoLines.find(
+        (line: any) =>
+          line.AccountDisplayValue === 'VEND-CUST-01' &&
+          !line.OffsetAccountDisplayValue,
+      );
+      const safeLine = dfoLines.find(
+        (line: any) => line.AccountDisplayValue === 'SAFE-001',
+      );
 
-      // Vendor line: amount reduced by withholding (1000 - 50 = 950),
-      // invoice retained and marked using the same contract as Vendor Payment.
+      // 950 + 50 is the 1000 gross vendor debit from the source file.
       expect(vendorLine.AccountType).toBe('Vend');
-      expect(vendorLine.AccountDisplayValue).toBe('VEND-CUST-01');
       expect(vendorLine.DebitAmount).toBe(950);
       expect(vendorLine.Invoice).toBe('INV-CUST-100');
       expect(vendorLine.MarkedInvoice).toBe('INV-CUST-100');
@@ -699,23 +731,92 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
 
       expect(withholdingLine.AccountType).toBe('Vend');
       expect(withholdingLine.AccountDisplayValue).toBe('VEND-CUST-01');
-      expect(withholdingLine.DebitAmount).toBe(50);
       expect(withholdingLine.OffsetAccountType).toBe('Ledger');
       expect(withholdingLine.OffsetAccountDisplayValue).toBe('223304-01');
-      expect(withholdingLine.MarkedLines).toEqual([
-        {
-          InvoiceNumber: 'INV-CUST-100',
-          OperationNumber: '',
-          DocumentNumber: 'DOC-CUST-100',
-          HasWithHoldingLine: false,
-        },
-      ]);
+      expect(withholdingLine.DebitAmount).toBe(50);
+      expect(withholdingLine.CreditAmount).toBe(0);
+      expect(withholdingLine.MarkedInvoice).toBe('INV-CUST-100');
 
-      // Safe line: credit 950, individual line without offset account
       expect(safeLine.AccountType).toBe('Petty cash');
       expect(safeLine.AccountDisplayValue).toBe('SAFE-001');
       expect(safeLine.CreditAmount).toBe(950);
       expect(safeLine.OffsetAccountDisplayValue).toBe('');
+    });
+
+    it('never drops a Custody Settlement 223304 line that carries a tax group', () => {
+      const processor = createProcessor();
+      const rawLines = [
+        {
+          UniqueId: 10001,
+          LINENUMBER: 1,
+          VOUCHER: 'CUST-SETTLE-WHT',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: 'VEND-CUST-01',
+          DEFAULTDIMENSIONDISPLAYVALUE: '|1201|012|001|001||||||||||||||',
+          DEBITAMOUNT: 23940,
+          CREDITAMOUNT: 0,
+          INVOICE: '82_1',
+          DOCUMENT: '18254',
+          ISWITHHOLDINGCALCULATIONENABLED: 'No',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 10001,
+          LINENUMBER: 2,
+          VOUCHER: 'CUST-SETTLE-WHT',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Ledger',
+          ACCOUNTDISPLAYVALUE: '223304|1601|016|001|003',
+          CREDITAMOUNT: 630,
+          DEBITAMOUNT: 0,
+          INVOICE: '82_1',
+          DOCUMENT: '18254',
+          ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+          ITEMWITHHOLDINGTAXGROUPCODE: 'WHT-3%',
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+        {
+          UniqueId: 10001,
+          LINENUMBER: 3,
+          VOUCHER: 'CUST-SETTLE-WHT',
+          TRANSDATE: '2026-01-20',
+          ACCOUNTTYPE: 'Vend',
+          ACCOUNTDISPLAYVALUE: '3098',
+          CREDITAMOUNT: 23310,
+          DEBITAMOUNT: 0,
+          INVOICE: '82_1',
+          DOCUMENT: '18254',
+          IsCustodyVendor: true,
+          SafeType: 'Custody Settlement',
+          VoucherType: 'Cash',
+        },
+      ].map((line) => new CashEntryRawDataModel(line as any, 'Freight', false));
+
+      const dfoLines = (processor as any).buildLines('10001', rawLines);
+
+      expect(dfoLines).toHaveLength(3);
+      const withholdingLine = dfoLines.find((line: any) =>
+        String(line.OffsetAccountDisplayValue ?? '').startsWith('223304'),
+      );
+      const vendorLine = dfoLines.find(
+        (line: any) =>
+          line.AccountDisplayValue === 'VEND-CUST-01' &&
+          !line.OffsetAccountDisplayValue,
+      );
+
+      // The withholding row is posted as the vendor's offset, never dropped.
+      expect(withholdingLine.AccountType).toBe('Vend');
+      expect(withholdingLine.OffsetAccountDisplayValue).toBe(
+        '223304|1601|016|001|003',
+      );
+      expect(withholdingLine.DebitAmount).toBe(630);
+      expect(withholdingLine.IsWithholdingCalculationEnabled).toBe('No');
+      expect(vendorLine.DebitAmount).toBe(23310);
+      expect(vendorLine.IsWithholdingCalculationEnabled).toBe('No');
+      expect(vendorLine.ItemWithholdingTaxGroupCode).toBe('');
     });
 
     it('keeps the invoice beside unmarked Custody Settlement text without using document as invoice', () => {
