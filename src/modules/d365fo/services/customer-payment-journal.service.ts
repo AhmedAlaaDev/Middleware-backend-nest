@@ -635,6 +635,7 @@ export class CustomerPaymentJournalService {
       batch,
       result,
       failures,
+      cashDirection,
     });
 
     if (failures.length === 0) {
@@ -1434,7 +1435,10 @@ export class CustomerPaymentJournalService {
 
     // Logged before the call so the exact submitted body is available even if
     // the request never returns.
-    await this.logCashBulkRequest(endpoint, requestBody, context);
+    await this.logCashBulkRequest(endpoint, requestBody, {
+      ...context,
+      cashDirection,
+    });
 
     try {
       // Long timeout + no client retries: FO may still be inside TTS after a
@@ -1638,15 +1642,21 @@ export class CustomerPaymentJournalService {
       pendingLines: CashBulkPendingLine[];
       attempt: CashBulkAttempt;
       batch: CashBulkBatch;
+      cashDirection?: 'in' | 'out';
     },
   ): Promise<void> {
     const lineCount = requestBody._contract.Lines.length;
+    const directionLabel =
+      context.cashDirection === 'in' ? 'Cash-in' : 'Cash-out';
 
     await this.operationalLogs.emit({
       level: 'info',
-      message: `Cash-out bulk request ${context.batch.number}/${context.batch.total} for journal ${context.headerKey} with ${lineCount} line(s)`,
+      message: `${directionLabel} bulk request ${context.batch.number}/${context.batch.total} for journal ${context.headerKey} with ${lineCount} line(s)`,
       context: CustomerPaymentJournalService.name,
-      eventType: 'd365fo.cash-out.bulk-request',
+      eventType:
+        context.cashDirection === 'in'
+          ? 'd365fo.cash-in.bulk-request'
+          : 'd365fo.cash-out.bulk-request',
       status: 'submitted',
       metadata: {
         endpoint,
@@ -1680,17 +1690,30 @@ export class CustomerPaymentJournalService {
     batch: CashBulkBatch;
     result: TSLedgerJournalTransCustomBulkResponseBody | null | undefined;
     failures: CashBulkLineFailure[];
+    cashDirection?: 'in' | 'out';
   }): Promise<void> {
-    const { headerKey, pendingLines, attempt, batch, result, failures } = args;
+    const {
+      headerKey,
+      pendingLines,
+      attempt,
+      batch,
+      result,
+      failures,
+      cashDirection,
+    } = args;
     const succeeded = failures.length === 0;
+    const directionLabel = cashDirection === 'in' ? 'Cash-in' : 'Cash-out';
 
     await this.operationalLogs.emit({
       level: succeeded ? 'info' : 'error',
       message: succeeded
-        ? `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} accepted ${pendingLines.length} line(s)`
-        : `Cash-out bulk request ${batch.number}/${batch.total} for journal ${headerKey} failed for ${failures.length} line(s)`,
+        ? `${directionLabel} bulk request ${batch.number}/${batch.total} for journal ${headerKey} accepted ${pendingLines.length} line(s)`
+        : `${directionLabel} bulk request ${batch.number}/${batch.total} for journal ${headerKey} failed for ${failures.length} line(s)`,
       context: CustomerPaymentJournalService.name,
-      eventType: 'd365fo.cash-out.bulk-response',
+      eventType:
+        cashDirection === 'in'
+          ? 'd365fo.cash-in.bulk-response'
+          : 'd365fo.cash-out.bulk-response',
       status: succeeded ? 'accepted' : 'rejected',
       metadata: {
         journalNum: headerKey,

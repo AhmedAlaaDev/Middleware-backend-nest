@@ -48,4 +48,12 @@ export interface D365FOCustomerPaymentJournalLineRequest {
    * several invoices in separate X++ requests. Not sent to Finance.
    */
   groupInvoice?: string;
+  /**
+   * After the Cash-In journal line exists, settle this invoice for this line's
+   * credit amount via PaymentJournalLineSettledInvoices. Not sent to X++.
+   */
+  customerSettlement?: {
+    invoiceNumber: string;
+    settlementAmount: number;
+  };
 }

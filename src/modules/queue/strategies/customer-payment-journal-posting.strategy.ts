@@ -8,6 +8,7 @@ import {
 
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
+import { CustomerPaymentJournalSettlementService } from '@/modules/d365fo/services/customer-payment-journal-settlement.service';
 import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
@@ -32,6 +33,7 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
   constructor(
     private readonly customerPaymentJournalService: CustomerPaymentJournalService,
     private readonly vendorPaymentJournalService: VendorPaymentJournalService,
+    private readonly customerPaymentJournalSettlementService: CustomerPaymentJournalSettlementService,
   ) {}
 
   private headerCashDirectionContext: 'in' | 'out' = 'in';
@@ -119,7 +121,47 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
             dataAreaId,
           );
 
+    if (cashDirection === 'in') {
+      await this.settleCustomerPaymentLines(
+        headerKey,
+        dataAreaId,
+        typedLines,
+      );
+    }
+
     return postedLines;
+  }
+
+  private async settleCustomerPaymentLines(
+    journalBatchNumber: string,
+    company: string,
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+  ): Promise<void> {
+    const targets = lines.flatMap((line) => {
+      const invoiceNumber = String(
+        line.customerSettlement?.invoiceNumber ?? '',
+      ).trim();
+      const settlementAmount = Number(
+        line.customerSettlement?.settlementAmount ?? 0,
+      );
+      if (!invoiceNumber || !(settlementAmount > 0) || !(line.LineNumber > 0)) {
+        return [];
+      }
+      return [
+        {
+          lineNumber: line.LineNumber,
+          invoiceNumber,
+          settlementAmount,
+        },
+      ];
+    });
+    if (targets.length === 0) return;
+
+    await this.customerPaymentJournalSettlementService.createSettlements({
+      company,
+      journalBatchNumber,
+      targets,
+    });
   }
 
   public async deleteHeader(

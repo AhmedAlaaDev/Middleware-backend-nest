@@ -18,16 +18,21 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
       deleteLine: jest.fn().mockResolvedValue(undefined),
       listLinesForHeader: jest.fn().mockResolvedValue([{ LineNumber: 1 }]),
     };
+    const customerPaymentJournalSettlementService = {
+      createSettlements: jest.fn().mockResolvedValue(undefined),
+    };
 
     const strategy = new CustomerPaymentJournalPostingStrategy(
       customerPaymentJournalService as any,
       vendorPaymentJournalService as any,
+      customerPaymentJournalSettlementService as any,
     );
 
     return {
       strategy,
       customerPaymentJournalService,
       vendorPaymentJournalService,
+      customerPaymentJournalSettlementService,
     };
   };
 
@@ -110,27 +115,34 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
     expect(customerPaymentJournalService.deleteLine).not.toHaveBeenCalled();
   });
 
-  it('posts cash-in lines through the customer payment journal custom API', async () => {
-    const { strategy, customerPaymentJournalService } = buildStrategy();
+  it('settles cash-in lines through PaymentJournalLineSettledInvoices after posting', async () => {
+    const {
+      strategy,
+      customerPaymentJournalService,
+      customerPaymentJournalSettlementService,
+    } = buildStrategy();
 
     strategy.setHeaderCashDirectionContext('in');
     await strategy.postLinesForHeader(
-      'Mesco-000099999',
+      'Mesco-000015850',
       [
         {
           LineNumber: 1,
           cashDirection: 'in',
-          customLineApiBody: {
-            creditAmount: 40,
-            MarkedLines: [
-              {
-                InvoiceNumber: '000009214/Inv-SH',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
+          customerSettlement: {
+            invoiceNumber: '000036765/YD',
+            settlementAmount: 2403.51,
           },
+          customLineApiBody: { creditAmount: 2403.51, MarkedLines: [] },
+        },
+        {
+          LineNumber: 2,
+          cashDirection: 'in',
+          customerSettlement: {
+            invoiceNumber: '000036765/YD',
+            settlementAmount: 2067.0188,
+          },
+          customLineApiBody: { creditAmount: 2067.0188, MarkedLines: [] },
         },
       ],
       'm-p',
@@ -139,24 +151,47 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
 
     expect(
       customerPaymentJournalService.postCashInLinesForHeader,
-    ).toHaveBeenCalledWith(
-      'Mesco-000099999',
-      expect.arrayContaining([
-        expect.objectContaining({
-          customLineApiBody: expect.objectContaining({
-            MarkedLines: [
-              {
-                InvoiceNumber: '000009214/Inv-SH',
-                OperationNumber: '',
-                DocumentNumber: '',
-                HasWithHoldingLine: false,
-              },
-            ],
-          }),
-        }),
-      ]),
-      20,
+    ).toHaveBeenCalled();
+    expect(
+      customerPaymentJournalSettlementService.createSettlements,
+    ).toHaveBeenCalledWith({
+      company: 'm-p',
+      journalBatchNumber: 'Mesco-000015850',
+      targets: [
+        {
+          lineNumber: 1,
+          invoiceNumber: '000036765/YD',
+          settlementAmount: 2403.51,
+        },
+        {
+          lineNumber: 2,
+          invoiceNumber: '000036765/YD',
+          settlementAmount: 2067.0188,
+        },
+      ],
+    });
+  });
+
+  it('does not settle cash-in freight lines that have no customerSettlement', async () => {
+    const { strategy, customerPaymentJournalSettlementService } =
+      buildStrategy();
+
+    strategy.setHeaderCashDirectionContext('in');
+    await strategy.postLinesForHeader(
+      'Mesco-000000001',
+      [
+        {
+          LineNumber: 1,
+          cashDirection: 'in',
+          customLineApiBody: { creditAmount: 100 },
+        },
+      ],
       'm-p',
+      20,
     );
+
+    expect(
+      customerPaymentJournalSettlementService.createSettlements,
+    ).not.toHaveBeenCalled();
   });
 });

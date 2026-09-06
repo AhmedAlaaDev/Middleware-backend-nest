@@ -62,15 +62,9 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.DebitAmount).toBe(0);
     expect(line.JournalName).toBe('Cust-Pay');
     expect(line.Description).toBe('BankIn - CIB-US-CA');
-    expect(line.SettlementIntent).toBe('Marked');
-    expect(line.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '000009214/Inv-SH',
-        OperationNumber: '',
-        DocumentNumber: '',
-        HasWithHoldingLine: false,
-      },
-    ]);
+    expect(line.SettlementIntent).toBe('Unmarked');
+    expect(line.MarkedLines).toEqual([]);
+    expect(line.Invoice).toBe('000009214/Inv-SH');
     expect(line.PaymentId).toBe('1');
     expect(line.Company).toBe('m-p');
   });
@@ -85,19 +79,15 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.Invoice).not.toBe(formatCashInboundInvoice(invoice));
   });
 
-  it('copies DOCUMENT into MarkedLines DocumentNumber', () => {
+  it('keeps DOCUMENT on the journal line; settlement amount is applied later', () => {
     const line = createBuilder().build(
       sourceRow({ DOCUMENT: 'ISOKA2025008582' }),
     );
 
-    expect(line.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '000009214/Inv-SH',
-        OperationNumber: '',
-        DocumentNumber: 'ISOKA2025008582',
-        HasWithHoldingLine: false,
-      },
-    ]);
+    expect(line.Document).toBe('ISOKA2025008582');
+    expect(line.Invoice).toBe('000009214/Inv-SH');
+    expect(line.CreditAmount).toBe(40);
+    expect(line.MarkedLines).toEqual([]);
   });
 
   it('takes the ledger main account from a composite offset display value', () => {

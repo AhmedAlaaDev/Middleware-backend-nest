@@ -6,10 +6,7 @@ import {
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
 import { collectCashInDirectSourceErrors } from '@/modules/cash/processors/inbound/direct/cash-in-direct-line.validator';
-import {
-  buildCashInboundMarkedLines,
-  createCashInboundDynamicLine,
-} from '@/modules/cash/services/cash-in-line-building.service';
+import { createCashInboundDynamicLine } from '@/modules/cash/services/cash-in-line-building.service';
 import { EntryAccountType } from '@/common/types';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
@@ -95,7 +92,6 @@ export class CashInDirectLineBuilder {
       PostingProfile: String(row.POSTINGPROFILE ?? '').trim(),
       Invoice: invoiceNumber,
       MarkedInvoice: invoiceNumber,
-      MarkedLines: buildCashInboundMarkedLines(row, row, invoiceNumber),
       dataAreaId: this.context.company,
       SecondaryExchangeRate: Number(row.EXCHANGERATESECONDARY ?? 0),
       Document: row.DOCUMENT,
@@ -104,7 +100,8 @@ export class CashInDirectLineBuilder {
       PaymentId: String(row.UniqueId || row.LINENUMBER || ''),
       SafeType: row.SafeType,
       VoucherType: row.VoucherType,
-      SettlementIntent: invoiceNumber ? 'Marked' : 'Unmarked',
+      SettlementIntent: 'Unmarked',
+      MarkedLines: [],
       SourceLineNumber: row.LINENUMBER,
     });
 

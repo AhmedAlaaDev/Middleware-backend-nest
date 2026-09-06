@@ -79,6 +79,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       batch.company,
       cashDirection,
       targetProcessor,
+      this.usesInvoiceAmountSettlement(batch.entryProcessorType),
     );
 
     const journalsToQueue = this.applyTestingMode(groupedJournals);
@@ -109,6 +110,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           `Batch entryProcessorType ${entryProcessorType} is not supported for cash DFO posting`,
         );
     }
+  }
+
+  private usesInvoiceAmountSettlement(
+    entryProcessorType: EntryProcessorTypes,
+  ): boolean {
+    return (
+      entryProcessorType === EntryProcessorTypes.CashInShiplink ||
+      entryProcessorType === EntryProcessorTypes.CashInYard
+    );
   }
 
   private getTargetProcessor(
@@ -281,6 +291,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     company: string,
     cashDirection: 'in' | 'out',
     targetProcessor: CashTargetProcessor | undefined,
+    settleInvoiceByAmount = false,
   ): CashJournalPostingGroup[] {
     const result: CashJournalPostingGroup[] = [];
 
@@ -289,7 +300,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       if (cashDirection === 'in') {
         const header = this.mapHeaderFromLines(lines, company);
-        const mappedLines = this.mapLines(lines, company, 'in');
+        const mappedLines = this.mapLines(
+          lines,
+          company,
+          'in',
+          undefined,
+          settleInvoiceByAmount,
+        );
         result.push({ header, lines: mappedLines });
         continue;
       }
@@ -354,6 +371,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     company: string,
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
+    settleInvoiceByAmount = false,
   ): D365FOCustomerPaymentJournalLineRequest[] {
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
@@ -617,34 +635,40 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // array (InvoiceNumber, OperationNumber, DocumentNumber, and
       // HasWithHoldingLine) and never reconstruct an entry from top-level
       // invoice/document fields.
-      customLineApiBody.MarkedLines = isCashOutVendorSettlementLine
-        ? markedLines
-        : markedLines.length > 0
+      customLineApiBody.MarkedLines = settleInvoiceByAmount
+        ? []
+        : isCashOutVendorSettlementLine
           ? markedLines
-          : markedInvoice
-            ? [
-                {
-                  InvoiceNumber: markedInvoice,
-                  OperationNumber: String(
-                    (line as any).OperationNumber ?? '',
-                  ).trim(),
-                  DocumentNumber: String(
-                    (line as any).DocumentNumber ?? line.Document ?? '',
-                  ).trim(),
-                  HasWithHoldingLine: Boolean((line as any).HasWithHoldingLine),
-                  ...((line as any).FullSettlement !== undefined
-                    ? {
-                        FullSettlement: Boolean((line as any).FullSettlement),
-                      }
-                    : {}),
-                },
-              ]
-            : [];
+          : markedLines.length > 0
+            ? markedLines
+            : markedInvoice
+              ? [
+                  {
+                    InvoiceNumber: markedInvoice,
+                    OperationNumber: String(
+                      (line as any).OperationNumber ?? '',
+                    ).trim(),
+                    DocumentNumber: String(
+                      (line as any).DocumentNumber ?? line.Document ?? '',
+                    ).trim(),
+                    HasWithHoldingLine: Boolean((line as any).HasWithHoldingLine),
+                    ...((line as any).FullSettlement !== undefined
+                      ? {
+                          FullSettlement: Boolean((line as any).FullSettlement),
+                        }
+                      : {}),
+                  },
+                ]
+              : [];
       delete customLineApiBody.MARKEDINVOICE;
 
       if (this.isMainAccountOnlyLine(line, cashDirection, route)) {
         this.omitOffsetFields(customLineApiBody);
       }
+
+      const settlementInvoice = String(
+        line.Invoice || markedInvoice || '',
+      ).trim();
 
       return {
         dataAreaId: company,
@@ -659,6 +683,14 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ).trim(),
         ...(Number(line.SourceLineNumber) > 0
           ? { sourceLineNumber: Number(line.SourceLineNumber) }
+          : {}),
+        ...(settleInvoiceByAmount && settlementInvoice && credit > 0
+          ? {
+              customerSettlement: {
+                invoiceNumber: settlementInvoice,
+                settlementAmount: credit,
+              },
+            }
           : {}),
       };
     });

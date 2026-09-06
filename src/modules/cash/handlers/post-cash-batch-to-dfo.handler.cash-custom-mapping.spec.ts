@@ -113,7 +113,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.ReportingExchangeRate).toBe(100);
   });
 
-  it('posts Shiplink/Yard cash-in lines with MarkedLines settlement', () => {
+  it('posts Shiplink/Yard cash-in lines unmarked and settles each credit amount', () => {
     const handler = buildHandler();
 
     const result = (handler as any).mapLines(
@@ -124,30 +124,27 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             JournalBatchNumber: 'JN000123',
             LineNumber: 1,
             AccountType: 'Cust',
-            AccountDisplayValue: '101009047',
-            OffsetAccountDisplayValue: 'CIB-US-CA',
-            OffsetAccountType: 'Bank',
+            AccountDisplayValue: '101002253',
+            OffsetAccountDisplayValue: 'Yard EG',
+            OffsetAccountType: 'Petty cash',
             OffsetCompany: 'm-p',
-            DefaultDimensionsForAccountDisplayValue: '|3101|031',
-            DefaultDimensionsForOffsetAccountDisplayValue: '|3101|031',
+            DefaultDimensionsForAccountDisplayValue: '|2401|024',
+            DefaultDimensionsForOffsetAccountDisplayValue: '|2401|024',
             TransactionDate: '2026-01-08',
-            ExchangeRate: 4750,
-            CreditAmount: 40,
+            ExchangeRate: 100,
+            CreditAmount: 2403.51,
             DebitAmount: 0,
-            CurrencyCode: 'USD',
-            VoucherType: 'Deposit',
-            FinTagDisplayValue: 'TAG1',
-            SalesTaxGroup: 'Non-Taxabl',
-            PostingProfile: '',
+            CurrencyCode: 'EGP',
+            VoucherType: 'Cash',
             PaymentId: '1',
-            Description: 'BankIn - CIB-US-CA',
-            TransactionText: 'BankIn - CIB-US-CA',
-            Invoice: '000009214/Inv-SH',
-            MarkedInvoice: '000009214/Inv-SH',
+            Description: 'CashIn - Yard EG',
+            TransactionText: 'CashIn - Yard EG',
+            Invoice: '000036765/YD',
+            MarkedInvoice: '000036765/YD',
             SettlementIntent: 'Marked',
             MarkedLines: [
               {
-                InvoiceNumber: '000009214/Inv-SH',
+                InvoiceNumber: '000036765/YD',
                 OperationNumber: '',
                 DocumentNumber: '',
                 HasWithHoldingLine: false,
@@ -156,23 +153,58 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
             SourceLineNumber: 1,
           },
         },
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: 'JN000123',
+            LineNumber: 2,
+            AccountType: 'Cust',
+            AccountDisplayValue: '101002253',
+            OffsetAccountDisplayValue: '524529',
+            OffsetAccountType: 'Ledger',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue: '|2401|024',
+            DefaultDimensionsForOffsetAccountDisplayValue: '|2401|024',
+            TransactionDate: '2026-01-08',
+            ExchangeRate: 100,
+            CreditAmount: 2067.0188,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            VoucherType: 'Cash',
+            PaymentId: '1',
+            Description: 'CashIn - Yard EG',
+            TransactionText: 'CashIn - Yard EG',
+            Invoice: '000036765/YD',
+            MarkedInvoice: '000036765/YD',
+            SettlementIntent: 'Marked',
+            MarkedLines: [
+              {
+                InvoiceNumber: '000036765/YD',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+            SourceLineNumber: 2,
+          },
+        },
       ],
       'm-p',
       'in',
+      undefined,
+      true,
     );
 
-    expect(result[0].customLineApiBody.MarkedLines).toEqual([
-      {
-        InvoiceNumber: '000009214/Inv-SH',
-        OperationNumber: '',
-        DocumentNumber: '',
-        HasWithHoldingLine: false,
-      },
-    ]);
-    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toBe(
-      'BankIn - CIB-US-CA',
-    );
-    expect(result[0].customerSettlement).toBeUndefined();
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[0].customerSettlement).toEqual({
+      invoiceNumber: '000036765/YD',
+      settlementAmount: 2403.51,
+    });
+    expect(result[1].customerSettlement).toEqual({
+      invoiceNumber: '000036765/YD',
+      settlementAmount: 2067.0188,
+    });
   });
 
   it('rejects a Cash-In foreign-currency line when no valid rate is available', () => {

@@ -102,15 +102,9 @@ describe('Cash-In Shiplink and Yard processors', () => {
       expect(lines[0].OffsetAccountDisplayValue).toBe('CIB-US-CA');
       expect(lines[1].OffsetAccountDisplayValue).toBe('524529');
       expect(lines[0].Invoice).toBe('000009214/Inv-SH');
-      expect(lines[0].SettlementIntent).toBe('Marked');
-      expect(lines[0].MarkedLines).toEqual([
-        {
-          InvoiceNumber: '000009214/Inv-SH',
-          OperationNumber: '',
-          DocumentNumber: '',
-          HasWithHoldingLine: false,
-        },
-      ]);
+      expect(lines[0].SettlementIntent).toBe('Unmarked');
+      expect(lines[0].MarkedLines).toEqual([]);
+      expect(lines[0].CreditAmount).toBe(40);
       expect(lines[1].CurrencyCode).toBe('EGP');
       expect(lines[1].ExchangeRate).toBe(100);
     },

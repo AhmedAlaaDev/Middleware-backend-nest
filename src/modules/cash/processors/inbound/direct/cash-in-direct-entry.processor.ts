@@ -17,9 +17,10 @@ import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/servic
  * Shared Cash-In path for Shiplink and Yard.
  *
  * The source workbook already carries customer and offset on the same row.
- * This processor keeps Cash-In Excel format, dimension validation, and the
- * Cash-In MarkedLines settlement contract. It skips Freight/Fleet pairing,
- * invoice rewrite, and FX balancing.
+ * This processor keeps Cash-In Excel format and dimension validation. It
+ * skips Freight/Fleet pairing, invoice rewrite, and exclusive MarkedLines.
+ * Each journal line later settles its own credit against the Excel invoice
+ * through PaymentJournalLineSettledInvoices.
  */
 @Injectable()
 export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {

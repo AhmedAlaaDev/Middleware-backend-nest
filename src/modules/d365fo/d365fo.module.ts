@@ -4,6 +4,7 @@ import { BillingService } from '@/modules/d365fo/services/billing.service';
 import { ChartOfAccountsService } from '@/modules/d365fo/services/chart-of-accounts.service';
 import { CustomerInvoiceService } from '@/modules/d365fo/services/customer-invoice.service';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
+import { CustomerPaymentJournalSettlementService } from '@/modules/d365fo/services/customer-payment-journal-settlement.service';
 import { CustomerService } from '@/modules/d365fo/services/customer.service';
 import { D365FOAuthService } from '@/modules/d365fo/services/d365fo-auth.service';
 import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
@@ -41,6 +42,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorInvoiceJournalService,
     VendorPaymentJournalService,
     CustomerPaymentJournalService,
+    CustomerPaymentJournalSettlementService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
@@ -62,6 +64,7 @@ import { VendorService } from '@/modules/d365fo/services/vendor.service';
     VendorInvoiceJournalService,
     VendorPaymentJournalService,
     CustomerPaymentJournalService,
+    CustomerPaymentJournalSettlementService,
     PaymentTermsService,
     TaxItemGroupHeadingService,
     LedgerService,
