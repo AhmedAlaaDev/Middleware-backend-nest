@@ -99,6 +99,7 @@ describe('CashJournalPostingStrategy', () => {
       createVendorPaymentJournalLineSettlements: jest
         .fn()
         .mockResolvedValue([]),
+      findInvoiceSettlementSnapshots: jest.fn().mockResolvedValue(new Map()),
     };
     const customerPaymentStrategy = {
       ...createHeaderStrategyMock('AR-0001', 31),
@@ -124,6 +125,61 @@ describe('CashJournalPostingStrategy', () => {
       ledgerStrategy,
     };
   };
+
+  it('rejects a Vendor Payment invoice that does not belong to the vendor', async () => {
+    const harness = buildStrategy();
+    harness.vendorInvoiceJournalService.findInvoiceSettlementSnapshots.mockResolvedValue(
+      new Map([
+        [
+          'inv-1|vend-1',
+          {
+            invoice: 'INV-1',
+            vendorAccount: 'VEND-1',
+            exists: true,
+            belongsToVendor: false,
+          },
+        ],
+      ]),
+    );
+    harness.strategy.setRouteContext(apRoute);
+
+    await expect(
+      harness.strategy.validateLinesBeforeHeader(
+        [
+          {
+            customLineApiBody: {
+              AccountNum: 'VEND-1',
+              accountTypeStr: 'Vendor',
+              MarkedLines: [{ InvoiceNumber: 'INV-1', DocumentNumber: '' }],
+            },
+          },
+        ],
+        'm-p',
+      ),
+    ).rejects.toThrow('invoice/vendor mismatch');
+  });
+
+  it('does not preflight Custody Settlement invoices before header creation', async () => {
+    const harness = buildStrategy();
+    harness.strategy.setRouteContext(custodySettlementRoute);
+
+    await harness.strategy.validateLinesBeforeHeader(
+      [
+        {
+          customLineApiBody: {
+            AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            MarkedLines: [{ InvoiceNumber: 'INV-1', DocumentNumber: 'DOC-1' }],
+          },
+        },
+      ],
+      'm-p',
+    );
+
+    expect(
+      harness.vendorInvoiceJournalService.findInvoiceSettlementSnapshots,
+    ).not.toHaveBeenCalled();
+  });
 
   it.each([
     {

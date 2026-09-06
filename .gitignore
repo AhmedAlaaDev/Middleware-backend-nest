@@ -59,3 +59,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /generated/prisma
 .env.development
 .env.production
+.env.secrets
+
+# Local investigation dumps and nested agent worktrees
+/.codex-run/
+/scratch/
+/*.xlsx

@@ -12,6 +12,7 @@ import {
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
 import { IConfig, ResilienceConfig } from '@/config';
+import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalHeaderResponse,
@@ -327,7 +328,7 @@ export class CustomerPaymentJournalService {
         existingLines = new Set(existing.map((l) => l.LineNumber));
       } catch (error) {
         const lookupError = this.dfoErrorExtractor.extractMessage(error);
-        throw new Error(
+        throw new NonRetryableDfoPostingError(
           `[CASH-CUSTOM] Could not verify existing lines for header ${headerKey}; posting was stopped to prevent duplicates: ${lookupError}`,
         );
       }
@@ -670,7 +671,7 @@ export class CustomerPaymentJournalService {
     if (alreadyMarkedWithoutSettlement || remainingAmountUnmarkedRetry) {
       const retryIndexes = this.cashBulkRetryIndexes(failures, pendingLines);
       if (retryIndexes.length === 0) {
-        throw new Error(
+        throw new NonRetryableDfoPostingError(
           this.formatCashBulkFailure(headerKey, failures, cashDirection),
         );
       }
@@ -736,12 +737,12 @@ export class CustomerPaymentJournalService {
             ),
         };
       }
-      throw new Error(
+      throw new NonRetryableDfoPostingError(
         this.formatCashBulkFailure(headerKey, retryFailures, cashDirection),
       );
     }
 
-    throw new Error(
+    throw new NonRetryableDfoPostingError(
       this.formatCashBulkFailure(headerKey, failures, cashDirection),
     );
   }
@@ -1539,7 +1540,7 @@ export class CustomerPaymentJournalService {
       (failure) => !safelyUnmarked.includes(failure),
     );
     if (unsafeFailures.length > 0) {
-      throw new Error(
+      throw new NonRetryableDfoPostingError(
         `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
           .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
           .join('; ')}`,

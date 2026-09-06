@@ -17,6 +17,7 @@ import {
   CustodySettlementSkipRow,
   isAlreadyMarkedUnmarkedUploadSkip,
 } from '@/modules/cash/services/custody-settlement-skip-report';
+import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import {
   VendorInvoiceJournalService,
@@ -54,6 +55,65 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     this.skipReport = [];
     if (route.kind === 'customer-payment') {
       this.customerPaymentStrategy.setHeaderCashDirectionContext('in');
+    }
+  }
+
+  /**
+   * Vendor Payment invoices are checked before a D365 header is created.
+   * Custody Settlement keeps UniqueId skip-and-report instead of failing the
+   * whole journal up front.
+   */
+  public async validateLinesBeforeHeader(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void> {
+    const route = this.requireRoute();
+    if (route.lineDirection !== 'out' || route.safeType !== 'Vendor Payment') {
+      return;
+    }
+
+    const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
+    const requests = typedLines.flatMap((line) => {
+      const body = line.customLineApiBody;
+      const vendorAccount = String(body?.AccountNum ?? '').trim();
+      const accountType = String(body?.accountTypeStr ?? '')
+        .trim()
+        .toLowerCase();
+      if (
+        !body ||
+        !vendorAccount ||
+        (accountType !== 'vendor' && accountType !== 'vend')
+      ) {
+        return [];
+      }
+      return (body.MarkedLines ?? [])
+        .map((mark) => ({
+          invoice: String(mark.InvoiceNumber ?? '').trim(),
+          vendorAccount,
+          documentNumber: String(mark.DocumentNumber ?? '').trim() || undefined,
+        }))
+        .filter((request) => Boolean(request.invoice));
+    });
+    if (requests.length === 0) return;
+
+    const snapshots =
+      await this.vendorInvoiceJournalService.findInvoiceSettlementSnapshots(
+        dataAreaId,
+        requests,
+      );
+    const mismatch = requests.some((request) => {
+      const snapshot = VendorInvoiceJournalService.findSettlementSnapshot(
+        snapshots,
+        request.invoice,
+        request.vendorAccount,
+        request.documentNumber,
+      );
+      return Boolean(snapshot?.exists && !snapshot.belongsToVendor);
+    });
+    if (mismatch) {
+      throw new NonRetryableDfoPostingError(
+        'Cash-out settlement preflight failed: invoice/vendor mismatch',
+      );
     }
   }
 
