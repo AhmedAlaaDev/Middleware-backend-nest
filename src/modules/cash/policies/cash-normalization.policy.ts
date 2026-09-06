@@ -1,4 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { CashProductLine } from '@/modules/cash/types';
 import { EntryRawDataModel } from '@/modules/entry-processor/models';
 
 /**
@@ -8,7 +9,7 @@ import { EntryRawDataModel } from '@/modules/entry-processor/models';
  */
 export function mapCashRawData(
   data: EntryRawDataModel[],
-  product: 'Freight' | 'Fleet',
+  product: CashProductLine,
   inbound: boolean,
 ): CashEntryRawDataModel[] {
   return data.map((row) => new CashEntryRawDataModel(row, product, inbound));

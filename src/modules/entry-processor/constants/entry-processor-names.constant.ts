@@ -20,4 +20,6 @@ export const ENTRY_PROCESSOR_NAMES = {
   CASH_OUT_FREIGHT: 'CashOutFreightEntryProcessor',
   CASH_IN_TRUCKING: 'CashInTruckingEntryProcessor',
   CASH_OUT_TRUCKING: 'CashOutTruckingEntryProcessor',
+  CASH_IN_SHIPLINK: 'CashInShiplinkEntryProcessor',
+  CASH_IN_YARD: 'CashInYardEntryProcessor',
 } as const;

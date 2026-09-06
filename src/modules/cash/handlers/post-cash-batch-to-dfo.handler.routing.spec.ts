@@ -181,6 +181,33 @@ describe('PostCashBatchToDFOHandler - task 2045 routing', () => {
     expect(groups[0]).not.toHaveProperty('route');
   });
 
+  it.each([
+    EntryProcessorTypes.CashInShiplink,
+    EntryProcessorTypes.CashInYard,
+  ] as const)(
+    'posts Cash-In processor %s on the inbound customer-payment path',
+    async (entryProcessorType) => {
+      const { handler, queueService } = buildHandler(entryProcessorType, [
+        makeLine({
+          JournalName: 'Cust-Pay',
+          SafeType: 'Customer Collection',
+          AccountType: 'Cust',
+          Invoice: '000036765/YD',
+          CreditAmount: 100,
+          DebitAmount: 0,
+        }),
+      ]);
+
+      await handler.execute({ batchId: 'batch-2045' } as any);
+
+      const [, , metadata] = queueService.addDurableJob.mock.calls[0];
+      expect(metadata).toMatchObject({
+        cashDirection: 'in',
+        payloadVersion: 1,
+      });
+    },
+  );
+
   it('keeps one durable job while splitting one provisional batch by AP, GL, and AR route', async () => {
     const { handler, queueService } = buildHandler(
       EntryProcessorTypes.CashOutFreight,

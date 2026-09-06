@@ -5,6 +5,8 @@ import { CashController } from '@/modules/cash/cash.controller';
 import {
   ProcessCashInFreightHandler,
   ProcessCashInTruckingHandler,
+  ProcessCashInShiplinkHandler,
+  ProcessCashInYardHandler,
   ProcessCashOutFreightHandler,
   ProcessCashOutTruckingHandler,
   PostCashBatchToDFOHandler,
@@ -24,6 +26,8 @@ const CommandHandlers = [
   ProcessCashOutFreightHandler,
   ProcessCashInTruckingHandler,
   ProcessCashOutTruckingHandler,
+  ProcessCashInShiplinkHandler,
+  ProcessCashInYardHandler,
   PostCashBatchToDFOHandler,
 ];
 

@@ -98,6 +98,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     switch (entryProcessorType) {
       case EntryProcessorTypes.CashInFreight:
       case EntryProcessorTypes.CashInTrucking:
+      case EntryProcessorTypes.CashInShiplink:
+      case EntryProcessorTypes.CashInYard:
         return 'in';
       case EntryProcessorTypes.CashOutFreight:
       case EntryProcessorTypes.CashOutTrucking:
@@ -156,6 +158,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       EntryProcessorTypes.CashOutFreight,
       EntryProcessorTypes.CashInTrucking,
       EntryProcessorTypes.CashOutTrucking,
+      EntryProcessorTypes.CashInShiplink,
+      EntryProcessorTypes.CashInYard,
     ];
     if (!allowed.includes(entryProcessorType)) {
       throw new BadRequestException(
@@ -456,6 +460,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
       const routeSupportsMarking = !route || route.kind === 'vendor-invoice';
       const isExplicitlyUnmarked =
+        cashDirection === 'out' &&
         String((line as any).SettlementIntent ?? '')
           .trim()
           .toLowerCase() === 'unmarked';
@@ -474,7 +479,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           .find(Boolean) ||
         '';
       const transactionTextValue =
-        isExplicitlyUnmarked || isUnmarkedVendorSettlement
+        cashDirection === 'out' &&
+        (isExplicitlyUnmarked || isUnmarkedVendorSettlement)
           ? unmarkedInvoice
             ? `Unmarked - ${unmarkedInvoice}`
             : 'Unmarked'

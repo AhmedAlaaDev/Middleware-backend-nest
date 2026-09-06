@@ -6,6 +6,12 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
       deleteHeader: jest.fn().mockResolvedValue(undefined),
       deleteLine: jest.fn().mockResolvedValue(undefined),
       listLinesForHeader: jest.fn().mockResolvedValue([]),
+      postCashInLinesForHeader: jest
+        .fn()
+        .mockResolvedValue([{ headerId: 'AR-0001', lineNumber: 1 }]),
+      postCashOutLinesForHeader: jest
+        .fn()
+        .mockResolvedValue([{ headerId: 'OUT-0001', lineNumber: 1 }]),
     };
     const vendorPaymentJournalService = {
       deleteHeader: jest.fn().mockResolvedValue(undefined),
@@ -102,5 +108,55 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
       'm-p',
     );
     expect(customerPaymentJournalService.deleteLine).not.toHaveBeenCalled();
+  });
+
+  it('posts cash-in lines through the customer payment journal custom API', async () => {
+    const { strategy, customerPaymentJournalService } = buildStrategy();
+
+    strategy.setHeaderCashDirectionContext('in');
+    await strategy.postLinesForHeader(
+      'Mesco-000099999',
+      [
+        {
+          LineNumber: 1,
+          cashDirection: 'in',
+          customLineApiBody: {
+            creditAmount: 40,
+            MarkedLines: [
+              {
+                InvoiceNumber: '000009214/Inv-SH',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+      ],
+      'm-p',
+      20,
+    );
+
+    expect(
+      customerPaymentJournalService.postCashInLinesForHeader,
+    ).toHaveBeenCalledWith(
+      'Mesco-000099999',
+      expect.arrayContaining([
+        expect.objectContaining({
+          customLineApiBody: expect.objectContaining({
+            MarkedLines: [
+              {
+                InvoiceNumber: '000009214/Inv-SH',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+          }),
+        }),
+      ]),
+      20,
+      'm-p',
+    );
   });
 });

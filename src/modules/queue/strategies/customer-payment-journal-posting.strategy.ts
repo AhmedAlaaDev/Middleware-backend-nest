@@ -104,19 +104,22 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     const typedLines = lines as D365FOCustomerPaymentJournalLineRequest[];
     const cashDirection = typedLines[0]?.cashDirection ?? 'in';
 
-    return cashDirection === 'out'
-      ? this.customerPaymentJournalService.postCashOutLinesForHeader(
-          headerKey,
-          typedLines,
-          chunkSize,
-          dataAreaId,
-        )
-      : this.customerPaymentJournalService.postCashInLinesForHeader(
-          headerKey,
-          typedLines,
-          chunkSize,
-          dataAreaId,
-        );
+    const postedLines =
+      cashDirection === 'out'
+        ? await this.customerPaymentJournalService.postCashOutLinesForHeader(
+            headerKey,
+            typedLines,
+            chunkSize,
+            dataAreaId,
+          )
+        : await this.customerPaymentJournalService.postCashInLinesForHeader(
+            headerKey,
+            typedLines,
+            chunkSize,
+            dataAreaId,
+          );
+
+    return postedLines;
   }
 
   public async deleteHeader(

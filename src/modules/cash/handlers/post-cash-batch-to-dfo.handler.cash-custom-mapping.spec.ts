@@ -113,6 +113,68 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body.ReportingExchangeRate).toBe(100);
   });
 
+  it('posts Shiplink/Yard cash-in lines with MarkedLines settlement', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: 'JN000123',
+            LineNumber: 1,
+            AccountType: 'Cust',
+            AccountDisplayValue: '101009047',
+            OffsetAccountDisplayValue: 'CIB-US-CA',
+            OffsetAccountType: 'Bank',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue: '|3101|031',
+            DefaultDimensionsForOffsetAccountDisplayValue: '|3101|031',
+            TransactionDate: '2026-01-08',
+            ExchangeRate: 4750,
+            CreditAmount: 40,
+            DebitAmount: 0,
+            CurrencyCode: 'USD',
+            VoucherType: 'Deposit',
+            FinTagDisplayValue: 'TAG1',
+            SalesTaxGroup: 'Non-Taxabl',
+            PostingProfile: '',
+            PaymentId: '1',
+            Description: 'BankIn - CIB-US-CA',
+            TransactionText: 'BankIn - CIB-US-CA',
+            Invoice: '000009214/Inv-SH',
+            MarkedInvoice: '000009214/Inv-SH',
+            SettlementIntent: 'Marked',
+            MarkedLines: [
+              {
+                InvoiceNumber: '000009214/Inv-SH',
+                OperationNumber: '',
+                DocumentNumber: '',
+                HasWithHoldingLine: false,
+              },
+            ],
+            SourceLineNumber: 1,
+          },
+        },
+      ],
+      'm-p',
+      'in',
+    );
+
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([
+      {
+        InvoiceNumber: '000009214/Inv-SH',
+        OperationNumber: '',
+        DocumentNumber: '',
+        HasWithHoldingLine: false,
+      },
+    ]);
+    expect(result[0].customLineApiBody.TRANSACTIONTEXT).toBe(
+      'BankIn - CIB-US-CA',
+    );
+    expect(result[0].customerSettlement).toBeUndefined();
+  });
+
   it('rejects a Cash-In foreign-currency line when no valid rate is available', () => {
     const handler = buildHandler();
 

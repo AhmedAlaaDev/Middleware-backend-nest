@@ -1,4 +1,9 @@
-import { EntryVoucherType, EntrySafeType } from '@/modules/cash/types';
+import { EntryAccountType } from '@/common/types';
+import {
+  CashProductLine,
+  EntryVoucherType,
+  EntrySafeType,
+} from '@/modules/cash/types';
 import { EntryRawDataModel } from '@/modules/entry-processor/models';
 
 export class CashEntryRawDataModel extends EntryRawDataModel {
@@ -6,6 +11,11 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   SafeTransaction: 'In' | 'Out';
   SafeType: EntrySafeType;
   VoucherType: EntryVoucherType;
+  OFFSETACCOUNTTYPE: EntryAccountType;
+  OFFSETACCOUNTDISPLAYVALUE: string;
+  OFFSETDEFAULTDIMENSIONDISPLAYVALUE: string;
+  OFFSETFINTAGDISPLAYVALUE: string;
+  OFFSETTEXT: string;
 
   // ACCOUNT TYPE FLAGS
   IsCustomer: boolean;
@@ -39,11 +49,22 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
 
   constructor(
     data: EntryRawDataModel,
-    type: 'Freight' | 'Fleet',
+    type: CashProductLine,
     isInbound = true,
   ) {
     super(data);
     const s = (v: unknown) => this.lookupResultAsString(v);
+    this.OFFSETACCOUNTTYPE = s(
+      (data as any)?.OFFSETACCOUNTTYPE,
+    ) as EntryAccountType;
+    this.OFFSETACCOUNTDISPLAYVALUE = s(
+      (data as any)?.OFFSETACCOUNTDISPLAYVALUE,
+    );
+    this.OFFSETDEFAULTDIMENSIONDISPLAYVALUE = s(
+      (data as any)?.OFFSETDEFAULTDIMENSIONDISPLAYVALUE,
+    );
+    this.OFFSETFINTAGDISPLAYVALUE = s((data as any)?.OFFSETFINTAGDISPLAYVALUE);
+    this.OFFSETTEXT = s((data as any)?.OFFSETTEXT);
 
     const PAYMENTREFERENCE = this.generatePaymentReference(data, type);
     this.PAYMENTREFERENCE = PAYMENTREFERENCE;
@@ -113,7 +134,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
 
   private generatePaymentReference(
     data: EntryRawDataModel,
-    type: 'Freight' | 'Fleet',
+    type: CashProductLine,
   ): string {
     const paymentReference = this.lookupResultAsString(data?.PAYMENTREFERENCE);
     const description = this.lookupResultAsString(data?.DESCRIPTION);

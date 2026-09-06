@@ -21,6 +21,8 @@ import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import {
   ProcessCashInFreightCommand,
   ProcessCashInTruckingCommand,
+  ProcessCashInShiplinkCommand,
+  ProcessCashInYardCommand,
   ProcessCashOutFreightCommand,
   ProcessCashOutTruckingCommand,
   PostCashBatchToDFOCommand,
@@ -28,6 +30,8 @@ import {
 import {
   CashInFreightDocDto,
   CashInTruckingDocDto,
+  CashInShiplinkDocDto,
+  CashInYardDocDto,
   CashOutFreightDocDto,
   CashOutTruckingDocDto,
   PostToDFODto,
@@ -134,6 +138,44 @@ export class CashController {
   ) {
     return this.commandBus.execute(
       new ProcessCashInTruckingCommand(file.buffer, companyId),
+    );
+  }
+
+  /**
+   * Cash-In Shiplink Document
+   */
+  @Post('CashIn-Shiplink-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: CashInShiplinkDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async cashInShiplinkDocument(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInShiplinkDocDto,
+  ) {
+    return this.commandBus.execute(
+      new ProcessCashInShiplinkCommand(file.buffer, companyId),
+    );
+  }
+
+  /**
+   * Cash-In Yard Document
+   */
+  @Post('CashIn-Yard-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload Excel file + metadata',
+    type: CashInYardDocDto,
+  })
+  @UseInterceptors(FileInterceptor('dataFile'))
+  public async cashInYardDocument(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInYardDocDto,
+  ) {
+    return this.commandBus.execute(
+      new ProcessCashInYardCommand(file.buffer, companyId),
     );
   }
 
