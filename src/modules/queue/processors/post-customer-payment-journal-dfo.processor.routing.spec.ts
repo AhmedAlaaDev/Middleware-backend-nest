@@ -1,6 +1,7 @@
 import { PostCustomerPaymentJournalDFOProcessor } from './post-customer-payment-journal-dfo.processor';
 
 import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
+import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
 import { QueueJobGroupStatus } from '@/modules/queue/schemas/queue-job-group.schema';
 
@@ -67,6 +68,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     };
     const cashStrategy = {
       setRouteContext: jest.fn(),
+      validateLinesBeforeHeader: jest.fn().mockResolvedValue(undefined),
       postHeadersInBatches: jest
         .fn()
         .mockResolvedValueOnce({ headerIds: ['D365-RET-001'], responses: [] })
@@ -139,6 +141,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       attemptsMade: 0,
       opts: { attempts: 1 },
       updateProgress: jest.fn().mockResolvedValue(undefined),
+      discard: jest.fn(),
     };
 
     return {
@@ -189,6 +192,32 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(batches.updateStatusAsync).toHaveBeenCalledWith(
       'batch-2045',
       DataBatchStatus.Posted,
+    );
+  });
+
+  it('fails without creating a header or retrying when cash-out preflight rejects', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, jobs, batches } = buildProcessor([
+      group,
+    ]);
+    job.opts.attempts = 3;
+    cashStrategy.validateLinesBeforeHeader.mockRejectedValueOnce(
+      new NonRetryableDfoPostingError(
+        'Cash-out settlement preflight failed: invoice/vendor mismatch',
+      ),
+    );
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'invoice/vendor mismatch',
+    );
+
+    expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+    expect(job.discard).toHaveBeenCalledTimes(1);
+    expect(jobs.markFailed).toHaveBeenCalledTimes(1);
+    expect(jobs.markRetrying).not.toHaveBeenCalled();
+    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+      'batch-2045',
+      DataBatchStatus.Canceled,
     );
   });
 

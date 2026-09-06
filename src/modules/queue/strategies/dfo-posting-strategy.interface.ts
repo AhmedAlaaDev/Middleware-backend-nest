@@ -21,6 +21,15 @@ export interface DeleteLinesResult {
  */
 export interface IDfoPostingStrategy {
   /**
+   * Validate a complete journal group before its D365 header is created.
+   * Strategies without external preflight requirements may omit this hook.
+   */
+  validateLinesBeforeHeader?(
+    lines: unknown[],
+    dataAreaId: string,
+  ): Promise<void>;
+
+  /**
    * Post headers in batches
    * @param headers Array of header requests
    * @param chunkSize Number of headers to post per chunk
