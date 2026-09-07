@@ -22,30 +22,69 @@ describe('CustomerPaymentJournalSettlementService', () => {
     return { service, d365 };
   };
 
+  const uniqueId1Targets = [
+    {
+      lineNumber: 1,
+      invoiceNumber: '000036765/YD',
+      settlementAmount: 2403.51,
+      customerAccount: '101002253',
+      transDate: '2026-01-05T00:00:00',
+      currencyCode: 'EGP',
+    },
+    {
+      lineNumber: 2,
+      invoiceNumber: '000036765/YD',
+      settlementAmount: 2403.5088,
+      customerAccount: '101002253',
+      transDate: '2026-01-01T00:00:00',
+      currencyCode: 'EGP',
+    },
+    {
+      lineNumber: 3,
+      invoiceNumber: '000036765/YD',
+      settlementAmount: 2067.0188,
+      customerAccount: '101002253',
+      transDate: '2026-01-05T00:00:00',
+      currencyCode: 'EGP',
+    },
+  ];
+
   const mockGets = (
     d365: { get: jest.Mock },
-    options?: { settlementExists?: boolean; recoverAfterPost?: boolean },
+    options?: {
+      settlementExists?: boolean;
+      recoverAfterPost?: boolean;
+      custTrans?: Array<Record<string, unknown>>;
+      existingSettlements?: Array<Record<string, unknown>>;
+    },
   ) => {
     let settlementGets = 0;
     d365.get.mockImplementation(async (endpoint: string) => {
       if (endpoint.includes('CustomerPaymentJournalLines')) {
-        return { value: [{ LineNumber: 1 }, { LineNumber: 2 }] };
+        return {
+          value: [{ LineNumber: 1 }, { LineNumber: 2 }, { LineNumber: 3 }],
+        };
       }
       if (endpoint.includes('CustTransBiEntities')) {
         return {
-          value: [
+          value: options?.custTrans ?? [
             {
               Invoice: '000036765/YD',
               AccountNum: '101002253',
+              CurrencyCode: 'EGP',
               Closed: '1900-01-01T00:00:00Z',
               DueDate: '2026-01-31T12:00:00Z',
               AmountCur: 6500,
               SettleAmountCur: 0,
+              SourceKey: 11,
             },
           ],
         };
       }
       settlementGets += 1;
+      if (options?.existingSettlements && settlementGets === 1) {
+        return { value: options.existingSettlements };
+      }
       if (options?.settlementExists) {
         return {
           value: [
@@ -83,12 +122,14 @@ describe('CustomerPaymentJournalSettlementService', () => {
           invoiceNumber: '000036765/YD',
           settlementAmount: 2403.51,
           customerAccount: '101002253',
+          currencyCode: 'EGP',
         },
         {
           lineNumber: 2,
           invoiceNumber: '000036765/YD',
           settlementAmount: 2067.0188,
           customerAccount: '101002253',
+          currencyCode: 'EGP',
         },
       ],
     });
@@ -105,6 +146,7 @@ describe('CustomerPaymentJournalSettlementService', () => {
         InvoiceDueDate: '2026-01-31T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2403.51,
         CashDiscountToTakeInInvoiceCurrency: 0,
+        InvoiceToPaymentCrossRate: 1,
       },
       { retries: 0 },
     );
@@ -116,9 +158,162 @@ describe('CustomerPaymentJournalSettlementService', () => {
         InvoiceNumber: '000036765/YD',
         InvoiceDueDate: '2026-01-31T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2067.0188,
+        InvoiceToPaymentCrossRate: 1,
       }),
       { retries: 0 },
     );
+  });
+
+  it('does not reuse one 2740 EGP CustTrans for later UniqueId lines', async () => {
+    const { service, d365 } = buildService();
+    mockGets(d365, {
+      custTrans: [
+        {
+          Invoice: '000036765/YD',
+          AccountNum: '101002253',
+          CurrencyCode: 'EGP',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-01-01T12:00:00Z',
+          AmountCur: 2740,
+          SettleAmountCur: 0,
+          SourceKey: 101,
+        },
+      ],
+    });
+
+    await expect(
+      service.createSettlements({
+        company: 'm-p',
+        journalBatchNumber: 'Mesco-000015850',
+        targets: uniqueId1Targets,
+      }),
+    ).rejects.toThrow(
+      /line 2 invoice 000036765\/YD exceeds remaining open customer transaction\(s\): due 2026-01-01T12:00:00Z remaining 336\.49 amount 2740/,
+    );
+
+    expect(d365.post).toHaveBeenCalledTimes(1);
+    expect(d365.post).toHaveBeenCalledWith(
+      '/data/PaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 1,
+        InvoiceDueDate: '2026-01-01T12:00:00Z',
+        SettlementAmountInInvoiceCurrency: 2403.51,
+      }),
+      { retries: 0 },
+    );
+  });
+
+  it('settles UniqueId split lines against separate open CustTrans rows', async () => {
+    const { service, d365 } = buildService();
+    mockGets(d365, {
+      custTrans: [
+        {
+          Invoice: '000036765/YD',
+          AccountNum: '101002253',
+          CurrencyCode: 'EGP',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-01-01T12:00:00Z',
+          TransDate: '2026-01-01T00:00:00Z',
+          AmountCur: 2740,
+          SettleAmountCur: 0,
+          SourceKey: 201,
+        },
+        {
+          Invoice: '000036765/YD',
+          AccountNum: '101002253',
+          CurrencyCode: 'EGP',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-01-05T12:00:00Z',
+          TransDate: '2026-01-05T00:00:00Z',
+          AmountCur: 2740,
+          SettleAmountCur: 0,
+          SourceKey: 202,
+        },
+        {
+          Invoice: '000036765/YD',
+          AccountNum: '101002253',
+          CurrencyCode: 'EGP',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-01-05T12:00:00Z',
+          TransDate: '2026-01-05T00:00:00Z',
+          AmountCur: 2356.4014,
+          SettleAmountCur: 0,
+          SourceKey: 203,
+        },
+      ],
+    });
+
+    await service.createSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'Mesco-000015850',
+      targets: uniqueId1Targets,
+    });
+
+    expect(d365.post).toHaveBeenNthCalledWith(
+      1,
+      '/data/PaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 1,
+        InvoiceDueDate: '2026-01-05T12:00:00Z',
+        SettlementAmountInInvoiceCurrency: 2403.51,
+      }),
+      { retries: 0 },
+    );
+    expect(d365.post).toHaveBeenNthCalledWith(
+      2,
+      '/data/PaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 2,
+        InvoiceDueDate: '2026-01-01T12:00:00Z',
+        SettlementAmountInInvoiceCurrency: 2403.5088,
+      }),
+      { retries: 0 },
+    );
+    expect(d365.post).toHaveBeenNthCalledWith(
+      3,
+      '/data/PaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        JournalLineNumber: 3,
+        InvoiceDueDate: '2026-01-05T12:00:00Z',
+        SettlementAmountInInvoiceCurrency: 2067.0188,
+      }),
+      { retries: 0 },
+    );
+  });
+
+  it('counts an already-posted line 1 SpecTrans mark against remaining', async () => {
+    const { service, d365 } = buildService();
+    mockGets(d365, {
+      existingSettlements: [
+        {
+          JournalLineNumber: 1,
+          InvoiceNumber: '000036765/YD',
+          InvoiceDueDate: '2026-01-01T12:00:00Z',
+          SettlementAmountInInvoiceCurrency: 2403.51,
+        },
+      ],
+      custTrans: [
+        {
+          Invoice: '000036765/YD',
+          AccountNum: '101002253',
+          CurrencyCode: 'EGP',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-01-01T12:00:00Z',
+          AmountCur: 2740,
+          SettleAmountCur: 0,
+          SourceKey: 101,
+        },
+      ],
+    });
+
+    await expect(
+      service.createSettlements({
+        company: 'm-p',
+        journalBatchNumber: 'Mesco-000015850',
+        targets: uniqueId1Targets,
+      }),
+    ).rejects.toThrow(/line 2 invoice 000036765\/YD exceeds remaining/);
+    expect(d365.post).not.toHaveBeenCalled();
   });
 
   it('recovers RecId 0 when the settlement row exists after the write error', async () => {

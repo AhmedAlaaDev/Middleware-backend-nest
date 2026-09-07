@@ -149,6 +149,15 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       const settlementAmount = Number(
         line.customerSettlement?.settlementAmount ?? 0,
       );
+      const transDate = String(
+        line.customLineApiBody?.transDate ??
+          (line.customLineApiBody as { TransDate?: string } | undefined)
+            ?.TransDate ??
+          '',
+      ).trim();
+      const currencyCode = String(
+        line.customLineApiBody?.currency ?? '',
+      ).trim();
       if (
         !invoiceNumber ||
         !customerAccount ||
@@ -163,6 +172,8 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
           invoiceNumber,
           settlementAmount,
           customerAccount,
+          ...(transDate ? { transDate } : {}),
+          ...(currencyCode ? { currencyCode } : {}),
         },
       ];
     });

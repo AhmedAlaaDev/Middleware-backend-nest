@@ -6,12 +6,15 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
 const SETTLEMENT_ENDPOINT = '/data/PaymentJournalLineSettledInvoices';
 const JOURNAL_LINE_ENDPOINT = '/data/CustomerPaymentJournalLines';
 const CUST_TRANS_ENDPOINT = '/data/CustTransBiEntities';
+const MONEY_TOLERANCE = 0.01;
 
 export interface CustomerPaymentJournalSettlementTarget {
   lineNumber: number;
   invoiceNumber: string;
   settlementAmount: number;
   customerAccount: string;
+  transDate?: string;
+  currencyCode?: string;
 }
 
 export interface CustomerPaymentJournalSettlementPayload {
@@ -23,6 +26,7 @@ export interface CustomerPaymentJournalSettlementPayload {
   InvoiceDueDate: string;
   SettlementAmountInInvoiceCurrency: number;
   CashDiscountToTakeInInvoiceCurrency: number;
+  InvoiceToPaymentCrossRate?: number;
 }
 
 interface ExistingSettlementRow {
@@ -45,8 +49,16 @@ interface CustTransLookupRow {
   CurrencyCode?: string;
   Closed?: string | number | boolean;
   AmountCur?: string | number;
+  AmountMST?: string | number;
   SettleAmountCur?: string | number;
   DueDate?: string;
+  TransDate?: string;
+  SourceKey?: string | number;
+}
+
+interface OpenInvoiceTrans {
+  row: CustTransLookupRow;
+  remaining: number;
 }
 
 @Injectable()
@@ -75,7 +87,12 @@ export class CustomerPaymentJournalSettlementService {
       company,
       journalBatchNumber,
     );
-    const invoiceCache = new Map<string, CustTransLookupRow>();
+    const existingSettlements = await this.listExistingSettlements(
+      company,
+      journalBatchNumber,
+    );
+    const invoiceCache = new Map<string, CustTransLookupRow[]>();
+    const consumedByTrans = new Map<string, number>();
 
     for (const target of options.targets) {
       await this.createSettlement(
@@ -83,7 +100,9 @@ export class CustomerPaymentJournalSettlementService {
         journalBatchNumber,
         target,
         existingLineNumbers,
+        existingSettlements,
         invoiceCache,
+        consumedByTrans,
       );
     }
   }
@@ -93,7 +112,9 @@ export class CustomerPaymentJournalSettlementService {
     journalBatchNumber: string,
     target: CustomerPaymentJournalSettlementTarget,
     existingLineNumbers: Set<number>,
-    invoiceCache: Map<string, CustTransLookupRow>,
+    existingSettlements: ExistingSettlementRow[],
+    invoiceCache: Map<string, CustTransLookupRow[]>,
+    consumedByTrans: Map<string, number>,
   ): Promise<void> {
     const invoiceNumber = String(target.invoiceNumber ?? '').trim();
     const customerAccount = String(target.customerAccount ?? '').trim();
@@ -116,25 +137,44 @@ export class CustomerPaymentJournalSettlementService {
       );
     }
 
-    if (
-      await this.settlementExists(
-        company,
-        journalBatchNumber,
-        lineNumber,
-        invoiceNumber,
-      )
-    ) {
+    const alreadyPosted = this.findExistingSettlement(
+      existingSettlements,
+      lineNumber,
+      invoiceNumber,
+    );
+    const openInvoices = await this.findOpenInvoices(
+      company,
+      customerAccount,
+      invoiceNumber,
+      invoiceCache,
+    );
+    if (alreadyPosted) {
+      const existingAmount = Math.abs(
+        this.readNumber(alreadyPosted.SettlementAmountInInvoiceCurrency),
+      );
+      const matched =
+        this.matchInvoiceByDueDate(
+          openInvoices,
+          alreadyPosted.InvoiceDueDate,
+          existingAmount || settlementAmount,
+        ) ?? openInvoices[0];
+      if (matched) {
+        this.consumeAmount(consumedByTrans, matched, existingAmount);
+      }
       this.logger.log(
         `Skipping existing customer settlement for ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber}`,
       );
       return;
     }
 
-    const invoice = await this.findOpenInvoice(
-      company,
-      customerAccount,
+    const invoice = this.selectOpenInvoice(
+      openInvoices,
+      settlementAmount,
+      target,
+      journalBatchNumber,
+      lineNumber,
       invoiceNumber,
-      invoiceCache,
+      consumedByTrans,
     );
     const invoiceDueDate = String(invoice.DueDate ?? '').trim();
     if (!invoiceDueDate) {
@@ -153,6 +193,10 @@ export class CustomerPaymentJournalSettlementService {
       SettlementAmountInInvoiceCurrency: settlementAmount,
       CashDiscountToTakeInInvoiceCurrency: 0,
     };
+    const crossRate = this.sameCurrencyCrossRate(invoice, target);
+    if (crossRate !== undefined) {
+      payload.InvoiceToPaymentCrossRate = crossRate;
+    }
 
     try {
       await this.d365.post<
@@ -171,10 +215,13 @@ export class CustomerPaymentJournalSettlementService {
         this.logger.log(
           `Recovered customer settlement for ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber} after RecId 0 / write error`,
         );
+        this.consumeAmount(consumedByTrans, invoice, settlementAmount);
         return;
       }
       throw error;
     }
+
+    this.consumeAmount(consumedByTrans, invoice, settlementAmount);
   }
 
   private async listJournalLineNumbers(
@@ -199,13 +246,106 @@ export class CustomerPaymentJournalSettlementService {
     );
   }
 
-  private async findOpenInvoice(
+  private async listExistingSettlements(
+    company: string,
+    journalBatchNumber: string,
+  ): Promise<ExistingSettlementRow[]> {
+    const endpoint = this.query.buildQuery(SETTLEMENT_ENDPOINT, {
+      filter: this.query.and(
+        this.query.eq('JournalLineCompany', company),
+        this.query.eq('JournalBatchNumber', journalBatchNumber),
+      ),
+      select: [
+        'JournalLineNumber',
+        'InvoiceNumber',
+        'InvoiceDueDate',
+        'SettlementAmountInInvoiceCurrency',
+      ],
+      top: 5000,
+      crossCompany: true,
+    });
+    const response = await this.d365.get<ExistingSettlementRow>(endpoint, {
+      useCache: false,
+    });
+    return response.value ?? [];
+  }
+
+  private selectOpenInvoice(
+    openInvoices: CustTransLookupRow[],
+    settlementAmount: number,
+    target: CustomerPaymentJournalSettlementTarget,
+    journalBatchNumber: string,
+    lineNumber: number,
+    invoiceNumber: string,
+    consumedByTrans: Map<string, number>,
+  ): CustTransLookupRow {
+    const candidates = openInvoices
+      .map((row) => ({
+        row,
+        remaining: this.remainingAmount(row, consumedByTrans),
+      }))
+      .filter((candidate) => candidate.remaining > MONEY_TOLERANCE);
+
+    if (candidates.length === 0) {
+      throw new Error(
+        `No remaining open customer transaction for invoice ${invoiceNumber} (journal ${journalBatchNumber} line ${lineNumber}).`,
+      );
+    }
+
+    const covering = candidates.filter(
+      (candidate) => candidate.remaining + MONEY_TOLERANCE >= settlementAmount,
+    );
+    if (covering.length === 0) {
+      const summary = candidates
+        .map(
+          (candidate) =>
+            `due ${this.asText(candidate.row.DueDate) || '(none)'} remaining ${candidate.remaining} amount ${this.originalAmount(candidate.row)}`,
+        )
+        .join('; ');
+      throw new Error(
+        `Settlement amount ${settlementAmount} for journal ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber} exceeds remaining open customer transaction(s): ${summary}.`,
+      );
+    }
+
+    return this.pickBestInvoice(covering, settlementAmount, target).row;
+  }
+
+  private pickBestInvoice(
+    covering: OpenInvoiceTrans[],
+    settlementAmount: number,
+    target: CustomerPaymentJournalSettlementTarget,
+  ): OpenInvoiceTrans {
+    const paymentDate = this.dateKey(target.transDate);
+    const scored = covering.map((candidate) => {
+      const dueDate = this.dateKey(candidate.row.DueDate);
+      const transDate = this.dateKey(candidate.row.TransDate);
+      const dateMatch =
+        paymentDate && (dueDate === paymentDate || transDate === paymentDate)
+          ? 0
+          : 1;
+      return {
+        candidate,
+        dateMatch,
+        leftover: candidate.remaining - settlementAmount,
+      };
+    });
+    scored.sort((left, right) => {
+      if (left.dateMatch !== right.dateMatch) {
+        return left.dateMatch - right.dateMatch;
+      }
+      return left.leftover - right.leftover;
+    });
+    return scored[0].candidate;
+  }
+
+  private async findOpenInvoices(
     company: string,
     customerAccount: string,
     invoiceNumber: string,
-    invoiceCache: Map<string, CustTransLookupRow>,
-  ): Promise<CustTransLookupRow> {
-    const cacheKey = `${company}|${customerAccount}|${invoiceNumber}`.toLowerCase();
+    invoiceCache: Map<string, CustTransLookupRow[]>,
+  ): Promise<CustTransLookupRow[]> {
+    const cacheKey =
+      `${company}|${customerAccount}|${invoiceNumber}`.toLowerCase();
     const cached = invoiceCache.get(cacheKey);
     if (cached) return cached;
 
@@ -221,43 +361,146 @@ export class CustomerPaymentJournalSettlementService {
         'CurrencyCode',
         'Closed',
         'AmountCur',
+        'AmountMST',
         'SettleAmountCur',
         'DueDate',
+        'TransDate',
+        'SourceKey',
       ],
-      top: 20,
+      top: 50,
       crossCompany: true,
     });
     const response = await this.d365.get<CustTransLookupRow>(endpoint, {
       useCache: false,
     });
-    const openInvoices = (response.value ?? []).filter(
-      (row) => this.readClosedState(row.Closed) !== true,
-    );
+    const openInvoices = (response.value ?? []).filter((row) => {
+      if (this.readClosedState(row.Closed) === true) return false;
+      if (this.readNumber(row.AmountCur) < -MONEY_TOLERANCE) return false;
+      return this.originalAmount(row) > MONEY_TOLERANCE;
+    });
     if (openInvoices.length === 0) {
       throw new Error(
         `No open customer invoice ${invoiceNumber} was found for account ${customerAccount} in ${company}.`,
       );
     }
 
-    const withDueDate = openInvoices.filter((row) =>
-      String(row.DueDate ?? '').trim(),
+    invoiceCache.set(cacheKey, openInvoices);
+    return openInvoices;
+  }
+
+  private remainingAmount(
+    row: CustTransLookupRow,
+    consumedByTrans: Map<string, number>,
+  ): number {
+    const original = this.originalAmount(row);
+    const settled = Math.abs(this.readNumber(row.SettleAmountCur));
+    const consumed = consumedByTrans.get(this.transKey(row)) ?? 0;
+    return Math.max(0, this.roundMoney(original - settled - consumed));
+  }
+
+  private originalAmount(row: CustTransLookupRow): number {
+    const amountCur = this.readNumber(row.AmountCur);
+    if (amountCur !== 0) return Math.abs(amountCur);
+    return Math.abs(this.readNumber(row.AmountMST));
+  }
+
+  private consumeAmount(
+    consumedByTrans: Map<string, number>,
+    row: CustTransLookupRow,
+    amount: number,
+  ): void {
+    const key = this.transKey(row);
+    consumedByTrans.set(key, (consumedByTrans.get(key) ?? 0) + amount);
+  }
+
+  private transKey(row: CustTransLookupRow): string {
+    const sourceKey = String(row.SourceKey ?? '').trim();
+    if (sourceKey) return `source:${sourceKey}`;
+    return `due:${this.dateKey(row.DueDate)}|amt:${this.originalAmount(row)}`;
+  }
+
+  private matchInvoiceByDueDate(
+    openInvoices: CustTransLookupRow[],
+    dueDate: unknown,
+    amount: number,
+  ): CustTransLookupRow | undefined {
+    const dueKey = this.dateKey(dueDate);
+    const matches = dueKey
+      ? openInvoices.filter((row) => this.dateKey(row.DueDate) === dueKey)
+      : openInvoices;
+    const pool = matches.length > 0 ? matches : openInvoices;
+    return [...pool].sort(
+      (left, right) =>
+        Math.abs(this.originalAmount(left) - amount) -
+        Math.abs(this.originalAmount(right) - amount),
+    )[0];
+  }
+
+  private sameCurrencyCrossRate(
+    invoice: CustTransLookupRow,
+    target: CustomerPaymentJournalSettlementTarget,
+  ): number | undefined {
+    const invoiceCurrency = String(invoice.CurrencyCode ?? '')
+      .trim()
+      .toUpperCase();
+    const paymentCurrency = String(target.currencyCode ?? '')
+      .trim()
+      .toUpperCase();
+    if (invoiceCurrency && paymentCurrency) {
+      return invoiceCurrency === paymentCurrency ? 1 : undefined;
+    }
+    if (invoiceCurrency === 'EGP' || paymentCurrency === 'EGP') {
+      return 1;
+    }
+    return undefined;
+  }
+
+  private dateKey(value: unknown): string {
+    const match = this.asText(value).match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : '';
+  }
+
+  private asText(value: unknown): string {
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+    return '';
+  }
+
+  private roundMoney(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private readNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private findExistingSettlement(
+    existingSettlements: ExistingSettlementRow[],
+    lineNumber: number,
+    invoiceNumber: string,
+  ): ExistingSettlementRow | undefined {
+    const invoice = invoiceNumber.trim().toLowerCase();
+    return existingSettlements.find(
+      (row) =>
+        Number(row.JournalLineNumber) === lineNumber &&
+        String(row.InvoiceNumber ?? '')
+          .trim()
+          .toLowerCase() === invoice,
     );
-    const selected = (withDueDate[0] ?? openInvoices[0]) as CustTransLookupRow;
-    invoiceCache.set(cacheKey, selected);
-    return selected;
   }
 
   /** CustTrans `Closed` is a date, with 1900-01-01 representing open. */
   private readClosedState(value: unknown): boolean | null {
     if (typeof value === 'boolean') return value;
-    const text = String(value ?? '')
-      .trim()
-      .toLowerCase();
+    const text = this.asText(value).toLowerCase();
     if (text === 'yes' || text === 'true' || text === '1') return true;
     if (text === 'no' || text === 'false' || text === '0') return false;
     if (!text) return null;
 
-    const timestamp = Date.parse(String(value));
+    const timestamp = Date.parse(this.asText(value));
     if (!Number.isFinite(timestamp)) return null;
     return new Date(timestamp).getUTCFullYear() > 1900;
   }
