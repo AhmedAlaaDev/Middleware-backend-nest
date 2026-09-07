@@ -55,5 +55,6 @@ export interface D365FOCustomerPaymentJournalLineRequest {
   customerSettlement?: {
     invoiceNumber: string;
     settlementAmount: number;
+    customerAccount: string;
   };
 }

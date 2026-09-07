@@ -141,10 +141,20 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       const invoiceNumber = String(
         line.customerSettlement?.invoiceNumber ?? '',
       ).trim();
+      const customerAccount = String(
+        line.customerSettlement?.customerAccount ??
+          line.customLineApiBody?.AccountNum ??
+          '',
+      ).trim();
       const settlementAmount = Number(
         line.customerSettlement?.settlementAmount ?? 0,
       );
-      if (!invoiceNumber || !(settlementAmount > 0) || !(line.LineNumber > 0)) {
+      if (
+        !invoiceNumber ||
+        !customerAccount ||
+        !(settlementAmount > 0) ||
+        !(line.LineNumber > 0)
+      ) {
         return [];
       }
       return [
@@ -152,6 +162,7 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
           lineNumber: line.LineNumber,
           invoiceNumber,
           settlementAmount,
+          customerAccount,
         },
       ];
     });

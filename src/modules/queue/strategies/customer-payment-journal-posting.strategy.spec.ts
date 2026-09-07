@@ -132,8 +132,13 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
           customerSettlement: {
             invoiceNumber: '000036765/YD',
             settlementAmount: 2403.51,
+            customerAccount: '101002253',
           },
-          customLineApiBody: { creditAmount: 2403.51, MarkedLines: [] },
+          customLineApiBody: {
+            creditAmount: 2403.51,
+            AccountNum: '101002253',
+            MarkedLines: [],
+          },
         },
         {
           LineNumber: 2,
@@ -141,6 +146,7 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
           customerSettlement: {
             invoiceNumber: '000036765/YD',
             settlementAmount: 2067.0188,
+            customerAccount: '101002253',
           },
           customLineApiBody: { creditAmount: 2067.0188, MarkedLines: [] },
         },
@@ -162,11 +168,13 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
           lineNumber: 1,
           invoiceNumber: '000036765/YD',
           settlementAmount: 2403.51,
+          customerAccount: '101002253',
         },
         {
           lineNumber: 2,
           invoiceNumber: '000036765/YD',
           settlementAmount: 2067.0188,
+          customerAccount: '101002253',
         },
       ],
     });

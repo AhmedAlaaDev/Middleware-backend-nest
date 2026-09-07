@@ -689,6 +689,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
               customerSettlement: {
                 invoiceNumber: settlementInvoice,
                 settlementAmount: credit,
+                customerAccount: accountDisplayValue,
               },
             }
           : {}),

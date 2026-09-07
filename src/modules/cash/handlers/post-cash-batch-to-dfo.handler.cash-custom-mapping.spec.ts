@@ -200,10 +200,12 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(result[0].customerSettlement).toEqual({
       invoiceNumber: '000036765/YD',
       settlementAmount: 2403.51,
+      customerAccount: '101002253',
     });
     expect(result[1].customerSettlement).toEqual({
       invoiceNumber: '000036765/YD',
       settlementAmount: 2067.0188,
+      customerAccount: '101002253',
     });
   });
 
