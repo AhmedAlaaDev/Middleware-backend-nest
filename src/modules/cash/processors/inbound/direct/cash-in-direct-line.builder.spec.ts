@@ -130,4 +130,19 @@ describe('CashInDirectLineBuilder', () => {
     expect(row.OFFSETACCOUNTDISPLAYVALUE).toBe('CIB-US-CA');
     expect(row.OFFSETACCOUNTTYPE).toBe('Bank');
   });
+
+  it('maps a debit-column Excel amount and does not require credit', () => {
+    const line = createBuilder().build(
+      sourceRow({
+        DEBITAMOUNT: 25,
+        CREDITAMOUNT: 0,
+      }),
+    );
+
+    expect(line.DebitAmount).toBe(25);
+    expect(line.CreditAmount).toBe(0);
+    expect(
+      line.GetErrors().some((error) => error.startsWith('CreditAmount:')),
+    ).toBe(false);
+  });
 });

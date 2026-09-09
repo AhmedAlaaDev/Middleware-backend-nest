@@ -2,6 +2,7 @@ import { CashInShiplinkEntryProcessor } from '@/modules/cash/processors/inbound/
 import { CashInYardEntryProcessor } from '@/modules/cash/processors/inbound/yard/cash-in-yard-entry.processor';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
+import { EntryProcessorUtilsService } from '@/modules/entry-processor/services/entry-processor-utils.service';
 
 describe('Cash-In Shiplink and Yard processors', () => {
   const dimension =
@@ -109,4 +110,72 @@ describe('Cash-In Shiplink and Yard processors', () => {
       expect(lines[1].ExchangeRate).toBe(100);
     },
   );
+
+  it('puts debit-column lines in a different journal batch from credit-column lines', async () => {
+    const utilsService = new EntryProcessorUtilsService();
+    const processor = new CashInShiplinkEntryProcessor(
+      { execute: jest.fn() } as any,
+      {
+        queryBus: { execute: jest.fn() },
+        exchangeRateService: {
+          fetchExchangeRates: () => ({
+            exchangeRate: 4750,
+            reportingRate: 4750,
+          }),
+        },
+        utilsService: {
+          parseDimensionString: () => ({}),
+          getDimensionSegmentLength: () => 19,
+          isValidDimensionSegmentLength: () => true,
+          updateCashBatchAndVoucher: (options: {
+            lines: unknown[];
+            startBatchNumber: number;
+            startVoucherNumber: number;
+            maxLinesPerBatch?: number;
+          }) => utilsService.updateCashBatchAndVoucher(options as any),
+        },
+        dimensionService: {},
+        taxGroupService: {},
+        freeTextInvoiceService: {},
+        vendorInvoiceJournalService: {},
+      } as any,
+    );
+
+    jest
+      .spyOn(processor as any, 'warmupProcessorData')
+      .mockResolvedValue(undefined);
+    jest.spyOn(processor as any, 'getCustomerName').mockReturnValue('Customer');
+    jest
+      .spyOn(processor as any, 'fetchExchangeRates')
+      .mockReturnValue({ exchangeRate: 4750, reportingRate: 4750 });
+
+    const lines = (await processor.formatAndEnrichAsync(
+      [
+        { ...sourceRows[0], UniqueId: 1, CREDITAMOUNT: 40, DEBITAMOUNT: 0 },
+        {
+          ...sourceRows[0],
+          UniqueId: 2,
+          CREDITAMOUNT: 0,
+          DEBITAMOUNT: 25,
+          LINENUMBER: 2,
+        },
+      ] as any,
+      'm-p',
+    )) as CashEntryDynDataModel[];
+
+    const creditLine = lines.find((line) => line.CreditAmount === 40);
+    const debitLine = lines.find((line) => line.DebitAmount === 25);
+
+    expect(creditLine?.JournalBatchNumber).toBe('Mesco-000000001');
+    expect(debitLine?.JournalBatchNumber).toBe('Mesco-000000002');
+    expect(creditLine?.JournalBatchNumber).not.toBe(
+      debitLine?.JournalBatchNumber,
+    );
+    expect(
+      creditLine?.GetErrors().some((error) => error.startsWith('CreditAmount:')),
+    ).toBe(false);
+    expect(
+      debitLine?.GetErrors().some((error) => error.startsWith('CreditAmount:')),
+    ).toBe(false);
+  });
 });

@@ -4,7 +4,11 @@ import { CommandBus } from '@nestjs/cqrs';
 import { CashInEntryProcessor } from '../cash-in-entry.processor';
 import { CashInDirectLineBuilder } from './cash-in-direct-line.builder';
 
-import { assignCashMissingUniqueIds } from '@/modules/cash/policies/cash-batch.policy';
+import {
+  assignCashMissingUniqueIds,
+  nextCashSequenceAfter,
+  splitCashDirectLinesByAmountColumn,
+} from '@/modules/cash/policies/cash-batch.policy';
 import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
 import { CashProductLine } from '@/modules/cash/types';
 import {
@@ -19,8 +23,9 @@ import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/servic
  * The source workbook already carries customer and offset on the same row.
  * This processor keeps Cash-In Excel format and dimension validation. It
  * skips Freight/Fleet pairing, invoice rewrite, and exclusive MarkedLines.
- * Each journal line later settles its own credit against the Excel invoice
- * through PaymentJournalLineSettledInvoices.
+ * Each credit journal line later settles its own amount against the Excel
+ * invoice through PaymentJournalLineSettledInvoices. Debit-column lines are
+ * posted in separate journal batches from credit-column lines.
  */
 @Injectable()
 export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
@@ -71,12 +76,31 @@ export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
     });
 
     const dfoLines = rawLines.map((line) => builder.build(line));
+    const { creditLines, debitLines } =
+      splitCashDirectLinesByAmountColumn(dfoLines);
 
-    return this.utilsService.updateCashBatchAndVoucher({
-      lines: dfoLines,
-      startBatchNumber: 1,
-      startVoucherNumber: 1,
-      maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
-    });
+    const batchedCredit = creditLines.length
+      ? this.utilsService.updateCashBatchAndVoucher({
+          lines: creditLines,
+          startBatchNumber: 1,
+          startVoucherNumber: 1,
+          maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
+        })
+      : [];
+
+    const batchedDebit = debitLines.length
+      ? this.utilsService.updateCashBatchAndVoucher({
+          lines: debitLines,
+          startBatchNumber: nextCashSequenceAfter(
+            batchedCredit.map((line) => line.JournalBatchNumber),
+          ),
+          startVoucherNumber: nextCashSequenceAfter(
+            batchedCredit.map((line) => line.Voucher),
+          ),
+          maxLinesPerBatch: this.MAX_LINES_PER_BATCH,
+        })
+      : [];
+
+    return [...batchedCredit, ...batchedDebit];
   }
 }

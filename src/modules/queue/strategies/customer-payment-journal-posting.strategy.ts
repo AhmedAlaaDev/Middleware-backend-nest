@@ -6,6 +6,10 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import {
+  createCustodySettlementSkipRow,
+  CustodySettlementSkipRow,
+} from '@/modules/cash/services/custody-settlement-skip-report';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import { CustomerPaymentJournalSettlementService } from '@/modules/d365fo/services/customer-payment-journal-settlement.service';
@@ -37,9 +41,17 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
   ) {}
 
   private headerCashDirectionContext: 'in' | 'out' = 'in';
+  private skipReport: CustodySettlementSkipRow[] = [];
 
   public setHeaderCashDirectionContext(direction: 'in' | 'out'): void {
     this.headerCashDirectionContext = direction;
+  }
+
+  /** Skipped/partial customer settlements collected since the last call. */
+  public consumeSkipReport(): CustodySettlementSkipRow[] {
+    const rows = this.skipReport;
+    this.skipReport = [];
+    return rows;
   }
 
   private get isCashOut(): boolean {
@@ -179,11 +191,36 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
     });
     if (targets.length === 0) return;
 
-    await this.customerPaymentJournalSettlementService.createSettlements({
-      company,
-      journalBatchNumber,
-      targets,
-    });
+    const skips =
+      await this.customerPaymentJournalSettlementService.createSettlements({
+        company,
+        journalBatchNumber,
+        targets,
+      });
+
+    if (skips.length === 0) return;
+    const linesByNumber = new Map(
+      lines.map((line) => [Number(line.LineNumber), line]),
+    );
+    this.skipReport.push(
+      ...skips.map((skip) => {
+        const line = linesByNumber.get(skip.lineNumber);
+        return createCustodySettlementSkipRow({
+          uniqueId: String(line?.customLineApiBody?.PAYMENTID ?? '').trim(),
+          excelLineNumbers: [line?.sourceLineNumber],
+          journalBatchNumber,
+          d365LineNumbers: [skip.lineNumber],
+          vendorAccount: skip.customerAccount,
+          invoiceNumber: skip.invoiceNumber,
+          amount: skip.requestedAmount,
+          phase: 'settle',
+          error: skip.reason,
+        });
+      }),
+    );
+    this.logger.warn(
+      `Customer settlement skipped or partial on ${skips.length} line(s) of journal ${journalBatchNumber}; lines remain posted (cash on account).`,
+    );
   }
 
   public async deleteHeader(

@@ -1,5 +1,45 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 
+export type CashDirectAmountSideLine = {
+  DebitAmount?: number;
+  CreditAmount?: number;
+  JournalBatchNumber?: string;
+  Voucher?: string;
+};
+
+/** Shiplink/Yard debit-column lines must not share a journal with credit-column lines. */
+export function isCashDirectDebitAmountLine(
+  line: CashDirectAmountSideLine,
+): boolean {
+  return (
+    Number(line.DebitAmount ?? 0) > 0 && Number(line.CreditAmount ?? 0) <= 0
+  );
+}
+
+export function splitCashDirectLinesByAmountColumn<
+  T extends CashDirectAmountSideLine,
+>(lines: T[]): { creditLines: T[]; debitLines: T[] } {
+  const creditLines: T[] = [];
+  const debitLines: T[] = [];
+  for (const line of lines) {
+    (isCashDirectDebitAmountLine(line) ? debitLines : creditLines).push(line);
+  }
+  return { creditLines, debitLines };
+}
+
+export function nextCashSequenceAfter(
+  values: Array<string | undefined>,
+): number {
+  let max = 0;
+  for (const value of values) {
+    const match = String(value ?? '').match(/(\d+)$/);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
 /** Assigns deterministic IDs from vouchers without changing existing IDs. */
 export function assignCashMissingUniqueIds(lines: CashEntryRawDataModel[]): {
   assignedLineCount: number;

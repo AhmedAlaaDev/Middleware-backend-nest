@@ -34,13 +34,6 @@ export function collectCashInDirectSourceErrors(
     });
   }
 
-  if (Number(row.CREDITAMOUNT ?? 0) <= 0) {
-    errors.push({
-      field: 'CreditAmount',
-      message: `${lineContext}: CREDITAMOUNT must be greater than zero.`,
-    });
-  }
-
   if (!String(row.CURRENCYCODE ?? '').trim()) {
     errors.push({
       field: 'CurrencyCode',

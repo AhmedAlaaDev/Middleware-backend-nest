@@ -209,6 +209,52 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     });
   });
 
+  it('posts Shiplink/Yard debit-column lines without invoice settlement', () => {
+    const handler = buildHandler();
+
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            dataAreaId: 'm-p',
+            JournalBatchNumber: 'JN000124',
+            LineNumber: 1,
+            AccountType: 'Cust',
+            AccountDisplayValue: '101009047',
+            OffsetAccountDisplayValue: 'CIB-US-CA',
+            OffsetAccountType: 'Bank',
+            OffsetCompany: 'm-p',
+            DefaultDimensionsForAccountDisplayValue: '|3101|031',
+            DefaultDimensionsForOffsetAccountDisplayValue: '|3101|031',
+            TransactionDate: '2026-01-08',
+            ExchangeRate: 4750,
+            CreditAmount: 0,
+            DebitAmount: 25,
+            CurrencyCode: 'USD',
+            VoucherType: 'Deposit',
+            PaymentId: '2',
+            Description: 'BankIn - CIB-US-CA',
+            TransactionText: 'BankIn - CIB-US-CA',
+            Invoice: '000009214/Inv-SH',
+            MarkedInvoice: '000009214/Inv-SH',
+            SettlementIntent: 'Unmarked',
+            MarkedLines: [],
+            SourceLineNumber: 2,
+          },
+        },
+      ],
+      'm-p',
+      'in',
+      undefined,
+      true,
+    );
+
+    expect(result[0].customLineApiBody.debitAmount).toBe(25);
+    expect(result[0].customLineApiBody.creditAmount).toBe(0);
+    expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
+    expect(result[0].customerSettlement).toBeUndefined();
+  });
+
   it('rejects a Cash-In foreign-currency line when no valid rate is available', () => {
     const handler = buildHandler();
 

@@ -238,6 +238,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           );
         }
         skipRows.push(...this.cashJournalStrategy.consumeSkipReport());
+        skipRows.push(...this.strategy.consumeSkipReport());
         await this.jobs.completeGroup(jobId, record.index);
         completedGroups += 1;
         await job.updateProgress({

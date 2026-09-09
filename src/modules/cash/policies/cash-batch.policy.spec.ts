@@ -1,6 +1,8 @@
 import {
   assignCashMissingUniqueIds,
   classifyCashLines,
+  nextCashSequenceAfter,
+  splitCashDirectLinesByAmountColumn,
 } from './cash-batch.policy';
 
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
@@ -55,5 +57,26 @@ describe('cash-batch.policy', () => {
       otherLines: lines,
       vendorPayment: [],
     });
+  });
+
+  it('splits debit-column lines from credit-column lines', () => {
+    const credit = { CreditAmount: 40, DebitAmount: 0 };
+    const debit = { CreditAmount: 0, DebitAmount: 25 };
+    const neither = { CreditAmount: 0, DebitAmount: 0 };
+
+    expect(splitCashDirectLinesByAmountColumn([credit, debit, neither])).toEqual(
+      {
+        creditLines: [credit, neither],
+        debitLines: [debit],
+      },
+    );
+  });
+
+  it('continues the next Mesco/voucher sequence after the last used number', () => {
+    expect(nextCashSequenceAfter([])).toBe(1);
+    expect(
+      nextCashSequenceAfter(['Mesco-000000001', 'Mesco-000000003']),
+    ).toBe(4);
+    expect(nextCashSequenceAfter(['Cust-Pay-000000012'])).toBe(13);
   });
 });

@@ -17,6 +17,21 @@ export interface CustomerPaymentJournalSettlementTarget {
   currencyCode?: string;
 }
 
+/**
+ * A journal line whose invoice could not absorb the full credit. The line is
+ * posted unmarked (or partially settled) instead of failing the whole journal;
+ * the caller reports these rows on the batch.
+ */
+export interface CustomerPaymentSettlementSkip {
+  lineNumber: number;
+  invoiceNumber: string;
+  customerAccount: string;
+  requestedAmount: number;
+  /** 0 when the line stays fully unmarked (cash on account). */
+  settledAmount: number;
+  reason: string;
+}
+
 export interface CustomerPaymentJournalSettlementPayload {
   JournalLineCompany: string;
   JournalBatchNumber: string;
@@ -76,11 +91,11 @@ export class CustomerPaymentJournalSettlementService {
     company: string;
     journalBatchNumber: string;
     targets: CustomerPaymentJournalSettlementTarget[];
-  }): Promise<void> {
+  }): Promise<CustomerPaymentSettlementSkip[]> {
     const company = String(options.company ?? '').trim();
     const journalBatchNumber = String(options.journalBatchNumber ?? '').trim();
     if (!company || !journalBatchNumber || options.targets.length === 0) {
-      return;
+      return [];
     }
 
     const existingLineNumbers = await this.listJournalLineNumbers(
@@ -93,9 +108,10 @@ export class CustomerPaymentJournalSettlementService {
     );
     const invoiceCache = new Map<string, CustTransLookupRow[]>();
     const consumedByTrans = new Map<string, number>();
+    const skips: CustomerPaymentSettlementSkip[] = [];
 
     for (const target of options.targets) {
-      await this.createSettlement(
+      const skip = await this.createSettlement(
         company,
         journalBatchNumber,
         target,
@@ -104,7 +120,9 @@ export class CustomerPaymentJournalSettlementService {
         invoiceCache,
         consumedByTrans,
       );
+      if (skip) skips.push(skip);
     }
+    return skips;
   }
 
   private async createSettlement(
@@ -115,7 +133,7 @@ export class CustomerPaymentJournalSettlementService {
     existingSettlements: ExistingSettlementRow[],
     invoiceCache: Map<string, CustTransLookupRow[]>,
     consumedByTrans: Map<string, number>,
-  ): Promise<void> {
+  ): Promise<CustomerPaymentSettlementSkip | undefined> {
     const invoiceNumber = String(target.invoiceNumber ?? '').trim();
     const customerAccount = String(target.customerAccount ?? '').trim();
     const lineNumber = Number(target.lineNumber);
@@ -164,22 +182,41 @@ export class CustomerPaymentJournalSettlementService {
       this.logger.log(
         `Skipping existing customer settlement for ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber}`,
       );
-      return;
+      return undefined;
     }
 
-    const invoice = this.selectOpenInvoice(
+    if (openInvoices.length === 0) {
+      return this.buildSkip(
+        target,
+        0,
+        `No open customer transaction was found for invoice ${invoiceNumber} (customer ${customerAccount}, ${company}). Line posted unmarked (cash on account).`,
+      );
+    }
+
+    // Pick the open trans with the most remaining room; cap the settlement to
+    // what is actually left so one under-funded invoice cannot fail (and roll
+    // back) the entire journal.
+    const picked = this.selectCappedSettlement(
       openInvoices,
       settlementAmount,
       target,
-      journalBatchNumber,
-      lineNumber,
-      invoiceNumber,
       consumedByTrans,
     );
+    if (!picked) {
+      return this.buildSkip(
+        target,
+        0,
+        `Invoice ${invoiceNumber} has no remaining open amount (already settled or marked by earlier lines). Line posted unmarked (cash on account).`,
+      );
+    }
+    const { invoice, amountToSettle } = picked;
+
     const invoiceDueDate = String(invoice.DueDate ?? '').trim();
     if (!invoiceDueDate) {
-      throw new Error(
-        `Open invoice ${invoiceNumber} for customer ${customerAccount} has no due date (journal ${journalBatchNumber} line ${lineNumber}).`,
+      return this.buildSkip(
+        target,
+        0,
+        `Open invoice ${invoiceNumber} for customer ${customerAccount} has no due date; settlement was not created. Line posted unmarked (cash on account).`,
       );
     }
 
@@ -190,7 +227,7 @@ export class CustomerPaymentJournalSettlementService {
       InvoiceNumber: invoiceNumber,
       InvoiceCompany: company,
       InvoiceDueDate: invoiceDueDate,
-      SettlementAmountInInvoiceCurrency: settlementAmount,
+      SettlementAmountInInvoiceCurrency: amountToSettle,
       CashDiscountToTakeInInvoiceCurrency: 0,
     };
     const crossRate = this.sameCurrencyCrossRate(invoice, target);
@@ -215,13 +252,87 @@ export class CustomerPaymentJournalSettlementService {
         this.logger.log(
           `Recovered customer settlement for ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber} after RecId 0 / write error`,
         );
-        this.consumeAmount(consumedByTrans, invoice, settlementAmount);
-        return;
+        this.consumeAmount(consumedByTrans, invoice, amountToSettle);
+        return this.partialSkipOrNone(target, amountToSettle);
       }
       throw error;
     }
 
-    this.consumeAmount(consumedByTrans, invoice, settlementAmount);
+    this.consumeAmount(consumedByTrans, invoice, amountToSettle);
+    return this.partialSkipOrNone(target, amountToSettle);
+  }
+
+  /**
+   * The open trans that can absorb the largest part of this line's credit,
+   * with the settle amount capped to its remaining balance. Prefers a trans
+   * that fully covers the amount (date-matched first); undefined when nothing
+   * remains open.
+   */
+  private selectCappedSettlement(
+    openInvoices: CustTransLookupRow[],
+    settlementAmount: number,
+    target: CustomerPaymentJournalSettlementTarget,
+    consumedByTrans: Map<string, number>,
+  ): { invoice: CustTransLookupRow; amountToSettle: number } | undefined {
+    const candidates = openInvoices
+      .map((row) => ({
+        row,
+        remaining: this.remainingAmount(row, consumedByTrans),
+      }))
+      .filter((candidate) => candidate.remaining > MONEY_TOLERANCE);
+
+    if (candidates.length === 0) return undefined;
+
+    const covering = candidates.filter(
+      (candidate) => candidate.remaining + MONEY_TOLERANCE >= settlementAmount,
+    );
+    if (covering.length > 0) {
+      return {
+        invoice: this.pickBestInvoice(covering, settlementAmount, target).row,
+        amountToSettle: settlementAmount,
+      };
+    }
+
+    const best = candidates.reduce((left, right) =>
+      right.remaining > left.remaining ? right : left,
+    );
+    return {
+      invoice: best.row,
+      amountToSettle: this.roundMoney(best.remaining),
+    };
+  }
+
+  private partialSkipOrNone(
+    target: CustomerPaymentJournalSettlementTarget,
+    settledAmount: number,
+  ): CustomerPaymentSettlementSkip | undefined {
+    const requested = Number(target.settlementAmount ?? 0);
+    if (settledAmount + MONEY_TOLERANCE >= requested) return undefined;
+    const unsettled = this.roundMoney(requested - settledAmount);
+    return this.buildSkip(
+      target,
+      settledAmount,
+      `Invoice ${String(target.invoiceNumber ?? '').trim()} had only ${settledAmount} remaining of the requested ${requested}; ${unsettled} stays unsettled (cash on account).`,
+    );
+  }
+
+  private buildSkip(
+    target: CustomerPaymentJournalSettlementTarget,
+    settledAmount: number,
+    reason: string,
+  ): CustomerPaymentSettlementSkip {
+    const skip: CustomerPaymentSettlementSkip = {
+      lineNumber: Number(target.lineNumber),
+      invoiceNumber: String(target.invoiceNumber ?? '').trim(),
+      customerAccount: String(target.customerAccount ?? '').trim(),
+      requestedAmount: Number(target.settlementAmount ?? 0),
+      settledAmount,
+      reason,
+    };
+    this.logger.warn(
+      `Customer settlement skipped/partial for line ${skip.lineNumber} invoice ${skip.invoiceNumber}: ${reason}`,
+    );
+    return skip;
   }
 
   private async listJournalLineNumbers(
@@ -268,46 +379,6 @@ export class CustomerPaymentJournalSettlementService {
       useCache: false,
     });
     return response.value ?? [];
-  }
-
-  private selectOpenInvoice(
-    openInvoices: CustTransLookupRow[],
-    settlementAmount: number,
-    target: CustomerPaymentJournalSettlementTarget,
-    journalBatchNumber: string,
-    lineNumber: number,
-    invoiceNumber: string,
-    consumedByTrans: Map<string, number>,
-  ): CustTransLookupRow {
-    const candidates = openInvoices
-      .map((row) => ({
-        row,
-        remaining: this.remainingAmount(row, consumedByTrans),
-      }))
-      .filter((candidate) => candidate.remaining > MONEY_TOLERANCE);
-
-    if (candidates.length === 0) {
-      throw new Error(
-        `No remaining open customer transaction for invoice ${invoiceNumber} (journal ${journalBatchNumber} line ${lineNumber}).`,
-      );
-    }
-
-    const covering = candidates.filter(
-      (candidate) => candidate.remaining + MONEY_TOLERANCE >= settlementAmount,
-    );
-    if (covering.length === 0) {
-      const summary = candidates
-        .map(
-          (candidate) =>
-            `due ${this.asText(candidate.row.DueDate) || '(none)'} remaining ${candidate.remaining} amount ${this.originalAmount(candidate.row)}`,
-        )
-        .join('; ');
-      throw new Error(
-        `Settlement amount ${settlementAmount} for journal ${journalBatchNumber} line ${lineNumber} invoice ${invoiceNumber} exceeds remaining open customer transaction(s): ${summary}.`,
-      );
-    }
-
-    return this.pickBestInvoice(covering, settlementAmount, target).row;
   }
 
   private pickBestInvoice(
@@ -378,12 +449,7 @@ export class CustomerPaymentJournalSettlementService {
       if (this.readNumber(row.AmountCur) < -MONEY_TOLERANCE) return false;
       return this.originalAmount(row) > MONEY_TOLERANCE;
     });
-    if (openInvoices.length === 0) {
-      throw new Error(
-        `No open customer invoice ${invoiceNumber} was found for account ${customerAccount} in ${company}.`,
-      );
-    }
-
+    // No open trans is a skip (line stays unmarked), not a journal failure.
     invoiceCache.set(cacheKey, openInvoices);
     return openInvoices;
   }

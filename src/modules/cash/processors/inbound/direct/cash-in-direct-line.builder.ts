@@ -76,7 +76,7 @@ export class CashInDirectLineBuilder {
       OffsetFinTagDisplayValue:
         row.OFFSETFINTAGDISPLAYVALUE || row.FINTAGDISPLAYVALUE || '',
       CreditAmount: Number(row.CREDITAMOUNT ?? 0),
-      DebitAmount: 0,
+      DebitAmount: Number(row.DEBITAMOUNT ?? 0),
       CurrencyCode: currencyCode,
       ExchRate: exchangeRate,
       ExchangeRate: exchangeRate,

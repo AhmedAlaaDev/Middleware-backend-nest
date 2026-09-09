@@ -19,7 +19,7 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
       listLinesForHeader: jest.fn().mockResolvedValue([{ LineNumber: 1 }]),
     };
     const customerPaymentJournalSettlementService = {
-      createSettlements: jest.fn().mockResolvedValue(undefined),
+      createSettlements: jest.fn().mockResolvedValue([]),
     };
 
     const strategy = new CustomerPaymentJournalPostingStrategy(
@@ -178,6 +178,63 @@ describe('CustomerPaymentJournalPostingStrategy - cash direction routing', () =>
         },
       ],
     });
+  });
+
+  it('maps settlement skips into the consumable skip report', async () => {
+    const { strategy, customerPaymentJournalSettlementService } =
+      buildStrategy();
+    customerPaymentJournalSettlementService.createSettlements.mockResolvedValue(
+      [
+        {
+          lineNumber: 2,
+          invoiceNumber: '000036765/YD',
+          customerAccount: '101002253',
+          requestedAmount: 2403.5088,
+          settledAmount: 336.49,
+          reason: 'Invoice 000036765/YD had only 336.49 remaining.',
+        },
+      ],
+    );
+
+    strategy.setHeaderCashDirectionContext('in');
+    await strategy.postLinesForHeader(
+      'Mesco-000015850',
+      [
+        {
+          LineNumber: 2,
+          sourceLineNumber: 3,
+          cashDirection: 'in',
+          customerSettlement: {
+            invoiceNumber: '000036765/YD',
+            settlementAmount: 2403.5088,
+            customerAccount: '101002253',
+          },
+          customLineApiBody: {
+            creditAmount: 2403.5088,
+            PAYMENTID: '1',
+            MarkedLines: [],
+          },
+        },
+      ],
+      'm-p',
+      20,
+    );
+
+    const report = strategy.consumeSkipReport();
+    expect(report).toEqual([
+      expect.objectContaining({
+        uniqueId: '1',
+        excelLineNumbers: [3],
+        journalBatchNumber: 'Mesco-000015850',
+        d365LineNumbers: [2],
+        invoiceNumber: '000036765/YD',
+        amount: 2403.5088,
+        phase: 'settle',
+        error: 'Invoice 000036765/YD had only 336.49 remaining.',
+      }),
+    ]);
+    // Report is consumed once.
+    expect(strategy.consumeSkipReport()).toEqual([]);
   });
 
   it('does not settle cash-in freight lines that have no customerSettlement', async () => {

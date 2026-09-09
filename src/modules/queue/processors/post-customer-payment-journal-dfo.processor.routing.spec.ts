@@ -65,6 +65,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       setHeaderCashDirectionContext: jest.fn(),
       postHeadersInBatches: jest.fn(),
       postLinesForHeader: jest.fn(),
+      consumeSkipReport: jest.fn().mockReturnValue([]),
     };
     const cashStrategy = {
       setRouteContext: jest.fn(),
