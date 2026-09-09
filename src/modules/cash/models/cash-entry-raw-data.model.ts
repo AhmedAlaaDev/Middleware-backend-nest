@@ -49,7 +49,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
 
   constructor(
     data: EntryRawDataModel,
-    type: CashProductLine,
+    _type: CashProductLine,
     isInbound = true,
   ) {
     super(data);
@@ -66,8 +66,7 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     this.OFFSETFINTAGDISPLAYVALUE = s((data as any)?.OFFSETFINTAGDISPLAYVALUE);
     this.OFFSETTEXT = s((data as any)?.OFFSETTEXT);
 
-    const PAYMENTREFERENCE = this.generatePaymentReference(data, type);
-    this.PAYMENTREFERENCE = PAYMENTREFERENCE;
+    this.PAYMENTREFERENCE = this.resolvePaymentReference(data);
 
     this.SafeTransaction = isInbound ? 'In' : 'Out';
     this.SafeType = this.normalizeSafeType(data?.SafeType, !isInbound);
@@ -132,13 +131,8 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     return normalized[token] ?? (raw as EntrySafeType);
   }
 
-  private generatePaymentReference(
-    data: EntryRawDataModel,
-    type: CashProductLine,
-  ): string {
+  private resolvePaymentReference(data: EntryRawDataModel): string {
     const paymentReference = this.lookupResultAsString(data?.PAYMENTREFERENCE);
-    const description = this.lookupResultAsString(data?.DESCRIPTION);
-
     const ignoredPaymentReferences = [
       '0',
       '00',
@@ -150,12 +144,12 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
     ];
 
     if (
-      paymentReference &&
-      !ignoredPaymentReferences.includes(paymentReference)
+      !paymentReference ||
+      ignoredPaymentReferences.includes(paymentReference)
     ) {
-      return paymentReference;
+      return '';
     }
 
-    return `${description || ''} - ${type}`;
+    return paymentReference;
   }
 }

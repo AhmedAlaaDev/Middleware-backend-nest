@@ -96,6 +96,18 @@ export function resolveCashInboundRates(options: {
   };
 }
 
+/**
+ * Payment reference is the Excel PAYMENTREFERENCE on the paired rows.
+ * Empty values stay empty; description and account text are never substituted.
+ */
+export function resolveCashInboundPaymentReference(options: {
+  accountLine: CashEntryRawDataModel;
+  offsetLine: CashEntryRawDataModel;
+}): string {
+  const { accountLine, offsetLine } = options;
+  return offsetLine.PAYMENTREFERENCE || accountLine.PAYMENTREFERENCE || '';
+}
+
 export function formatCashInboundDescription(options: {
   accountLine: CashEntryRawDataModel;
   offsetLine: CashEntryRawDataModel;
@@ -103,12 +115,12 @@ export function formatCashInboundDescription(options: {
   label: string;
   formattedDate: string;
 }): { description: string; paymentReference: string } {
-  const { accountLine, offsetLine, isNotesReceivable, label, formattedDate } =
-    options;
+  const { accountLine, offsetLine, label, formattedDate } = options;
   const description = `Customer Collection - ${label} ${formattedDate} (${accountLine.VoucherType})`;
-  const paymentReference = isNotesReceivable
-    ? offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`
-    : offsetLine.DESCRIPTION || '';
+  const paymentReference = resolveCashInboundPaymentReference({
+    accountLine,
+    offsetLine,
+  });
 
   return { description, paymentReference };
 }

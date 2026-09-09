@@ -26,8 +26,7 @@ export function resolveVendorPaymentOffset(
     offsetAccountType: offsetLine.ACCOUNTTYPE ?? '',
     paymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
     paymentReference:
-      offsetLine.PAYMENTREFERENCE ||
-      `${offsetLine.DESCRIPTION || ''} - Freight`,
+      offsetLine.PAYMENTREFERENCE || accountLine.PAYMENTREFERENCE || '',
     offsetCompany: company,
   };
 }

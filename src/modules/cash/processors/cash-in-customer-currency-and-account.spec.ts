@@ -92,6 +92,23 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.ExchangeRate).toBe(1);
   });
 
+  it('keeps the source payment reference instead of the offset account description', () => {
+    const processor = createProcessor();
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({ PAYMENTREFERENCE: 'FT26060B54Z5' }),
+      offsetLine({
+        ACCOUNTDISPLAYVALUE: 'CIB-EG-CA',
+        ACCOUNTTYPE: 'Bank',
+        DESCRIPTION: 'BankIn - CIB_EG_CA-338',
+        PAYMENTREFERENCE: 'FT26060B54Z5',
+      }),
+    ]);
+
+    expect(line.PaymentReference).toBe('FT26060B54Z5');
+    expect(line.OffsetAccountDisplayValue).toBe('CIB-EG-CA');
+    expect(line.Description).toBe('BankIn - CIB_EG_CA-338');
+  });
+
   it('builds a stable Cash-In MarkedLines entry from the invoice and document', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [

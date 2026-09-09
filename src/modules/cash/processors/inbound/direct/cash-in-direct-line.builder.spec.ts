@@ -62,6 +62,7 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.DebitAmount).toBe(0);
     expect(line.JournalName).toBe('Cust-Pay');
     expect(line.Description).toBe('BankIn - CIB-US-CA');
+    expect(line.PaymentReference).toBe('FT25363HWKSP');
     expect(line.SettlementIntent).toBe('Unmarked');
     expect(line.MarkedLines).toEqual([]);
     expect(line.Invoice).toBe('000009214/Inv-SH');

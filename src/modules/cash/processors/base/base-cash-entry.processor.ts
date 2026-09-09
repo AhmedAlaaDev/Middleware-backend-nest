@@ -1423,7 +1423,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     const route = this.resolveCashOutJournalRoute(accountLine.SafeType);
 
     const paymentReference =
-      offsetLine.PAYMENTREFERENCE || `${offsetLine.DESCRIPTION} - ${label}`;
+      offsetLine.PAYMENTREFERENCE || accountLine.PAYMENTREFERENCE || '';
 
     const dimensionStr = toCashDefaultDimensionDisplayValue(
       dimensions,
