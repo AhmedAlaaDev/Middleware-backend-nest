@@ -780,6 +780,36 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     );
   });
 
+  it('rejects a PAYMENTREFERENCE longer than 35 characters before posting', () => {
+    const handler = buildHandler();
+    const line = {
+      dataAreaId: 'm-p',
+      LineNumber: 1,
+      cashDirection: 'in',
+      customLineApiBody: {
+        AccountNum: '101000867',
+        accountTypeStr: 'Cust',
+        company: 'm-p',
+        currency: 'EGP',
+        DEFAULTDIMENSIONDISPLAYVALUE: 'account-dimensions',
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: 'offset-dimensions',
+        offsetAccountDisplayValue: 'CIB-EG-CA',
+        OffsetAccountTypeStr: 'Bank',
+        OffsetCompany: 'm-p',
+        transDate: '2026-01-01T00:00:00',
+        TaxGroup: 'Non-Taxabl',
+        PAYMENTREFERENCE: 'A'.repeat(36),
+      },
+    };
+
+    expect((handler as any).validateLine(line)).toContain(
+      'customLineApiBody.PAYMENTREFERENCE (max 35 characters)',
+    );
+
+    line.customLineApiBody.PAYMENTREFERENCE = 'A'.repeat(35);
+    expect((handler as any).validateLine(line)).toEqual([]);
+  });
+
   it('keeps offset fields for a standard Cash Out ledger line', () => {
     const handler = buildHandler();
     const route = new CashJournalRoutingService().resolve({

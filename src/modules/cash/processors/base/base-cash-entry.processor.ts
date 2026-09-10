@@ -34,6 +34,7 @@ import {
 import { resolveCashPaymentMethod } from '@/modules/cash/policies/cash-line.policy';
 import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
+import { cashPaymentReferenceLengthErrorMessage } from '@/modules/cash/policies/cash-payment-reference.policy';
 import {
   analyzeCashWithholding,
   isCashWithholdingLedgerLine,
@@ -385,6 +386,18 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     this.logger.debug(`[VALIDATE] Starting validation for ${lineCount} lines`);
 
     for (const line of lines) {
+      const paymentReferenceError = cashPaymentReferenceLengthErrorMessage({
+        paymentReference: line.PaymentReference,
+        lineNumber: line.LineNumber,
+        uniqueId: line.SourceIds?.[0],
+      });
+      if (
+        paymentReferenceError &&
+        !line.GetErrors().some((error) => error.startsWith('PaymentReference:'))
+      ) {
+        line.AddError('PaymentReference', paymentReferenceError);
+      }
+
       if (
         !this.isInbound() &&
         this.unbalancedUniqueIds.has(line.SourceIds[0])
@@ -463,6 +476,15 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     for (const line of lines) {
       this.collectSourceDimensionErrors(line, errors);
 
+      const paymentReferenceError = cashPaymentReferenceLengthErrorMessage({
+        paymentReference: line.PAYMENTREFERENCE,
+        lineNumber: line.LINENUMBER,
+        uniqueId: line.UniqueId,
+      });
+      if (paymentReferenceError) {
+        errors.push(paymentReferenceError);
+      }
+
       const hasWithholding =
         isCashWithholdingLedgerLine(line) ||
         String(line.ISWITHHOLDINGCALCULATIONENABLED ?? '').toLowerCase() ===
@@ -518,6 +540,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         errorCount: errors.length,
         errors,
       });
+    }
+  }
+
+  private addPaymentReferenceLengthError(
+    dynLine: CashEntryDynDataModel,
+    paymentReference: unknown,
+    lineNumber?: unknown,
+    uniqueId?: unknown,
+  ): void {
+    const message = cashPaymentReferenceLengthErrorMessage({
+      paymentReference,
+      lineNumber,
+      uniqueId,
+    });
+    if (
+      message &&
+      !dynLine.GetErrors().some((error) => error.startsWith('PaymentReference:'))
+    ) {
+      dynLine.AddError('PaymentReference', message);
     }
   }
 
@@ -1354,6 +1395,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       dynLine.AddError('OffsetAccountType', offsetBankMisclassification);
     }
 
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      paymentReference,
+      dynLine.LineNumber,
+      sourceId,
+    );
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      accountLine.PAYMENTREFERENCE,
+      accountLine.LINENUMBER,
+      accountLine.UniqueId,
+    );
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      offsetLine.PAYMENTREFERENCE,
+      offsetLine.LINENUMBER,
+      offsetLine.UniqueId,
+    );
+
     return dynLine;
   }
 
@@ -1628,6 +1688,25 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
     }
 
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      paymentReference,
+      dynLine.LineNumber,
+      sourceId,
+    );
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      accountLine.PAYMENTREFERENCE,
+      accountLine.LINENUMBER,
+      accountLine.UniqueId,
+    );
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      offsetLine.PAYMENTREFERENCE,
+      offsetLine.LINENUMBER,
+      offsetLine.UniqueId,
+    );
+
     return dynLine;
   }
 
@@ -1794,6 +1873,13 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
         exchangeRateContext,
       );
     }
+
+    this.addPaymentReferenceLengthError(
+      dynLine,
+      sourceLine.PAYMENTREFERENCE,
+      sourceLine.LINENUMBER,
+      sourceId,
+    );
 
     return dynLine;
   }

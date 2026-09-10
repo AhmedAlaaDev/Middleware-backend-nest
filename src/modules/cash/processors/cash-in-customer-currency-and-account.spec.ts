@@ -109,6 +109,38 @@ describe('Cash-In: customer account with a source offset line', () => {
     expect(line.Description).toBe('BankIn - CIB_EG_CA-338');
   });
 
+  it('flags a Cash-In payment reference longer than 35 characters', () => {
+    const processor = createProcessor();
+    const tooLong = 'A'.repeat(36);
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({ PAYMENTREFERENCE: tooLong }),
+      offsetLine({ PAYMENTREFERENCE: tooLong }),
+    ]);
+
+    expect(line.PaymentReference).toBe(tooLong);
+    expect(
+      line.GetErrors().some((error: string) =>
+        error.includes('PAYMENTREFERENCE exceeds 35 characters (36)'),
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts a Cash-In payment reference of exactly 35 characters', () => {
+    const processor = createProcessor();
+    const exact = 'A'.repeat(35);
+    const [line] = (processor as any).buildLines('1', [
+      customerLine({ PAYMENTREFERENCE: exact }),
+      offsetLine({ PAYMENTREFERENCE: exact }),
+    ]);
+
+    expect(line.PaymentReference).toBe(exact);
+    expect(
+      line
+        .GetErrors()
+        .some((error: string) => error.includes('PAYMENTREFERENCE exceeds')),
+    ).toBe(false);
+  });
+
   it('builds a stable Cash-In MarkedLines entry from the invoice and document', () => {
     const processor = createProcessor();
     const [line] = (processor as any).buildLines('1', [

@@ -12,6 +12,10 @@ import {
 } from '@/modules/cash/commands';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
+import {
+  CASH_PAYMENT_REFERENCE_MAX_LENGTH,
+  isCashPaymentReferenceTooLong,
+} from '@/modules/cash/policies/cash-payment-reference.policy';
 import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   CashJournalRoute,
@@ -1017,6 +1021,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     if (!this.isValidTaxGroup(body.TaxGroup)) {
       missingFields.push(
         'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
+      );
+    }
+    if (isCashPaymentReferenceTooLong(body.PAYMENTREFERENCE)) {
+      missingFields.push(
+        `customLineApiBody.PAYMENTREFERENCE (max ${CASH_PAYMENT_REFERENCE_MAX_LENGTH} characters)`,
       );
     }
 

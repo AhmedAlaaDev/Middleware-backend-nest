@@ -163,6 +163,51 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('blocks Cash Out when PAYMENTREFERENCE is longer than 35 characters', async () => {
+    const { processor } = createProcessor();
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(processor as any, 'collectSettlementTargetErrors')
+      .mockResolvedValue(undefined);
+
+    const tooLong = new CashEntryRawDataModel(
+      {
+        UniqueId: 8,
+        LINENUMBER: 8,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223201',
+        CREDITAMOUNT: 10,
+        PAYMENTREFERENCE: 'A'.repeat(36),
+        SafeType: 'Direct',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync([tooLong]),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    try {
+      await (processor as any).validateCashOutSourceAsync([tooLong]);
+    } catch (error) {
+      expect((error as BadRequestException).getResponse()).toEqual(
+        expect.objectContaining({
+          errors: [
+            'Line 8 (UniqueId 8): PAYMENTREFERENCE exceeds 35 characters (36).',
+          ],
+        }),
+      );
+    }
+
+    tooLong.PAYMENTREFERENCE = 'A'.repeat(35);
+    await expect(
+      (processor as any).validateCashOutSourceAsync([tooLong]),
+    ).resolves.toBeUndefined();
+  });
+
   it('validates repeated source rows against the aggregate D365 invoice amount', async () => {
     const pair = VendorInvoiceJournalService.pairKey('emp_2', 'Su-000093');
     const { processor, vendorInvoiceJournalService } = createProcessor({

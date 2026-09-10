@@ -126,6 +126,18 @@ describe('CashInDirectLineBuilder', () => {
     );
   });
 
+  it('rejects a payment reference longer than 35 characters', () => {
+    const line = createBuilder().build(
+      sourceRow({ PAYMENTREFERENCE: 'A'.repeat(36) }),
+    );
+
+    expect(
+      line.GetErrors().some((error) =>
+        error.includes('PAYMENTREFERENCE exceeds 35 characters (36)'),
+      ),
+    ).toBe(true);
+  });
+
   it('copies OFFSETACCOUNTDISPLAYVALUE from the same Excel row', () => {
     const row = sourceRow();
     expect(row.OFFSETACCOUNTDISPLAYVALUE).toBe('CIB-US-CA');

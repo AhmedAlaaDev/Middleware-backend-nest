@@ -1,4 +1,5 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import { cashPaymentReferenceLengthErrorMessage } from '@/modules/cash/policies/cash-payment-reference.policy';
 
 export function collectCashInDirectSourceErrors(
   row: CashEntryRawDataModel,
@@ -59,6 +60,18 @@ export function collectCashInDirectSourceErrors(
     errors.push({
       field: 'SafeType',
       message: `${lineContext}: SafeType must be Customer Collection or DownPayment.`,
+    });
+  }
+
+  const paymentReferenceError = cashPaymentReferenceLengthErrorMessage({
+    paymentReference: row.PAYMENTREFERENCE,
+    lineNumber: row.LINENUMBER,
+    uniqueId: row.UniqueId,
+  });
+  if (paymentReferenceError) {
+    errors.push({
+      field: 'PaymentReference',
+      message: paymentReferenceError,
     });
   }
 
