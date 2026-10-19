@@ -257,6 +257,7 @@ class AzureDevOpsClient {
       { op: 'add', path: '/fields/System.Title', value: spec.title },
       { op: 'add', path: '/fields/System.Description', value: spec.description },
       { op: 'add', path: '/fields/System.AssignedTo', value: assignedTo },
+      { op: 'add', path: '/fields/System.State', value: 'Done' },
     ];
     if (spec.tags?.length) {
       operations.push({
