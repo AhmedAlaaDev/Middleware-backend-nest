@@ -131,6 +131,7 @@ async function readPat(): Promise<string> {
       stdin.off('data', onData);
       stdin.off('error', onError);
       if (stdin.isRaw) stdin.setRawMode(false);
+      stdin.pause();
       stdout.write('\n');
     };
     const onError = (error: Error) => {
