@@ -6,7 +6,11 @@ import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
 
 import { VendorCandidateTransaction } from '@/modules/cash/processors/outbound/vendor-payment';
-import { vendorInvoiceIdentityEquals } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
+import {
+  normalizeVendorDocumentNumber,
+  normalizeVendorLookupText,
+  vendorInvoiceIdentityEquals,
+} from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-invoice-identity.policy';
 import {
   createCustodySettlementSkipRow,
   CustodySettlementSkipRow,
@@ -277,19 +281,55 @@ export class VendorInvoiceJournalService {
         )
       : await this.fetchVendTransRowsByVendor(company, vendorAccounts);
 
+    const invoiceFallbackTargets = normalizedRequests.filter((request) => {
+      const requestedDocument = normalizeVendorDocumentNumber(
+        request.documentNumber,
+      );
+      if (!requestedDocument) return false;
+      const vendorRows =
+        rowsByVendor.get(this.normalizeVendorAccount(request.vendorAccount)) ??
+        [];
+      return !vendorRows.some(
+        (row) =>
+          normalizeVendorDocumentNumber(row.DocumentNum || row.Document) ===
+          requestedDocument,
+      );
+    });
+    if (invoiceFallbackTargets.length > 0) {
+      const invoiceRows = await this.fetchVendTransRowsByVendorAndInvoice(
+        company,
+        invoiceFallbackTargets.map((request) => ({
+          vendorAccount: request.vendorAccount,
+          invoice: request.invoice,
+        })),
+      );
+      for (const [vendorAccount, rows] of invoiceRows) {
+        const bucket = rowsByVendor.get(vendorAccount) ?? [];
+        const seen = new Set(
+          bucket.map((row) => String(row.SourceKey ?? row.Voucher ?? '')),
+        );
+        for (const row of rows) {
+          const key = String(row.SourceKey ?? row.Voucher ?? '');
+          if (key && seen.has(key)) continue;
+          bucket.push(row);
+          if (key) seen.add(key);
+        }
+        rowsByVendor.set(vendorAccount, bucket);
+      }
+    }
+
     for (const request of normalizedRequests) {
       const vendorRows =
         rowsByVendor.get(this.normalizeVendorAccount(request.vendorAccount)) ??
         [];
-      const requestedDocument = String(request.documentNumber ?? '')
-        .trim()
-        .toLowerCase();
+      const requestedDocument = normalizeVendorDocumentNumber(
+        request.documentNumber,
+      );
       const documentRows = requestedDocument
         ? vendorRows.filter(
             (row) =>
-              String(row.DocumentNum || row.Document || '')
-                .trim()
-                .toLowerCase() === requestedDocument,
+              normalizeVendorDocumentNumber(row.DocumentNum || row.Document) ===
+              requestedDocument,
           )
         : vendorRows;
       const invoiceRows = documentRows.filter((row) =>
@@ -936,7 +976,10 @@ export class VendorInvoiceJournalService {
         wave.map(async (chunk) => {
           const vendorOrFilter = `(${this.queryBuilder.or(
             ...chunk.map((vendorAccount) =>
-              this.queryBuilder.eq('AccountNum', vendorAccount),
+              this.queryBuilder.eq(
+                'AccountNum',
+                normalizeVendorLookupText(vendorAccount),
+              ),
             ),
           )})`;
           let endpoint = this.queryBuilder.buildQuery(
@@ -1018,11 +1061,112 @@ export class VendorInvoiceJournalService {
       await Promise.all(
         wave.map(async (chunk) => {
           const targetFilter = `(${this.queryBuilder.or(
+            ...chunk.flatMap((target) => {
+              const vendorAccount = normalizeVendorLookupText(
+                target.vendorAccount,
+              );
+              const documents = this.documentLookupValues(target.documentNumber);
+              return documents.map(
+                (documentNumber) =>
+                  `(${this.queryBuilder.and(
+                    this.queryBuilder.eq('AccountNum', vendorAccount),
+                    this.queryBuilder.eq('DocumentNum', documentNumber),
+                  )})`,
+              );
+            }),
+          )})`;
+          let endpoint = this.queryBuilder.buildQuery(
+            '/data/VendTransBiEntities',
+            {
+              select: [
+                'SourceKey',
+                'Invoice',
+                'AccountNum',
+                'CurrencyCode',
+                'Closed',
+                'AmountCur',
+                'SettleAmountCur',
+                'DocumentNum',
+                'Voucher',
+                'TransDate',
+              ],
+              filter: this.queryBuilder.and(
+                this.queryBuilder.eq('dataAreaId', company),
+                targetFilter,
+              ),
+              crossCompany: true,
+            },
+          );
+
+          while (true) {
+            const response = await this.d365foClient.get<VendTransLookupRow>(
+              endpoint,
+              { useCache: false },
+            );
+            for (const row of response.value ?? []) {
+              const vendorAccount = this.normalizeVendorAccount(row.AccountNum);
+              if (!vendorAccount) continue;
+              const bucket = rowsByVendor.get(vendorAccount) ?? [];
+              bucket.push(row);
+              rowsByVendor.set(vendorAccount, bucket);
+            }
+            const nextLink = response['@odata.nextLink'];
+            if (!nextLink) break;
+            endpoint = this.getEndpointFromNextLink(nextLink);
+          }
+        }),
+      );
+    }
+
+    return rowsByVendor;
+  }
+
+  /**
+   * Document-scoped lookup misses a real transaction when Excel stored the
+   * document with different padding. The invoice is still an exact Finance
+   * identity, so load those rows and let document normalization decide.
+   */
+  private async fetchVendTransRowsByVendorAndInvoice(
+    company: string,
+    targets: Array<{ vendorAccount: string; invoice: string }>,
+  ): Promise<Map<string, VendTransLookupRow[]>> {
+    const uniqueTargets = [
+      ...new Map(
+        targets
+          .map((target) => ({
+            vendorAccount: normalizeVendorLookupText(target.vendorAccount),
+            invoice: normalizeVendorLookupText(target.invoice),
+          }))
+          .filter(
+            (
+              target,
+            ): target is { vendorAccount: string; invoice: string } =>
+              Boolean(target.vendorAccount) && Boolean(target.invoice),
+          )
+          .map((target) => [
+            `${this.normalizeVendorAccount(target.vendorAccount)}|${target.invoice.toLowerCase()}`,
+            target,
+          ]),
+      ).values(),
+    ];
+    const rowsByVendor = new Map<string, VendTransLookupRow[]>();
+    if (uniqueTargets.length === 0) return rowsByVendor;
+
+    const chunks = this.chunkArray(
+      uniqueTargets,
+      VENDOR_INVOICE_LOOKUP_CHUNK_SIZE,
+    );
+    const concurrency = 4;
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const wave = chunks.slice(i, i + concurrency);
+      await Promise.all(
+        wave.map(async (chunk) => {
+          const targetFilter = `(${this.queryBuilder.or(
             ...chunk.map(
               (target) =>
                 `(${this.queryBuilder.and(
                   this.queryBuilder.eq('AccountNum', target.vendorAccount),
-                  this.queryBuilder.eq('DocumentNum', target.documentNumber),
+                  this.queryBuilder.eq('Invoice', target.invoice),
                 )})`,
             ),
           )})`;
@@ -1070,6 +1214,15 @@ export class VendorInvoiceJournalService {
     }
 
     return rowsByVendor;
+  }
+
+  private documentLookupValues(documentNumber: string): string[] {
+    const cleaned = normalizeVendorLookupText(documentNumber).replace(
+      /\.0+$/,
+      '',
+    );
+    const normalized = normalizeVendorDocumentNumber(documentNumber);
+    return [...new Set([cleaned, normalized].filter(Boolean))];
   }
 
   private toInvoiceSettlementSnapshot(
@@ -1471,13 +1624,7 @@ export class VendorInvoiceJournalService {
   }
 
   private normalizeVendorAccount(value: unknown): string {
-    if (typeof value === 'string') {
-      return value.trim().toLowerCase();
-    }
-    if (typeof value === 'number') {
-      return String(value).trim().toLowerCase();
-    }
-    return '';
+    return normalizeVendorLookupText(value).toLowerCase();
   }
 
   private normalizeInvoiceValue(value: unknown): string {

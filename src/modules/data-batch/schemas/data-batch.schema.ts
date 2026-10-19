@@ -62,6 +62,20 @@ export class DataBatch {
   @Prop({ type: [String], default: [] })
   dfoIds?: string[];
 
+  @Prop({
+    type: [
+      {
+        plannedJournalBatchNumber: { type: String, required: true },
+        financeJournalBatchNumber: { type: String, required: true },
+      },
+    ],
+    default: [],
+  })
+  dfoJournalMappings?: Array<{
+    plannedJournalBatchNumber: string;
+    financeJournalBatchNumber: string;
+  }>;
+
   @Prop({ type: [String], default: [] })
   dfoPostingErrors?: string[];
 

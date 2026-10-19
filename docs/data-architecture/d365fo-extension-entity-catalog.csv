@@ -1,0 +1,5 @@
+"Entity ID","Table","DisplayName","TableType","PrimaryIndex","PrimaryIndexFields","DeclaredFieldCount","DeclaredRelationCount","Source"
+"DFOEXT001","BankAccountTransSummary",,"Regular (default)",,"","8","0","SDDDFO/MetaData/FreeTextInvoiceService/FreeTextInvoiceService/AxTable/BankAccountTransSummary.xml"
+"DFOEXT002","CustomIntegrationLog",,"Regular (default)",,"","8","0","SDDDFO/MetaData/MBDRIntegrationBase/MBDRIntegrationbase/AxTable/CustomIntegrationLog.xml"
+"DFOEXT003","CustomIntegrationParameters",,"Regular (default)","ProviderIdx","ProviderName","7","0","SDDDFO/MetaData/MBDRIntegrationBase/MBDRIntegrationbase/AxTable/CustomIntegrationParameters.xml"
+"DFOEXT004","MBDRCustomFeaturesManagement","Custom Features Management","Regular (default)",,"","6","0","SDDDFO/MetaData/MBDR_CustomFeatureManagement/MBDR_CustomFeatureManagement/AxTable/MBDRCustomFeaturesManagement.xml"

@@ -13,6 +13,15 @@ export const CASH_NOTES_RECEIVABLE_MAIN_ACCOUNTS = [
 export const CASH_SETTLEMENT_MAIN_ACCOUNTS = ['421103'] as const;
 
 /**
+ * Cash-In Collect journals post a zero-net 223404 debit / 512301 credit pair
+ * next to the real petty-cash and vendor movement. Re-posting that pair on
+ * Cash-Out Custody Settlement doubles the amount and splits D365 vouchers
+ * because P-Freight opens a new voucher whenever the running balance hits 0.
+ */
+export const CASH_COLLECT_WASH_DEBIT_MAIN_ACCOUNT = '223404';
+export const CASH_COLLECT_WASH_CREDIT_MAIN_ACCOUNT = '512301';
+
+/**
  * Identifies a ledger source row affected by the 22420 dimension rule.
  *
  * Both the account and offset row are inspected because either side can

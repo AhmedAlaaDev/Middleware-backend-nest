@@ -1,0 +1,21 @@
+%% Ledger processing domain view
+%% Covers ledger master cache and shared batch pipeline; ledger journal lines are generated payloads and posted to D365FO.
+%% Entity IDs: E011=data_batches; E012=data_enhanced_records; E013=data_source_records; E019=ledgers.
+%% Schema evidence: src/modules/master-data/schemas/ledger.schema.ts and src/modules/data-batch/schemas.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: no local persisted journal header/line tables or verified links from Ledger to account/dimension collections.
+erDiagram
+  LEDGERS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES {
+    ObjectId _id PK
+  }
+  DATA_SOURCE_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_ENHANCED_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+  DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"

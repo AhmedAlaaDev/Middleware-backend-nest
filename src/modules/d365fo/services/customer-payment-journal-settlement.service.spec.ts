@@ -109,7 +109,7 @@ describe('CustomerPaymentJournalSettlementService', () => {
     });
   };
 
-  it('posts each journal line amount against the same invoice with InvoiceDueDate', async () => {
+  it('posts each journal line amount against the same invoice with the compact settlement body', async () => {
     const { service, d365 } = buildService();
     mockGets(d365);
 
@@ -145,8 +145,6 @@ describe('CustomerPaymentJournalSettlementService', () => {
         InvoiceCompany: 'm-p',
         InvoiceDueDate: '2026-01-31T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2403.51,
-        CashDiscountToTakeInInvoiceCurrency: 0,
-        InvoiceToPaymentCrossRate: 1,
       },
       { retries: 0 },
     );
@@ -156,9 +154,7 @@ describe('CustomerPaymentJournalSettlementService', () => {
       expect.objectContaining({
         JournalLineNumber: 2,
         InvoiceNumber: '000036765/YD',
-        InvoiceDueDate: '2026-01-31T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2067.0188,
-        InvoiceToPaymentCrossRate: 1,
       }),
       { retries: 0 },
     );
@@ -194,7 +190,6 @@ describe('CustomerPaymentJournalSettlementService', () => {
       '/data/PaymentJournalLineSettledInvoices',
       expect.objectContaining({
         JournalLineNumber: 1,
-        InvoiceDueDate: '2026-01-01T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2403.51,
       }),
       { retries: 0 },
@@ -295,7 +290,6 @@ describe('CustomerPaymentJournalSettlementService', () => {
       '/data/PaymentJournalLineSettledInvoices',
       expect.objectContaining({
         JournalLineNumber: 1,
-        InvoiceDueDate: '2026-01-05T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2403.51,
       }),
       { retries: 0 },
@@ -305,7 +299,6 @@ describe('CustomerPaymentJournalSettlementService', () => {
       '/data/PaymentJournalLineSettledInvoices',
       expect.objectContaining({
         JournalLineNumber: 2,
-        InvoiceDueDate: '2026-01-01T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2403.5088,
       }),
       { retries: 0 },
@@ -315,7 +308,6 @@ describe('CustomerPaymentJournalSettlementService', () => {
       '/data/PaymentJournalLineSettledInvoices',
       expect.objectContaining({
         JournalLineNumber: 3,
-        InvoiceDueDate: '2026-01-05T12:00:00Z',
         SettlementAmountInInvoiceCurrency: 2067.0188,
       }),
       { retries: 0 },
@@ -413,5 +405,68 @@ describe('CustomerPaymentJournalSettlementService', () => {
       }),
     ).rejects.toThrow('CustomerPaymentJournalLines has no line 1');
     expect(d365.post).not.toHaveBeenCalled();
+  });
+
+  it('converts a payment in a different currency before settlement', async () => {
+    const { service, d365 } = buildService();
+    const selectSpy = jest.spyOn(service as any, 'selectCappedSettlement');
+    mockGets(d365, {
+      custTrans: [
+        {
+          Invoice: 'INV-USD-100',
+          AccountNum: '101000001',
+          CurrencyCode: 'USD',
+          Closed: '1900-01-01T00:00:00Z',
+          DueDate: '2026-03-31T12:00:00Z',
+          AmountCur: 100,
+          AmountMST: 5000,
+          SettleAmountCur: 0,
+          SourceKey: 99,
+        },
+      ],
+    });
+
+    await service.createSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'Mesco-000016000',
+      targets: [
+        {
+          lineNumber: 1,
+          invoiceNumber: 'INV-USD-100',
+          settlementAmount: 2500,
+          customerAccount: '101000001',
+          currencyCode: 'EGP',
+          paymentExchangeRate: 100,
+        },
+      ],
+    });
+
+    expect(
+      (service as any).convertPaymentToInvoiceCurrency(
+        [
+          {
+            CurrencyCode: 'USD',
+            AmountCur: 100,
+            AmountMST: 5000,
+          },
+        ],
+        {
+          settlementAmount: 2500,
+          currencyCode: 'EGP',
+          paymentExchangeRate: 100,
+        },
+      ),
+    ).toBe(50);
+    expect(selectSpy.mock.calls[0][1]).toBe(50);
+    expect(selectSpy.mock.results[0].value.amountToSettle).toBe(50);
+
+    expect(d365.post).toHaveBeenCalledWith(
+      '/data/PaymentJournalLineSettledInvoices',
+      expect.objectContaining({
+        InvoiceNumber: 'INV-USD-100',
+        SettlementAmountInInvoiceCurrency: 50,
+      }),
+      { retries: 0 },
+    );
   });
 });

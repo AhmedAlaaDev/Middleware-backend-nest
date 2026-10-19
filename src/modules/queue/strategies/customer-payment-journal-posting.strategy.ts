@@ -170,6 +170,12 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
       const currencyCode = String(
         line.customLineApiBody?.currency ?? '',
       ).trim();
+      const paymentExchangeRate = Number(
+        line.customLineApiBody?.ExchangeRate ??
+          line.customLineApiBody?.EXCHANGERATE ??
+          line.customLineApiBody?.ExchRate ??
+          0,
+      );
       if (
         !invoiceNumber ||
         !customerAccount ||
@@ -186,6 +192,7 @@ export class CustomerPaymentJournalPostingStrategy implements IDfoPostingStrateg
           customerAccount,
           ...(transDate ? { transDate } : {}),
           ...(currencyCode ? { currencyCode } : {}),
+          ...(paymentExchangeRate > 0 ? { paymentExchangeRate } : {}),
         },
       ];
     });

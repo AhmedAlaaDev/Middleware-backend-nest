@@ -1,0 +1,18 @@
+%% Identity and access domain
+%% Entity IDs: E024=refresh_tokens; E027=user_access_decisions; E028=users
+%% Schema evidence: Mongoose schemas and relationship evidence IDs in the catalog.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    REFRESH_TOKENS {
+        ObjectId _id PK
+    }
+    USER_ACCESS_DECISIONS {
+        ObjectId _id PK
+    }
+    USERS {
+        ObjectId _id PK
+    }
+    USERS ||--o{ REFRESH_TOKENS : "userId ref R001; parent array A007"
+    USERS ||--o{ USER_ACCESS_DECISIONS : "userId ref R002"
+    USERS ||--o{ USER_ACCESS_DECISIONS : "actorUserId ref R003"

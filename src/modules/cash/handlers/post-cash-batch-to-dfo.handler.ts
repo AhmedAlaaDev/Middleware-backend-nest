@@ -83,7 +83,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       batch.company,
       cashDirection,
       targetProcessor,
-      this.usesInvoiceAmountSettlement(batch.entryProcessorType),
+      this.isDirectCashInUpload(batch.entryProcessorType),
     );
 
     const journalsToQueue = this.applyTestingMode(groupedJournals);
@@ -116,7 +116,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
   }
 
-  private usesInvoiceAmountSettlement(
+  private isDirectCashInUpload(
     entryProcessorType: EntryProcessorTypes,
   ): boolean {
     return (
@@ -295,7 +295,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     company: string,
     cashDirection: 'in' | 'out',
     targetProcessor: CashTargetProcessor | undefined,
-    settleInvoiceByAmount = false,
+    directCashInUpload = false,
   ): CashJournalPostingGroup[] {
     const result: CashJournalPostingGroup[] = [];
 
@@ -309,7 +309,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           company,
           'in',
           undefined,
-          settleInvoiceByAmount,
+          directCashInUpload,
         );
         result.push({ header, lines: mappedLines });
         continue;
@@ -375,7 +375,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     company: string,
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
-    settleInvoiceByAmount = false,
+    directCashInUpload = false,
   ): D365FOCustomerPaymentJournalLineRequest[] {
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
@@ -572,6 +572,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
               ? 100
               : line.ExchRate || 100,
 
+        // D365 expects exchange-rate fields in the scaled-by-100 format.
         ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
 
         DEFAULTDIMENSIONDISPLAYVALUE: defaultDimDisplayValue,
@@ -639,7 +640,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       // array (InvoiceNumber, OperationNumber, DocumentNumber, and
       // HasWithHoldingLine) and never reconstruct an entry from top-level
       // invoice/document fields.
-      customLineApiBody.MarkedLines = settleInvoiceByAmount
+      customLineApiBody.MarkedLines = directCashInUpload
         ? []
         : isCashOutVendorSettlementLine
           ? markedLines
@@ -670,10 +671,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         this.omitOffsetFields(customLineApiBody);
       }
 
-      const settlementInvoice = String(
-        line.Invoice || markedInvoice || '',
-      ).trim();
-
       return {
         dataAreaId: company,
         LineNumber: lineNumber,
@@ -687,15 +684,6 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ).trim(),
         ...(Number(line.SourceLineNumber) > 0
           ? { sourceLineNumber: Number(line.SourceLineNumber) }
-          : {}),
-        ...(settleInvoiceByAmount && settlementInvoice && credit > 0
-          ? {
-              customerSettlement: {
-                invoiceNumber: settlementInvoice,
-                settlementAmount: credit,
-                customerAccount: accountDisplayValue,
-              },
-            }
           : {}),
       };
     });
@@ -888,7 +876,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           validationErrors.push({
             journalIndex,
             lineNumber: line.LineNumber,
-            missingFields: lineErrors,
+            missingFields: lineErrors.map((field) =>
+              this.describeLineValidationField(field, line),
+            ),
           });
         }
       });
@@ -1030,6 +1020,30 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
 
     return missingFields;
+  }
+
+  private describeLineValidationField(
+    field: string,
+    line: D365FOCustomerPaymentJournalLineRequest,
+  ): string {
+    if (field !== 'customLineApiBody.VendorGroup') return field;
+
+    const account =
+      String(line.customLineApiBody?.AccountNum ?? '').trim() ||
+      'the affected vendor';
+    const invoice = String(line.groupInvoice ?? '').trim();
+    const sourceLine = Number(line.sourceLineNumber);
+    const location =
+      Number.isFinite(sourceLine) && sourceLine > 0
+        ? `Excel source line ${sourceLine}`
+        : `formatted line ${line.LineNumber}`;
+    const invoiceDetails = invoice ? ` for invoice "${invoice}"` : '';
+
+    return (
+      `Vendor group is missing for vendor account "${account}"${invoiceDetails} ` +
+      `(${location}). Synchronize this vendor in D365FO or assign its VendorGroup, ` +
+      'then reprocess the batch.'
+    );
   }
 
   private isValidTaxGroup(taxGroup: string | undefined | null): boolean {

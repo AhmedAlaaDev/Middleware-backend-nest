@@ -110,7 +110,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   private readonly cashJournalRoutingService = new CashJournalRoutingService();
   private readonly vendorInvoiceVerificationService =
     new VendorInvoiceVerificationService();
-  private readonly cashOutExchangeRateService: CashOutExchangeRateService;
+  protected readonly cashOutExchangeRateService: CashOutExchangeRateService;
   private readonly generalJournalService: GeneralJournalService;
   private readonly d365VendorService?: VendorService;
 
@@ -627,7 +627,10 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
   ): Promise<void> {
     const vendorLines = lines.filter(
       (line) =>
-        (line.IsVendorPayment || line.IsCustodySettlement) && line.IsVendor,
+        (line.IsVendorPayment ||
+          line.IsCustodySettlement ||
+          line.IsCustodyIssue) &&
+        line.IsVendor,
     );
     if (vendorLines.length === 0) return;
 
@@ -788,7 +791,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       );
       if (!snapshot?.exists) {
         addGroupError(
-          `vendor transaction was not found in D365. Vendor: ${vendor}.`,
+          `vendor transaction was not found in D365 for vendor ${vendor}, document ${documentNumber || '(blank)'}, invoice ${invoice}.`,
         );
       } else {
         const hasCandidatesOrAmounts =
@@ -2087,7 +2090,7 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       if (!snapshot?.exists) {
         line.AddError(
           'MarkedInvoice',
-          `Vendor transaction was not found in D365. Vendor: ${vendorAccount}.`,
+          `Vendor transaction was not found in D365 for vendor ${vendorAccount}, document ${lineDoc}, invoice ${invoice}.`,
         );
       } else {
         const hasCandidatesOrAmounts =

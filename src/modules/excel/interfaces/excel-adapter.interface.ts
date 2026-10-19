@@ -4,8 +4,11 @@ export interface ExcelSheetData<T> {
 }
 
 export abstract class IExcelAdapter {
-  abstract read<T = any>(buffer: Buffer): Promise<T[]>;
-  abstract readSheet<T = any>(buffer: Buffer): Promise<ExcelSheetData<T>>;
+  abstract read<T = any>(buffer: Buffer, sheetName?: string): Promise<T[]>;
+  abstract readSheet<T = any>(
+    buffer: Buffer,
+    sheetName?: string,
+  ): Promise<ExcelSheetData<T>>;
   abstract write<T extends object = { [key: string]: any }>(
     data: T[],
   ): Promise<Buffer>;

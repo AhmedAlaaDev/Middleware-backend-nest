@@ -1,0 +1,29 @@
+%% Batch processing domain
+%% Entity IDs: E006=billing_codes; E009=data_batch_errors; E010=data_batch_missing_master_data; E011=data_batches; E012=data_enhanced_records; E013=data_source_records
+%% Schema evidence: Mongoose schemas and relationship evidence IDs in the catalog.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    BILLING_CODES {
+        ObjectId _id PK
+    }
+    DATA_BATCH_ERRORS {
+        ObjectId _id PK
+    }
+    DATA_BATCH_MISSING_MASTER_DATA {
+        ObjectId _id PK
+    }
+    DATA_BATCHES {
+        ObjectId _id PK
+    }
+    DATA_ENHANCED_RECORDS {
+        ObjectId _id PK
+    }
+    DATA_SOURCE_RECORDS {
+        ObjectId _id PK
+    }
+    DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+    DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"
+    DATA_BATCHES o|..o{ DATA_BATCH_ERRORS : "optional batchId A003"
+    DATA_BATCHES ||..o{ DATA_BATCH_MISSING_MASTER_DATA : "required batchId A004"
+    DATA_BATCHES ||..o{ QUEUE_JOBS : "required batchId A006"

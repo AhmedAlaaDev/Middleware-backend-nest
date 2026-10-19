@@ -1,0 +1,14 @@
+%% Cross-system data lineage; arrows are data flows, not foreign keys.
+%% Evidence: data-batch services, Excel upload handlers, D365FO integration, configuration.
+%% Relationship catalog: ../04-relationship-catalog.md; this flowchart does not assert database relationships.
+%% See ../08-integration-data-mapping.md for explanation and limitations.
+flowchart LR
+  Users[Frontend users] -->|HTTP/API requests| API[NestJS middleware API]
+  API -->|persist batches, master cache, identity, queue metadata| Mongo[(MongoDB application store)]
+  API -->|optional named log connection| Logs[(MongoDB log store; URI may fall back)]
+  API -->|BullMQ, cache, log stream| Redis[(Redis transient/operational data)]
+  API -->|OData reads and transaction writes| D365[Dynamics 365 Finance & Operations]
+  Excel[Uploaded workbooks] -->|multipart upload and parsing| API
+  BankFiles[Bank and IST workbooks] -->|multipart upload| BankApp[Bank ↔ IST reconciliation app]
+  BankApp -->|download updated IST workbook| BankFilesOut[Generated workbook response]
+  BankApp -.->|no persistence schema found| NoStore[Transient processing]

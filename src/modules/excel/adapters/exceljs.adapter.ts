@@ -10,11 +10,17 @@ import {
 } from '@/modules/excel/interfaces/excel-adapter.interface';
 
 export class ExcelJsAdapter extends IExcelAdapter {
-  public async read<T = any>(buffer: Buffer): Promise<T[]> {
-    return (await this.readSheet<T>(buffer)).rows;
+  public async read<T = any>(
+    buffer: Buffer,
+    sheetName?: string,
+  ): Promise<T[]> {
+    return (await this.readSheet<T>(buffer, sheetName)).rows;
   }
 
-  public async readSheet<T = any>(buffer: Buffer): Promise<ExcelSheetData<T>> {
+  public async readSheet<T = any>(
+    buffer: Buffer,
+    sheetName?: string,
+  ): Promise<ExcelSheetData<T>> {
     if (!buffer?.length) {
       throw new BadRequestException('Excel file is empty or missing.');
     }
@@ -39,15 +45,25 @@ export class ExcelJsAdapter extends IExcelAdapter {
     // Some D365 exports contain a blank/helper sheet before the actual data
     // sheet. Cash-Out validation needs the sheet whose first row contains the
     // headers, not simply workbook.worksheets[0].
-    const worksheet =
-      workbook.worksheets.find((candidate) => {
-        const values = candidate.getRow(1).values as any[];
-        return values
-          .slice(1)
-          .some(
-            (value) => value != null && String(value).trim().length > 0,
-          );
-      }) ?? workbook.worksheets[0];
+    const requestedName = sheetName?.trim();
+    const worksheet = requestedName
+      ? workbook.worksheets.find(
+          (candidate) =>
+            candidate.name.trim().toLowerCase() === requestedName.toLowerCase(),
+        )
+      : (workbook.worksheets.find((candidate) => {
+          const values = candidate.getRow(1).values as any[];
+          return values
+            .slice(1)
+            .some(
+              (value) => value != null && String(value).trim().length > 0,
+            );
+        }) ?? workbook.worksheets[0]);
+    if (requestedName && !worksheet) {
+      throw new BadRequestException(
+        `Excel sheet "${requestedName}" was not found.`,
+      );
+    }
     if (!worksheet) return { headers: [], rows: [] };
     const headerRow = worksheet.getRow(1).values as any[];
     const headers = headerRow

@@ -1,0 +1,22 @@
+%% Platform support domain
+%% Entity IDs: E002=app_settings; E003=application_logs; E007=cache_entries; E017=ledger_entry_batch_counters; E018=ledger_voucher_counters
+%% Schema evidence: Mongoose schemas and relationship evidence IDs in the catalog.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    APP_SETTINGS {
+        ObjectId _id PK
+    }
+    APPLICATION_LOGS {
+        ObjectId _id PK
+    }
+    CACHE_ENTRIES {
+        ObjectId _id PK
+    }
+    LEDGER_ENTRY_BATCH_COUNTERS {
+        ObjectId _id PK
+    }
+    LEDGER_VOUCHER_COUNTERS {
+        ObjectId _id PK
+    }
+

@@ -4,7 +4,7 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
-import { NextFunction, Request, Response } from 'express';
+import { json, NextFunction, Request, Response, urlencoded } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -17,9 +17,13 @@ import { TraceContextMiddleware } from '@/modules/observability/middleware/trace
 dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // The settlement-recovery endpoint accepts the complete SettlementLines.json
+  // array, which can be larger than Express's default 100 KB JSON limit.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.enableShutdownHooks();
   app.useLogger(app.get(Logger));
+  app.use(json({ limit: process.env.JSON_BODY_LIMIT ?? '50mb' }));
+  app.use(urlencoded({ extended: true }));
   const isProduction = process.env.NODE_ENV === 'production';
   const isSwaggerEnabled = !isProduction;
 

@@ -17,7 +17,9 @@ export interface CustodySettlementLinePlan {
 /**
  * Owns Cash-Out Custody Settlement preparation.
  *
- * Every source row is posted; none is dropped or merged away:
+ * Every source row is posted; none is dropped or merged away. In particular,
+ * Collect 223404 debit / 512301 credit rows remain in the same source voucher
+ * because the voucher may only close after the full source sequence is kept:
  * - a 223304 row matched to a vendor debit becomes a Vendor -> 223304 line,
  *   the same shape Vendor Payment posts, so Finance shows the vendor account
  *   with withholding as its offset instead of a bare ledger line. That vendor

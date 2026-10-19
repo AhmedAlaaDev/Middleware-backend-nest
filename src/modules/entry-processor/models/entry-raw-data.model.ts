@@ -157,7 +157,22 @@ export class EntryRawDataModel {
     this.DOCUMENTDATE = this.normalizeDate(data?.DOCUMENTDATE);
     this.DUEDATE = this.normalizeDate(data?.DUEDATE);
     this.PAYMENTMETHOD = s(data?.PAYMENTMETHOD);
-    this.PAYMENTREFERENCE = s(data?.PAYMENTREFERENCE);
+    // Source workbooks are not consistent about the casing/spaces in this
+    // header. Normalize all supported forms before cash processing so a real
+    // bank reference cannot disappear during upload.
+    this.PAYMENTREFERENCE = s(
+      [
+        data?.PAYMENTREFERENCE,
+        data?.PAYMENTREFERNCE,
+        data?.PaymentReference,
+        data?.PaymentRefernece,
+        data?.['Payment Reference'],
+        data?.['Payment reference'],
+        data?.['Payment Refernece'],
+        data?.['Payment refernece'],
+        data?.paymentReference,
+      ].find((value) => s(value).trim() !== ''),
+    );
     this.CASHDISCOUNT = Number(n(data?.CASHDISCOUNT)) || 0;
     this.CASHDISCOUNTAMOUNT = Number(n(data?.CASHDISCOUNTAMOUNT)) || 0;
     this.CASHDISCOUNTDATE = this.normalizeDate(data?.CASHDISCOUNTDATE);

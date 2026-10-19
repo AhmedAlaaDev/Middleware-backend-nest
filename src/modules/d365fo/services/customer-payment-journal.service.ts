@@ -7,7 +7,6 @@ import { ODataQueryBuilderService } from './odata-query-builder.service';
 import {
   VendorInvoiceJournalService,
   VendorPaymentJournalSettlementTarget,
-  VendorPaymentSettlementVerification,
 } from './vendor-invoice-journal.service';
 import { VendorPaymentJournalService } from './vendor-payment-journal.service';
 
@@ -91,6 +90,12 @@ export class CustomerPaymentJournalService {
   /** Axios timeout for cash-out bulk custom-service POSTs (see D365FO_BULK_HTTP_TIMEOUT). */
   private readonly cashOutBulkHttpTimeout: number;
 
+  /**
+   * After a client timeout, Finance may still commit the transaction.
+   * Confirm the lines before sending them again. The first check is immediate.
+   */
+  private readonly timeoutRecoveryDelaysMs = [0, 5_000, 15_000, 30_000];
+
   constructor(
     private readonly d365foClient: D365FOClientService,
     private readonly queryBuilder: ODataQueryBuilderService,
@@ -104,7 +109,7 @@ export class CustomerPaymentJournalService {
   ) {
     this.cashOutBulkHttpTimeout =
       configService.get<ResilienceConfig>('resilience')?.bulkHttpTimeout ??
-      600_000;
+      1_800_000;
   }
 
   /**
@@ -597,9 +602,8 @@ export class CustomerPaymentJournalService {
   }
 
   /**
-   * Submit exactly one UniqueId (or one Cash-In chunk) to D365. After a
-   * successful Cash-Out request, unmarked leftovers from this same journal
-   * are returned so the header can OData-mark them after UniqueId upload.
+   * Submit exactly one UniqueId (or one Cash-In chunk) to D365. A successful
+   * request is complete even when the invoice is not settled.
    *
    * Custody Settlement UniqueIds that fail because X++ hit an already-marked
    * open trans are retried without MarkedLines so the journal line still lands.
@@ -621,11 +625,12 @@ export class CustomerPaymentJournalService {
       `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
     );
 
-    const result = await this.postCustomCashLines(
+    const result = await this.postCustomCashLinesRecoveringTimeout(
       endpoint,
-      pendingLines.map((line) => line.body),
+      pendingLines,
       { headerKey, pendingLines, attempt: 'initial', batch },
       cashDirection,
+      dataAreaId,
     );
     const failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
@@ -639,21 +644,6 @@ export class CustomerPaymentJournalService {
     });
 
     if (failures.length === 0) {
-      if (cashDirection === 'out') {
-        const unmarkedLines = await this.verifyCashOutMarkedSettlements(
-          headerKey,
-          pendingLines,
-          dataAreaId,
-          batch,
-        );
-        return {
-          unmarkedSettlements: unmarkedLines
-            .map((line) => this.toUnmarkedODataSettlementTarget(line))
-            .filter((target): target is VendorPaymentJournalSettlementTarget =>
-              Boolean(target),
-            ),
-        };
-      }
       return { unmarkedSettlements: [] };
     }
 
@@ -685,9 +675,9 @@ export class CustomerPaymentJournalService {
         };
       });
 
-      const retryResult = await this.postCustomCashLines(
+      const retryResult = await this.postCustomCashLinesRecoveringTimeout(
         endpoint,
-        retryPendingLines.map((line) => line.body),
+        retryPendingLines,
         {
           headerKey,
           pendingLines: retryPendingLines,
@@ -695,6 +685,7 @@ export class CustomerPaymentJournalService {
           batch,
         },
         cashDirection,
+        dataAreaId,
       );
       const retryFailures = this.extractCashBulkFailures(
         retryResult,
@@ -1307,7 +1298,16 @@ export class CustomerPaymentJournalService {
     splitByInvoice: boolean,
   ): string {
     if (!splitByInvoice) return uniqueId;
-    return `${uniqueId}::${String(groupInvoice ?? '').trim()}`;
+    const normalizedInvoice = String(groupInvoice ?? '').trim();
+
+    // Cash-Out source exports use 0/00/000 as an empty invoice placeholder.
+    // Treat it exactly like a blank when building the UniqueId request. If it
+    // becomes a separate invoice key, custody vendor lines are sent before
+    // their ledger/cash balancing lines and D365 generates split, unbalanced
+    // vouchers even though the source sequence is balanced.
+    if (!normalizedInvoice || /^0+$/.test(normalizedInvoice)) return uniqueId;
+
+    return `${uniqueId}::${normalizedInvoice}`;
   }
 
   private toUnmarkedODataSettlementTarget(
@@ -1414,6 +1414,115 @@ export class CustomerPaymentJournalService {
     }
   }
 
+  /**
+   * Finance often commits after Axios has already aborted. When the journal
+   * lines are present, continue with that result instead of posting again.
+   */
+  private async postCustomCashLinesRecoveringTimeout(
+    endpoint: string,
+    pendingLines: CashBulkPendingLine[],
+    context: {
+      headerKey: string;
+      pendingLines: CashBulkPendingLine[];
+      attempt: CashBulkAttempt;
+      batch: CashBulkBatch;
+    },
+    cashDirection: 'in' | 'out',
+    dataAreaId: string,
+  ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
+    try {
+      return await this.postCustomCashLines(
+        endpoint,
+        pendingLines.map((line) => line.body),
+        context,
+        cashDirection,
+      );
+    } catch (error: unknown) {
+      if (!this.isBulkClientTimeout(error) || !dataAreaId.trim()) {
+        throw error;
+      }
+
+      const recovered = await this.cashLinesCommittedAfterTimeout(
+        context.headerKey,
+        pendingLines,
+        dataAreaId,
+        cashDirection,
+      );
+      if (!recovered) throw error;
+
+      this.logger.warn(
+        `[CASH-CUSTOM] Request ${context.batch.number}/${context.batch.total} for header ${context.headerKey} timed out after ${this.cashOutBulkHttpTimeout}ms, but all ${pendingLines.length} line(s) are already in D365. Continuing without another POST.`,
+      );
+      return {
+        StatusCode: 'Success',
+        Message:
+          'Recovered after client timeout because the journal lines exist in D365.',
+      };
+    }
+  }
+
+  private isBulkClientTimeout(error: unknown): boolean {
+    const message = this.dfoErrorExtractor.extractMessage(error).toLowerCase();
+    return message.includes('timeout') && message.includes('exceeded');
+  }
+
+  private async cashLinesCommittedAfterTimeout(
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+    dataAreaId: string,
+    cashDirection: 'in' | 'out',
+  ): Promise<boolean> {
+    const expected = pendingLines.map((line) => line.lineNumber);
+    let foundCount = 0;
+
+    for (const delayMs of this.timeoutRecoveryDelaysMs) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      let present: Set<number>;
+      try {
+        present = await this.readCashJournalLineNumbers(
+          headerKey,
+          dataAreaId,
+          cashDirection,
+        );
+      } catch (lookupError: unknown) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Could not confirm lines for header ${headerKey} after timeout: ${this.dfoErrorExtractor.extractMessage(lookupError)}`,
+        );
+        return false;
+      }
+
+      foundCount = expected.filter((lineNumber) => present.has(lineNumber))
+        .length;
+      if (foundCount === expected.length) return true;
+    }
+
+    if (foundCount > 0) {
+      throw new NonRetryableDfoPostingError(
+        `Cash-${cashDirection} header ${headerKey} timed out and only ${foundCount}/${expected.length} submitted lines are present in D365. Posting stopped so the request is not sent again.`,
+      );
+    }
+
+    return false;
+  }
+
+  private async readCashJournalLineNumbers(
+    headerKey: string,
+    dataAreaId: string,
+    cashDirection: 'in' | 'out',
+  ): Promise<Set<number>> {
+    const existing =
+      cashDirection === 'out'
+        ? await this.vendorPaymentJournalService.listLinesForHeader(
+            headerKey,
+            dataAreaId,
+          )
+        : await this.listLinesForHeader(headerKey, dataAreaId);
+    return new Set(existing.map((line) => line.LineNumber));
+  }
+
   private async postCustomCashLines(
     endpoint: string,
     lines: TSLedgerJournalTransCustomRequestBody[],
@@ -1453,181 +1562,6 @@ export class CustomerPaymentJournalService {
     } catch (error: unknown) {
       throw new Error(this.dfoErrorExtractor.extractMessage(error));
     }
-  }
-
-  private async verifyCashOutMarkedSettlements(
-    headerKey: string,
-    pendingLines: CashBulkPendingLine[],
-    dataAreaId: string,
-    batch: CashBulkBatch,
-  ): Promise<CashBulkPendingLine[]> {
-    const verificationTargets = pendingLines
-      .map((line) => ({
-        lineNumber: line.lineNumber,
-        vendorAccount: String(line.body.AccountNum ?? '').trim(),
-        expectedInvoices: Array.isArray(line.body.MarkedLines)
-          ? line.body.MarkedLines.map((markedLine) =>
-              String(markedLine?.InvoiceNumber ?? '').trim(),
-            ).filter(Boolean)
-          : [],
-      }))
-      .filter(
-        (line) =>
-          Boolean(line.vendorAccount) && line.expectedInvoices.length > 0,
-      );
-
-    if (verificationTargets.length === 0) return [];
-
-    const verification = await this.pollCashOutSettlementVerification(
-      dataAreaId,
-      headerKey,
-      verificationTargets,
-    );
-    await this.logCashSettlementVerification(headerKey, batch, verification);
-
-    const failures = verification.filter(
-      (result) => result.status !== 'VERIFIED',
-    );
-    if (failures.length === 0) return [];
-
-    const safelyUnmarked = failures.filter((failure) => {
-      const settleVoucher = failure.settleVoucher.trim().toLowerCase();
-      return (
-        failure.status === 'NOT_VERIFIED' &&
-        failure.journalLineExists === true &&
-        failure.matchedInvoices.length === 0 &&
-        !failure.journalMarkedInvoice.trim() &&
-        (!settleVoucher || settleVoucher === 'none')
-      );
-    });
-
-    for (const failure of safelyUnmarked) {
-      const pendingLine = pendingLines.find(
-        (line) => line.lineNumber === failure.lineNumber,
-      );
-      const description = this.formatUnmarkedDescription(
-        this.markedInvoiceDescription(pendingLine?.body.MarkedLines ?? []) ||
-          failure.expectedInvoices.join(', '),
-        pendingLine?.body.TRANSACTIONTEXT ||
-          pendingLine?.body.PAYMENTNOTES ||
-          '',
-      );
-      await this.vendorPaymentJournalService.updateLineDescription(
-        headerKey,
-        failure.lineNumber,
-        dataAreaId,
-        description,
-      );
-    }
-
-    if (safelyUnmarked.length > 0) {
-      await this.operationalLogs.emit({
-        level: 'warn',
-        message: `D365 persisted ${safelyUnmarked.length} vendor payment line(s) without settlement; the lines were preserved and labelled unmarked`,
-        context: CustomerPaymentJournalService.name,
-        eventType: 'd365fo.cash-out.settlement-fallback',
-        status: 'unmarked',
-        metadata: {
-          journalNum: headerKey,
-          requestNumber: batch.number,
-          requestCount: batch.total,
-          lineNumbers: safelyUnmarked.map((failure) => failure.lineNumber),
-          expectedInvoices: safelyUnmarked.map((failure) => ({
-            lineNumber: failure.lineNumber,
-            invoices: failure.expectedInvoices,
-          })),
-        },
-      });
-    }
-
-    const unsafeFailures = failures.filter(
-      (failure) => !safelyUnmarked.includes(failure),
-    );
-    if (unsafeFailures.length > 0) {
-      throw new NonRetryableDfoPostingError(
-        `Cash-out journal ${headerKey} was accepted by D365, but settlement verification failed: ${unsafeFailures
-          .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
-          .join('; ')}`,
-      );
-    }
-
-    const unmarkedLineNumbers = new Set(
-      safelyUnmarked.map((failure) => failure.lineNumber),
-    );
-    return pendingLines.filter((line) => unmarkedLineNumbers.has(line.lineNumber));
-  }
-
-  private async pollCashOutSettlementVerification(
-    dataAreaId: string,
-    headerKey: string,
-    verificationTargets: Array<{
-      lineNumber: number;
-      vendorAccount: string;
-      expectedInvoices: string[];
-    }>,
-  ): Promise<VendorPaymentSettlementVerification[]> {
-    const maxAttempts = 3;
-    const delayMs = 1500;
-    let lastResults: VendorPaymentSettlementVerification[] = [];
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      lastResults =
-        await this.vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements(
-          {
-            company: dataAreaId,
-            journalBatchNumber: headerKey,
-            lines: verificationTargets,
-          },
-        );
-
-      if (lastResults.every((result) => result.status === 'VERIFIED')) {
-        return lastResults;
-      }
-
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-
-    return lastResults;
-  }
-
-  private async logCashSettlementVerification(
-    headerKey: string,
-    batch: CashBulkBatch,
-    verification: VendorPaymentSettlementVerification[],
-  ): Promise<void> {
-    const succeeded = verification.every(
-      (result) => result.status === 'VERIFIED',
-    );
-
-    await this.operationalLogs.emit({
-      level: succeeded ? 'info' : 'error',
-      message: succeeded
-        ? `Cash-out settlement verification passed for journal ${headerKey} request ${batch.number}/${batch.total}`
-        : `Cash-out settlement verification failed for journal ${headerKey} request ${batch.number}/${batch.total}`,
-      context: CustomerPaymentJournalService.name,
-      eventType: 'd365fo.cash-out.settlement-verification',
-      status: succeeded ? 'verified' : 'not_verified',
-      metadata: {
-        journalNum: headerKey,
-        requestNumber: batch.number,
-        requestCount: batch.total,
-        verificationCount: verification.length,
-        settlementVerificationStatus: succeeded ? 'VERIFIED' : 'NOT_VERIFIED',
-        results: verification.map((result) => ({
-          lineNumber: result.lineNumber,
-          status: result.status,
-          expectedVendorAccount: result.expectedVendorAccount,
-          expectedInvoices: result.expectedInvoices,
-          matchedInvoices: result.matchedInvoices,
-          settlementAmount: result.settlementAmount,
-          journalMarkedInvoice: result.journalMarkedInvoice,
-          settleVoucher: result.settleVoucher,
-          reason: result.reason,
-        })),
-      },
-    });
   }
 
   /**

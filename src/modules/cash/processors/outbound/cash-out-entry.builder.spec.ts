@@ -33,4 +33,41 @@ describe('CashOutEntryBuilder', () => {
 
     expect(builder.build('1', [line])).toEqual([line]);
   });
+
+  it('formats DownPayment customer + petty cash as Custody Settlement', () => {
+    const settlement = strategy('settlement');
+    const source = jest.fn((_id, line) => line as any);
+    const builder = new CashOutEntryBuilder(
+      strategy('vendor'),
+      settlement,
+      strategy('issue'),
+      source,
+    );
+    const customer = {
+      SafeType: 'DownPayment',
+      IsCustomer: true,
+      ACCOUNTTYPE: 'Cust',
+      ACCOUNTDISPLAYVALUE: '101000997',
+      DEBITAMOUNT: 1710,
+      CREDITAMOUNT: 0,
+      OFFSETACCOUNTDISPLAYVALUE: '',
+    } as any;
+    const pettyCash = {
+      SafeType: 'DownPayment',
+      IsPettyCash: true,
+      ACCOUNTTYPE: 'Petty cash',
+      ACCOUNTDISPLAYVALUE: 'ALEXHO EG',
+      DEBITAMOUNT: 0,
+      CREDITAMOUNT: 1710,
+    } as any;
+
+    expect(builder.build('485664', [customer, pettyCash])).toEqual([
+      'settlement',
+    ]);
+    expect(settlement.build).toHaveBeenCalledTimes(1);
+    expect(source).not.toHaveBeenCalled();
+    expect(customer.SafeType).toBe('Custody Settlement');
+    expect(customer.IsCustodySettlement).toBe(true);
+    expect(pettyCash.SafeType).toBe('Custody Settlement');
+  });
 });

@@ -1,0 +1,49 @@
+%% Master data domain
+%% Entity IDs: E001=account_customer_invoice_mappings; E004=billing_classifications; E005=billing_code_versions; E006=billing_codes; E008=customers; E014=exchange_rates; E015=financial_dimension_values; E016=financial_dimensions; E019=ledgers; E020=main_accounts; E021=payment-terms; E025=sync_jobs; E026=tax_item_group_headings; E029=vendors
+%% Schema evidence: Mongoose schemas and relationship evidence IDs in the catalog.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    ACCOUNT_CUSTOMER_INVOICE_MAPPINGS {
+        ObjectId _id PK
+    }
+    BILLING_CLASSIFICATIONS {
+        ObjectId _id PK
+    }
+    BILLING_CODE_VERSIONS {
+        ObjectId _id PK
+    }
+    BILLING_CODES {
+        ObjectId _id PK
+    }
+    CUSTOMERS {
+        ObjectId _id PK
+    }
+    EXCHANGE_RATES {
+        ObjectId _id PK
+    }
+    FINANCIAL_DIMENSION_VALUES {
+        ObjectId _id PK
+    }
+    FINANCIAL_DIMENSIONS {
+        ObjectId _id PK
+    }
+    LEDGERS {
+        ObjectId _id PK
+    }
+    MAIN_ACCOUNTS {
+        ObjectId _id PK
+    }
+    PAYMENT_TERMS {
+        ObjectId _id PK
+    }
+    SYNC_JOBS {
+        ObjectId _id PK
+    }
+    TAX_ITEM_GROUP_HEADINGS {
+        ObjectId _id PK
+    }
+    VENDORS {
+        ObjectId _id PK
+    }
+

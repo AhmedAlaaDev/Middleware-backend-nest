@@ -19,6 +19,11 @@ export interface ICreateDataBatch {
   expectedGroupCount?: number;
   activeValidationRunId?: string;
   dfoIds?: string[];
+  /** Exact mapping from the locally planned journal number to Finance's generated number. */
+  dfoJournalMappings?: Array<{
+    plannedJournalBatchNumber: string;
+    financeJournalBatchNumber: string;
+  }>;
   dfoPostingErrors?: string[];
   createdByUserId?: string;
   createdByName?: string;
@@ -60,6 +65,10 @@ export class IDataBatch {
   expectedGroupCount?: number;
   activeValidationRunId?: string;
   dfoIds?: string[];
+  dfoJournalMappings?: Array<{
+    plannedJournalBatchNumber: string;
+    financeJournalBatchNumber: string;
+  }>;
   dfoPostingErrors?: string[];
   createdByUserId?: string;
   createdByName?: string;

@@ -1,0 +1,102 @@
+%% Application associations
+%% Entity IDs: E001=account_customer_invoice_mappings; E002=app_settings; E003=application_logs; E004=billing_classifications; E005=billing_code_versions; E006=billing_codes; E007=cache_entries; E008=customers; E009=data_batch_errors; E010=data_batch_missing_master_data; E011=data_batches; E012=data_enhanced_records; E013=data_source_records; E014=exchange_rates; E015=financial_dimension_values; E016=financial_dimensions; E017=ledger_entry_batch_counters; E018=ledger_voucher_counters; E019=ledgers; E020=main_accounts; E021=payment-terms; E022=queue_job_groups; E023=queue_jobs; E024=refresh_tokens; E025=sync_jobs; E026=tax_item_group_headings; E027=user_access_decisions; E028=users; E029=vendors
+%% Schema evidence: R001-R003/A007 are schema refs; A001-A006 are service/repository correlations.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    ACCOUNT_CUSTOMER_INVOICE_MAPPINGS {
+        ObjectId _id PK
+    }
+    APP_SETTINGS {
+        ObjectId _id PK
+    }
+    APPLICATION_LOGS {
+        ObjectId _id PK
+    }
+    BILLING_CLASSIFICATIONS {
+        ObjectId _id PK
+    }
+    BILLING_CODE_VERSIONS {
+        ObjectId _id PK
+    }
+    BILLING_CODES {
+        ObjectId _id PK
+    }
+    CACHE_ENTRIES {
+        ObjectId _id PK
+    }
+    CUSTOMERS {
+        ObjectId _id PK
+    }
+    DATA_BATCH_ERRORS {
+        ObjectId _id PK
+    }
+    DATA_BATCH_MISSING_MASTER_DATA {
+        ObjectId _id PK
+    }
+    DATA_BATCHES {
+        ObjectId _id PK
+    }
+    DATA_ENHANCED_RECORDS {
+        ObjectId _id PK
+    }
+    DATA_SOURCE_RECORDS {
+        ObjectId _id PK
+    }
+    EXCHANGE_RATES {
+        ObjectId _id PK
+    }
+    FINANCIAL_DIMENSION_VALUES {
+        ObjectId _id PK
+    }
+    FINANCIAL_DIMENSIONS {
+        ObjectId _id PK
+    }
+    LEDGER_ENTRY_BATCH_COUNTERS {
+        ObjectId _id PK
+    }
+    LEDGER_VOUCHER_COUNTERS {
+        ObjectId _id PK
+    }
+    LEDGERS {
+        ObjectId _id PK
+    }
+    MAIN_ACCOUNTS {
+        ObjectId _id PK
+    }
+    PAYMENT_TERMS {
+        ObjectId _id PK
+    }
+    QUEUE_JOB_GROUPS {
+        ObjectId _id PK
+    }
+    QUEUE_JOBS {
+        ObjectId _id PK
+    }
+    REFRESH_TOKENS {
+        ObjectId _id PK
+    }
+    SYNC_JOBS {
+        ObjectId _id PK
+    }
+    TAX_ITEM_GROUP_HEADINGS {
+        ObjectId _id PK
+    }
+    USER_ACCESS_DECISIONS {
+        ObjectId _id PK
+    }
+    USERS {
+        ObjectId _id PK
+    }
+    VENDORS {
+        ObjectId _id PK
+    }
+    USERS ||--o{ REFRESH_TOKENS : "userId ref R001; parent array A007"
+    USERS ||--o{ USER_ACCESS_DECISIONS : "userId ref R002"
+    USERS ||--o{ USER_ACCESS_DECISIONS : "actorUserId ref R003"
+    DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+    DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"
+    DATA_BATCHES o|..o{ DATA_BATCH_ERRORS : "optional batchId A003"
+    DATA_BATCHES ||..o{ DATA_BATCH_MISSING_MASTER_DATA : "required batchId A004"
+    QUEUE_JOBS ||..o{ QUEUE_JOB_GROUPS : "required jobId A005"
+    DATA_BATCHES ||..o{ QUEUE_JOBS : "required batchId A006"

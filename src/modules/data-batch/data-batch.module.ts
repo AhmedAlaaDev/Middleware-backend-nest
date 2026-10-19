@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import {
   AddDfoIdsHandler,
   CreateDataBatchHandler,
@@ -48,6 +49,7 @@ import {
   DataBatchMissingMasterDataSchema,
 } from '@/modules/data-batch/schemas';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { ShiplinkSettlementPayloadExportService } from '@/modules/data-batch/services/shiplink-settlement-payload-export.service';
 import { EntryProcessorsModule } from '@/modules/entry-processor/entry-processors.module';
 import { ExcelModule } from '@/modules/excel/excel.module';
 
@@ -75,6 +77,7 @@ const QueryHandlers = [
     CqrsModule.forRoot(),
     ExcelModule,
     EntryProcessorsModule,
+    D365FOModule,
     MongooseModule.forFeature([
       { name: DataBatch.name, schema: DataBatchSchema },
       { name: DataBatchError.name, schema: DataBatchErrorSchema },
@@ -88,6 +91,7 @@ const QueryHandlers = [
   ],
   providers: [
     DataBatchService,
+    ShiplinkSettlementPayloadExportService,
     BatchOwnerOrAdminGuard,
     { provide: DataBatchRepository, useClass: DataBatchMongoRepository },
     {

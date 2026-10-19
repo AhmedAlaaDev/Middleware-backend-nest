@@ -1,5 +1,9 @@
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import {
+  applyCashOutCustomerPaymentOffset,
+  retargetCashOutCustomerPettyCashToCustodySettlement,
+} from '@/modules/cash/policies/cash-out-customer-payment-offset.policy';
 import { CashOutExchangeRateContext } from '@/modules/cash/services/cash-out-exchange-rate.service';
 
 export interface CashOutBuildStrategy {
@@ -43,7 +47,10 @@ export class CashOutEntryBuilder {
     if (lines.some((line) => line.IsCustodyIssue)) {
       return this.custodyIssue.build(sourceId, lines, exchangeRateContext);
     }
-    return lines.map((line) =>
+    if (retargetCashOutCustomerPettyCashToCustodySettlement(lines)) {
+      return this.custodySettlement.build(sourceId, lines, exchangeRateContext);
+    }
+    return applyCashOutCustomerPaymentOffset(lines).map((line) =>
       this.buildSourceLine(sourceId, line, exchangeRateContext),
     );
   }

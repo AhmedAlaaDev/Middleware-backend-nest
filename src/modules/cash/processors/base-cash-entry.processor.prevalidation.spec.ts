@@ -452,6 +452,34 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     });
   });
 
+  it('enriches Custody Issue vendor groups before formatting', async () => {
+    const { processor } = createProcessor({ custodyAccounts: ['6011'] });
+    jest
+      .spyOn(processor as any, 'collectSourceDimensionErrors')
+      .mockImplementation(() => undefined);
+
+    const line = new CashEntryRawDataModel(
+      {
+        UniqueId: 465286,
+        LINENUMBER: 66846,
+        ACCOUNTTYPE: 'Vend',
+        ACCOUNTDISPLAYVALUE: '6011',
+        DEBITAMOUNT: 1046,
+        CREDITAMOUNT: 0,
+        CURRENCYCODE: 'EGP',
+        SafeType: 'Custody Issue',
+        VoucherType: 'Transfer',
+      } as any,
+      'Freight',
+      false,
+    );
+
+    await expect(
+      (processor as any).validateCashOutSourceAsync([line]),
+    ).resolves.toBeUndefined();
+    expect(line.VendorGroup).toBe('Custody');
+  });
+
   it('validates a custody vendor against exactly one ledger target', async () => {
     const target: CustodySettlementTarget = {
       documentNumber: 'DOC-2066',
@@ -582,7 +610,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     }
 
     expect(response?.errors).toContain(
-      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365. Vendor: Su-000019.',
+      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365 for vendor Su-000019, document 14846, invoice WRONG-INVOICE.',
     );
     expect(
       vendorInvoiceJournalService.findInvoiceSettlementSnapshots,
@@ -643,7 +671,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     }
 
     expect(response?.errors).toContain(
-      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365. Vendor: Su-000019.',
+      'Line 17018 (UniqueId 510538): vendor transaction was not found in D365 for vendor Su-000019, document 14846, invoice WRONG-INVOICE.',
     );
   });
 
@@ -813,7 +841,7 @@ describe('BaseCashEntryProcessor - PBI 2066 pre-format validation', () => {
     }
 
     expect(response?.errors).toContain(
-      'Line 17024 (UniqueId 510541): vendor transaction was not found in D365. Vendor: Su-000019.',
+      'Line 17024 (UniqueId 510541): vendor transaction was not found in D365 for vendor Su-000019, document 14846, invoice OTHER-VENDOR-INV.',
     );
   });
 

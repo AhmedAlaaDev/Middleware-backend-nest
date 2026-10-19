@@ -1,4 +1,5 @@
 import {
+  normalizeVendorDocumentNumber,
   normalizeVendorInvoiceIdentity,
   vendorInvoiceIdentityEquals,
 } from './vendor-invoice-identity.policy';
@@ -31,6 +32,11 @@ describe('vendor invoice identity', () => {
 
   it('normalizes case, spacing, and directional marks', () => {
     expect(normalizeVendorInvoiceIdentity('\u200e EMP_2  ')).toBe('emp_2');
+  });
+
+  it('treats padded Excel document numbers as the same Finance document', () => {
+    expect(normalizeVendorDocumentNumber('\u200e01092.0')).toBe('1092');
+    expect(normalizeVendorDocumentNumber('DOC-1')).toBe('doc-1');
   });
 
   it('does not match unrelated invoice text', () => {

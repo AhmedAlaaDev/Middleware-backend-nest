@@ -56,5 +56,9 @@ export interface D365FOCustomerPaymentJournalLineRequest {
     invoiceNumber: string;
     settlementAmount: number;
     customerAccount: string;
+    /** Payment amount is denominated in customLineApiBody.currency. */
+    paymentCurrency?: string;
+    /** D365 exchange rate field is scaled by 100 (for example 4875 = 48.75). */
+    paymentExchangeRate?: number;
   };
 }

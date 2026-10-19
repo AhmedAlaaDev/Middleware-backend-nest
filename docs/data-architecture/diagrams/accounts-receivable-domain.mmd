@@ -1,0 +1,30 @@
+%% Accounts-receivable processing domain view
+%% Covers customer/billing master-data caches and shared batch pipeline; receivable invoice records are owned by D365FO.
+%% Entity IDs: E004=billing_classifications; E005=billing_code_versions; E006=billing_codes; E008=customers; E011=data_batches; E012=data_enhanced_records; E013=data_source_records.
+%% Schema evidence: src/modules/master-data/schemas and src/modules/data-batch/schemas.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: account, billing, and customer fields are not declared as cross-collection FKs.
+erDiagram
+  CUSTOMERS {
+    ObjectId _id PK
+  }
+  BILLING_CODES {
+    ObjectId _id PK
+  }
+  BILLING_CODE_VERSIONS {
+    ObjectId _id PK
+  }
+  BILLING_CLASSIFICATIONS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES {
+    ObjectId _id PK
+  }
+  DATA_SOURCE_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_ENHANCED_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+  DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"

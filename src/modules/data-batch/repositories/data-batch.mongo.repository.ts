@@ -38,6 +38,8 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       billingCodeId: doc.billingCodeId,
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
+      dfoIds: doc.dfoIds,
+      dfoJournalMappings: doc.dfoJournalMappings,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
       createdByEmail: doc.createdByEmail,
@@ -74,6 +76,7 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       expectedGroupCount: doc.expectedGroupCount,
       activeValidationRunId: doc.activeValidationRunId,
       dfoIds: doc.dfoIds,
+      dfoJournalMappings: doc.dfoJournalMappings,
       dfoPostingErrors: doc.dfoPostingErrors,
       createdByUserId: doc.createdByUserId,
       createdByName: doc.createdByName,
@@ -95,6 +98,21 @@ export class DataBatchMongoRepository extends DataBatchRepository {
       sourceColumnHeaders: doc.sourceColumnHeaders,
       creationDate: (doc as any).created_at ?? null,
     };
+  }
+
+  public async findByFinanceJournalBatchNumber(
+    journalBatchNumber: string,
+  ): Promise<IDataBatch | null> {
+    const normalized = journalBatchNumber.trim();
+    if (!normalized) return null;
+
+    const doc = await this.model
+      .findOne({
+        'dfoJournalMappings.financeJournalBatchNumber': normalized,
+      })
+      .lean();
+
+    return doc ? this.mapDocument(doc) : null;
   }
 
   public async updateOne(

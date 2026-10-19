@@ -144,6 +144,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof Error) {
+      const clientStatus = this.readClientErrorStatus(exception);
+      if (clientStatus !== undefined) {
+        const statusEnum = this.toHttpStatus(clientStatus);
+        return {
+          status: clientStatus,
+          userMessage: this.defaultUserMessage(statusEnum),
+          developerMessage: exception.message || 'Bad Request',
+          errorCode: this.defaultErrorCode(statusEnum),
+        };
+      }
       // Unhandled runtime error (e.g., DB/connectivity/runtime bugs)
       const status = HttpStatus.INTERNAL_SERVER_ERROR;
       return {
@@ -561,6 +571,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return HttpStatus[code] !== undefined
       ? (code as HttpStatus)
       : HttpStatus.INTERNAL_SERVER_ERROR;
+  }
+
+  /**
+   * Express body-parser attaches a 4xx `status` to SyntaxError / payload
+   * errors. Those are client faults, not unhandled 500s.
+   */
+  private readClientErrorStatus(exception: Error): number | undefined {
+    const status = Number(
+      (exception as Error & { status?: unknown }).status,
+    );
+    if (Number.isInteger(status) && status >= 400 && status < 500) {
+      return status;
+    }
+    return undefined;
   }
 
   /**

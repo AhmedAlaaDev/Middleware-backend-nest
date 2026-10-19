@@ -15,16 +15,23 @@ import {
   Header,
   StreamableFile,
   UseGuards,
+  UploadedFiles,
+  BadRequestException,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
   ApiOperation,
+  ApiBody,
+  ApiQuery,
   ApiParam,
   ApiResponse,
   ApiTags,
   ApiProduces,
   ApiBearerAuth,
+  ApiConsumes,
 } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
 
 import type {
   IMissingMasterDataPaginatedResponse,
@@ -45,6 +52,8 @@ import { BatchIdDto } from '@/modules/data-batch/dtos/batch-id.dto';
 import { DataBatchErrorListDto } from '@/modules/data-batch/dtos/data-batch-error-list.dto';
 import { DataBatchListDto } from '@/modules/data-batch/dtos/data-batch-list.dto';
 import { GetMissingMasterDataDto } from '@/modules/data-batch/dtos/get-missing-master-data.dto';
+import { ShiplinkSettlementBatchDto } from '@/modules/data-batch/dtos/shiplink-settlement-batch.dto';
+import { ShiplinkSettlementExcelDto } from '@/modules/data-batch/dtos/shiplink-settlement-excel.dto';
 import { BatchOwnerOrAdminGuard } from '@/modules/data-batch/guards/batch-owner-or-admin.guard';
 import { IDataBatchError } from '@/modules/data-batch/interfaces/data-batch-error.interface';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
@@ -53,6 +62,14 @@ import { GetDataBatchByIdQuery } from '@/modules/data-batch/queries/get-data-bat
 import { GetDataBatchListQuery } from '@/modules/data-batch/queries/get-data-batch-list.query';
 import { GetMissingMasterDataQuery } from '@/modules/data-batch/queries/get-missing-master-data.query';
 import { GetRemediationSummaryQuery } from '@/modules/data-batch/queries/get-remediation-summary.query';
+import {
+  ShiplinkSettlementDifferenceReport,
+  ShiplinkSettlementExcelReport,
+  ShiplinkSettlementPayload,
+  ShiplinkSettlementPayloadExportService,
+  ShiplinkSettlementPostReport,
+  ShiplinkUnsettledLinesReport,
+} from '@/modules/data-batch/services/shiplink-settlement-payload-export.service';
 import { DataBatchReprocessSubmission } from '@/modules/queue/contracts/data-batch-reprocess-job.contract';
 import { BatchPostingPauseState } from '@/modules/queue/services/batch-posting-control.service';
 import { IUser } from '@/modules/user/interfaces/user.interface';
@@ -68,6 +85,7 @@ export class DataBatchController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly shiplinkSettlementPayloads: ShiplinkSettlementPayloadExportService,
   ) {}
 
   /**
@@ -222,6 +240,292 @@ export class DataBatchController {
       type: contentType,
       disposition: `attachment; filename="enhanced-records-${batchId}.${extension}"`,
     });
+  }
+
+  /** Download exact D365 settlement bodies for a posted Shiplink batch. */
+  @Post('download-shiplink-settlement-payloads')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Download Shiplink settlement payloads for Postman Runner',
+    description:
+      'Reads the real Finance journal batch and line numbers, resolves invoice due dates, and returns a JSON array with one PaymentJournalLineSettledInvoices body per Shiplink customer line.',
+  })
+  @ApiProduces('application/json')
+  @ApiResponse({
+    status: 200,
+    description: 'JSON array of settlement payloads',
+    content: { 'application/json': { schema: { type: 'array' } } },
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Batch is not a posted Shiplink batch or a Finance value is missing',
+  })
+  @Header('x-no-compression', 'true')
+  public async downloadShiplinkSettlementPayloadsAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<StreamableFile> {
+    const payloads = await this.shiplinkSettlementPayloads.export(batchId);
+    return new StreamableFile(
+      Buffer.from(JSON.stringify(payloads, null, 2), 'utf8'),
+      {
+        type: 'application/json',
+        disposition: `attachment; filename="shiplink-settlement-payloads-${batchId}.postman_data.json"`,
+      },
+    );
+  }
+
+  /** Return exact settlement request bodies as JSON for Postman Runner. */
+  @Post('shiplink-settlement-payloads')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get Shiplink settlement request bodies',
+    description:
+      'Returns one exact PaymentJournalLineSettledInvoices body per Shiplink customer line. Values are read from Finance after posting.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement payload array' })
+  public getShiplinkSettlementPayloadsAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<ShiplinkSettlementPayload[]> {
+    return this.shiplinkSettlementPayloads.export(batchId);
+  }
+
+  /** Filter a pasted SettlementLines.json array by its Dynamics batch number. */
+  @Post('shiplink-settlement-payloads/filter-by-journal-batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiQuery({
+    name: 'journalBatchNumber',
+    example: 'Mesco-000016627',
+    description: 'The Dynamics-generated journal batch number to return.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'array',
+      description: 'The complete SettlementLines.json array.',
+      items: { type: 'object' },
+    },
+  })
+  @ApiProduces('application/json')
+  @ApiOperation({
+    summary: 'Filter pasted Shiplink settlement JSON by journal batch',
+    description:
+      'Paste the complete SettlementLines.json array as the raw request body and pass the selected Dynamics batch in journalBatchNumber. The response contains only that batch, ready for the PaymentJournalLineSettledInvoices endpoint.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Filtered settlement payload array',
+  })
+  public filterPastedShiplinkSettlementPayloadsAsync(
+    @Query('journalBatchNumber') journalBatchNumber: string,
+    @Body() body: unknown,
+  ): StreamableFile {
+    const payloads =
+      this.shiplinkSettlementPayloads.filterUploadedPayloadsByJournalBatch(
+        body,
+        journalBatchNumber,
+      );
+    return new StreamableFile(
+      Buffer.from(JSON.stringify(payloads, null, 2), 'utf8'),
+      {
+        type: 'application/json',
+        disposition: 'attachment; filename="shiplink-settlement-payloads.json"',
+      },
+    );
+  }
+
+  /**
+   * Post a generated batch JSON array, one line at a time, to D365FO
+   * PaymentJournalLineSettledInvoices.
+   */
+  @Post('shiplink-settlement/post-lines')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({
+    schema: {
+      type: 'array',
+      description:
+        'The generated settlement JSON array for one journal, for example Mesco-000015882.json.',
+      items: { type: 'object' },
+    },
+  })
+  @ApiOperation({
+    summary: 'Post pasted settlement JSON lines to Finance',
+    description:
+      'Accepts the generated PaymentJournalLineSettledInvoices JSON array and posts one request per line to /data/PaymentJournalLineSettledInvoices. Open-invoice due dates are resolved from Finance before each write. Existing exact rows are skipped and individual failures do not stop the remaining rows.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement posting report' })
+  public settleUploadedPayloadsAsync(
+    @Body() body: unknown,
+  ): Promise<ShiplinkSettlementPostReport> {
+    return this.shiplinkSettlementPayloads.settleUploadedPayloads(body);
+  }
+
+  /** Post every line in the selected batch from a pasted settlement array. */
+  @Post('shiplink-settlement/post-selected-batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiQuery({
+    name: 'journalBatchNumber',
+    required: false,
+    example: 'Mesco-000015882',
+    description:
+      'Optional. When omitted, every row in the pasted JSON is posted. When the pasted file is already one journal, a mismatched query still posts that journal.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'array',
+      description: 'The complete SettlementLines.json array.',
+      items: { type: 'object' },
+    },
+  })
+  @ApiOperation({
+    summary: 'Post the selected Shiplink batch settlement lines',
+    description:
+      'Paste the complete SettlementLines.json array and select one Dynamics batch. Every selected row is posted to PaymentJournalLineSettledInvoices. Exact existing rows are skipped, amount mismatches are reported, and individual failures do not stop the remaining rows.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement posting report' })
+  public settlePastedShiplinkBatchAsync(
+    @Query('journalBatchNumber') journalBatchNumber: string,
+    @Body() body: unknown,
+  ): Promise<ShiplinkSettlementPostReport> {
+    return this.shiplinkSettlementPayloads.settleUploadedPayloadsByJournalBatch(
+      body,
+      journalBatchNumber,
+    );
+  }
+
+  /**
+   * Build and post Shiplink settlement lines from the enhanced cash-in
+   * workbook plus the invoice due-date workbook.
+   */
+  @Post('shiplink-settlement/from-excel')
+  @HttpCode(HttpStatus.OK)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: ShiplinkSettlementExcelDto })
+  @ApiQuery({
+    name: 'journalBatchNumber',
+    required: false,
+    example: 'Mesco-000015882',
+    description:
+      'Optional. When omitted, every journal in the enhanced workbook is settled.',
+  })
+  @ApiQuery({
+    name: 'dryRun',
+    required: false,
+    example: false,
+    description:
+      'When true, return the PaymentJournalLineSettledInvoices bodies without posting them.',
+  })
+  @ApiOperation({
+    summary: 'Settle Shiplink journals from enhanced records and invoice Excel files',
+    description:
+      'Reads customer payment lines from the enhanced workbook, keeps rows that exist in the Shiplink cash-in/invoice workbook, then posts each line to PaymentJournalLineSettledInvoices. Existing exact marks are skipped, open-invoice due dates are resolved from Finance before each write, and individual failures do not stop the remaining rows.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement posting report' })
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'enhancedRecords', maxCount: 1 },
+        { name: 'invoiceFile', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+        limits: { fileSize: 100 * 1024 * 1024, files: 2 },
+      },
+    ),
+  )
+  public settleShiplinkFromExcelAsync(
+    @UploadedFiles()
+    files: {
+      enhancedRecords?: Express.Multer.File[];
+      invoiceFile?: Express.Multer.File[];
+    },
+    @Body() body: ShiplinkSettlementExcelDto,
+    @Query('journalBatchNumber') journalBatchNumber?: string,
+    @Query('dryRun') dryRun?: string,
+  ): Promise<ShiplinkSettlementExcelReport> {
+    const enhanced = files?.enhancedRecords?.[0];
+    const invoices = files?.invoiceFile?.[0];
+    if (!enhanced?.buffer?.length) {
+      throw new BadRequestException('enhancedRecords Excel file is required.');
+    }
+    if (!invoices?.buffer?.length) {
+      throw new BadRequestException('invoiceFile Excel file is required.');
+    }
+    this.assertExcelUpload(enhanced, 'enhancedRecords');
+    this.assertExcelUpload(invoices, 'invoiceFile');
+    return this.shiplinkSettlementPayloads.settleFromExcelFiles(
+      enhanced.buffer,
+      invoices.buffer,
+      {
+        journalBatchNumber: journalBatchNumber || body.journalBatchNumber,
+        dryRun: dryRun === 'true' || dryRun === '1' || body.dryRun === true,
+      },
+    );
+  }
+
+  /** Return settlement bodies using the Finance-generated journal number. */
+  @Post('shiplink-settlement-payloads/by-journal-batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({ type: ShiplinkSettlementBatchDto })
+  @ApiOperation({
+    summary: 'Get Shiplink settlement bodies by Finance journal batch number',
+    description:
+      'Pass the internal Dynamics journal batch number, for example Mesco-000016627. The response is an array of exact PaymentJournalLineSettledInvoices request bodies.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement payload array' })
+  public getShiplinkSettlementPayloadsByJournalBatchAsync(
+    @Body() { journalBatchNumber }: ShiplinkSettlementBatchDto,
+  ): Promise<ShiplinkSettlementPayload[]> {
+    return this.shiplinkSettlementPayloads.exportByJournalBatchNumber(
+      journalBatchNumber,
+    );
+  }
+
+  /** Settle all missing Shiplink lines for a Finance journal batch. */
+  @Post('shiplink-settlement/by-journal-batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiBody({ type: ShiplinkSettlementBatchDto })
+  @ApiOperation({
+    summary: 'Settle a Shiplink Finance journal batch',
+    description:
+      'Resolves the exact settlement bodies for the supplied Finance journal number and posts only missing rows to PaymentJournalLineSettledInvoices. Existing exact rows are skipped and amount mismatches are reported.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement posting report' })
+  public settleShiplinkByJournalBatchAsync(
+    @Body() { journalBatchNumber }: ShiplinkSettlementBatchDto,
+  ): Promise<ShiplinkSettlementPostReport> {
+    return this.shiplinkSettlementPayloads.settleByJournalBatchNumber(
+      journalBatchNumber,
+    );
+  }
+
+  /** Compare expected Shiplink settlement bodies with current D365 marks. */
+  @Post('shiplink-settlement-difference')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check Shiplink settlement differences',
+    description:
+      'Reports settled rows, missing settlement rows, amount mismatches, extra D365 settlement rows, and amount totals.',
+  })
+  @ApiResponse({ status: 200, description: 'Settlement difference report' })
+  public getShiplinkSettlementDifferenceAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<ShiplinkSettlementDifferenceReport> {
+    return this.shiplinkSettlementPayloads.getDifferenceReport(batchId);
+  }
+
+  /** Return the exact rows that remain unsettled in Finance. */
+  @Post('shiplink-unsettled-lines')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get unsettled Shiplink lines',
+    description:
+      'Returns missing and mismatched settlement lines, including real Finance vouchers and batch numbers, plus Finance lines not represented by the expected payload set.',
+  })
+  @ApiResponse({ status: 200, description: 'Unsettled Shiplink line report' })
+  public getShiplinkUnsettledLinesAsync(
+    @Body() { batchId }: BatchIdDto,
+  ): Promise<ShiplinkUnsettledLinesReport> {
+    return this.shiplinkSettlementPayloads.getUnsettledLines(batchId);
   }
 
   /**
@@ -424,5 +728,14 @@ export class DataBatchController {
         [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
       email: user.email,
     };
+  }
+
+  private assertExcelUpload(file: Express.Multer.File, field: string): void {
+    const name = String(file.originalname || '').toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      throw new BadRequestException(
+        `${field} must be an Excel workbook (.xlsx).`,
+      );
+    }
   }
 }

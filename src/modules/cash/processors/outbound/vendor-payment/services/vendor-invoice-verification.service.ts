@@ -12,7 +12,10 @@ import {
   moneyEquals,
   moneyLessThanOrEqual,
 } from '../utils/money.util';
-import { vendorInvoiceIdentityEquals } from '../policies/vendor-invoice-identity.policy';
+import {
+  normalizeVendorDocumentNumber,
+  vendorInvoiceIdentityEquals,
+} from '../policies/vendor-invoice-identity.policy';
 
 @Injectable()
 export class VendorInvoiceVerificationService {
@@ -37,7 +40,9 @@ export class VendorInvoiceVerificationService {
     };
 
     const normalizedReqVendor = this.normalize(request.vendorAccount);
-    const normalizedReqDoc = this.normalize(request.documentNumber);
+    const normalizedReqDoc = normalizeVendorDocumentNumber(
+      request.documentNumber,
+    );
     const normalizedReqInvoice = this.normalize(request.invoiceNumber);
 
     // -------------------------------------------------------------
@@ -87,7 +92,9 @@ export class VendorInvoiceVerificationService {
     // -------------------------------------------------------------
     const documentMatches = normalizedReqDoc
       ? vendorMatches.filter(
-          (c) => this.normalize(c.documentNumber) === normalizedReqDoc,
+          (c) =>
+            normalizeVendorDocumentNumber(c.documentNumber) ===
+            normalizedReqDoc,
         )
       : vendorMatches;
     candidateCount.document = documentMatches.length;

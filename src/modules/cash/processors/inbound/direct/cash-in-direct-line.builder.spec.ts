@@ -12,10 +12,12 @@ describe('CashInDirectLineBuilder', () => {
   ) =>
     new CashInDirectLineBuilder({
       company: 'm-p',
+      requireInvoice: true,
       parseDimensionString: () => new EntryDimensionsModel(),
       getDimensionSegmentLength: () => 19,
       isValidDimensionSegmentLength: () => true,
       fetchExchangeRates: () => ({ exchangeRate: 4750, reportingRate: 4750 }),
+      resolveReportingExchangeRate: () => ({ kind: 'matched', rate: 1 }),
       getCustomerName: () => 'Test Customer',
       ...overrides,
     });
@@ -37,6 +39,7 @@ describe('CashInDirectLineBuilder', () => {
         CREDITAMOUNT: 40,
         CURRENCYCODE: 'USD',
         EXCHANGERATE: 0,
+        PAYMENTID: 'SHIPLINK-PAYMENT-001',
         OFFSETACCOUNTTYPE: 'Bank',
         OFFSETACCOUNTDISPLAYVALUE: 'CIB-US-CA',
         OFFSETDEFAULTDIMENSIONDISPLAYVALUE: dimension,
@@ -66,7 +69,7 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.SettlementIntent).toBe('Unmarked');
     expect(line.MarkedLines).toEqual([]);
     expect(line.Invoice).toBe('000009214/Inv-SH');
-    expect(line.PaymentId).toBe('1');
+    expect(line.PaymentId).toBe('SHIPLINK-PAYMENT-001');
     expect(line.Company).toBe('m-p');
   });
 
@@ -78,6 +81,15 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.MarkedInvoice).toBe(invoice);
     expect(formatCashInboundInvoice(invoice)).toBe('000009214/INV-SH');
     expect(line.Invoice).not.toBe(formatCashInboundInvoice(invoice));
+  });
+
+  it('does not use UniqueId when the source provides a payment id', () => {
+    const line = createBuilder().build(
+      sourceRow({ UniqueId: 987654, PAYMENTID: 'YARD-PAYMENT-42' }),
+    );
+
+    expect(line.PaymentId).toBe('YARD-PAYMENT-42');
+    expect(line.PaymentId).not.toBe('987654');
   });
 
   it('keeps DOCUMENT on the journal line; settlement amount is applied later', () => {
@@ -118,7 +130,17 @@ describe('CashInDirectLineBuilder', () => {
     expect(line.ExchRate).toBe(100);
   });
 
-  it('flags a missing invoice because settlement requires it', () => {
+  it('allows a missing invoice for an unmarked direct cash-in line', () => {
+    const line = createBuilder({ requireInvoice: false }).build(
+      sourceRow({ INVOICE: '' }),
+    );
+
+    expect(line.GetErrors().some((error) => error.startsWith('Invoice:'))).toBe(
+      false,
+    );
+  });
+
+  it('retains missing-invoice validation when the product requires it', () => {
     const line = createBuilder().build(sourceRow({ INVOICE: '' }));
 
     expect(line.GetErrors().some((error) => error.startsWith('Invoice:'))).toBe(

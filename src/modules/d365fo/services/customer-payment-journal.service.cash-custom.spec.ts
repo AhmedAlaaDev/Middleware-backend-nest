@@ -297,6 +297,90 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ).not.toHaveBeenCalled();
   });
 
+  function cashOutLine(lineNumber: number) {
+    return {
+      dataAreaId: 'USMF',
+      LineNumber: lineNumber,
+      cashDirection: 'out',
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: 'VEND001',
+        accountTypeStr: 'Vendor',
+        company: 'USMF',
+        creditAmount: 0,
+        currency: 'USD',
+        debitAmount: 1000,
+        PAYMENTID: 'PAY456',
+        transDate: '2026-04-21T00:00:00',
+      },
+    };
+  }
+
+  it('continues a cash-out UniqueId when the custom service times out after D365 has the lines', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    vendorPaymentJournalService.listLinesForHeader
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ LineNumber: 1 }]);
+    d365foClient.post.mockRejectedValueOnce(
+      new Error('timeout of 600000ms exceeded'),
+    );
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN000123',
+        [cashOutLine(1)] as any,
+        20,
+        'USMF',
+      ),
+    ).resolves.toEqual([{ headerId: 'JN000123', lineNumber: 1 }]);
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('still fails a cash-out timeout when D365 does not have the lines', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    (service as { timeoutRecoveryDelaysMs: number[] }).timeoutRecoveryDelaysMs =
+      [0];
+    vendorPaymentJournalService.listLinesForHeader.mockResolvedValue([]);
+    d365foClient.post.mockRejectedValueOnce(
+      new Error('timeout of 600000ms exceeded'),
+    );
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN000123',
+        [cashOutLine(1)] as any,
+        20,
+        'USMF',
+      ),
+    ).rejects.toThrow('timeout of 600000ms exceeded');
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a timed-out cash-out UniqueId when only some of its lines exist', async () => {
+    const { service, d365foClient, vendorPaymentJournalService } =
+      buildService();
+    (service as { timeoutRecoveryDelaysMs: number[] }).timeoutRecoveryDelaysMs =
+      [0];
+    vendorPaymentJournalService.listLinesForHeader
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ LineNumber: 1 }]);
+    d365foClient.post.mockRejectedValueOnce(
+      new Error('timeout of 600000ms exceeded'),
+    );
+
+    await expect(
+      service.postCashOutLinesForHeader(
+        'JN000123',
+        [cashOutLine(1), cashOutLine(2)] as any,
+        20,
+        'USMF',
+      ),
+    ).rejects.toThrow('only 1/2 submitted lines are present');
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+  });
+
   it('removes only an exact duplicate settlement identity from a vendor credit', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValueOnce({
@@ -715,6 +799,70 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     ]);
   });
 
+  it('keeps zero-placeholder and blank invoice lines in one ordered Custody Settlement request', async () => {
+    const { service, d365foClient } = buildService();
+    d365foClient.post.mockResolvedValue({
+      StatusCode: 'Success',
+      Message: '10 line(s) processed successfully.',
+    });
+
+    const accounts = [
+      '5014',
+      '223404',
+      '512301',
+      'PSD EG',
+      '5014',
+      '223404',
+      '512301',
+      '5014',
+      '223404',
+      '512301',
+    ];
+    const lines = accounts.map((account, index) => {
+      const isVendor = account === '5014';
+      return {
+        dataAreaId: 'm-p',
+        LineNumber: index + 1,
+        cashDirection: 'out',
+        groupInvoice: isVendor ? '000' : '',
+        customLineApiBody: {
+          journalNum: '',
+          AccountNum: account,
+          accountTypeStr:
+            account === 'PSD EG' ? 'RCash' : isVendor ? 'Vendor' : 'Ledger',
+          PAYMENTID: '542099',
+          VendorGroup: isVendor ? 'Custody' : '',
+          ...(isVendor
+            ? {
+                MarkedLines: [
+                  {
+                    InvoiceNumber: '',
+                    OperationNumber: `OP-${index + 1}`,
+                    DocumentNumber: `DOC-${index + 1}`,
+                    HasWithHoldingLine: false,
+                  },
+                ],
+              }
+            : {}),
+        },
+      };
+    });
+
+    await service.postCashOutLinesForHeaderAllowingSkips(
+      'Mesco-000016205',
+      lines as any[],
+      20,
+      'm-p',
+    );
+
+    expect(d365foClient.post).toHaveBeenCalledTimes(1);
+    expect(
+      d365foClient.post.mock.calls[0][1]._contract.Lines.map(
+        (line: any) => line.AccountNum,
+      ),
+    ).toEqual(accounts);
+  });
+
   it('keeps a 223304 ledger companion in the same invoice request', async () => {
     const { service, d365foClient } = buildService();
     d365foClient.post.mockResolvedValue({
@@ -930,34 +1078,17 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
     expect(requestLog.payload.request.body._contract.Lines).toHaveLength(2);
   });
 
-  it('fails a marked vendor payment when D365 accepts the bulk request but settlement cannot be verified', async () => {
+  it('accepts a cash-out line when D365 saves it without settling the invoice', async () => {
     const {
       service,
       d365foClient,
       vendorInvoiceJournalService,
-      operationalLogs,
+      vendorPaymentJournalService,
     } = buildService();
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
       Message: 'Success! JN-VERIFY',
     });
-    vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mockResolvedValue(
-      [
-        {
-          lineNumber: 10,
-          status: 'NOT_VERIFIED',
-          reason:
-            'No settled invoice rows matched vendor Tr-000031 and invoices 171',
-          expectedVendorAccount: 'Tr-000031',
-          expectedInvoices: ['171'],
-          matchedInvoices: [],
-          settlementAmount: 0,
-          journalBatchNumber: 'JN-VERIFY',
-          journalMarkedInvoice: '171',
-          settleVoucher: '',
-        },
-      ],
-    );
 
     await expect(
       service.postCashOutLinesForHeader(
@@ -988,124 +1119,17 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         20,
         'm-p',
       ),
-    ).rejects.toThrow(/settlement verification failed/i);
+    ).resolves.toEqual([{ headerId: 'JN-VERIFY', lineNumber: 10 }]);
 
     expect(
       vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements,
-    ).toHaveBeenCalledWith({
-      company: 'm-p',
-      journalBatchNumber: 'JN-VERIFY',
-      lines: [
-        {
-          lineNumber: 10,
-          vendorAccount: 'Tr-000031',
-          expectedInvoices: ['171'],
-        },
-      ],
-    });
-    expect(operationalLogs.emit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'd365fo.cash-out.settlement-verification',
-        status: 'not_verified',
-      }),
-    );
-  });
-
-  it('preserves and labels a D365-accepted line when D365 explicitly persisted it unmarked', async () => {
-    const {
-      service,
-      d365foClient,
-      vendorInvoiceJournalService,
-      vendorPaymentJournalService,
-      operationalLogs,
-    } = buildService();
-    d365foClient.post.mockResolvedValueOnce({
-      StatusCode: 'Success',
-      Message: 'Success! JN-UNMARKED',
-    });
-    vendorInvoiceJournalService.verifyVendorPaymentJournalSettlements.mockResolvedValue(
-      [
-        {
-          lineNumber: 187,
-          status: 'NOT_VERIFIED',
-          reason:
-            'No settled invoice rows matched vendor RP-000003 and invoices 050-1',
-          expectedVendorAccount: 'RP-000003',
-          expectedInvoices: ['050-1'],
-          matchedInvoices: [],
-          settlementAmount: 0,
-          journalBatchNumber: 'JN-UNMARKED',
-          journalMarkedInvoice: '',
-          settleVoucher: 'None',
-          journalLineExists: true,
-        },
-      ],
-    );
-
-    await expect(
-      service.postCashOutLinesForHeader(
-        'JN-UNMARKED',
-        [
-          {
-            dataAreaId: 'm-p',
-            LineNumber: 187,
-            cashDirection: 'out',
-            customLineApiBody: {
-              journalNum: '',
-              AccountNum: 'RP-000003',
-              accountTypeStr: 'Vendor',
-              currency: 'EGP',
-              debitAmount: 100,
-              creditAmount: 0,
-              PAYMENTID: 'UNMARKED-1',
-              TRANSACTIONTEXT: '050-1',
-              MarkedLines: [
-                {
-                  InvoiceNumber: '050-1',
-                  OperationNumber: 'O25-EXP-OC-12064',
-                  DocumentNumber: '15473',
-                  HasWithHoldingLine: false,
-                },
-              ],
-            },
-          },
-        ] as any[],
-        20,
-        'm-p',
-      ),
-    ).resolves.toEqual([{ headerId: 'JN-UNMARKED', lineNumber: 187 }]);
-
-    expect(
-      vendorPaymentJournalService.updateLineDescription,
-    ).toHaveBeenCalledWith('JN-UNMARKED', 187, 'm-p', 'Unmarked - 050-1');
+    ).not.toHaveBeenCalled();
     expect(
       vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements,
-    ).toHaveBeenCalledWith({
-      company: 'm-p',
-      journalBatchNumber: 'JN-UNMARKED',
-      targets: [
-        expect.objectContaining({
-          lineNumber: 187,
-          vendorAccount: 'RP-000003',
-          invoiceNumber: '050-1',
-          documentNumber: '15473',
-          uniqueId: 'UNMARKED-1',
-        }),
-      ],
-      continueOnError: false,
-      skipped: undefined,
-    });
-    expect(d365foClient.post).toHaveBeenCalledTimes(1);
-    expect(d365foClient.post.mock.invocationCallOrder[0]).toBeLessThan(
-      vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements.mock
-        .invocationCallOrder[0],
-    );
-    expect(operationalLogs.emit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'd365fo.cash-out.settlement-fallback',
-        status: 'unmarked',
-      }),
-    );
+    ).not.toHaveBeenCalled();
+    expect(
+      vendorPaymentJournalService.updateLineDescription,
+    ).not.toHaveBeenCalled();
   });
 
   it('logs the bulk response with the per-line error correlation', async () => {

@@ -1,0 +1,56 @@
+%% Enterprise data landscape
+%% Entity IDs and collections are cross-referenced in 02-complete-entity-catalog.md.
+%% Source evidence: Mongoose schemas under src/modules/**/schemas/*.schema.ts.
+%% Relationship catalog: ../04-relationship-catalog.md; evidence rows: ../relationship-evidence.csv.
+%% Limitation: groups are business capabilities; lines are intentionally omitted where no verified physical relation exists.
+flowchart TB
+  subgraph Batch[Batch processing]
+    E009["E009 data_batch_errors"]
+    E010["E010 data_batch_missing_master_data"]
+    E011["E011 data_batches"]
+    E012["E012 data_enhanced_records"]
+    E013["E013 data_source_records"]
+  end
+  subgraph Master[Master data cache]
+    E001["E001 account_customer_invoice_mappings"]
+    E004["E004 billing_classifications"]
+    E005["E005 billing_code_versions"]
+    E006["E006 billing_codes"]
+    E008["E008 customers"]
+    E014["E014 exchange_rates"]
+    E015["E015 financial_dimension_values"]
+    E016["E016 financial_dimensions"]
+    E019["E019 ledgers"]
+    E020["E020 main_accounts"]
+    E021["E021 payment-terms"]
+    E025["E025 sync_jobs"]
+    E026["E026 tax_item_group_headings"]
+    E029["E029 vendors"]
+  end
+  subgraph Identity[Identity and access]
+    E024["E024 refresh_tokens"]
+    E027["E027 user_access_decisions"]
+    E028["E028 users"]
+  end
+  subgraph Queue[Queue metadata]
+    E022["E022 queue_job_groups"]
+    E023["E023 queue_jobs"]
+  end
+  subgraph Platform[Platform and observability]
+    E002["E002 app_settings"]
+    E003["E003 application_logs"]
+    E007["E007 cache_entries"]
+    E017["E017 ledger_entry_batch_counters"]
+    E018["E018 ledger_voucher_counters"]
+  end
+  subgraph Finance[External D365FO system of record]
+    FinanceMaster["Master data OData sets (27 code-used sets cataloged)"]
+    FinancePosting["Journal and invoice posting entity sets"]
+    FinanceSettlement["Settlement and transaction query entity sets"]
+    subgraph FinanceCustom[Custom X++ tables]
+      DFOEXT001["DFOEXT001 BankAccountTransSummary"]
+      DFOEXT002["DFOEXT002 CustomIntegrationLog"]
+      DFOEXT003["DFOEXT003 CustomIntegrationParameters"]
+      DFOEXT004["DFOEXT004 MBDRCustomFeaturesManagement"]
+    end
+  end

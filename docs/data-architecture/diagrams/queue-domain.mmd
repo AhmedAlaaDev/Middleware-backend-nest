@@ -1,0 +1,17 @@
+%% Queue domain
+%% Entity IDs: E011=data_batches; E022=queue_job_groups; E023=queue_jobs
+%% Schema evidence: Mongoose schemas and relationship evidence IDs in the catalog.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: MongoDB document references do not enforce relational FK integrity.
+erDiagram
+    DATA_BATCHES {
+        ObjectId _id PK
+    }
+    QUEUE_JOB_GROUPS {
+        ObjectId _id PK
+    }
+    QUEUE_JOBS {
+        ObjectId _id PK
+    }
+    QUEUE_JOBS ||..o{ QUEUE_JOB_GROUPS : "required jobId A005"
+    DATA_BATCHES ||..o{ QUEUE_JOBS : "required batchId A006"

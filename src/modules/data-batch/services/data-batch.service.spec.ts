@@ -129,6 +129,7 @@ describe(DataBatchService.name, () => {
       'Line 3 (UniqueId 466596) account: SubVendorDimensions: CostCenter: 1301 | Dimension "SubVendor" value from your file "SL-000007" was not found.',
       'Line 3 (UniqueId 466596) offset: MainAccountDimensions: Dimension "Main Account" value "223404" was not found.',
       'UniqueId 9001: all rows must use the same SafeType; found Direct, Other.',
+      'Line 695380 (UniqueId 5526102): vendor transaction was not found in D365 for vendor RP-000001, document 1092, invoice 194323/1.',
     ];
 
     const result = await harness.service.createPreFormatValidationFailureAsync(
@@ -143,7 +144,7 @@ describe(DataBatchService.name, () => {
     expect(result.id).toBe('batch-1');
     expect(harness.dataBatchRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorCount: 3,
+        errorCount: 4,
         successCount: 0,
         totalFormattedCount: 0,
         totalUploadedCount: 1,
@@ -172,6 +173,22 @@ describe(DataBatchService.name, () => {
       expect.objectContaining({
         sourceRecordIds: ['UniqueId 9001'],
         enhancedData: expect.objectContaining({ UniqueId: '9001' }),
+      }),
+      expect.objectContaining({
+        sourceRecordIds: ['Line 695380 (UniqueId 5526102)'],
+        errorMessages: [
+          'Pre-format validation: vendor transaction was not found in D365 for vendor RP-000001, document 1092, invoice 194323/1.',
+        ],
+        enhancedData: expect.objectContaining({
+          UniqueId: '5526102',
+          errors: [
+            expect.objectContaining({
+              property: 'Pre-format validation',
+              message:
+                'vendor transaction was not found in D365 for vendor RP-000001, document 1092, invoice 194323/1.',
+            }),
+          ],
+        }),
       }),
     ]);
   });

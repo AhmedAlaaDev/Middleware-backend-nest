@@ -305,6 +305,33 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
   });
 
+  it('retains a created cash-in header when line posting or settlement fails', async () => {
+    const group = makeGroup(apRoute);
+    const { processor, job, cashStrategy, batches, jobs, rollback } =
+      buildProcessor([group]);
+    job.data.cashDirection = 'in';
+    job.opts.attempts = 3;
+    cashStrategy.postLinesForHeader.mockRejectedValueOnce(
+      new Error('customer settlement remaining amount changed'),
+    );
+
+    await expect(processor.process(job as any)).rejects.toThrow(
+      'customer settlement remaining amount changed',
+    );
+
+    expect(rollback.rollbackAll).not.toHaveBeenCalled();
+    expect(batches.updateDfoIdsAsync).toHaveBeenCalledWith('batch-2045', [
+      'D365-RET-001',
+    ]);
+    expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
+    expect(job.discard).toHaveBeenCalled();
+    expect(jobs.markFailed).toHaveBeenCalledWith(
+      'job-2045',
+      'customer settlement remaining amount changed',
+    );
+    expect(jobs.markRetrying).not.toHaveBeenCalled();
+  });
+
   it('stores the exact posting error before an automatic retry', async () => {
     const group = makeGroup(apRoute);
     const { processor, job, cashStrategy, batches, jobs } = buildProcessor([

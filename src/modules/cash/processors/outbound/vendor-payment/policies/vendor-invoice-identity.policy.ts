@@ -1,7 +1,31 @@
-const INVISIBLE_DIRECTIONAL_MARKS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const INVISIBLE_DIRECTIONAL_MARKS =
+  /[\u061c\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
 const TRAILING_YEAR = /\s+-\s+((?:19|20)\d{2})$/;
 const TRAILING_DUPLICATE_SEQUENCE = /_(\d+)$/;
 const TRAILING_HYPHEN_DUPLICATE_SEQUENCE = /-(\d+)$/;
+
+/** Removes hidden Excel/RTL marks while preserving the business value. */
+export function normalizeVendorLookupText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(INVISIBLE_DIRECTIONAL_MARKS, '')
+    .replace(/\u00a0/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Document numbers copied from Excel can carry a trailing `.0`, leading zeros,
+ * or invisible marks. Numeric documents stay equal after those differences are
+ * removed. Non-numeric documents keep their significant characters.
+ */
+export function normalizeVendorDocumentNumber(value: unknown): string {
+  let text = normalizeVendorLookupText(value).replace(/\.0+$/, '').toLowerCase();
+  if (/^\d+$/.test(text)) {
+    text = text.replace(/^0+(?=\d)/, '');
+  }
+  return text;
+}
 
 export function normalizeVendorInvoiceIdentity(value: unknown): string {
   return String(value ?? '')

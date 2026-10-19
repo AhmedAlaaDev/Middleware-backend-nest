@@ -3,6 +3,7 @@ import { cashPaymentReferenceLengthErrorMessage } from '@/modules/cash/policies/
 
 export function collectCashInDirectSourceErrors(
   row: CashEntryRawDataModel,
+  options: { requireInvoice?: boolean } = {},
 ): Array<{ field: string; message: string }> {
   const errors: Array<{ field: string; message: string }> = [];
   const lineContext = `Line ${row.LINENUMBER || '?'} (UniqueId ${row.UniqueId || '?'})`;
@@ -49,7 +50,7 @@ export function collectCashInDirectSourceErrors(
     });
   }
 
-  if (!String(row.INVOICE ?? '').trim()) {
+  if (options.requireInvoice !== false && !String(row.INVOICE ?? '').trim()) {
     errors.push({
       field: 'Invoice',
       message: `${lineContext}: INVOICE is required for customer settlement.`,

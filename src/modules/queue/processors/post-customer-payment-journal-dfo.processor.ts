@@ -98,7 +98,12 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     } catch (error) {
       const message = dfoErrorMessage(error);
       collector.addHeaderError(message, 'Job processing');
-      const nonRetryable = error instanceof NonRetryableDfoPostingError;
+      // Cash-In failures are terminal for the current job. Retrying can race
+      // the same invoice settlement again or create duplicate customer-payment
+      // work against a header that is intentionally retained for review.
+      const cashInNoRetry = (job.data.cashDirection ?? 'in') === 'in';
+      const nonRetryable =
+        cashInNoRetry || error instanceof NonRetryableDfoPostingError;
       if (nonRetryable) job.discard();
       const finalAttempt = nonRetryable || this.isFinalAttempt(job);
       if (finalAttempt) {
@@ -201,6 +206,11 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             persisted: true,
           });
         }
+        await this.storeFinanceJournalMapping(
+          job.data.batchId,
+          record.payload.header,
+          headerId,
+        );
         try {
           await postingStrategy.postLinesForHeader(
             headerId,
@@ -292,19 +302,22 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
           await this.jobs.resetAfterRollback(jobId, []);
         }
       } else if (created.length) {
-        const failedToDeleteHeaders = await this.rollbackCreatedHeaders(
-          created,
-          collector,
-          job.data.cashDirection ?? 'in',
-        );
-        if (failedToDeleteHeaders.length) {
-          await this.storeHeaderIds(job.data.batchId, failedToDeleteHeaders);
-        }
-        await this.jobs.resetAfterRollback(
-          jobId,
+        // Cash-In journals are intentionally retained when line creation or
+        // post-create settlement fails.  Deleting the header here previously
+        // removed successfully uploaded customer-payment lines because one
+        // invoice was concurrently settled or its remaining balance changed.
+        // Persist every known header ID so operations can inspect the retained
+        // journal and any intentional manual reprocess can avoid duplication.
+        await this.storeHeaderIds(
+          job.data.batchId,
           created.map((header) => header.headerKey),
-          failedToDeleteHeaders,
         );
+
+        if (created.some((header) => !header.persisted)) {
+          throw new NonRetryableDfoPostingError(
+            `Cash-In posting failed after D365 created an uncheckpointed header. The header was retained for manual review; automatic rollback is disabled. Original error: ${dfoErrorMessage(error)}`,
+          );
+        }
       } else {
         await this.jobs.resetAfterRollback(jobId, []);
       }
@@ -442,6 +455,26 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     await this.batches.updateDfoIdsAsync(batchId, [
       ...new Set([...(batch?.dfoIds ?? []), ...headerIds]),
     ]);
+  }
+
+  private async storeFinanceJournalMapping(
+    batchId: string,
+    header: unknown,
+    financeJournalBatchNumber: string,
+  ): Promise<void> {
+    const value =
+      header && typeof header === 'object'
+        ? (header as { JournalBatchNumber?: unknown }).JournalBatchNumber
+        : undefined;
+    const plannedJournalBatchNumber =
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value).trim()
+        : '';
+    if (!plannedJournalBatchNumber || !financeJournalBatchNumber.trim()) return;
+    await this.batches.upsertDfoJournalMappingAsync(batchId, {
+      plannedJournalBatchNumber,
+      financeJournalBatchNumber,
+    });
   }
 
   private isFinalAttempt(job: Job): boolean {

@@ -132,7 +132,20 @@ export class CashEntryRawDataModel extends EntryRawDataModel {
   }
 
   private resolvePaymentReference(data: EntryRawDataModel): string {
-    const paymentReference = this.lookupResultAsString(data?.PAYMENTREFERENCE);
+    const paymentReference =
+      [
+        data?.PAYMENTREFERENCE,
+        data?.PAYMENTREFERNCE,
+        data?.PaymentReference,
+        data?.PaymentRefernece,
+        data?.['Payment Reference'],
+        data?.['Payment reference'],
+        data?.['Payment Refernece'],
+        data?.['Payment refernece'],
+        data?.paymentReference,
+      ]
+        .map((value) => this.lookupResultAsString(value))
+        .find((value) => value.trim() !== '') ?? '';
     const ignoredPaymentReferences = [
       '0',
       '00',

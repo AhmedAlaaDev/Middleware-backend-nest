@@ -15,6 +15,8 @@ export interface CustomerPaymentJournalSettlementTarget {
   customerAccount: string;
   transDate?: string;
   currencyCode?: string;
+  /** D365 exchange rate field scaled by 100 (for example 4875 = 48.75). */
+  paymentExchangeRate?: number;
 }
 
 /**
@@ -40,8 +42,6 @@ export interface CustomerPaymentJournalSettlementPayload {
   InvoiceCompany: string;
   InvoiceDueDate: string;
   SettlementAmountInInvoiceCurrency: number;
-  CashDiscountToTakeInInvoiceCurrency: number;
-  InvoiceToPaymentCrossRate?: number;
 }
 
 interface ExistingSettlementRow {
@@ -196,9 +196,21 @@ export class CustomerPaymentJournalSettlementService {
     // Pick the open trans with the most remaining room; cap the settlement to
     // what is actually left so one under-funded invoice cannot fail (and roll
     // back) the entire journal.
+    const settlementAmountInInvoiceCurrency = this.convertPaymentToInvoiceCurrency(
+      openInvoices,
+      target,
+    );
+    if (!(settlementAmountInInvoiceCurrency > 0)) {
+      return this.buildSkip(
+        target,
+        0,
+        `Could not convert ${settlementAmount} ${target.currencyCode || 'payment currency'} to the invoice currency for ${invoiceNumber}; a valid payment exchange rate and invoice accounting amount are required. Line posted unmarked (cash on account).`,
+      );
+    }
+
     const picked = this.selectCappedSettlement(
       openInvoices,
-      settlementAmount,
+      settlementAmountInInvoiceCurrency,
       target,
       consumedByTrans,
     );
@@ -228,12 +240,7 @@ export class CustomerPaymentJournalSettlementService {
       InvoiceCompany: company,
       InvoiceDueDate: invoiceDueDate,
       SettlementAmountInInvoiceCurrency: amountToSettle,
-      CashDiscountToTakeInInvoiceCurrency: 0,
     };
-    const crossRate = this.sameCurrencyCrossRate(invoice, target);
-    if (crossRate !== undefined) {
-      payload.InvoiceToPaymentCrossRate = crossRate;
-    }
 
     try {
       await this.d365.post<
@@ -502,23 +509,34 @@ export class CustomerPaymentJournalSettlementService {
     )[0];
   }
 
-  private sameCurrencyCrossRate(
-    invoice: CustTransLookupRow,
+  private convertPaymentToInvoiceCurrency(
+    openInvoices: CustTransLookupRow[],
     target: CustomerPaymentJournalSettlementTarget,
-  ): number | undefined {
-    const invoiceCurrency = String(invoice.CurrencyCode ?? '')
-      .trim()
-      .toUpperCase();
-    const paymentCurrency = String(target.currencyCode ?? '')
-      .trim()
-      .toUpperCase();
-    if (invoiceCurrency && paymentCurrency) {
-      return invoiceCurrency === paymentCurrency ? 1 : undefined;
-    }
-    if (invoiceCurrency === 'EGP' || paymentCurrency === 'EGP') {
-      return 1;
-    }
-    return undefined;
+  ): number {
+    const paymentAmount = Number(target.settlementAmount ?? 0);
+    const paymentCurrency = String(target.currencyCode ?? '').trim().toUpperCase();
+    const invoice = openInvoices[0];
+    const invoiceCurrency = String(invoice?.CurrencyCode ?? '').trim().toUpperCase();
+    if (!(paymentAmount > 0)) return 0;
+    // Preserve legacy same-currency behavior when an older formatted line
+    // omitted the optional payment currency field.
+    if (!paymentCurrency) return paymentAmount;
+    // Legacy Finance responses may omit CurrencyCode for a same-currency
+    // transaction. Preserve the pre-existing amount behavior in that case.
+    if (!invoiceCurrency || paymentCurrency === invoiceCurrency) return paymentAmount;
+    if (paymentCurrency === invoiceCurrency) return paymentAmount;
+
+    const paymentRate = Number(target.paymentExchangeRate) / 100;
+    const invoiceAmount = Math.abs(this.readNumber(invoice?.AmountCur));
+    const invoiceAmountMst = Math.abs(this.readNumber(invoice?.AmountMST));
+    const invoiceRate = invoiceAmount > MONEY_TOLERANCE
+      ? invoiceAmountMst / invoiceAmount
+      : 0;
+    if (!(paymentRate > 0) || !(invoiceRate > 0)) return 0;
+
+    // Both rates are expressed through the accounting currency (EGP). The
+    // result is therefore the payment amount in invoice currency.
+    return this.roundMoney((paymentAmount * paymentRate) / invoiceRate);
   }
 
   private dateKey(value: unknown): string {

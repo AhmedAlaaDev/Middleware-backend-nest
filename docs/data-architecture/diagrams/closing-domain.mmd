@@ -1,0 +1,30 @@
+%% Closing processing domain view
+%% Covers master data used by closing processors and the shared batch pipeline; generated journals remain in D365FO.
+%% Entity IDs: E001=account_customer_invoice_mappings; E011=data_batches; E012=data_enhanced_records; E013=data_source_records; E014=exchange_rates; E015=financial_dimension_values; E016=financial_dimensions.
+%% Schema evidence: src/modules/master-data/schemas/exchange-rate.schema.ts, account/dimension schemas, and src/modules/data-batch/schemas.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: lookup by account/currency/dimension business values is not a proven physical relationship.
+erDiagram
+  EXCHANGE_RATES {
+    ObjectId _id PK
+  }
+  ACCOUNT_CUSTOMER_INVOICE_MAPPINGS {
+    ObjectId _id PK
+  }
+  FINANCIAL_DIMENSIONS {
+    ObjectId _id PK
+  }
+  FINANCIAL_DIMENSION_VALUES {
+    ObjectId _id PK
+  }
+  DATA_BATCHES {
+    ObjectId _id PK
+  }
+  DATA_SOURCE_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_ENHANCED_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+  DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"

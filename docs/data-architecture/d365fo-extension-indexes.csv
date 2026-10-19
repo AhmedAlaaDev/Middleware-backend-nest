@@ -1,0 +1,2 @@
+"Entity ID","Table","Index","Fields","Primary","AlternateKey","AllowDuplicates","Source"
+"DFOEXT003","CustomIntegrationParameters","ProviderIdx","ProviderName","True","Yes",,"SDDDFO/MetaData/MBDRIntegrationBase/MBDRIntegrationbase/AxTable/CustomIntegrationParameters.xml"

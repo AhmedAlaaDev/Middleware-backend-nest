@@ -71,6 +71,75 @@ function withholdingJournalLines(): CashEntryRawDataModel[] {
   ];
 }
 
+/**
+ * UniqueId 542099: the voucher closes only when all ten source lines remain.
+ * The Collect 223404 debit / 512301 credit rows are source transactions, not
+ * disposable duplicates.
+ */
+function uniqueId542099CollectWashLines(): CashEntryRawDataModel[] {
+  const shared = { UniqueId: 542099, INVOICE: '000', CURRENCYCODE: 'EGP' };
+  const wash = (
+    lineNumber: number,
+    document: string,
+    amount: number,
+    account: '223404' | '512301',
+  ) =>
+    line({
+      ...shared,
+      LINENUMBER: lineNumber,
+      ACCOUNTTYPE: 'Ledger',
+      ACCOUNTDISPLAYVALUE: account,
+      DEBITAMOUNT: account === '223404' ? amount : 0,
+      CREDITAMOUNT: account === '512301' ? amount : 0,
+      DOCUMENT: document,
+    });
+
+  return [
+    line({
+      ...shared,
+      LINENUMBER: 1,
+      ACCOUNTDISPLAYVALUE: '5014',
+      DEBITAMOUNT: 0,
+      CREDITAMOUNT: 110600,
+      DOCUMENT: '22830',
+      FINTAGDISPLAYVALUE: 'O26-IMP-OC-5194|OTHER',
+    }),
+    wash(2, '22830', 110600, '223404'),
+    wash(3, '22830', 110600, '512301'),
+    line({
+      ...shared,
+      LINENUMBER: 4,
+      ACCOUNTTYPE: 'Petty Cash',
+      ACCOUNTDISPLAYVALUE: 'PSD EG',
+      DEBITAMOUNT: 200600,
+      CREDITAMOUNT: 0,
+      DOCUMENT: '22833',
+    }),
+    line({
+      ...shared,
+      LINENUMBER: 5,
+      ACCOUNTDISPLAYVALUE: '5014',
+      DEBITAMOUNT: 0,
+      CREDITAMOUNT: 30000,
+      DOCUMENT: '22833',
+      FINTAGDISPLAYVALUE: 'O26-IMP-OC-5195|OTHER',
+    }),
+    wash(6, '22833', 30000, '223404'),
+    wash(7, '22833', 30000, '512301'),
+    line({
+      ...shared,
+      LINENUMBER: 8,
+      ACCOUNTDISPLAYVALUE: '5014',
+      DEBITAMOUNT: 0,
+      CREDITAMOUNT: 60000,
+      DOCUMENT: '22834',
+      FINTAGDISPLAYVALUE: 'O26-IMP-OC-5196|OTHER',
+    }),
+    wash(9, '22834', 60000, '223404'),
+    wash(10, '22834', 60000, '512301'),
+  ];
+}
+
 describe('prepareCustodySettlementLines', () => {
   it('posts 223304 as the withholding offset of its vendor line', () => {
     const plans = prepareCustodySettlementLines([
@@ -496,6 +565,97 @@ describe('prepareCustodySettlementLines', () => {
     expect(custodyCredit?.line.CREDITAMOUNT).toBe(33.2889);
     expect(withholding?.line.DEBITAMOUNT).toBe(0.9);
     expect(withholding?.isVendorLine).toBe(true);
+  });
+
+  it('keeps every UniqueId 542099 line and preserves a closed voucher', () => {
+    const plans = prepareCustodySettlementLines(
+      uniqueId542099CollectWashLines(),
+    );
+
+    expect(plans).toHaveLength(10);
+    expect(plans.map(({ line: outputLine }) => outputLine.LINENUMBER)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+    expect(
+      plans.map(({ line: outputLine }) => outputLine.ACCOUNTDISPLAYVALUE),
+    ).toEqual([
+      '5014',
+      '223404',
+      '512301',
+      'PSD EG',
+      '5014',
+      '223404',
+      '512301',
+      '5014',
+      '223404',
+      '512301',
+    ]);
+    const totalDebit = plans.reduce(
+      (sum, { line: outputLine }) => sum + Number(outputLine.DEBITAMOUNT ?? 0),
+      0,
+    );
+    const totalCredit = plans.reduce(
+      (sum, { line: outputLine }) => sum + Number(outputLine.CREDITAMOUNT ?? 0),
+      0,
+    );
+    expect(totalDebit).toBe(401200);
+    expect(totalCredit).toBe(401200);
+    expect(totalDebit - totalCredit).toBe(0);
+  });
+
+  it('keeps unmatched 223404 and 223304 rows', () => {
+    const plans = prepareCustodySettlementLines([
+      line({
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223404',
+        DEBITAMOUNT: 500,
+        CREDITAMOUNT: 0,
+        DOCUMENT: 'DIRECT-1',
+      }),
+      line({
+        LINENUMBER: 2,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223304',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 100,
+        ISWITHHOLDINGCALCULATIONENABLED: 'Yes',
+      }),
+      line({ LINENUMBER: 3, DEBITAMOUNT: 1000 }),
+    ]);
+
+    expect(
+      plans.map(({ line: outputLine }) => outputLine.ACCOUNTDISPLAYVALUE),
+    ).toEqual(['223404', 'RP-000003', 'RP-000003']);
+    expect(plans[0].line.DEBITAMOUNT).toBe(500);
+    expect(plans[1].line.OFFSETACCOUNTDISPLAYVALUE).toBe('223304');
+    expect(plans[1].line.DEBITAMOUNT).toBe(100);
+    expect(plans[2].line.DEBITAMOUNT).toBe(900);
+  });
+
+  it('does not pair 223404 and 512301 across documents', () => {
+    const plans = prepareCustodySettlementLines([
+      line({
+        LINENUMBER: 1,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '223404|1601',
+        DEBITAMOUNT: 110600,
+        CREDITAMOUNT: 0,
+        DOCUMENT: '22830',
+      }),
+      line({
+        LINENUMBER: 2,
+        ACCOUNTTYPE: 'Ledger',
+        ACCOUNTDISPLAYVALUE: '512301',
+        DEBITAMOUNT: 0,
+        CREDITAMOUNT: 110600,
+        DOCUMENT: '22833',
+      }),
+    ]);
+
+    expect(plans).toHaveLength(2);
+    expect(plans[0].line.ACCOUNTDISPLAYVALUE).toBe('223404|1601');
+    expect(plans[1].line.ACCOUNTDISPLAYVALUE).toBe('512301');
   });
 
   it('marks the supplier invoice and targets the custody credit by document and operation', () => {

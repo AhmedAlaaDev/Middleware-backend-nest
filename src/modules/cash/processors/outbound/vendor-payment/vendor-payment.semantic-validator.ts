@@ -72,7 +72,7 @@ export function validateVendorPaymentSemantics(options: {
     if (!lookup.exists) {
       errors.push({
         field: 'MarkedInvoice',
-        message: `Vendor transaction${sourceTag} was not found in D365. Vendor: ${vendorAccount}.`,
+        message: `Vendor transaction${sourceTag} was not found in D365 for vendor ${vendorAccount}, document ${lineDocNumber}, invoice ${invoice}.`,
       });
       continue;
     }

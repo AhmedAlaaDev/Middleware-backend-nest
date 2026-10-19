@@ -58,6 +58,24 @@ describe('resolveCashInboundPaymentReference', () => {
     ).toBe('FT26060B54Z5');
   });
 
+  it('accepts mixed-case payment-reference headers from the uploaded source', () => {
+    expect(
+      resolveCashInboundPaymentReference({
+        accountLine: customerLine({ PaymentReference: 'FT26060B54Z5' }),
+        offsetLine: offsetLine({ 'Payment reference': '' }),
+      }),
+    ).toBe('FT26060B54Z5');
+  });
+
+  it('accepts the legacy misspelled PaymentRefernece source header', () => {
+    expect(
+      resolveCashInboundPaymentReference({
+        accountLine: customerLine({ PaymentRefernece: 'TT26013N6DY8' }),
+        offsetLine: offsetLine({ PaymentRefernece: 'TT26013N6DY8' }),
+      }),
+    ).toBe('TT26013N6DY8');
+  });
+
   it('does not invent a DESCRIPTION - Freight payment reference when the source has none', () => {
     const inbound = offsetLine({ PAYMENTREFERENCE: '' });
     const outbound = new CashEntryRawDataModel(

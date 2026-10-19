@@ -13,12 +13,15 @@ import {
 export class ExcelService {
   constructor(private readonly adapter: IExcelAdapter) {}
 
-  excelToJson<T>(buffer: Buffer): Promise<T[]> {
-    return this.adapter.read<T>(buffer);
+  excelToJson<T>(buffer: Buffer, sheetName?: string): Promise<T[]> {
+    return this.adapter.read<T>(buffer, sheetName);
   }
 
-  excelToSheetData<T>(buffer: Buffer): Promise<ExcelSheetData<T>> {
-    return this.adapter.readSheet<T>(buffer);
+  excelToSheetData<T>(
+    buffer: Buffer,
+    sheetName?: string,
+  ): Promise<ExcelSheetData<T>> {
+    return this.adapter.readSheet<T>(buffer, sheetName);
   }
 
   jsonToExcel<T extends object>(data: T[]): Promise<Buffer> {

@@ -110,10 +110,10 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         HasWithHoldingLine: false,
       },
     ]);
-    expect(body.ReportingExchangeRate).toBe(100);
+    expect(body).toHaveProperty('ReportingExchangeRate', 100);
   });
 
-  it('posts Shiplink/Yard cash-in lines unmarked and settles each credit amount', () => {
+  it('posts Shiplink/Yard cash-in lines unmarked without settlement', () => {
     const handler = buildHandler();
 
     const result = (handler as any).mapLines(
@@ -197,16 +197,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(result[0].customLineApiBody.MarkedLines).toEqual([]);
     expect(result[1].customLineApiBody.MarkedLines).toEqual([]);
-    expect(result[0].customerSettlement).toEqual({
-      invoiceNumber: '000036765/YD',
-      settlementAmount: 2403.51,
-      customerAccount: '101002253',
-    });
-    expect(result[1].customerSettlement).toEqual({
-      invoiceNumber: '000036765/YD',
-      settlementAmount: 2067.0188,
-      customerAccount: '101002253',
-    });
+    expect(result[0].customerSettlement).toBeUndefined();
+    expect(result[1].customerSettlement).toBeUndefined();
   });
 
   it('posts Shiplink/Yard debit-column lines without invoice settlement', () => {
@@ -360,7 +352,7 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect(body).toHaveProperty('DocumentDate', '2026-04-19T00:00:00');
     expect(body).toHaveProperty('ExchangeRate');
     expect(body).not.toHaveProperty('EXCHANGERATE');
-    expect(body).toHaveProperty('ReportingExchangeRate');
+    expect(body).toHaveProperty('ReportingExchangeRate', 0);
     expect(body).not.toHaveProperty('ReportingCurrencyExchRate');
   });
 
@@ -527,6 +519,49 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
     expect(missing).toContain(
       'customLineApiBody.TaxGroup (must be Taxable or Non-Taxabl)',
+    );
+  });
+
+  it('explains missing VendorGroup with vendor and source details', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+    const line = {
+      dataAreaId: 'm-p',
+      LineNumber: 39,
+      cashDirection: 'out',
+      customLineApiBody: {
+        AccountNum: '3210',
+        accountTypeStr: 'Vendor',
+        VendorGroup: '',
+        company: 'm-p',
+        currency: 'EGP',
+        DEFAULTDIMENSIONDISPLAYVALUE: 'BU|CC',
+        offsetDEFAULTDIMENSIONDISPLAYVALUE: 'BU|CC',
+        offsetAccountDisplayValue: '223201',
+        OffsetAccountTypeStr: 'Ledger',
+        OffsetCompany: 'm-p',
+        transDate: '2026-01-01T00:00:00',
+        TaxGroup: 'Non-Taxabl',
+      },
+    };
+
+    expect((handler as any).validateLine(line, route)).toContain(
+      'customLineApiBody.VendorGroup',
+    );
+    expect(
+      (handler as any).describeLineValidationField(
+        'customLineApiBody.VendorGroup',
+        {
+          ...line,
+          sourceLineNumber: 66395,
+          groupInvoice: 'egedkax250082765',
+        },
+      ),
+    ).toBe(
+      'Vendor group is missing for vendor account "3210" for invoice "egedkax250082765" (Excel source line 66395). Synchronize this vendor in D365FO or assign its VendorGroup, then reprocess the batch.',
     );
   });
 
@@ -738,6 +773,77 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     expect((handler as any).validateLine(result[0], route)).toEqual([
       'customLineApiBody.offsetDEFAULTDIMENSIONDISPLAYVALUE',
     ]);
+  });
+
+  it('posts DownPayment customer + petty cash as offsetless Custody Settlement lines', () => {
+    const handler = buildHandler();
+    const route = new CashJournalRoutingService().resolve({
+      safeType: 'Custody Settlement',
+      targetProcessor: 'Freight',
+    });
+    const result = (handler as any).mapLines(
+      [
+        {
+          data: {
+            AccountType: 'Cust',
+            AccountDisplayValue: '101000997',
+            DefaultDimensionDisplayValue: '1301|013|001|001',
+            OffsetAccountType: '',
+            OffsetAccountDisplayValue: '',
+            TransactionDate: '2026-02-01T00:00:00.000Z',
+            CreditAmount: 0,
+            DebitAmount: 1710,
+            CurrencyCode: 'EGP',
+            SafeType: 'Custody Settlement',
+            SalesTaxGroup: '',
+          },
+        },
+        {
+          data: {
+            AccountType: 'Petty cash',
+            AccountDisplayValue: 'ALEXHO EG',
+            DefaultDimensionDisplayValue: '1301|013|001|001',
+            OffsetAccountType: '',
+            OffsetAccountDisplayValue: '',
+            TransactionDate: '2026-02-01T00:00:00.000Z',
+            CreditAmount: 1710,
+            DebitAmount: 0,
+            CurrencyCode: 'EGP',
+            SafeType: 'Custody Settlement',
+            SalesTaxGroup: '',
+          },
+        },
+      ],
+      'm-p',
+      route.lineDirection,
+      route,
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].cashDirection).toBe('out');
+    expect(result[0].customLineApiBody).toEqual(
+      expect.objectContaining({
+        AccountNum: '101000997',
+        accountTypeStr: 'Cust',
+        debitAmount: 1710,
+        creditAmount: 0,
+      }),
+    );
+    expect(result[1].customLineApiBody).toEqual(
+      expect.objectContaining({
+        AccountNum: 'ALEXHO EG',
+        accountTypeStr: 'RCash',
+        debitAmount: 0,
+        creditAmount: 1710,
+      }),
+    );
+    expect(
+      Object.keys(result[0].customLineApiBody).filter((key) =>
+        key.toLowerCase().startsWith('offset'),
+      ),
+    ).toEqual([]);
+    expect((handler as any).validateLine(result[0], route)).toEqual([]);
+    expect((handler as any).validateLine(result[1], route)).toEqual([]);
   });
 
   it('accepts the documented blank offset account type for Cash Out only', () => {

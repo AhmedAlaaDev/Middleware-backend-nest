@@ -1,0 +1,96 @@
+Entity,Index Definition,Unique,Partial Filter,TTL Seconds,Source
+"account_customer_invoice_mappings","{ serviceType: 1 }","No","","","src/modules/master-data/schemas/account-customer-invoice-mapping.schema.ts"
+"app_settings","{ groupName: 1 }","No","","","src/modules/db/schemas/app-setting.schema.ts"
+"app_settings","{ logicalName: 1 }","Yes","","","src/modules/db/schemas/app-setting.schema.ts"
+"application_logs","{ timestamp: -1, _id: -1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ eventId: 1 }","Yes","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ level: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ context: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ eventType: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ correlationId: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ requestId: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ batchId: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ jobId: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"application_logs","{ queueName: 1 }","No","","","src/modules/observability/schemas/application-log.schema.ts"
+"billing_classifications","{ dataAreaId: 1, billingClassification: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/billing-classification.schema.ts"
+"billing_code_versions","{
+  dataAreaId: 1,
+  billingCode: 1,
+  billingCodeDescription: 1,
+  validFrom: 1,
+  validTo: 1,
+}","No","","","src/modules/master-data/schemas/billing-code-version.schema.ts"
+"billing_code_versions","{
+  dataAreaId: 1,
+  billingCodeDescription: 1,
+}","No","","","src/modules/master-data/schemas/billing-code-version.schema.ts"
+"billing_codes","{ dataAreaId: 1, billingCode: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/billing-code.schema.ts"
+"billing_codes","{ dataAreaId: 1, billingClassification: 1 }","No","","","src/modules/master-data/schemas/billing-code.schema.ts"
+"cache_entries","{ key: 1, expiresAt: 1 }","No","","","src/modules/resilience/schemas/cache-entry.schema.ts"
+"cache_entries","{ expiresAt: 1 }, { expireAfterSeconds: 0 }","No","","0 ","src/modules/resilience/schemas/cache-entry.schema.ts"
+"customers","{ company: 1, customerAccount: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/customer.schema.ts"
+"data_batch_errors","{ batchId: 1, validationRunId: 1 }","No","","","src/modules/data-batch/schemas/data-batch-error.schema.ts"
+"data_batch_missing_master_data","{ batchId: 1 }","No","","","src/modules/data-batch/schemas/data-batch-missing-master-data.schema.ts"
+"data_batch_missing_master_data","{
+  batchId: 1,
+  creationStatus: 1,
+  reprocessStatus: 1,
+}","No","","","src/modules/data-batch/schemas/data-batch-missing-master-data.schema.ts"
+"data_batch_missing_master_data","{ batchId: 1, type: 1, missingField: 1, missingValue: 1 }, { unique: true }","Yes","","","src/modules/data-batch/schemas/data-batch-missing-master-data.schema.ts"
+"data_batches","{ company: 1, entryProcessorType: 1 }","No","","","src/modules/data-batch/schemas/data-batch.schema.ts"
+"data_batches","{ status: 1, createdAt: -1 }","No","","","src/modules/data-batch/schemas/data-batch.schema.ts"
+"data_batches","{ postingPaused: 1, status: 1 }","No","","","src/modules/data-batch/schemas/data-batch.schema.ts"
+"data_batches","{ createdAt: -1 }","No","","","src/modules/data-batch/schemas/data-batch.schema.ts"
+"data_enhanced_records","{
+  batchId: 1,
+  validationRunId: 1,
+  dataModelType: 1,
+}","No","","","src/modules/data-batch/schemas/data-enhanced-record.schema.ts"
+"data_source_records","{ batchId: 1 }","No","","","src/modules/data-batch/schemas/data-source-record.schema.ts"
+"exchange_rates","{ rateTypeName: 1, fromCurrency: 1, toCurrency: 1, startDate: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/exchange-rate.schema.ts"
+"financial_dimension_values","{ financialDimensionKey: 1 }","No","","","src/modules/master-data/schemas/financial-dimension-value.schema.ts"
+"financial_dimension_values","{ financialDimensionKey: 1, value: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/financial-dimension-value.schema.ts"
+"financial_dimensions","{ financialKey: 1 }","Yes","","","src/modules/master-data/schemas/financial-dimension.schema.ts"
+"ledger_entry_batch_counters","{ companyId: 1 }","Yes","","","src/modules/db/schemas/ledger-entry-batch-counter.schema.ts"
+"ledger_voucher_counters","{ companyId: 1 }","No","","","src/modules/db/schemas/ledger-voucher-counter.schema.ts"
+"ledger_voucher_counters","{ companyId: 1, journalName: 1 }, { unique: true }","Yes","","","src/modules/db/schemas/ledger-voucher-counter.schema.ts"
+"ledgers","{ legalEntityId: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/ledger.schema.ts"
+"main_accounts","{ chartNumber: 1 }","No","","","src/modules/master-data/schemas/main-account.schema.ts"
+"main_accounts","{ chartNumber: 1, accountNumber: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/main-account.schema.ts"
+"payment-terms","{ company: 1, name: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/payment-term.schema.ts"
+"queue_job_groups","{ jobId: 1, index: 1 }, { unique: true }","Yes","","","src/modules/queue/schemas/queue-job-group.schema.ts"
+"queue_job_groups","{ jobId: 1 }","No","","","src/modules/queue/schemas/queue-job-group.schema.ts"
+"queue_jobs","{ batchId: 1, createdAt: -1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ status: 1, heartbeatAt: 1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ jobId: 1 }","Yes","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ queueName: 1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ batchId: 1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ correlationId: 1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"queue_jobs","{ status: 1 }","No","","","src/modules/queue/schemas/queue-job.schema.ts"
+"refresh_tokens","{ userId: 1 }","No","","","src/modules/auth/schemas/refresh-token.schema.ts"
+"refresh_tokens","{ familyId: 1 }","No","","","src/modules/auth/schemas/refresh-token.schema.ts"
+"refresh_tokens","{ expiresAt: 1 }, {
+    expireAfterSeconds: 60 * 60 * 24 * 30, // 30 days
+  }","No","","60 * 60 * 24 * 30","src/modules/auth/schemas/refresh-token.schema.ts"
+"sync_jobs","{ name: 1 }","No","","","src/modules/master-data/schemas/sync-job.schema.ts"
+"sync_jobs","{ status: 1 }","No","","","src/modules/master-data/schemas/sync-job.schema.ts"
+"sync_jobs","{ created_at: 1 }, { expireAfterSeconds: 3600 }","No","","3600 ","src/modules/master-data/schemas/sync-job.schema.ts"
+"tax_item_group_headings","{ dataAreaId: 1, taxItemGroup: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/tax-item-group-heading.schema.ts"
+"tax_item_group_headings","{ dataAreaId: 1 }","No","","","src/modules/master-data/schemas/tax-item-group-heading.schema.ts"
+"user_access_decisions","{ userId: 1, createdAt: -1 }","No","","","src/modules/user/schemas/access-decision.schema.ts"
+"user_access_decisions","{ userId: 1 }","No","","","src/modules/user/schemas/access-decision.schema.ts"
+"users","{ entraTenantId: 1, entraObjectId: 1 }, {
+    unique: true,
+    partialFilterExpression: {
+      identityProvider: IdentityProvider.ENTRA,
+    },
+  }","Yes","{
+      identityProvider: IdentityProvider.ENTRA,
+    }","","src/modules/user/schemas/user.schema.ts"
+"users","{ role: 1 }, {
+    unique: true,
+    partialFilterExpression: { role: UserRole.ADMIN },
+  }","Yes","{ role: UserRole.ADMIN }","","src/modules/user/schemas/user.schema.ts"
+"users","{ email: 1 }","Yes","","","src/modules/user/schemas/user.schema.ts"
+"vendors","{ company: 1, vendorAccountNumber: 1 }, { unique: true }","Yes","","","src/modules/master-data/schemas/vendor.schema.ts"
+"vendors","{ vendorGroupId: 1 }","No","","","src/modules/master-data/schemas/vendor.schema.ts"

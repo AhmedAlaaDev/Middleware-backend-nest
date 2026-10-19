@@ -23,9 +23,9 @@ import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/servic
  * The source workbook already carries customer and offset on the same row.
  * This processor keeps Cash-In Excel format and dimension validation. It
  * skips Freight/Fleet pairing, invoice rewrite, and exclusive MarkedLines.
- * Each credit journal line later settles its own amount against the Excel
- * invoice through PaymentJournalLineSettledInvoices. Debit-column lines are
- * posted in separate journal batches from credit-column lines.
+ * ShipLink/Yard lines are uploaded as unmarked journal lines only. Settlement
+ * is intentionally not performed in this posting flow. Debit-column lines
+ * are posted in separate journal batches from credit-column lines.
  */
 @Injectable()
 export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
@@ -53,7 +53,8 @@ export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
       customerNames: true,
     });
 
-    const rawLines = mapCashRawData(data, this.getDirectProduct(), true);
+    const directProduct = this.getDirectProduct();
+    const rawLines = mapCashRawData(data, directProduct, true);
     assignCashMissingUniqueIds(rawLines);
     rawLines.forEach((line, index) => {
       if (!line.LINENUMBER) {
@@ -61,8 +62,14 @@ export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
       }
     });
 
+    const exchangeRateContext = await this.cashOutExchangeRateService.load(
+      company,
+      rawLines,
+    );
+
     const builder = new CashInDirectLineBuilder({
       company: this.company,
+      requireInvoice: directProduct !== 'Shiplink',
       parseDimensionString: (displayValue) =>
         this.utilsService.parseDimensionString(displayValue),
       getDimensionSegmentLength: (displayValue) =>
@@ -71,6 +78,12 @@ export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
         this.utilsService.isValidDimensionSegmentLength(segmentLength),
       fetchExchangeRates: (transactionDate, currencyCode) =>
         this.fetchExchangeRates(transactionDate, currencyCode),
+      resolveReportingExchangeRate: (transactionDate, currencyCode) =>
+        this.cashOutExchangeRateService.resolveReporting(
+          exchangeRateContext,
+          transactionDate,
+          currencyCode,
+        ),
       getCustomerName: (customerAccount) =>
         this.getCustomerName(customerAccount),
     });

@@ -83,7 +83,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
     },
   );
 
-  it('formats outbound DownPayment as an AR customer-payment line', () => {
+  it('formats outbound DownPayment customer + petty cash as Custody Settlement', () => {
     const processor = createProcessor();
     const rawLines = [
       {
@@ -115,15 +115,32 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       },
     ].map((line) => new CashEntryRawDataModel(line as any, 'Freight'));
 
-    const [formatted] = (processor as any).buildLines('2045', rawLines);
+    const formatted = (processor as any).buildLines('2045', rawLines);
 
-    expect(formatted).toMatchObject({
+    expect(formatted).toHaveLength(2);
+    expect(formatted.map((line: any) => line.AccountType)).toEqual([
+      'Cust',
+      'Petty cash',
+    ]);
+    expect(formatted[0]).toMatchObject({
       AccountType: 'Cust',
-      JournalName: 'Cust-Pay',
-      PostingProfile: '',
-      SafeType: 'DownPayment',
+      AccountDisplayValue: 'CUST-001',
+      DebitAmount: 100,
+      CreditAmount: 0,
+      OffsetAccountDisplayValue: '',
+      JournalName: 'P-Freight',
+      SafeType: 'Custody Settlement',
     });
-    expect(formatted.Description).toContain('DownPayment - Freight');
+    expect(formatted[1]).toMatchObject({
+      AccountType: 'Petty cash',
+      AccountDisplayValue: 'SAFE-001',
+      DebitAmount: 0,
+      CreditAmount: 100,
+      OffsetAccountDisplayValue: '',
+      JournalName: 'P-Freight',
+      SafeType: 'Custody Settlement',
+    });
+    expect(formatted[0].Description).toContain('Custody Settlement - Freight');
   });
 
   it.each(['DownPayment', 'CN', 'Direct', 'Other', 'Customer Collection'])(
@@ -315,7 +332,7 @@ describe('BaseCashEntryProcessor - task 2045 formatting', () => {
       expect(line.AddError).toHaveBeenCalledWith(
         'MarkedInvoice',
         expect.stringContaining(
-          'Vendor transaction was not found in D365. Vendor: VEND-001',
+          'Vendor transaction was not found in D365 for vendor VEND-001, document DOC-MISMATCH, invoice INV-MISMATCH.',
         ),
       );
     });

@@ -1,0 +1,43 @@
+%% D365FO custom extension table model
+%% Entity IDs and source paths: ../d365fo-extension-entity-catalog.csv.
+%% Field/index sources: ../d365fo-extension-data-dictionary.csv and ../d365fo-extension-indexes.csv.
+%% Relationship catalog: ../04-relationship-catalog.md; the four table definitions declare no table relations.
+%% Limitation: AX platform-managed RecId/system columns are omitted because they are not declared in these AxTable field lists; only ProviderName is a declared alternate key.
+erDiagram
+  BANK_ACCOUNT_TRANS_SUMMARY {
+    string AccountId
+    string CurrencyCode
+    real AmountCur
+    real AmountMST
+    enum Included
+    string PaymReference
+    string PaymentMode
+    string CurrentUserId
+  }
+  CUSTOM_INTEGRATION_LOG {
+    string ProviderName
+    string URL
+    enum LogType
+    string HttpMethod
+    string RequestPayload
+    string ResponsePayload
+    string LogMessage
+    string CallerName
+  }
+  CUSTOM_INTEGRATION_PARAMETERS {
+    string ProviderName UK
+    string ClientId
+    string ClientSecret
+    string ApiBaseUrl
+    enum IsEnabled
+    string LastAccessToken
+    datetime TokenExpiryDateTime
+  }
+  MBDR_CUSTOM_FEATURES_MANAGEMENT {
+    string FeatureName
+    string Description
+    string TargetModule
+    enum Enable
+    string ParametersObject
+    string RoleAotName
+  }

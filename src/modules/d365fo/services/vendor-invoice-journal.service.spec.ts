@@ -11,6 +11,9 @@ describe('VendorInvoiceJournalService settlement candidate retrieval', () => {
     const narrowLookup = jest
       .spyOn(service as any, 'fetchVendTransRowsByVendorAndDocument')
       .mockResolvedValue(new Map([['v-001', []]]));
+    jest
+      .spyOn(service as any, 'fetchVendTransRowsByVendorAndInvoice')
+      .mockResolvedValue(new Map());
     const broadLookup = jest.spyOn(
       service as any,
       'fetchVendTransRowsByVendor',
@@ -225,6 +228,107 @@ describe('VendorInvoiceJournalService settlement candidate retrieval', () => {
     expect(snapshot?.candidateTransactions?.[0].openAmount).toBe(750);
   });
 });
+
+it('matches a vendor transaction when Excel padded or marked the document number', async () => {
+    const service = new VendorInvoiceJournalService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchVendTransRowsByVendorAndDocument')
+      .mockResolvedValue(
+        new Map([
+          [
+            'rp-000001',
+            [
+              {
+                AccountNum: 'RP-000001',
+                DocumentNum: '1092',
+                Invoice: '194323/1',
+                CurrencyCode: 'EGP',
+                AmountCur: -4560,
+                Closed: '1900-01-01T12:00:00Z',
+              },
+            ],
+          ],
+        ]),
+      );
+
+    const snapshots = await service.findInvoiceSettlementSnapshots('m-p', [
+      {
+        vendorAccount: '\u200eRP-000001',
+        documentNumber: '01092.0',
+        invoice: '194323/1',
+      },
+    ]);
+    const snapshot = snapshots.get(
+      VendorInvoiceJournalService.settlementKey(
+        '194323/1',
+        '\u200eRP-000001',
+        '01092.0',
+      ),
+    );
+
+    expect(snapshot?.exists).toBe(true);
+    expect(snapshot?.candidateTransactions?.[0]).toMatchObject({
+      documentNumber: '1092',
+      invoiceNumber: '194323/1',
+    });
+  });
+
+  it('loads the vendor invoice when the document-scoped query misses it', async () => {
+    const service = new VendorInvoiceJournalService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchVendTransRowsByVendorAndDocument')
+      .mockResolvedValue(new Map());
+    const invoiceLookup = jest
+      .spyOn(service as any, 'fetchVendTransRowsByVendorAndInvoice')
+      .mockResolvedValue(
+        new Map([
+          [
+            'rp-000001',
+            [
+              {
+                AccountNum: 'RP-000001',
+                DocumentNum: '1092',
+                Invoice: '194323/1',
+                SourceKey: '1',
+                AmountCur: -4560,
+                Closed: '1900-01-01T12:00:00Z',
+              },
+            ],
+          ],
+        ]),
+      );
+
+    const snapshots = await service.findInvoiceSettlementSnapshots('m-p', [
+      {
+        vendorAccount: 'RP-000001',
+        documentNumber: '1092',
+        invoice: '194323/1',
+      },
+    ]);
+
+    expect(invoiceLookup).toHaveBeenCalledWith('m-p', [
+      { vendorAccount: 'RP-000001', invoice: '194323/1' },
+    ]);
+    expect(
+      snapshots.get(
+        VendorInvoiceJournalService.settlementKey(
+          '194323/1',
+          'RP-000001',
+          '1092',
+        ),
+      )?.exists,
+    ).toBe(true);
+  });
 
 describe('VendorInvoiceJournalService vendor payment settlement posting', () => {
   it('creates and verifies the OData settlement body after resolving invoice due date', async () => {

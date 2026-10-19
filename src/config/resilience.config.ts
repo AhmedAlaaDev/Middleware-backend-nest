@@ -5,7 +5,7 @@ export interface ResilienceConfig {
   httpTimeout: number;
   /**
    * Axios timeout for large D365FO custom-service mutations (cash-out bulk).
-   * Onebox/sandbox TTS for ~100 journal lines routinely exceeds 2 minutes.
+   * One UniqueId can keep the Finance transaction open well past 10 minutes.
    */
   bulkHttpTimeout: number;
   circuitBreaker: {
@@ -29,7 +29,7 @@ export const resilienceConfig = registerAs(
     bulkHttpTimeout: parseInt(
       process.env.D365FO_BULK_HTTP_TIMEOUT ??
         process.env.HTTP_TIMEOUT ??
-        '600000',
+        '1800000',
       10,
     ),
     circuitBreaker: {

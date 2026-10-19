@@ -1,3 +1,4 @@
+import { EntryAccountType } from '@/common/types';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { findCashBankMisclassificationError } from '@/modules/cash/policies/cash-account-classification.policy';
@@ -7,11 +8,12 @@ import {
 } from '@/modules/cash/policies/cash-dimension.policy';
 import { collectCashInDirectSourceErrors } from '@/modules/cash/processors/inbound/direct/cash-in-direct-line.validator';
 import { createCashInboundDynamicLine } from '@/modules/cash/services/cash-in-line-building.service';
-import { EntryAccountType } from '@/common/types';
+import { CashOutExchangeRateResolution } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 
 export interface CashInDirectLineBuilderContext {
   company: string;
+  requireInvoice: boolean;
   parseDimensionString: (displayValue?: string) => EntryDimensionsModel;
   getDimensionSegmentLength: (displayValue?: string) => number;
   isValidDimensionSegmentLength: (segmentLength: number) => boolean;
@@ -19,6 +21,10 @@ export interface CashInDirectLineBuilderContext {
     transactionDate: string,
     currencyCode: string,
   ) => { exchangeRate: number; reportingRate: number };
+  resolveReportingExchangeRate: (
+    transactionDate: string,
+    currencyCode: string,
+  ) => CashOutExchangeRateResolution;
   getCustomerName: (customerAccount: string) => string | undefined;
 }
 
@@ -53,7 +59,12 @@ export class CashInDirectLineBuilder {
       row,
       offsetAccountType,
     );
-    const { exchangeRate, reportingRate, exchangeRateError } =
+    const {
+      exchangeRate,
+      reportingRate,
+      exchangeRateError,
+      reportingRateError,
+    } =
       this.resolveRates(row, currencyCode);
 
     const dynLine = createCashInboundDynamicLine(dimensions, {
@@ -97,7 +108,10 @@ export class CashInDirectLineBuilder {
       Document: row.DOCUMENT,
       DocumentDate: row.DOCUMENTDATE || row.TRANSDATE,
       DueDate: row.DUEDATE,
-      PaymentId: String(row.UniqueId || row.LINENUMBER || ''),
+      // ShipLink and Yard provide the Finance payment identifier in
+      // PAYMENTID. UniqueId is only the middleware/source-row identity and
+      // must not be sent as the payment id for these direct Cash-In lines.
+      PaymentId: String(row.PAYMENTID ?? '').trim(),
       SafeType: row.SafeType,
       VoucherType: row.VoucherType,
       SettlementIntent: 'Unmarked',
@@ -105,12 +119,18 @@ export class CashInDirectLineBuilder {
       SourceLineNumber: row.LINENUMBER,
     });
 
-    for (const error of collectCashInDirectSourceErrors(row)) {
+    for (const error of collectCashInDirectSourceErrors(row, {
+      requireInvoice: this.context.requireInvoice,
+    })) {
       dynLine.AddError(error.field, error.message);
     }
 
     if (exchangeRateError) {
       dynLine.AddError('ExchangeRate', exchangeRateError);
+    }
+
+    if (reportingRateError) {
+      dynLine.AddError('ReportingExchangeRate', reportingRateError);
     }
 
     if (!this.context.isValidDimensionSegmentLength(segmentLength)) {
@@ -165,19 +185,29 @@ export class CashInDirectLineBuilder {
     exchangeRate: number;
     reportingRate: number;
     exchangeRateError?: string;
+    reportingRateError?: string;
   } {
+    const reportingResolution = this.context.resolveReportingExchangeRate(
+      row.TRANSDATE,
+      currencyCode,
+    );
     let exchangeRate = Number(row.EXCHANGERATE ?? 0);
-    let reportingRate = Number(row.REPORTINGCURRENCYEXCHRATE ?? 0);
+    const reportingRate = reportingResolution.rate;
+    const reportingRateError =
+      reportingResolution.kind === 'missing'
+        ? reportingResolution.message
+        : undefined;
 
     if (currencyCode === 'EGP') {
       return {
         exchangeRate: 100,
-        reportingRate: reportingRate > 0 ? reportingRate : 100,
+        reportingRate,
+        reportingRateError,
       };
     }
 
     if (exchangeRate > 0) {
-      return { exchangeRate, reportingRate };
+      return { exchangeRate, reportingRate, reportingRateError };
     }
 
     try {
@@ -186,7 +216,6 @@ export class CashInDirectLineBuilder {
         currencyCode,
       );
       exchangeRate = fetched.exchangeRate;
-      reportingRate = reportingRate > 0 ? reportingRate : fetched.reportingRate;
     } catch (error) {
       return {
         exchangeRate: 0,
@@ -194,6 +223,7 @@ export class CashInDirectLineBuilder {
         exchangeRateError: `No valid exchange rate for currency ${currencyCode || '(empty)'}: ${
           error instanceof Error ? error.message : String(error)
         }`,
+        reportingRateError,
       };
     }
 
@@ -202,9 +232,14 @@ export class CashInDirectLineBuilder {
         exchangeRate: 0,
         reportingRate,
         exchangeRateError: `No valid exchange rate for currency ${currencyCode || '(empty)'}.`,
+        reportingRateError,
       };
     }
 
-    return { exchangeRate, reportingRate };
+    return {
+      exchangeRate,
+      reportingRate,
+      reportingRateError,
+    };
   }
 }

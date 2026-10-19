@@ -1,0 +1,26 @@
+%% Invoice posting domain view
+%% Covers shared persisted batch pipeline used by vendor invoice and accounts-receivable processors; no local invoice header/line collection was found.
+%% Entity IDs: E009=data_batch_errors; E011=data_batches; E012=data_enhanced_records; E013=data_source_records; E023=queue_jobs.
+%% Schema evidence: src/modules/data-batch/schemas; queue persistence in src/modules/queue/schemas.
+%% Relationship details: ../04-relationship-catalog.md; edge evidence: ../relationship-evidence.csv
+%% Limitation: batchId associations are application correlations, not database FKs; D365FO owns finance transaction records.
+erDiagram
+  DATA_BATCHES {
+    ObjectId _id PK
+  }
+  DATA_SOURCE_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_ENHANCED_RECORDS {
+    ObjectId _id PK
+  }
+  DATA_BATCH_ERRORS {
+    ObjectId _id PK
+  }
+  QUEUE_JOBS {
+    ObjectId _id PK
+  }
+  DATA_BATCHES o|..o{ DATA_SOURCE_RECORDS : "optional batchId A001"
+  DATA_BATCHES o|..o{ DATA_ENHANCED_RECORDS : "optional batchId A002"
+  DATA_BATCHES o|..o{ DATA_BATCH_ERRORS : "optional batchId A003"
+  DATA_BATCHES ||..o{ QUEUE_JOBS : "required batchId A006"

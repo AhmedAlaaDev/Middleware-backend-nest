@@ -13,8 +13,23 @@ describe('Cash-In Shiplink and Yard processors', () => {
       { execute: jest.fn() } as any,
       {
         queryBus: { execute: jest.fn() },
-        exchangeRateService: {
-          fetchExchangeRates: () => ({ exchangeRate: 4750, reportingRate: 4750 }),
+        exchangeRateService: {},
+        cashOutExchangeRateService: {
+          load: jest.fn().mockResolvedValue({
+            ratesByCurrency: new Map(),
+            reverseRatesByCurrency: new Map(),
+            reportingRatesByCurrency: new Map(),
+            reverseReportingRatesByCurrency: new Map(),
+          }),
+          resolve: jest.fn().mockImplementation((_context, _date, currency) =>
+            currency === 'EGP'
+              ? { kind: 'not-required', rate: 100 }
+              : { kind: 'matched', rate: 4750 },
+          ),
+          resolveReporting: jest.fn().mockReturnValue({
+            kind: 'matched',
+            rate: 1,
+          }),
         },
         utilsService: {
           parseDimensionString: () => ({}),
@@ -111,6 +126,28 @@ describe('Cash-In Shiplink and Yard processors', () => {
     },
   );
 
+  it('allows a blank invoice for Shiplink while Yard still requires it', async () => {
+    const row = { ...sourceRows[0], INVOICE: '' };
+    const shiplink = createProcessor(CashInShiplinkEntryProcessor);
+    const yard = createProcessor(CashInYardEntryProcessor as any);
+
+    const [shiplinkLine] = (await shiplink.formatAndEnrichAsync(
+      [row] as any,
+      'm-p',
+    )) as CashEntryDynDataModel[];
+    const [yardLine] = (await yard.formatAndEnrichAsync(
+      [row] as any,
+      'm-p',
+    )) as CashEntryDynDataModel[];
+
+    expect(
+      shiplinkLine.GetErrors().some((error) => error.startsWith('Invoice:')),
+    ).toBe(false);
+    expect(
+      yardLine.GetErrors().some((error) => error.startsWith('Invoice:')),
+    ).toBe(true);
+  });
+
   it('puts debit-column lines in a different journal batch from credit-column lines', async () => {
     const utilsService = new EntryProcessorUtilsService();
     const processor = new CashInShiplinkEntryProcessor(
@@ -121,6 +158,23 @@ describe('Cash-In Shiplink and Yard processors', () => {
           fetchExchangeRates: () => ({
             exchangeRate: 4750,
             reportingRate: 4750,
+          }),
+        },
+        cashOutExchangeRateService: {
+          load: jest.fn().mockResolvedValue({
+            ratesByCurrency: new Map(),
+            reverseRatesByCurrency: new Map(),
+            reportingRatesByCurrency: new Map(),
+            reverseReportingRatesByCurrency: new Map(),
+          }),
+          resolve: jest.fn().mockImplementation((_context, _date, currency) =>
+            currency === 'EGP'
+              ? { kind: 'not-required', rate: 100 }
+              : { kind: 'matched', rate: 4750 },
+          ),
+          resolveReporting: jest.fn().mockReturnValue({
+            kind: 'matched',
+            rate: 1,
           }),
         },
         utilsService: {

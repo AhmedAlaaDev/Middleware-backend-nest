@@ -10,6 +10,10 @@ import {
 import { CommandBus } from '@nestjs/cqrs';
 
 import {
+  CustodySettlementSkipRow,
+  toCustodySettlementSkipBatchError,
+} from '@/modules/cash/services/custody-settlement-skip-report';
+import {
   DataBatchStatus,
   EntryProcessorTypes,
 } from '@/modules/data-batch/enums/data-batch.enum';
@@ -50,10 +54,6 @@ import {
 } from '@/modules/entry-processor/interfaces/entry-processor.interface';
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
 import { UpdateSettingValueCommand } from '@/modules/settings/commands/update-setting-value.command';
-import {
-  CustodySettlementSkipRow,
-  toCustodySettlementSkipBatchError,
-} from '@/modules/cash/services/custody-settlement-skip-report';
 
 @Injectable()
 export class DataBatchService {
@@ -582,6 +582,14 @@ export class DataBatchService {
     return this.dataBatchRepo.findById(batchId);
   }
 
+  public async getByFinanceJournalBatchNumberAsync(
+    journalBatchNumber: string,
+  ): Promise<IDataBatch | null> {
+    return this.dataBatchRepo.findByFinanceJournalBatchNumber(
+      journalBatchNumber,
+    );
+  }
+
   /**
    * Get source records for a batch
    * @template TRawData - Type of raw/source data records
@@ -693,6 +701,31 @@ export class DataBatchService {
     dfoIds: string[],
   ): Promise<void> {
     await this.dataBatchRepo.updateOne(batchId, { dfoIds });
+  }
+
+  /** Store the exact Finance journal number returned for one planned header. */
+  public async upsertDfoJournalMappingAsync(
+    batchId: string,
+    mapping: {
+      plannedJournalBatchNumber: string;
+      financeJournalBatchNumber: string;
+    },
+  ): Promise<void> {
+    const plannedJournalBatchNumber = mapping.plannedJournalBatchNumber.trim();
+    const financeJournalBatchNumber = mapping.financeJournalBatchNumber.trim();
+    if (!plannedJournalBatchNumber || !financeJournalBatchNumber) return;
+
+    const batch = await this.getByIdAsync(batchId);
+    const mappings = [
+      ...(batch?.dfoJournalMappings ?? []).filter(
+        (existing) =>
+          existing.plannedJournalBatchNumber !== plannedJournalBatchNumber,
+      ),
+      { plannedJournalBatchNumber, financeJournalBatchNumber },
+    ];
+    await this.dataBatchRepo.updateOne(batchId, {
+      dfoJournalMappings: mappings,
+    });
   }
 
   /**
@@ -1374,7 +1407,9 @@ export class DataBatchService {
       const uniqueId = lineMatch[2].trim();
       const side = lineMatch[3];
       const detail = lineMatch[4].trim();
-      const propertyMatch = detail.match(/^([^:]+):\s*(.*)$/s);
+      const propertyMatch = detail.match(
+        /^([A-Za-z][A-Za-z0-9_]{0,80}):\s*(.*)$/s,
+      );
       const propertyName = propertyMatch?.[1]?.trim();
       const message = propertyMatch?.[2]?.trim() || detail;
       const sourceLabel = `Line ${lineMatch[1]} (UniqueId ${uniqueId})`;

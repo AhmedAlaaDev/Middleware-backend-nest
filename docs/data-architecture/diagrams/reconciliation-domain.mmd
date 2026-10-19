@@ -1,0 +1,13 @@
+%% Reconciliation module data view
+%% Reconciliation uploads and matching operate on request/workbook data; no reconciliation-specific MongoDB schema was found.
+%% Entity IDs: E011=data_batches; E013=data_source_records.
+%% Schema evidence: reconciliation upload/service code; no persisted schema for this module.
+%% Relationship details: ../04-relationship-catalog.md; no reconciliation-specific FK edges.
+%% Limitation: this is a module persistence view; transient matching models are excluded from the physical ERD.
+erDiagram
+  DATA_BATCHES {
+    ObjectId _id PK
+  }
+  DATA_SOURCE_RECORDS {
+    ObjectId _id PK
+  }

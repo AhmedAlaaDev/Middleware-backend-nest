@@ -1,0 +1,284 @@
+%% D365FO OData navigation graph for entity sets used by backend service code.
+%% Entity IDs DFO001-DFO027 are listed in ../d365fo-odata-entity-catalog.csv.
+%% Navigation evidence IDs D0001-D0189 are listed in ../relationship-evidence.csv and ../d365fo-odata-relationships.csv.
+%% Relationship catalog: ../04-relationship-catalog.md.
+%% Metadata source: repository meta.xml (EDMX/CSDL snapshot), not live endpoint metadata.
+%% OData navigations are not claims about physical SQL foreign keys; reverse multiplicity is not inferred.
+flowchart LR
+  FO_BillingClassificationCode["DFO001 D365FO set: BillingClassificationCodes"]
+  FO_BillingClassification["DFO002 D365FO set: BillingClassifications"]
+  FO_BillingCodeVersion["DFO003 D365FO set: BillingCodeVersions"]
+  FO_CustomerPaymentJournalHeader["DFO004 D365FO set: CustomerPaymentJournalHeaders"]
+  FO_CustomerPaymentJournalLine["DFO005 D365FO set: CustomerPaymentJournalLines"]
+  FO_Customer["DFO006 D365FO set: Customers"]
+  FO_CustTransBiEntity["DFO007 D365FO set: CustTransBiEntities"]
+  FO_DimensionAttribute["DFO008 D365FO set: DimensionAttributes"]
+  FO_ExchangeRate["DFO009 D365FO set: ExchangeRates"]
+  FO_FinancialDimensionValue["DFO010 D365FO set: FinancialDimensionValues"]
+  FO_FreeTextInvoiceHeader["DFO011 D365FO set: FreeTextInvoiceHeaders"]
+  FO_FreeTextInvoiceLine["DFO012 D365FO set: FreeTextInvoiceLines"]
+  FO_LedgerJournalHeader["DFO013 D365FO set: LedgerJournalHeaders"]
+  FO_LedgerJournalLine["DFO014 D365FO set: LedgerJournalLines"]
+  FO_Ledger["DFO015 D365FO set: Ledgers"]
+  FO_MainAccount["DFO016 D365FO set: MainAccounts"]
+  FO_PaymentJournalLineSettledInvoice["DFO017 D365FO set: PaymentJournalLineSettledInvoices"]
+  FO_PaymentTerm["DFO018 D365FO set: PaymentTerms"]
+  FO_TaxItemGroupHeading["DFO019 D365FO set: TaxItemGroupHeadings"]
+  FO_VATNumTable["DFO020 D365FO set: VATNumTables"]
+  FO_VendInvoiceJournalHeader["DFO021 D365FO set: VendInvoiceJournalHeaders"]
+  FO_VendInvoiceJournalLine["DFO022 D365FO set: VendInvoiceJournalLines"]
+  FO_VendorPaymentJournalHeader["DFO023 D365FO set: VendorPaymentJournalHeaders"]
+  FO_VendorPaymentJournalLine["DFO024 D365FO set: VendorPaymentJournalLines"]
+  FO_VendorPaymentJournalLineSettledInvoice["DFO025 D365FO set: VendorPaymentJournalLineSettledInvoices"]
+  FO_VendorV3["DFO026 D365FO set: VendorsV3"]
+  FO_VendTransBiEntity["DFO027 D365FO set: VendTransBiEntities"]
+  FO_DimensionCombination["OData target type: Microsoft.Dynamics.DataEntities.DimensionCombination"]
+  FO_DimensionSet["OData target type: Microsoft.Dynamics.DataEntities.DimensionSet"]
+  FO_CustomerPaymentMethod["OData target type: Microsoft.Dynamics.DataEntities.CustomerPaymentMethod"]
+  FO_VoucherType["OData target type: Microsoft.Dynamics.DataEntities.VoucherType"]
+  FO_Currency["OData target type: Microsoft.Dynamics.DataEntities.Currency"]
+  FO_OfficeAddinLegalEntity["OData target type: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity"]
+  FO_TaxGroup["OData target type: Microsoft.Dynamics.DataEntities.TaxGroup"]
+  FO_CustomerPaymentJournalFee["OData target type: Microsoft.Dynamics.DataEntities.CustomerPaymentJournalFee"]
+  FO_FinancialDimensionValueLegalEntityOverrideV2["OData target type: Microsoft.Dynamics.DataEntities.FinancialDimensionValueLegalEntityOverrideV2"]
+  FO_LedgerAdvancedRuleStructure["OData target type: Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure"]
+  FO_AdvancedRuleCriterion["OData target type: Microsoft.Dynamics.DataEntities.AdvancedRuleCriterion"]
+  FO_AccountStructure["OData target type: Microsoft.Dynamics.DataEntities.AccountStructure"]
+  FO_FinancialDimensionValueTotalAccountInterval["OData target type: Microsoft.Dynamics.DataEntities.FinancialDimensionValueTotalAccountInterval"]
+  FO_BudgetDimension["OData target type: Microsoft.Dynamics.DataEntities.BudgetDimension"]
+  FO_DimensionAttributeTranslation["OData target type: Microsoft.Dynamics.DataEntities.DimensionAttributeTranslation"]
+  FO_FinancialDimensionValueLegalEntityOverride["OData target type: Microsoft.Dynamics.DataEntities.FinancialDimensionValueLegalEntityOverride"]
+  FO_FinancialDimensionSet["OData target type: Microsoft.Dynamics.DataEntities.FinancialDimensionSet"]
+  FO_FinancialDimensionValueTranslation["OData target type: Microsoft.Dynamics.DataEntities.FinancialDimensionValueTranslation"]
+  FO_LedgerAccountAlias["OData target type: Microsoft.Dynamics.DataEntities.LedgerAccountAlias"]
+  FO_AttributeValueDerivedDimensions["OData target type: Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions"]
+  FO_ExchangeRateType["OData target type: Microsoft.Dynamics.DataEntities.ExchangeRateType"]
+  FO_SystemParameters["OData target type: Microsoft.Dynamics.DataEntities.SystemParameters"]
+  FO_CustomerV3["OData target type: Microsoft.Dynamics.DataEntities.CustomerV3"]
+  FO_PaymentSchedule["OData target type: Microsoft.Dynamics.DataEntities.PaymentSchedule"]
+  FO_CashDiscount["OData target type: Microsoft.Dynamics.DataEntities.CashDiscount"]
+  FO_NGPCode["OData target type: Microsoft.Dynamics.DataEntities.NGPCode"]
+  FO_LegalEntity["OData target type: Microsoft.Dynamics.DataEntities.LegalEntity"]
+  FO_AddressCountryRegion["OData target type: Microsoft.Dynamics.DataEntities.AddressCountryRegion"]
+  FO_BankAccount["OData target type: Microsoft.Dynamics.DataEntities.BankAccount"]
+  FO_WithholdingSet["OData target type: Microsoft.Dynamics.DataEntities.WithholdingSet"]
+  FO_LTMDocumentClassification["OData target type: Microsoft.Dynamics.DataEntities.LTMDocumentClassification"]
+  FO_LTMTaxPayerType["OData target type: Microsoft.Dynamics.DataEntities.LTMTaxPayerType"]
+  FO_LTMBankGroup["OData target type: Microsoft.Dynamics.DataEntities.LTMBankGroup"]
+  FO_LTMSalesPoint["OData target type: Microsoft.Dynamics.DataEntities.LTMSalesPoint"]
+  FO_AddressState["OData target type: Microsoft.Dynamics.DataEntities.AddressState"]
+  FO_LTMFiscalRegister["OData target type: Microsoft.Dynamics.DataEntities.LTMFiscalRegister"]
+  FO_BudgetControlConfiguration["OData target type: Microsoft.Dynamics.DataEntities.BudgetControlConfiguration"]
+  FO_CurrencyRevaluationAccount["OData target type: Microsoft.Dynamics.DataEntities.CurrencyRevaluationAccount"]
+  FO_BudgetRegisterEntryLine["OData target type: Microsoft.Dynamics.DataEntities.BudgetRegisterEntryLine"]
+  FO_BudgetAllowTransferRule["OData target type: Microsoft.Dynamics.DataEntities.BudgetAllowTransferRule"]
+  FO_BudgetRegisterEntry["OData target type: Microsoft.Dynamics.DataEntities.BudgetRegisterEntry"]
+  FO_BudgetRegisterEntryHeader["OData target type: Microsoft.Dynamics.DataEntities.BudgetRegisterEntryHeader"]
+  FO_BalanceControl["OData target type: Microsoft.Dynamics.DataEntities.BalanceControl"]
+  FO_AccountTranslation["OData target type: Microsoft.Dynamics.DataEntities.AccountTranslation"]
+  FO_LedgerTransSettlementAccount["OData target type: Microsoft.Dynamics.DataEntities.LedgerTransSettlementAccount"]
+  FO_ConsolidateAccountGroup["OData target type: Microsoft.Dynamics.DataEntities.ConsolidateAccountGroup"]
+  FO_MainAccountTotalAccountInterval["OData target type: Microsoft.Dynamics.DataEntities.MainAccountTotalAccountInterval"]
+  FO_VendorGroup["OData target type: Microsoft.Dynamics.DataEntities.VendorGroup"]
+  FO_OnlineChannelV2["OData target type: Microsoft.Dynamics.DataEntities.OnlineChannelV2"]
+  FO_PurchaseAgreement["OData target type: Microsoft.Dynamics.DataEntities.PurchaseAgreement"]
+  FO_PaymentDay["OData target type: Microsoft.Dynamics.DataEntities.PaymentDay"]
+  FO_OnlineChannel["OData target type: Microsoft.Dynamics.DataEntities.OnlineChannel"]
+  FO_CDSFreeTextInvoiceHeader["OData target type: Microsoft.Dynamics.DataEntities.CDSFreeTextInvoiceHeader"]
+  FO_CLMIntegrationValidationPurchaseAgreement["OData target type: Microsoft.Dynamics.DataEntities.CLMIntegrationValidationPurchaseAgreement"]
+  FO_RetailStore["OData target type: Microsoft.Dynamics.DataEntities.RetailStore"]
+  FO_LedgerJournalCDSLine["OData target type: Microsoft.Dynamics.DataEntities.LedgerJournalCDSLine"]
+  FO_AssetLeaseLedgerJournalLine["OData target type: Microsoft.Dynamics.DataEntities.AssetLeaseLedgerJournalLine"]
+  FO_VendorPaymentJournalFee["OData target type: Microsoft.Dynamics.DataEntities.VendorPaymentJournalFee"]
+  FO_PayIntV1LegalEntity["OData target type: Microsoft.Dynamics.DataEntities.PayIntV1LegalEntity"]
+  FO_FixedAssetBookV2["OData target type: Microsoft.Dynamics.DataEntities.FixedAssetBookV2"]
+  FO_VendorPaymentMethod["OData target type: Microsoft.Dynamics.DataEntities.VendorPaymentMethod"]
+  FO_CustomerPaymentJournalHeader -->|"CustomerPaymentJournalLineHeaderEntity: Collection(Microsoft.Dynamics.DataEntities.CustomerPaymentJournalLine) [D0001]"| FO_CustomerPaymentJournalLine
+  FO_CustomerPaymentJournalHeader -->|"CustomerPaymentJournalHeaderRole: Collection(Microsoft.Dynamics.DataEntities.PaymentJournalLineSettledInvoice) [D0002]"| FO_PaymentJournalLineSettledInvoice
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineOffsetAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0003]"| FO_DimensionCombination
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineDefaultDimensionOffsetEntityRole: Microsoft.Dynamics.DataEntities.DimensionSet [D0004]"| FO_DimensionSet
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLinePaymentMethodEntityRole: Microsoft.Dynamics.DataEntities.CustomerPaymentMethod [D0005]"| FO_CustomerPaymentMethod
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineDefaultDimensionAccountEntityRole: Microsoft.Dynamics.DataEntities.DimensionSet [D0006]"| FO_DimensionSet
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineLedgerVoucherTypeEntityRole: Microsoft.Dynamics.DataEntities.VoucherType [D0007]"| FO_VoucherType
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineHeaderEntityRole: Microsoft.Dynamics.DataEntities.CustomerPaymentJournalHeader [D0008]"| FO_CustomerPaymentJournalHeader
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineCurrentyEntityRole: Microsoft.Dynamics.DataEntities.Currency [D0009]"| FO_Currency
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineEntityCompany: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity [D0010]"| FO_OfficeAddinLegalEntity
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineTaxGroupEntityRole: Microsoft.Dynamics.DataEntities.TaxGroup [D0011]"| FO_TaxGroup
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineTaxItemGroupEntityRole: Microsoft.Dynamics.DataEntities.TaxItemGroupHeading [D0012]"| FO_TaxItemGroupHeading
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0013]"| FO_DimensionCombination
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalFee: Collection(Microsoft.Dynamics.DataEntities.CustomerPaymentJournalFee) [D0014]"| FO_CustomerPaymentJournalFee
+  FO_CustomerPaymentJournalLine -->|"CustomerPaymentJournalLineRole: Collection(Microsoft.Dynamics.DataEntities.PaymentJournalLineSettledInvoice) [D0015]"| FO_PaymentJournalLineSettledInvoice
+  FO_Customer -->|"DimensionSet: Microsoft.Dynamics.DataEntities.DimensionSet [D0016]"| FO_DimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionValueLegalEntityOverrideV2Entity_Role_FinancialDimension: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionValueLegalEntityOverrideV2) [D0017]"| FO_FinancialDimensionValueLegalEntityOverrideV2
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName10: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0018]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName11: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0019]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName04: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0020]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName05: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0021]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName06: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0022]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName07: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0023]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName01: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0024]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName02: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0025]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName03: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0026]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName08: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0027]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleStructureEntity_Role_SegmentName09: Collection(Microsoft.Dynamics.DataEntities.LedgerAdvancedRuleStructure) [D0028]"| FO_LedgerAdvancedRuleStructure
+  FO_DimensionAttribute -->|"LedgerAdvancedRuleCriterionEntity_Role_DimensionAttributeEntity: Collection(Microsoft.Dynamics.DataEntities.AdvancedRuleCriterion) [D0029]"| FO_AdvancedRuleCriterion
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName10: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0030]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName11: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0031]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName04: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0032]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName05: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0033]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName06: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0034]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName07: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0035]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName01: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0036]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName02: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0037]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName03: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0038]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName08: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0039]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"LedgerAccountStructureEntity_Role_SegmentName09: Collection(Microsoft.Dynamics.DataEntities.AccountStructure) [D0040]"| FO_AccountStructure
+  FO_DimensionAttribute -->|"FinancialDimensionValueTotalAccountIntervalEntity_Role_DimensionAttributeEntity: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionValueTotalAccountInterval) [D0041]"| FO_FinancialDimensionValueTotalAccountInterval
+  FO_DimensionAttribute -->|"DimensionAttributeBudgetPrimaryLedger: Collection(Microsoft.Dynamics.DataEntities.BudgetDimension) [D0042]"| FO_BudgetDimension
+  FO_DimensionAttribute -->|"DimensionAttributeTranslationEntity_DimensionAttributeEntity_Role: Collection(Microsoft.Dynamics.DataEntities.DimensionAttributeTranslation) [D0043]"| FO_DimensionAttributeTranslation
+  FO_DimensionAttribute -->|"FinancialDimensionValueLegalEntityOverrideEntity_Role_FinancialDimension: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionValueLegalEntityOverride) [D0044]"| FO_FinancialDimensionValueLegalEntityOverride
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName09: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0045]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName11: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0046]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName01: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0047]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName05: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0048]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName02: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0049]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName06: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0050]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName03: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0051]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName07: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0052]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName08: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0053]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName10: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0054]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionSetEntity_Role_SegmentName04: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionSet) [D0055]"| FO_FinancialDimensionSet
+  FO_DimensionAttribute -->|"FinancialDimensionValueEntity_Role_FinancialDimension: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionValue) [D0056]"| FO_FinancialDimensionValue
+  FO_DimensionAttribute -->|"FinancialDimensionValueTranslationEntity_Role_DimensionAttributeEntity: Collection(Microsoft.Dynamics.DataEntities.FinancialDimensionValueTranslation) [D0057]"| FO_FinancialDimensionValueTranslation
+  FO_DimensionAttribute -->|"LedgerAccountAlias: Collection(Microsoft.Dynamics.DataEntities.LedgerAccountAlias) [D0058]"| FO_LedgerAccountAlias
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DrivingDimension: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0059]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension10: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0060]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension1: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0061]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension3: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0062]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension2: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0063]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension5: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0064]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension4: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0065]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension7: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0066]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension6: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0067]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension9: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0068]"| FO_AttributeValueDerivedDimensions
+  FO_DimensionAttribute -->|"DerivedDimension_Role_DerivedDimension8: Collection(Microsoft.Dynamics.DataEntities.AttributeValueDerivedDimensions) [D0069]"| FO_AttributeValueDerivedDimensions
+  FO_ExchangeRate -->|"ExchangeRateExchangeRateType: Microsoft.Dynamics.DataEntities.ExchangeRateType [D0070]"| FO_ExchangeRateType
+  FO_ExchangeRate -->|"Currency: Microsoft.Dynamics.DataEntities.Currency [D0071]"| FO_Currency
+  FO_ExchangeRate -->|"FromCurrencies: Microsoft.Dynamics.DataEntities.Currency [D0072]"| FO_Currency
+  FO_ExchangeRate -->|"SystemParameters: Microsoft.Dynamics.DataEntities.SystemParameters [D0073]"| FO_SystemParameters
+  FO_FinancialDimensionValue -->|"FinancialDimensionValueEntity_RelatedRole_LegalEntity: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity [D0074]"| FO_OfficeAddinLegalEntity
+  FO_FinancialDimensionValue -->|"FinancialDimensionValueEntity_RelatedRole_FinancialDimension: Microsoft.Dynamics.DataEntities.DimensionAttribute [D0075]"| FO_DimensionAttribute
+  FO_FreeTextInvoiceHeader -->|"CustFreeTextInvoiceHeader: Collection(Microsoft.Dynamics.DataEntities.FreeTextInvoiceLine) [D0076]"| FO_FreeTextInvoiceLine
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityCustAccount: Microsoft.Dynamics.DataEntities.CustomerV3 [D0077]"| FO_CustomerV3
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityInvoiceAccount: Microsoft.Dynamics.DataEntities.CustomerV3 [D0078]"| FO_CustomerV3
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityPaymentSchedule: Microsoft.Dynamics.DataEntities.PaymentSchedule [D0079]"| FO_PaymentSchedule
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityMethodOfPayment: Microsoft.Dynamics.DataEntities.CustomerPaymentMethod [D0080]"| FO_CustomerPaymentMethod
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityCurrency: Microsoft.Dynamics.DataEntities.Currency [D0081]"| FO_Currency
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityDefaultDimension: Microsoft.Dynamics.DataEntities.DimensionSet [D0082]"| FO_DimensionSet
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityPaymentTerm: Microsoft.Dynamics.DataEntities.PaymentTerm [D0083]"| FO_PaymentTerm
+  FO_FreeTextInvoiceHeader -->|"FreeTextInvoiceHeaderEntityCashDiscount: Microsoft.Dynamics.DataEntities.CashDiscount [D0084]"| FO_CashDiscount
+  FO_FreeTextInvoiceLine -->|"FTIMainAccountDimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0085]"| FO_DimensionCombination
+  FO_FreeTextInvoiceLine -->|"FreeTextInvoiceLineEntityTaxGroup: Microsoft.Dynamics.DataEntities.TaxGroup [D0086]"| FO_TaxGroup
+  FO_FreeTextInvoiceLine -->|"CustFreeTextInvoiceHeaderComposite: Microsoft.Dynamics.DataEntities.FreeTextInvoiceHeader [D0087]"| FO_FreeTextInvoiceHeader
+  FO_FreeTextInvoiceLine -->|"FreeTextInvoiceLineEntityTaxItemGroup: Microsoft.Dynamics.DataEntities.TaxItemGroupHeading [D0088]"| FO_TaxItemGroupHeading
+  FO_FreeTextInvoiceLine -->|"FTIDefaultDimensionDimensionSetCombination: Microsoft.Dynamics.DataEntities.DimensionSet [D0089]"| FO_DimensionSet
+  FO_FreeTextInvoiceLine -->|"FreeTextInvoiceLineEntityNGP: Microsoft.Dynamics.DataEntities.NGPCode [D0090]"| FO_NGPCode
+  FO_LedgerJournalHeader -->|"LegalEntity: Microsoft.Dynamics.DataEntities.LegalEntity [D0091]"| FO_LegalEntity
+  FO_LedgerJournalHeader -->|"LedgerJournalLine: Collection(Microsoft.Dynamics.DataEntities.LedgerJournalLine) [D0092]"| FO_LedgerJournalLine
+  FO_LedgerJournalLine -->|"LedgerJournalLineCurrency: Microsoft.Dynamics.DataEntities.Currency [D0093]"| FO_Currency
+  FO_LedgerJournalLine -->|"LedgerJournalLineCompany: Microsoft.Dynamics.DataEntities.LegalEntity [D0094]"| FO_LegalEntity
+  FO_LedgerJournalLine -->|"LedgerJournalLineSalesTaxGroup: Microsoft.Dynamics.DataEntities.TaxGroup [D0095]"| FO_TaxGroup
+  FO_LedgerJournalLine -->|"LedgerJournalLineOffsetCompany: Microsoft.Dynamics.DataEntities.LegalEntity [D0096]"| FO_LegalEntity
+  FO_LedgerJournalLine -->|"LedgerJournalLineItemSalesTaxGroup: Microsoft.Dynamics.DataEntities.TaxItemGroupHeading [D0097]"| FO_TaxItemGroupHeading
+  FO_LedgerJournalLine -->|"LedgerJournalLineDefaultDimension: Microsoft.Dynamics.DataEntities.DimensionSet [D0098]"| FO_DimensionSet
+  FO_LedgerJournalLine -->|"LegalEntity: Microsoft.Dynamics.DataEntities.LegalEntity [D0099]"| FO_LegalEntity
+  FO_LedgerJournalLine -->|"LedgerJournalLineOffsetDefaultDimension: Microsoft.Dynamics.DataEntities.DimensionSet [D0100]"| FO_DimensionSet
+  FO_LedgerJournalLine -->|"LedgerJournalHeader: Microsoft.Dynamics.DataEntities.LedgerJournalHeader [D0101]"| FO_LedgerJournalHeader
+  FO_LedgerJournalLine -->|"LedgerJournalLineOffsetLedgerDimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0102]"| FO_DimensionCombination
+  FO_LedgerJournalLine -->|"LedgerJournalLineLedgerDimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0103]"| FO_DimensionCombination
+  FO_LedgerJournalLine -->|"VoucherType: Microsoft.Dynamics.DataEntities.VoucherType [D0104]"| FO_VoucherType
+  FO_LedgerJournalLine -->|"PaymentTerm: Microsoft.Dynamics.DataEntities.PaymentTerm [D0105]"| FO_PaymentTerm
+  FO_LedgerJournalLine -->|"AddressCountryRegion: Microsoft.Dynamics.DataEntities.AddressCountryRegion [D0106]"| FO_AddressCountryRegion
+  FO_LedgerJournalLine -->|"BankAccount: Microsoft.Dynamics.DataEntities.BankAccount [D0107]"| FO_BankAccount
+  FO_LedgerJournalLine -->|"WithholdingSet: Microsoft.Dynamics.DataEntities.WithholdingSet [D0108]"| FO_WithholdingSet
+  FO_LedgerJournalLine -->|"LTMDocumentClassification: Microsoft.Dynamics.DataEntities.LTMDocumentClassification [D0109]"| FO_LTMDocumentClassification
+  FO_LedgerJournalLine -->|"LTMTaxPayerType: Microsoft.Dynamics.DataEntities.LTMTaxPayerType [D0110]"| FO_LTMTaxPayerType
+  FO_LedgerJournalLine -->|"LTMBankGroup: Microsoft.Dynamics.DataEntities.LTMBankGroup [D0111]"| FO_LTMBankGroup
+  FO_LedgerJournalLine -->|"LTMSalesPoint: Microsoft.Dynamics.DataEntities.LTMSalesPoint [D0112]"| FO_LTMSalesPoint
+  FO_LedgerJournalLine -->|"AddressState: Microsoft.Dynamics.DataEntities.AddressState [D0113]"| FO_AddressState
+  FO_LedgerJournalLine -->|"LTMFiscalRegister: Microsoft.Dynamics.DataEntities.LTMFiscalRegister [D0114]"| FO_LTMFiscalRegister
+  FO_Ledger -->|"LedgerEntity: Collection(Microsoft.Dynamics.DataEntities.BudgetControlConfiguration) [D0115]"| FO_BudgetControlConfiguration
+  FO_Ledger -->|"CurrencyRevaluationAccount: Collection(Microsoft.Dynamics.DataEntities.CurrencyRevaluationAccount) [D0116]"| FO_CurrencyRevaluationAccount
+  FO_Ledger -->|"LedgerReportingCurrency: Microsoft.Dynamics.DataEntities.Currency [D0117]"| FO_Currency
+  FO_Ledger -->|"LedgerAccountingCurrency: Microsoft.Dynamics.DataEntities.Currency [D0118]"| FO_Currency
+  FO_Ledger -->|"BudgetRegisterEntryLinePrimaryLedger: Microsoft.Dynamics.DataEntities.BudgetRegisterEntryLine [D0119]"| FO_BudgetRegisterEntryLine
+  FO_Ledger -->|"PrimaryLedgerBudgetDimension: Collection(Microsoft.Dynamics.DataEntities.BudgetDimension) [D0120]"| FO_BudgetDimension
+  FO_Ledger -->|"BudgetAllowTransferRuleLedgerEntity: Collection(Microsoft.Dynamics.DataEntities.BudgetAllowTransferRule) [D0121]"| FO_BudgetAllowTransferRule
+  FO_Ledger -->|"BudgetRegisterEntry: Microsoft.Dynamics.DataEntities.BudgetRegisterEntry [D0122]"| FO_BudgetRegisterEntry
+  FO_Ledger -->|"BudgetRegisterEntryHeaderPrimaryLedger: Microsoft.Dynamics.DataEntities.BudgetRegisterEntryHeader [D0123]"| FO_BudgetRegisterEntryHeader
+  FO_MainAccount -->|"LedgerBalanceControlMainAccountRole: Collection(Microsoft.Dynamics.DataEntities.BalanceControl) [D0124]"| FO_BalanceControl
+  FO_MainAccount -->|"MainAccountEntityRole: Collection(Microsoft.Dynamics.DataEntities.AccountTranslation) [D0125]"| FO_AccountTranslation
+  FO_MainAccount -->|"LedgerTransSettlementAccountsMainAccountEntityRole: Collection(Microsoft.Dynamics.DataEntities.LedgerTransSettlementAccount) [D0126]"| FO_LedgerTransSettlementAccount
+  FO_MainAccount -->|"ConsolidationMainAccountEntityRole2: Collection(Microsoft.Dynamics.DataEntities.ConsolidateAccountGroup) [D0127]"| FO_ConsolidateAccountGroup
+  FO_MainAccount -->|"MainAccountEntityRole2: Collection(Microsoft.Dynamics.DataEntities.ConsolidateAccountGroup) [D0128]"| FO_ConsolidateAccountGroup
+  FO_MainAccount -->|"MainAccountExchangeAdjustmentRateType: Microsoft.Dynamics.DataEntities.ExchangeRateType [D0129]"| FO_ExchangeRateType
+  FO_MainAccount -->|"Currency: Microsoft.Dynamics.DataEntities.Currency [D0130]"| FO_Currency
+  FO_MainAccount -->|"TotalAccountMainAccountEntityRole: Collection(Microsoft.Dynamics.DataEntities.MainAccountTotalAccountInterval) [D0131]"| FO_MainAccountTotalAccountInterval
+  FO_PaymentJournalLineSettledInvoice -->|"CustomerPaymentJournalLineRelatedRole: Microsoft.Dynamics.DataEntities.CustomerPaymentJournalLine [D0132]"| FO_CustomerPaymentJournalLine
+  FO_PaymentJournalLineSettledInvoice -->|"CustomerPaymentJournalHeaderRelatedRole: Microsoft.Dynamics.DataEntities.CustomerPaymentJournalHeader [D0133]"| FO_CustomerPaymentJournalHeader
+  FO_PaymentJournalLineSettledInvoice -->|"CustomerPaymentJournalLineSettledInvoiceAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0134]"| FO_DimensionCombination
+  FO_PaymentTerm -->|"ClearingPeriodAssignedVendorGroups: Collection(Microsoft.Dynamics.DataEntities.VendorGroup) [D0135]"| FO_VendorGroup
+  FO_PaymentTerm -->|"DefaultAssignedVendorGroups: Collection(Microsoft.Dynamics.DataEntities.VendorGroup) [D0136]"| FO_VendorGroup
+  FO_PaymentTerm -->|"OnlineChannelV2: Collection(Microsoft.Dynamics.DataEntities.OnlineChannelV2) [D0137]"| FO_OnlineChannelV2
+  FO_PaymentTerm -->|"PurchaseAgreementHeaders: Collection(Microsoft.Dynamics.DataEntities.PurchaseAgreement) [D0138]"| FO_PurchaseAgreement
+  FO_PaymentTerm -->|"LedgerJournalLine: Microsoft.Dynamics.DataEntities.LedgerJournalLine [D0139]"| FO_LedgerJournalLine
+  FO_PaymentTerm -->|"PaymentSchedule: Microsoft.Dynamics.DataEntities.PaymentSchedule [D0140]"| FO_PaymentSchedule
+  FO_PaymentTerm -->|"DimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0141]"| FO_DimensionCombination
+  FO_PaymentTerm -->|"PaymentDay: Microsoft.Dynamics.DataEntities.PaymentDay [D0142]"| FO_PaymentDay
+  FO_PaymentTerm -->|"FreeTextInvoiceHeaderPaymentTerm: Collection(Microsoft.Dynamics.DataEntities.FreeTextInvoiceHeader) [D0143]"| FO_FreeTextInvoiceHeader
+  FO_PaymentTerm -->|"OnlineChannel: Collection(Microsoft.Dynamics.DataEntities.OnlineChannel) [D0144]"| FO_OnlineChannel
+  FO_PaymentTerm -->|"CDSFreeTextInvoiceHeaders: Collection(Microsoft.Dynamics.DataEntities.CDSFreeTextInvoiceHeader) [D0145]"| FO_CDSFreeTextInvoiceHeader
+  FO_PaymentTerm -->|"CLMIntegrationPurchaseAgreementHeaders: Collection(Microsoft.Dynamics.DataEntities.CLMIntegrationValidationPurchaseAgreement) [D0146]"| FO_CLMIntegrationValidationPurchaseAgreement
+  FO_PaymentTerm -->|"RetailStore: Collection(Microsoft.Dynamics.DataEntities.RetailStore) [D0147]"| FO_RetailStore
+  FO_TaxItemGroupHeading -->|"VendInvoiceJournalLineItemSalesTaxGroup: Collection(Microsoft.Dynamics.DataEntities.VendInvoiceJournalLine) [D0148]"| FO_VendInvoiceJournalLine
+  FO_TaxItemGroupHeading -->|"LedgerJournalLineCDSItemSalesTaxGroup: Collection(Microsoft.Dynamics.DataEntities.LedgerJournalCDSLine) [D0149]"| FO_LedgerJournalCDSLine
+  FO_TaxItemGroupHeading -->|"LedgerJournalLineItemSalesTaxGroup: Collection(Microsoft.Dynamics.DataEntities.AssetLeaseLedgerJournalLine) [D0150]"| FO_AssetLeaseLedgerJournalLine
+  FO_TaxItemGroupHeading -->|"CustomerPaymentJournalLineTaxItemGroupEntity: Collection(Microsoft.Dynamics.DataEntities.CustomerPaymentJournalLine) [D0151]"| FO_CustomerPaymentJournalLine
+  FO_TaxItemGroupHeading -->|"LedgerJournalLineEntityItemSalesTaxGroup: Collection(Microsoft.Dynamics.DataEntities.LedgerJournalLine) [D0152]"| FO_LedgerJournalLine
+  FO_TaxItemGroupHeading -->|"FreeTextInvoiceLineTaxItemGroup: Collection(Microsoft.Dynamics.DataEntities.FreeTextInvoiceLine) [D0153]"| FO_FreeTextInvoiceLine
+  FO_TaxItemGroupHeading -->|"VendorPaymentJournalFee: Collection(Microsoft.Dynamics.DataEntities.VendorPaymentJournalFee) [D0154]"| FO_VendorPaymentJournalFee
+  FO_TaxItemGroupHeading -->|"CustomerPaymentJournalFee: Collection(Microsoft.Dynamics.DataEntities.CustomerPaymentJournalFee) [D0155]"| FO_CustomerPaymentJournalFee
+  FO_VATNumTable -->|"PayIntVAT: Collection(Microsoft.Dynamics.DataEntities.PayIntV1LegalEntity) [D0156]"| FO_PayIntV1LegalEntity
+  FO_VATNumTable -->|"LegalEntityImportVATNumTaxVATNum: Collection(Microsoft.Dynamics.DataEntities.LegalEntity) [D0157]"| FO_LegalEntity
+  FO_VATNumTable -->|"LegalEntityVATNumTaxVATNum: Collection(Microsoft.Dynamics.DataEntities.LegalEntity) [D0158]"| FO_LegalEntity
+  FO_VendInvoiceJournalHeader -->|"VendInvoiceJournalLine: Collection(Microsoft.Dynamics.DataEntities.VendInvoiceJournalLine) [D0159]"| FO_VendInvoiceJournalLine
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityOffsetAccountDimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0160]"| FO_DimensionCombination
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalHeader: Microsoft.Dynamics.DataEntities.VendInvoiceJournalHeader [D0161]"| FO_VendInvoiceJournalHeader
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityAccountDimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0162]"| FO_DimensionCombination
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityOffsetCompany: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity [D0163]"| FO_OfficeAddinLegalEntity
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityCurrency: Microsoft.Dynamics.DataEntities.Currency [D0164]"| FO_Currency
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntitySalesTaxGroup: Microsoft.Dynamics.DataEntities.TaxGroup [D0165]"| FO_TaxGroup
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityCompany: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity [D0166]"| FO_OfficeAddinLegalEntity
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJournalLineEntityItemSalesTaxGroup: Microsoft.Dynamics.DataEntities.TaxItemGroupHeading [D0167]"| FO_TaxItemGroupHeading
+  FO_VendInvoiceJournalLine -->|"FixedAssetBookV2: Microsoft.Dynamics.DataEntities.FixedAssetBookV2 [D0168]"| FO_FixedAssetBookV2
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJourLineEntityDefaultDim: Microsoft.Dynamics.DataEntities.DimensionSet [D0169]"| FO_DimensionSet
+  FO_VendInvoiceJournalLine -->|"VendInvoiceJourLineEntityOffsetDefaultDimension: Microsoft.Dynamics.DataEntities.DimensionSet [D0170]"| FO_DimensionSet
+  FO_VendInvoiceJournalLine -->|"VoucherType: Microsoft.Dynamics.DataEntities.VoucherType [D0171]"| FO_VoucherType
+  FO_VendorPaymentJournalHeader -->|"VendorPaymentJournalLine: Collection(Microsoft.Dynamics.DataEntities.VendorPaymentJournalLine) [D0172]"| FO_VendorPaymentJournalLine
+  FO_VendorPaymentJournalHeader -->|"VendorPaymentJournalHeaderEntityRole: Collection(Microsoft.Dynamics.DataEntities.VendorPaymentJournalLineSettledInvoice) [D0173]"| FO_VendorPaymentJournalLineSettledInvoice
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLineOffsetAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0174]"| FO_DimensionCombination
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLineOffsetAccountDefaultDimensionRole: Microsoft.Dynamics.DataEntities.DimensionSet [D0175]"| FO_DimensionSet
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLineAccountDefaultDimensionRole: Microsoft.Dynamics.DataEntities.DimensionSet [D0176]"| FO_DimensionSet
+  FO_VendorPaymentJournalLine -->|"VoucherType: Microsoft.Dynamics.DataEntities.VoucherType [D0177]"| FO_VoucherType
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalHeader: Microsoft.Dynamics.DataEntities.VendorPaymentJournalHeader [D0178]"| FO_VendorPaymentJournalHeader
+  FO_VendorPaymentJournalLine -->|"Currency: Microsoft.Dynamics.DataEntities.Currency [D0179]"| FO_Currency
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLinePaymentMethodEntityRole: Microsoft.Dynamics.DataEntities.VendorPaymentMethod [D0180]"| FO_VendorPaymentMethod
+  FO_VendorPaymentJournalLine -->|"VendPaymentJournalLineEntityCompany: Microsoft.Dynamics.DataEntities.OfficeAddinLegalEntity [D0181]"| FO_OfficeAddinLegalEntity
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLineAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0182]"| FO_DimensionCombination
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalLineEntityRole: Collection(Microsoft.Dynamics.DataEntities.VendorPaymentJournalLineSettledInvoice) [D0183]"| FO_VendorPaymentJournalLineSettledInvoice
+  FO_VendorPaymentJournalLine -->|"VendorPaymentJournalFee: Collection(Microsoft.Dynamics.DataEntities.VendorPaymentJournalFee) [D0184]"| FO_VendorPaymentJournalFee
+  FO_VendorPaymentJournalLineSettledInvoice -->|"VendorPaymentJournalLineEntityRelatedRole: Microsoft.Dynamics.DataEntities.VendorPaymentJournalLine [D0185]"| FO_VendorPaymentJournalLine
+  FO_VendorPaymentJournalLineSettledInvoice -->|"VendorPaymentJournalHeaderRelatedRole: Microsoft.Dynamics.DataEntities.VendorPaymentJournalHeader [D0186]"| FO_VendorPaymentJournalHeader
+  FO_VendorPaymentJournalLineSettledInvoice -->|"VendorPaymentJournalLineSettledInvoiceAccountCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0187]"| FO_DimensionCombination
+  FO_VendorV3 -->|"DimensionCombination: Microsoft.Dynamics.DataEntities.DimensionCombination [D0188]"| FO_DimensionCombination
+  FO_VendorV3 -->|"DimensionSet: Microsoft.Dynamics.DataEntities.DimensionSet [D0189]"| FO_DimensionSet
