@@ -267,8 +267,14 @@ class AzureDevOpsClient {
       { op: 'add', path: '/fields/System.Title', value: spec.title },
       { op: 'add', path: '/fields/System.Description', value: spec.description },
       { op: 'add', path: '/fields/System.AssignedTo', value: assignedTo },
-      { op: 'add', path: '/fields/System.State', value: 'Done' },
     ];
+    if (existing) {
+      operations.push({
+        op: 'add',
+        path: '/fields/System.State',
+        value: 'Done',
+      });
+    }
     if (spec.tags?.length) {
       operations.push({
         // Azure DevOps treats add on System.Tags as an append. Replace the full
@@ -331,7 +337,14 @@ class AzureDevOpsClient {
     }
 
     const endpoint = `${this.baseUrl}/${encodeURIComponent(this.project)}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`;
-    const item = await this.request<AdoWorkItem>(endpoint, 'PATCH', operations);
+    let item = await this.request<AdoWorkItem>(endpoint, 'PATCH', operations);
+    if (item.fields['System.State'] !== 'Done') {
+      item = await this.request<AdoWorkItem>(
+        `${item.url}?api-version=7.1`,
+        'PATCH',
+        [{ op: 'add', path: '/fields/System.State', value: 'Done' }],
+      );
+    }
     console.log(`Created ${type} #${item.id}: ${spec.title}`);
     return { item, reused: false };
   }
