@@ -19,6 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 type WorkItemType = 'Epic' | 'Feature' | 'Product Backlog Item' | 'Task';
 
 interface WorkItemSpec {
+  id?: number;
   title: string;
   description: string;
   tags?: string[];
@@ -246,13 +247,22 @@ class AzureDevOpsClient {
     );
   }
 
+  async getById(id: number): Promise<AdoWorkItem> {
+    return this.request<AdoWorkItem>(
+      `${this.baseUrl}/${encodeURIComponent(this.project)}/_apis/wit/workitems/${id}?api-version=7.1&$expand=relations`,
+      'GET',
+    );
+  }
+
   async createWorkItem(
     type: WorkItemType,
     spec: WorkItemSpec,
     assignedTo: string,
     parentUrl?: string,
   ): Promise<{ item: AdoWorkItem; reused: boolean }> {
-    const existing = await this.findByTitle(spec.title, type);
+    const existing = spec.id
+      ? await this.getById(spec.id)
+      : await this.findByTitle(spec.title, type);
     const operations: Array<Record<string, unknown>> = [
       { op: 'add', path: '/fields/System.Title', value: spec.title },
       { op: 'add', path: '/fields/System.Description', value: spec.description },
@@ -269,11 +279,22 @@ class AzureDevOpsClient {
       });
     }
     if (parentUrl) {
-      const hasParent = existing?.relations?.some(
-        (relation) =>
-          relation.rel === 'System.LinkTypes.Hierarchy-Reverse' &&
+      const existingParentRelations = (existing?.relations ?? [])
+        .map((relation, index) => ({ relation, index }))
+        .filter(({ relation }) =>
+          relation.rel === 'System.LinkTypes.Hierarchy-Reverse',
+        );
+      const hasParent = existingParentRelations.some(
+        ({ relation }) =>
           relation.url.replace(/\/$/, '') === parentUrl.replace(/\/$/, ''),
       );
+      for (const { relation, index } of existingParentRelations) {
+        if (
+          relation.url.replace(/\/$/, '') !== parentUrl.replace(/\/$/, '')
+        ) {
+          operations.push({ op: 'remove', path: `/relations/${index}` });
+        }
+      }
       if (!hasParent) {
         operations.push({
           op: 'add',
