@@ -261,7 +261,9 @@ class AzureDevOpsClient {
     ];
     if (spec.tags?.length) {
       operations.push({
-        op: 'add',
+        // Azure DevOps treats add on System.Tags as an append. Replace the full
+        // list so removed tags do not remain on existing work items.
+        op: existing ? 'replace' : 'add',
         path: '/fields/System.Tags',
         value: spec.tags.join('; '),
       });
