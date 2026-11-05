@@ -99,6 +99,7 @@ export interface VendorPaymentJournalSettlementPayload {
 }
 
 interface AggregatedVendorPaymentJournalSettlementTarget extends VendorPaymentJournalSettlementTarget {
+  sourceTargets: VendorPaymentJournalSettlementTarget[];
   lineNumbers: number[];
   settlementAmount: number;
   uniqueIds: string[];
@@ -502,7 +503,7 @@ export class VendorInvoiceJournalService {
     const journalBatchNumber = String(options.journalBatchNumber ?? '').trim();
     const continueOnError = Boolean(options.continueOnError);
     const skipped = options.skipped;
-    const targets = this.aggregateVendorPaymentSettlementTargets(
+    const requestedTargets = this.aggregateVendorPaymentSettlementTargets(
       options.targets.filter(
         (target) =>
           target.lineNumber > 0 &&
@@ -510,6 +511,28 @@ export class VendorInvoiceJournalService {
           Boolean(target.invoiceNumber?.trim()),
       ),
     );
+    if (requestedTargets.length === 0) return [];
+
+    // The custom X++ upload assigns its own line numbers. Resolve every source
+    // component before aggregation so net/withholding amounts remain intact.
+    const journalLines = await this.fetchVendorPaymentJournalLinesByNumber(
+      company,
+      journalBatchNumber,
+    );
+    const targets: AggregatedVendorPaymentJournalSettlementTarget[] = [];
+    for (const target of requestedTargets) {
+      try {
+        targets.push(this.resolveSettlementJournalLines(target, journalLines));
+      } catch (error) {
+        this.recordSettlementSkip({
+          continueOnError,
+          skipped,
+          journalBatchNumber,
+          target,
+          error,
+        });
+      }
+    }
     if (targets.length === 0) return [];
 
     const existingByLine = await this.fetchSettledInvoicesByJournalLine(
@@ -580,6 +603,7 @@ export class VendorInvoiceJournalService {
           skipped,
           journalBatchNumber,
           target: target ?? {
+            sourceTargets: [],
             lineNumber: failure.lineNumber,
             lineNumbers: [failure.lineNumber],
             vendorAccount: failure.expectedVendorAccount ?? '',
@@ -1375,6 +1399,51 @@ export class VendorInvoiceJournalService {
     );
   }
 
+  private resolveSettlementJournalLines(
+    target: AggregatedVendorPaymentJournalSettlementTarget,
+    journalLines: Map<number, VendorPaymentJournalLineLookupRow>,
+  ): AggregatedVendorPaymentJournalSettlementTarget {
+    const resolved = new Map<number, number>();
+    const used = new Set<number>();
+    for (const source of target.sourceTargets) {
+      const uniqueId = String(source.uniqueId ?? '').trim();
+      const candidates = [...journalLines.values()].filter(
+        (row) =>
+          (uniqueId
+            ? String(row.PaymentId ?? '').trim() === uniqueId
+            : this.readNumber(row.LineNumber) === source.lineNumber) &&
+          this.normalizeVendorAccount(row.AccountDisplayValue) ===
+            this.normalizeVendorAccount(source.vendorAccount) &&
+          String(row.CurrencyCode ?? '').trim().toLowerCase() ===
+            source.currencyCode.trim().toLowerCase() &&
+          Math.abs(this.readNumber(row.DebitAmount) - source.debitAmount) <
+            0.00001 &&
+          Math.abs(this.readNumber(row.CreditAmount) - source.creditAmount) <
+            0.00001,
+      );
+      if (candidates.length !== 1) {
+        throw new Error(
+          `Cannot safely match ${this.describeSettlementTarget(source)} to an uploaded D365 vendor payment line: found ${candidates.length} matches for payment ID, vendor, currency, debit and credit amounts.`,
+        );
+      }
+      const actualLineNumber = this.readNumber(candidates[0].LineNumber);
+      if (actualLineNumber <= 0 || used.has(actualLineNumber)) {
+        throw new Error(
+          `Duplicate or invalid D365 line mapping for ${this.describeSettlementTarget(source)}.`,
+        );
+      }
+      used.add(actualLineNumber);
+      resolved.set(source.lineNumber, actualLineNumber);
+    }
+    return {
+      ...target,
+      lineNumber: resolved.get(target.lineNumber)!,
+      lineNumbers: target.lineNumbers.map(
+        (lineNumber) => resolved.get(lineNumber)!,
+      ),
+    };
+  }
+
   /**
    * D365 permits an invoice to be marked by only one payment journal line at
    * a time. Combine net payment, withholding companion, and other split lines
@@ -1421,6 +1490,7 @@ export class VendorInvoiceJournalService {
       );
       return {
         ...primary,
+        sourceTargets: group,
         debitAmount: settlementAmount < 0 ? Math.abs(settlementAmount) : 0,
         creditAmount: settlementAmount > 0 ? settlementAmount : 0,
         lineNumbers: group.map((target) => target.lineNumber),
@@ -1573,19 +1643,13 @@ export class VendorInvoiceJournalService {
   private async fetchVendorPaymentJournalLinesByNumber(
     company: string,
     journalBatchNumber: string,
-    lineNumbers: number[],
+    lineNumbers?: number[],
   ): Promise<Map<number, VendorPaymentJournalLineLookupRow>> {
     const result = new Map<number, VendorPaymentJournalLineLookupRow>();
-    const uniqueLineNumbers = [
-      ...new Set(lineNumbers.filter((line) => line > 0)),
-    ];
-    if (uniqueLineNumbers.length === 0) return result;
-
-    const lineFilter = `(${this.queryBuilder.or(
-      ...uniqueLineNumbers.map((lineNumber) =>
-        this.queryBuilder.eq('LineNumber', lineNumber),
-      ),
-    )})`;
+    const requestedLines = lineNumbers
+      ? new Set(lineNumbers.filter((line) => line > 0))
+      : undefined;
+    if (requestedLines?.size === 0) return result;
 
     let endpoint = this.queryBuilder.buildQuery(
       '/data/VendorPaymentJournalLines',
@@ -1593,7 +1657,6 @@ export class VendorInvoiceJournalService {
         filter: this.queryBuilder.and(
           this.queryBuilder.eq('dataAreaId', company),
           this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
-          lineFilter,
         ),
         select: [
           'LineNumber',
@@ -1621,6 +1684,7 @@ export class VendorInvoiceJournalService {
       for (const row of response.value ?? []) {
         const lineNumber = this.readNumber(row.LineNumber);
         if (!lineNumber) continue;
+        if (requestedLines && !requestedLines.has(lineNumber)) continue;
         result.set(lineNumber, row);
       }
       const nextLink = response['@odata.nextLink'];

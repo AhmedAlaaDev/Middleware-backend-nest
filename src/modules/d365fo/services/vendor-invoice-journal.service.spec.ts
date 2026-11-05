@@ -331,6 +331,13 @@ it('matches a vendor transaction when Excel padded or marked the document number
   });
 
 describe('VendorInvoiceJournalService vendor payment settlement posting', () => {
+  // These cases cover invoice selection/amount handling after line resolution.
+  // Actual D365 line identity is exercised in settlement-line-resolution.spec.ts.
+  beforeEach(() => {
+    jest.spyOn(VendorInvoiceJournalService.prototype as any, 'fetchVendorPaymentJournalLinesByNumber').mockResolvedValue(new Map());
+    jest.spyOn(VendorInvoiceJournalService.prototype as any, 'resolveSettlementJournalLines').mockImplementation((target) => target);
+  });
+  afterEach(() => jest.restoreAllMocks());
   it('creates and verifies the OData settlement body after resolving invoice due date', async () => {
     const d365foClient = {
       get: jest.fn((endpoint: string) => {
