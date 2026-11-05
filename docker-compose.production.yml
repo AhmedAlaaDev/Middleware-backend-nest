@@ -1,7 +1,7 @@
 # docker-compose.production.yml
 services:
   app:
-    image: moatazali/middleware-app:1.1.30
+    image: moatazali/middleware-app:1.1.30-settlement-414-20261105
     build:
       context: .
       dockerfile: Dockerfile

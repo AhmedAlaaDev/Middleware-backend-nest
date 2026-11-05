@@ -25,6 +25,8 @@ import { RetryService } from '@/modules/resilience/services/retry.service';
 
 /** Max invoices per OR filter chunk (FO does not support OData `in`). */
 const VENDOR_INVOICE_LOOKUP_CHUNK_SIZE = 20;
+/** Keep settlement lookup URLs bounded when a journal contains many lines. */
+const VENDOR_PAYMENT_SETTLED_LINE_LOOKUP_CHUNK_SIZE = 20;
 
 export type VendorInvoiceVendorPairKey = string;
 
@@ -1303,51 +1305,57 @@ export class VendorInvoiceJournalService {
     ];
     if (uniqueLineNumbers.length === 0) return result;
 
-    const lineFilter = `(${this.queryBuilder.or(
-      ...uniqueLineNumbers.map((lineNumber) =>
-        this.queryBuilder.eq('JournalLineNumber', lineNumber),
-      ),
-    )})`;
-
-    let endpoint = this.queryBuilder.buildQuery(
-      '/data/VendorPaymentJournalLineSettledInvoices',
-      {
-        filter: this.queryBuilder.and(
-          this.queryBuilder.eq('JournalLineCompany', company),
-          this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
-          lineFilter,
-        ),
-        select: [
-          'JournalLineCompany',
-          'JournalBatchNumber',
-          'JournalLineNumber',
-          'InvoiceNumber',
-          'InvoiceCompany',
-          'InvoiceDueDate',
-          'SettlementAmountInInvoiceCurrency',
-          'CashDiscountToTakeInInvoiceCurrency',
-          'invoiceAccount',
-          'AccountDisplayValue',
-        ],
-        crossCompany: true,
-      },
+    const lineNumberChunks = this.chunkArray(
+      uniqueLineNumbers,
+      VENDOR_PAYMENT_SETTLED_LINE_LOOKUP_CHUNK_SIZE,
     );
+    for (const lineNumberChunk of lineNumberChunks) {
+      const lineFilter = `(${this.queryBuilder.or(
+        ...lineNumberChunk.map((lineNumber) =>
+          this.queryBuilder.eq('JournalLineNumber', lineNumber),
+        ),
+      )})`;
 
-    while (true) {
-      const response =
-        await this.d365foClient.get<VendorPaymentSettledInvoiceRow>(endpoint, {
-          useCache: false,
-        });
-      for (const row of response.value ?? []) {
-        const lineNumber = this.readNumber(row.JournalLineNumber);
-        if (!lineNumber) continue;
-        const bucket = result.get(lineNumber) ?? [];
-        bucket.push(row);
-        result.set(lineNumber, bucket);
+      let endpoint = this.queryBuilder.buildQuery(
+        '/data/VendorPaymentJournalLineSettledInvoices',
+        {
+          filter: this.queryBuilder.and(
+            this.queryBuilder.eq('JournalLineCompany', company),
+            this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
+            lineFilter,
+          ),
+          select: [
+            'JournalLineCompany',
+            'JournalBatchNumber',
+            'JournalLineNumber',
+            'InvoiceNumber',
+            'InvoiceCompany',
+            'InvoiceDueDate',
+            'SettlementAmountInInvoiceCurrency',
+            'CashDiscountToTakeInInvoiceCurrency',
+            'invoiceAccount',
+            'AccountDisplayValue',
+          ],
+          crossCompany: true,
+        },
+      );
+
+      while (true) {
+        const response =
+          await this.d365foClient.get<VendorPaymentSettledInvoiceRow>(endpoint, {
+            useCache: false,
+          });
+        for (const row of response.value ?? []) {
+          const lineNumber = this.readNumber(row.JournalLineNumber);
+          if (!lineNumber) continue;
+          const bucket = result.get(lineNumber) ?? [];
+          bucket.push(row);
+          result.set(lineNumber, bucket);
+        }
+        const nextLink = response['@odata.nextLink'];
+        if (!nextLink) break;
+        endpoint = this.getEndpointFromNextLink(nextLink);
       }
-      const nextLink = response['@odata.nextLink'];
-      if (!nextLink) break;
-      endpoint = this.getEndpointFromNextLink(nextLink);
     }
 
     return result;
