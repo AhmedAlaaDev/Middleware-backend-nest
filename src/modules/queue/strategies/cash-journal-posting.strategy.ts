@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import {
   DeleteLinesResult,
@@ -24,7 +24,7 @@ import {
 } from '@/modules/d365fo/services/cash-journal-line-identity';
 import {
   formatJournalIntegrityFailure,
-  verifyJournalContent,
+  verifyJournalContentDetailed,
 } from '@/modules/d365fo/services/cash-journal-readback';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import {
@@ -45,6 +45,7 @@ import { VendorPaymentJournalPostingStrategy } from '@/modules/queue/strategies/
  */
 @Injectable()
 export class CashJournalPostingStrategy implements IDfoPostingStrategy {
+  private readonly logger = new Logger(CashJournalPostingStrategy.name);
   private route?: CashJournalRoute;
   private readonly routingService = new CashJournalRoutingService();
   private skipReport: CustodySettlementSkipRow[] = [];
@@ -188,13 +189,14 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
           true,
         );
     } else if (skipFailedUniqueIds) {
-      const posted = await this.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips(
-        headerKey,
-        postingLines,
-        chunkSize,
-        dataAreaId,
-        existingLinesLoader,
-      );
+      const posted =
+        await this.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips(
+          headerKey,
+          postingLines,
+          chunkSize,
+          dataAreaId,
+          existingLinesLoader,
+        );
       postedLines = posted.postedLines;
       this.skipReport.push(...posted.skipped);
     } else {
@@ -266,7 +268,8 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     const planned = postingLines
       .filter(
         (line) =>
-          line.customLineApiBody && postedLineNumbers.has(Number(line.LineNumber)),
+          line.customLineApiBody &&
+          postedLineNumbers.has(Number(line.LineNumber)),
       )
       .map((line) =>
         toPlannedJournalLine(Number(line.LineNumber), line.customLineApiBody),
@@ -288,7 +291,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       );
     }
 
-    const errors = verifyJournalContent({
+    const { errors, droppedDimensionLines } = verifyJournalContentDetailed({
       journalNumber: headerKey,
       planned,
       actual,
@@ -300,6 +303,13 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     if (errors.length > 0) {
       throw new NonRetryableDfoPostingError(
         formatJournalIntegrityFailure(errors),
+      );
+    }
+    if (droppedDimensionLines > 0) {
+      // D365 keeps only the dimensions its account structure allows for a main
+      // account (e.g. 223404 keeps 4 of 13). Not an error; recorded for audit.
+      this.logger.warn(
+        `Journal ${headerKey}: D365 dropped dimension values on ${droppedDimensionLines} ledger line(s) (account structure); nothing was changed or added.`,
       );
     }
   }
@@ -402,8 +412,9 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
             ...lines
               .filter(
                 (candidate) =>
-                  String(candidate.customLineApiBody?.PAYMENTID ?? '').trim() ===
-                  uniqueId,
+                  String(
+                    candidate.customLineApiBody?.PAYMENTID ?? '',
+                  ).trim() === uniqueId,
               )
               .map((candidate) => candidate.sourceLineNumber),
           ],
@@ -415,8 +426,9 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
             ...lines
               .filter(
                 (candidate) =>
-                  String(candidate.customLineApiBody?.PAYMENTID ?? '').trim() ===
-                  uniqueId,
+                  String(
+                    candidate.customLineApiBody?.PAYMENTID ?? '',
+                  ).trim() === uniqueId,
               )
               .map((candidate) => candidate.LineNumber),
           ],
@@ -626,8 +638,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     return {
       postingLines: keptLines,
       deferredSettlements: deferredSettlements.filter(
-        (target) =>
-          !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
+        (target) => !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
       ),
       skipped,
     };

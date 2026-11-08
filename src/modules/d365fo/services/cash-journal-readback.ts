@@ -2,7 +2,9 @@ import {
   ActualJournalLine,
   JournalIntegrityCode,
   journalLineIdentityKey,
-  ledgerDimensionMultiset,
+  compareLedgerDimensions,
+  normalizeJournalAccountType,
+  normalizeLedgerDimensions,
   PlannedJournalLine,
 } from './cash-journal-line-identity';
 
@@ -14,6 +16,10 @@ import {
  * the whole journal are compared with the EXPECTED lines of the whole journal
  * (the batch's planned lines minus skipped UniqueIds), line by line, by the
  * composite identity in cash-journal-line-identity.ts.
+ *
+ * Financial dimensions: D365 drops the dimension values its account structure
+ * does not allow for a main account (223404 keeps 4 of 13). A dropped value is
+ * therefore accepted (and counted); a CHANGED or ADDED value is a mismatch.
  *
  * The X++ voucher rule is 1 cent: a voucher closes once |debit - credit| <= 0.01.
  */
@@ -60,10 +66,23 @@ const group = <T extends Parameters<typeof journalLineIdentityKey>[0]>(
   return map;
 };
 
+export interface JournalVerificationResult {
+  errors: JournalIntegrityError[];
+  /** Ledger lines whose dimension values D365's account structure dropped. */
+  droppedDimensionLines: number;
+}
+
 export function verifyJournalContent(
   input: JournalVerificationInput,
 ): JournalIntegrityError[] {
+  return verifyJournalContentDetailed(input).errors;
+}
+
+export function verifyJournalContentDetailed(
+  input: JournalVerificationInput,
+): JournalVerificationResult {
   const errors: JournalIntegrityError[] = [];
+  let droppedDimensionLines = 0;
   const { journalNumber, planned, actual } = input;
   const plannedByKey = group(planned);
   const actualByKey = group(actual);
@@ -110,26 +129,44 @@ export function verifyJournalContent(
     });
   }
 
-  // 3. Ledger dimensions of otherwise matching lines.
+  // 3. Ledger dimensions of otherwise matching lines. Exact matches are paired
+  // first, then lines whose values D365 dropped; a changed or added value, or
+  // a line that pairs with nothing, is a mismatch.
   const dimensionIssues: string[] = [];
   for (const [key, lines] of plannedByKey) {
     const actualLines = actualByKey.get(key);
     if (!actualLines || actualLines.length !== lines.length) continue;
-    const expectedDims = ledgerDimensionMultiset(lines);
-    const actualDims = ledgerDimensionMultiset(actualLines);
-    for (const [dims, count] of expectedDims) {
-      if (actualDims.get(dims) !== count) {
-        if (dimensionIssues.length < SAMPLE_LIMIT) {
-          dimensionIssues.push(`${describe(lines[0])} dimensions "${dims}"`);
-        }
-        break;
+    if (normalizeJournalAccountType(lines[0].accountType) !== 'ledger')
+      continue;
+
+    const remaining = actualLines.map((line) => line.account);
+    const pending: string[] = [];
+    for (const line of lines) {
+      const index = remaining.findIndex(
+        (account) => compareLedgerDimensions(line.account, account) === 'EXACT',
+      );
+      if (index >= 0) remaining.splice(index, 1);
+      else pending.push(line.account);
+    }
+    for (const expectedDimensions of pending) {
+      const index = remaining.findIndex(
+        (account) =>
+          compareLedgerDimensions(expectedDimensions, account) === 'DROPPED',
+      );
+      if (index >= 0) {
+        remaining.splice(index, 1);
+        droppedDimensionLines++;
+      } else if (dimensionIssues.length < SAMPLE_LIMIT) {
+        dimensionIssues.push(
+          `${describe(lines[0])} dimensions "${normalizeLedgerDimensions(expectedDimensions)}" (D365 holds a different value)`,
+        );
       }
     }
   }
   if (dimensionIssues.length > 0) {
     errors.push({
       code: 'JOURNAL_LINE_MISMATCH',
-      message: `Journal ${journalNumber} has ledger lines whose financial dimensions differ from the plan: ${dimensionIssues.join('; ')}.`,
+      message: `Journal ${journalNumber} has ledger lines whose financial dimensions were changed or added in D365: ${dimensionIssues.join('; ')}.`,
     });
   }
 
@@ -161,7 +198,7 @@ export function verifyJournalContent(
     }
   }
 
-  return errors;
+  return { errors, droppedDimensionLines };
 }
 
 /** Builds the single error thrown when verification fails. */

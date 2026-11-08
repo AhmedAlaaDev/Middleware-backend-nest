@@ -305,15 +305,30 @@ export function plannedIdentityCounts(
   return counts;
 }
 
-/** Multiset of normalised ledger dimension strings, for dimension checks. */
-export function ledgerDimensionMultiset(
-  lines: ReadonlyArray<{ accountType: string; account: string }>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const line of lines) {
-    if (normalizeJournalAccountType(line.accountType) !== 'ledger') continue;
-    const key = normalizeLedgerDimensions(line.account);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+export type LedgerDimensionMatch = 'EXACT' | 'DROPPED' | 'DIFFERENT';
+
+/**
+ * D365 keeps only the dimensions its account structure allows for a main
+ * account and stores the rest EMPTY (verified: main account 124101 keeps all
+ * 13, 223404 and 223712 keep exactly 4). The middleware sends every
+ * dimension, so a correct line may come back with fewer. An actual dimension
+ * string is therefore consistent with the plan when every non-empty actual
+ * segment equals the planned one: values may be DROPPED, never CHANGED or
+ * ADDED.
+ */
+export function compareLedgerDimensions(
+  expected: string,
+  actual: string,
+): LedgerDimensionMatch {
+  const expectedSegments = normalizeLedgerDimensions(expected).split('|');
+  const actualSegments = normalizeLedgerDimensions(actual).split('|');
+  if (expectedSegments.join('|') === actualSegments.join('|')) return 'EXACT';
+  const length = Math.max(expectedSegments.length, actualSegments.length);
+  for (let i = 0; i < length; i++) {
+    const actualValue = actualSegments[i] ?? '';
+    if (actualValue !== '' && actualValue !== (expectedSegments[i] ?? '')) {
+      return 'DIFFERENT';
+    }
   }
-  return counts;
+  return 'DROPPED';
 }

@@ -4,7 +4,7 @@ import {
   countJournalIdentities,
   decimalToCents,
   journalLineIdentityKey,
-  ledgerDimensionMultiset,
+  compareLedgerDimensions,
   normalizeJournalAccount,
   normalizeJournalAccountType,
   normalizeLedgerDimensions,
@@ -253,14 +253,42 @@ describe('cash journal line identity', () => {
     });
   });
 
-  describe('ledgerDimensionMultiset', () => {
-    it('counts only ledger lines', () => {
-      const result = ledgerDimensionMultiset([
-        { accountType: 'Ledger', account: '223404|1201|EXPORT' },
-        { accountType: 'Ledger', account: '223404|1201|Export|' },
-        { accountType: 'Vend', account: 'Sl-1' },
-      ]);
-      expect([...result]).toEqual([['223404|1201|export', 2]]);
+  describe('compareLedgerDimensions (D365 drops dimensions its account structure does not allow)', () => {
+    const PLAN =
+      '223404|1501|015|001|001|301000002|301000002|3066|3066|16517|MESCO CC ALEX|3115|Payable|||EXPORT||||';
+
+    it('is EXACT for the same values in canonical casing', () => {
+      expect(
+        compareLedgerDimensions(PLAN, PLAN.replace('EXPORT', 'Export')),
+      ).toBe('EXACT');
+    });
+
+    it('is DROPPED when D365 kept only the first four dimensions (223404 in production)', () => {
+      expect(
+        compareLedgerDimensions(PLAN, '223404|1501|015|001|001|||||||||||||||'),
+      ).toBe('DROPPED');
+    });
+
+    it('is DROPPED when D365 kept none of the optional dimensions', () => {
+      expect(compareLedgerDimensions(PLAN, '223404')).toBe('DROPPED');
+    });
+
+    it('is DIFFERENT when a kept value was changed', () => {
+      expect(
+        compareLedgerDimensions(PLAN, PLAN.replace('16517', '16518')),
+      ).toBe('DIFFERENT');
+    });
+
+    it('is DIFFERENT when D365 holds a value the plan did not have', () => {
+      expect(
+        compareLedgerDimensions('223404|1501|015|001|001', PLAN),
+      ).toBe('DIFFERENT');
+    });
+
+    it('is DIFFERENT when the main account differs', () => {
+      expect(compareLedgerDimensions(PLAN, PLAN.replace('223404', '223405'))).toBe(
+        'DIFFERENT',
+      );
     });
   });
 });

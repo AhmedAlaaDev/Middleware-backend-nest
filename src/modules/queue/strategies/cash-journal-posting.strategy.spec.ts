@@ -1472,10 +1472,10 @@ describe('CashJournalPostingStrategy', () => {
         '[JOURNAL_LINE_MISMATCH]',
       ],
       [
-        'a ledger line that lost its financial dimensions',
+        'a ledger line whose dimension value was changed',
         (j: ActualJournalLine[]) => [
           j[0],
-          { ...j[1], account: '223404' },
+          { ...j[1], account: LEDGER.replace('16517', '16518') },
           j[2],
         ],
         '[JOURNAL_LINE_MISMATCH]',
@@ -1499,6 +1499,21 @@ describe('CashJournalPostingStrategy', () => {
         expect(marksWritten(harness)).toBe(0);
       },
     );
+
+    it('writes settlement marks when D365 dropped dimension values (account structure), as for 223404 in production', async () => {
+      const journal = d365Journal();
+      // The plan carries 13 dimensions; D365 keeps the 4 its account
+      // structure allows for this main account and stores the rest empty.
+      journal[1] = {
+        ...journal[1],
+        account: '223404|1201|012|001|001|||||||||||||||',
+      };
+
+      const { harness, error } = await run(journal);
+
+      expect(error).toBeUndefined();
+      expect(marksWritten(harness)).toBe(1);
+    });
 
     it('stops before any settlement mark when the journal cannot be read back', async () => {
       const { harness, error } = await run(new Error('OData unavailable'));

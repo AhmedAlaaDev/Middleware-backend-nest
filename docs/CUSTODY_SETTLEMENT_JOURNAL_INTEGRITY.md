@@ -39,8 +39,12 @@ identified by content, using fields verified on `VendorPaymentJournalLines`:
 `PaymentId` (source UniqueId) + `AccountType` + account + `CurrencyCode` +
 `DebitAmount` + `CreditAmount`
 
-Ledger accounts are identified by their main account; their full dimension
-string is verified separately (case-insensitively). Amounts are integer cents,
+Ledger accounts are identified by their main account. Their dimension string
+is verified separately and case-insensitively: D365 keeps only the dimensions
+its account structure allows for a main account and stores the rest empty
+(verified on Mesco-000019501: `124101` keeps all 13, `223404` and `223712` keep
+4), so a dimension value that D365 **dropped** is accepted (and logged), while a
+value that D365 **changed or added** is a mismatch. Amounts are integer cents,
 rounded half-up like D365 (source files can carry 4 decimals, D365 stores 2).
 
 Identical lines (repeated amounts) are matched as a multiset:
@@ -67,7 +71,7 @@ batch's planned lines for that header, minus skipped UniqueIds):
 | Code | Meaning |
 |---|---|
 | `JOURNAL_LINES_MISSING` | fewer identical lines in D365 than planned |
-| `JOURNAL_LINE_MISMATCH` | extra, duplicated or wrong line (account, currency, amount) or different ledger dimensions |
+| `JOURNAL_LINE_MISMATCH` | extra, duplicated or wrong line (account, currency, amount), or a ledger dimension value that D365 changed or added (values D365 drops are accepted) |
 | `JOURNAL_IMBALANCE` | a D365 voucher does not balance (offset-less journals) |
 | `JOURNAL_READBACK_FAILED` | the journal could not be read back |
 | `JOURNAL_RECOVERY_AMBIGUOUS` | existing lines cannot be attributed (section 2) |

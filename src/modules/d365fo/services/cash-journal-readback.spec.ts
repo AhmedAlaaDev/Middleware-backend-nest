@@ -5,6 +5,7 @@ import {
 import {
   formatJournalIntegrityFailure,
   verifyJournalContent,
+  verifyJournalContentDetailed,
 } from './cash-journal-readback';
 
 /**
@@ -271,12 +272,61 @@ describe('verifyJournalContent', () => {
       expect(errors[0].message).toContain('financial dimensions');
     });
 
-    it('reports dimensions that went missing', () => {
+    it('accepts dimension values that D365 dropped (production: 223404 keeps 4 of 13)', () => {
+      // Real shape from journal Mesco-000019501: the plan carries every
+      // dimension, D365 stores only the first four for main account 223404.
+      const lines = inD365();
+      lines[0] = {
+        ...lines[0],
+        account: '223404|1201|012|001|001|||||||||||||||',
+      };
+
+      const result = verifyJournalContentDetailed({
+        journalNumber: 'Mesco-000019501',
+        planned: expected(),
+        actual: lines,
+        checkVoucherBalance: true,
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.droppedDimensionLines).toBe(1);
+    });
+
+    it('accepts a ledger line that kept none of the optional dimensions', () => {
       const lines = inD365();
       lines[0] = { ...lines[0], account: '223404' };
-      expect(codes(verify(expected(), lines))).toEqual([
-        'JOURNAL_LINE_MISMATCH',
-      ]);
+      expect(verify(expected(), lines)).toEqual([]);
+    });
+
+    it('reports a dimension value that D365 added where the plan had none', () => {
+      const plan = expected();
+      plan[0] = { ...plan[0], account: '223404|1201' };
+      const errors = verify(plan, inD365());
+      expect(codes(errors)).toEqual(['JOURNAL_LINE_MISMATCH']);
+      expect(errors[0].message).toContain('changed or added');
+    });
+
+    it('pairs exact lines before dropped ones when identical lines differ only in dimensions', () => {
+      const a = LEDGER.replace('16517', '16517');
+      const b = LEDGER.replace('16517', '16999');
+      const plan = [
+        planned(1, { accountType: 'Ledger', account: a, debitCents: 500 }),
+        planned(2, { accountType: 'Ledger', account: b, debitCents: 500 }),
+        planned(3, { accountType: 'RCash', account: 'AlexHO EG', debitCents: 0, creditCents: 1000 }),
+      ];
+      const lines = [
+        actual(11, { accountType: 'Ledger', account: a, debitCents: 500 }),
+        actual(12, { accountType: 'Ledger', account: '223404|1201|012|001|001', debitCents: 500 }),
+        actual(13, { accountType: 'RCash', account: 'AlexHO EG', debitCents: 0, creditCents: 1000 }),
+      ];
+      const result = verifyJournalContentDetailed({
+        journalNumber: 'J',
+        planned: plan,
+        actual: lines,
+        checkVoucherBalance: true,
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.droppedDimensionLines).toBe(1);
     });
   });
 
