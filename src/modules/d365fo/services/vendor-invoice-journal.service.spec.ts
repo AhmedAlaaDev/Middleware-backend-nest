@@ -577,13 +577,14 @@ describe('VendorInvoiceJournalService vendor payment settlement posting', () => 
       });
     jest
       .spyOn(service, 'verifyVendorPaymentJournalSettlements')
-      .mockImplementation(
-        async ({ lines }) =>
+      .mockImplementation(({ lines }) =>
+        Promise.resolve(
           lines.map((line: any) => ({
             ...line,
             status: 'VERIFIED',
             settlementAmount: line.expectedSettlementAmount,
           })) as any,
+        ),
       );
 
     await service.createVendorPaymentJournalLineSettlements({
