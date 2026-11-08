@@ -1,0 +1,848 @@
+{
+  "formatted": [
+    {
+      "sourceIds": [
+        "7001"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Su-000072",
+      "offsetAccount": "CIB-EG-CA",
+      "debit": 2724.02,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "ALXR000110850-C",
+      "markedInvoice": "ALXR000110850-C",
+      "markedLines": [
+        {
+          "InvoiceNumber": "ALXR000110850-C",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000001",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7002"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Su-000072",
+      "offsetAccount": "QNB-EG-CA2",
+      "debit": 1000,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "INV-A",
+      "markedInvoice": "INV-A",
+      "markedLines": [
+        {
+          "InvoiceNumber": "INV-A",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000002",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7002"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Su-000009",
+      "offsetAccount": "QNB-EG-CA2",
+      "debit": 500.5,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "INV-B",
+      "markedInvoice": "INV-B",
+      "markedLines": [
+        {
+          "InvoiceNumber": "INV-B",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22710",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000002",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7003"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Ledger",
+      "account": "Sl-000036",
+      "offsetAccount": "223304|1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+      "debit": 59.49,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "5815410364",
+      "markedInvoice": "5815410364",
+      "markedLines": [
+        {
+          "InvoiceNumber": "5815410364",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": true
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000003",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7003"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Sl-000036",
+      "offsetAccount": "CIB-EG-CA",
+      "debit": 2201.13,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "5815410364",
+      "markedInvoice": "5815410364",
+      "markedLines": [
+        {
+          "InvoiceNumber": "5815410364",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": true
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000003",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7004"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Ledger",
+      "account": "Su-000009",
+      "offsetAccount": "223201|1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+      "debit": 3850,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "INV-C",
+      "markedInvoice": "INV-C",
+      "markedLines": [
+        {
+          "InvoiceNumber": "INV-C",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000004",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7005"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Petty cash",
+      "account": "Su-000009",
+      "offsetAccount": "PSD EG",
+      "debit": 420,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "INV-D",
+      "markedInvoice": "INV-D",
+      "markedLines": [
+        {
+          "InvoiceNumber": "INV-D",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000005",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7006"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Ag-000191",
+      "offsetAccount": "QNB-EU-CA2",
+      "debit": 465,
+      "credit": 0,
+      "currency": "EUR",
+      "invoice": "EUR-1",
+      "markedInvoice": "EUR-1",
+      "markedLines": [
+        {
+          "InvoiceNumber": "EUR-1",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000006",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7006"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Ag-000191",
+      "offsetAccount": "QNB-EU-CA2",
+      "debit": 2106,
+      "credit": 0,
+      "currency": "EUR",
+      "invoice": "EUR-2",
+      "markedInvoice": "EUR-2",
+      "markedLines": [
+        {
+          "InvoiceNumber": "EUR-2",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22711",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Transfer)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000006",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    },
+    {
+      "sourceIds": [
+        "7007"
+      ],
+      "errors": [],
+      "accountType": "Vend",
+      "offsetAccountType": "Bank",
+      "account": "Su-000072",
+      "offsetAccount": "CIB-EG-CA",
+      "debit": 99.99,
+      "credit": 0,
+      "currency": "EGP",
+      "invoice": "INV-V",
+      "markedInvoice": "INV-V",
+      "markedLines": [
+        {
+          "InvoiceNumber": "INV-V",
+          "OperationNumber": "O26-EXP-OC-2474",
+          "DocumentNumber": "22709",
+          "HasWithHoldingLine": false
+        }
+      ],
+      "settlementIntent": "Marked",
+      "description": "Vendor Payment - Freight July 2026 (Visa)",
+      "journalName": "P-Freight",
+      "journalBatch": "Mesco-000000001",
+      "voucher": "P-Freight-000000007",
+      "safeType": "Vendor Payment",
+      "withholding": "No",
+      "itemWithholdingGroup": ""
+    }
+  ],
+  "validation": null,
+  "journals": [
+    {
+      "route": {
+        "kind": "vendor-invoice",
+        "safeType": "Vendor Payment",
+        "journalName": "P-Freight"
+      },
+      "header": {
+        "dataAreaId": "m-p",
+        "JournalName": "P-Freight",
+        "Description": "Vendor Payment - Freight July 2026 (Transfer)",
+        "JournalBatchNumber": "Mesco-000000001"
+      },
+      "lines": [
+        {
+          "lineNumber": 1,
+          "groupInvoice": "ALXR000110850-C",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000072",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 2724.02,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "CIB-EG-CA",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7001",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "ALXR000110850-C",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 2,
+          "groupInvoice": "INV-A",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000072",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 1000,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "QNB-EG-CA2",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7002",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "INV-A",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 3,
+          "groupInvoice": "INV-B",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000009",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 500.5,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "QNB-EG-CA2",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7002",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22710",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "INV-B",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22710",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 4,
+          "groupInvoice": "5815410364",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Sl-000036",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 59.49,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "223304|1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "OffsetAccountTypeStr": "Ledger",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7003",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "5815410364",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 5,
+          "groupInvoice": "5815410364",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Sl-000036",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 2201.13,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "CIB-EG-CA",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7003",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "5815410364",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": true
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 6,
+          "groupInvoice": "INV-C",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000009",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 3850,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "223201|1201|012|001|002|201000293|201000293|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "OffsetAccountTypeStr": "Ledger",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7004",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "INV-C",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 7,
+          "groupInvoice": "INV-D",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000009",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 420,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "PSD EG",
+            "OffsetAccountTypeStr": "RCash",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7005",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "INV-D",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 8,
+          "groupInvoice": "EUR-1",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Ag-000191",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EUR",
+            "debitAmount": 465,
+            "ExchangeRate": 1,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "QNB-EU-CA2",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7006",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "EUR-1",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 9,
+          "groupInvoice": "EUR-2",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Ag-000191",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "Transfer",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EUR",
+            "debitAmount": 2106,
+            "ExchangeRate": 1,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "QNB-EU-CA2",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7006",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Transfer)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22711",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Transfer)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "EUR-2",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22711",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        },
+        {
+          "lineNumber": 10,
+          "groupInvoice": "INV-V",
+          "body": {
+            "journalNum": "",
+            "AccountNum": "Su-000072",
+            "accountTypeStr": "Vendor",
+            "BANKTRANSACTIONTYPE": "",
+            "CENTRALBANKPURPOSECODE": "",
+            "CENTRALBANKPURPOSETEXT": "",
+            "company": "m-p",
+            "creditAmount": 0,
+            "currency": "EGP",
+            "debitAmount": 99.99,
+            "ExchangeRate": 100,
+            "ReportingExchangeRate": 100,
+            "DEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "offsetDEFAULTDIMENSIONDISPLAYVALUE": "1201|012|001|002|201000309|201000309|Su-000072|Su-000072|16503|5035|4022|Payable|||EXPORT||||",
+            "FinTagStr": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "ISPREPAYMENT": "No",
+            "ITEMWITHHOLDINGTAXGROUP": "",
+            "offsetAccountDisplayValue": "CIB-EG-CA",
+            "OffsetAccountTypeStr": "Bank",
+            "OffsetCompany": "m-p",
+            "OFFSETFINTAGDISPLAYVALUE": "O26-EXP-OC-2474|ME_Q-1|Sl-000002|Su-000072",
+            "OFFSETTRANSACTIONTEXT": "NP - CIB_EG_CA-127",
+            "PAYMENTID": "7007",
+            "PAYMENTMETHODNAME": "",
+            "PAYMENTNOTES": "Vendor Payment - Freight July 2026 (Visa)",
+            "PAYMENTREFERENCE": "554391135",
+            "PAYMENTSPECIFICATION": "",
+            "PostingProfile": "V-PP",
+            "TaxGroup": "Non-Taxabl",
+            "TAXITEMGROUP": "",
+            "transDate": "2026-07-04T00:00:00",
+            "DocumentNum": "22709",
+            "DocumentDate": "2026-06-28T00:00:00",
+            "TRANSACTIONTEXT": "Vendor Payment - Freight July 2026 (Visa)",
+            "MarkedLines": [
+              {
+                "InvoiceNumber": "INV-V",
+                "OperationNumber": "O26-EXP-OC-2474",
+                "DocumentNumber": "22709",
+                "HasWithHoldingLine": false
+              }
+            ],
+            "VendorGroup": ""
+          }
+        }
+      ],
+      "requests": [
+        [
+          1
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          10
+        ]
+      ]
+    }
+  ]
+}
