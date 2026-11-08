@@ -226,6 +226,20 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
             throw error;
           }
 
+          // The error text is only a hint. Replace the header only when D365
+          // positively confirms it is gone; if it still exists, or this cannot
+          // be verified, keep it and fail rather than create a duplicate
+          // journal for the same payments.
+          if (
+            !(await this.persistedHeaderIsConfirmedMissing(
+              postingStrategy,
+              persistedHeaderId,
+              job.data.company,
+            ))
+          ) {
+            throw error;
+          }
+
           const staleHeaderIndex = created.findIndex(
             (header) => header.headerKey === persistedHeaderId,
           );
@@ -352,6 +366,19 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     await this.jobs.setCreatedHeader(jobId, groupIndex, headerId);
     trackedHeader.persisted = true;
     return headerId;
+  }
+
+  private async persistedHeaderIsConfirmedMissing(
+    strategy: IDfoPostingStrategy,
+    headerId: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    if (!strategy.headerExists) return false;
+    try {
+      return !(await strategy.headerExists(headerId, dataAreaId));
+    } catch {
+      return false;
+    }
   }
 
   private isMissingPersistedHeaderError(

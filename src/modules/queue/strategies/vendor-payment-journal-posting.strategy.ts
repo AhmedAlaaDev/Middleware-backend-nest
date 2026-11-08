@@ -140,6 +140,16 @@ export class VendorPaymentJournalPostingStrategy implements IDfoPostingStrategy 
     return typedResponse.JournalBatchNumber;
   }
 
+  public async headerExists(
+    headerId: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    return await this.vendorPaymentJournalService.headerExists(
+      headerId,
+      dataAreaId,
+    );
+  }
+
   public async listLinesForHeader(
     headerKey: string,
     dataAreaId: string,

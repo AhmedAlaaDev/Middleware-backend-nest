@@ -102,4 +102,12 @@ export interface IDfoPostingStrategy {
     headerKey: string,
     dataAreaId: string,
   ): Promise<Array<{ LineNumber: number }>>;
+
+  /**
+   * Whether the header still exists in D365FO. Used before a persisted header
+   * is replaced, so a failure message can never cause a second journal for a
+   * group whose first journal is still there. Strategies that cannot verify
+   * this omit the method; the caller then keeps the existing header.
+   */
+  headerExists?(headerId: string, dataAreaId: string): Promise<boolean>;
 }

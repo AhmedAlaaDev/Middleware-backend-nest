@@ -557,6 +557,58 @@ describe('VendorInvoiceJournalService vendor payment settlement posting', () => 
     );
   });
 
+  it('caps a settlement that exceeds the invoice remainder by one cent at the remainder', async () => {
+    const d365foClient = { get: jest.fn(), post: jest.fn().mockResolvedValue({}) };
+    const service = new VendorInvoiceJournalService(
+      d365foClient as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    jest
+      .spyOn(service as any, 'fetchSettledInvoicesByJournalLine')
+      .mockResolvedValue(new Map());
+    jest
+      .spyOn(service as any, 'findOpenInvoiceForJournalSettlement')
+      .mockResolvedValue({
+        AmountCur: -87.99,
+        SettleAmountCur: 0,
+        DueDate: '2026-09-30T12:00:00Z',
+      });
+    jest
+      .spyOn(service, 'verifyVendorPaymentJournalSettlements')
+      .mockImplementation(
+        async ({ lines }) =>
+          lines.map((line: any) => ({
+            ...line,
+            status: 'VERIFIED',
+            settlementAmount: line.expectedSettlementAmount,
+          })) as any,
+      );
+
+    await service.createVendorPaymentJournalLineSettlements({
+      company: 'm-p',
+      journalBatchNumber: 'JN-1',
+      targets: [
+        {
+          lineNumber: 162,
+          vendorAccount: 'Sl-000001',
+          currencyCode: 'EGP',
+          debitAmount: 88,
+          creditAmount: 0,
+          invoiceNumber: 'l202687205',
+          documentNumber: '25675',
+        },
+      ],
+    });
+
+    expect(d365foClient.post).toHaveBeenCalledWith(
+      '/data/VendorPaymentJournalLineSettledInvoices',
+      expect.objectContaining({ SettlementAmountInInvoiceCurrency: -87.99 }),
+      { retries: 0 },
+    );
+  });
+
   it('skips a remainder failure and continues settling later invoices when continueOnError is set', async () => {
     const d365foClient = {
       post: jest.fn().mockResolvedValue({}),

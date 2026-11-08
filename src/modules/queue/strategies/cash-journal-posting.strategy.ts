@@ -252,6 +252,18 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     return journalBatchNumber;
   }
 
+  public headerExists(headerId: string, dataAreaId: string): Promise<boolean> {
+    const active = this.activeHeaderStrategy();
+    if (!active.headerExists) {
+      return Promise.reject(
+        new Error(
+          'Header existence cannot be verified for this cash journal route',
+        ),
+      );
+    }
+    return active.headerExists(headerId, dataAreaId);
+  }
+
   public listLinesForHeader(
     headerKey: string,
     dataAreaId: string,

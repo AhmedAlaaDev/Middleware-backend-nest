@@ -131,6 +131,29 @@ export class VendorPaymentJournalService {
   /**
    * List all lines for a specific header from D365FO
    */
+  /** True when the vendor payment journal header is present in D365FO. */
+  public async headerExists(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<boolean> {
+    const query = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalHeaders',
+      {
+        filter: this.queryBuilder.and(
+          this.queryBuilder.eq('dataAreaId', dataAreaId),
+          this.queryBuilder.eq('JournalBatchNumber', headerKey),
+        ),
+        select: ['JournalBatchNumber'],
+        top: 1,
+        crossCompany: true,
+      },
+    );
+    const response = await this.d365foClient.get<{
+      JournalBatchNumber: string;
+    }>(query, { useCache: false });
+    return (response.value ?? []).length > 0;
+  }
+
   public async listLinesForHeader(
     headerKey: string,
     dataAreaId: string,

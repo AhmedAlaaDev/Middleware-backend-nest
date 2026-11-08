@@ -75,6 +75,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
         .mockResolvedValueOnce({ headerIds: ['D365-RET-001'], responses: [] })
         .mockResolvedValueOnce({ headerIds: ['D365-RET-002'], responses: [] }),
       postLinesForHeader: jest.fn().mockResolvedValue([]),
+      headerExists: jest.fn().mockResolvedValue(false),
       consumeSkipReport: jest.fn().mockReturnValue([]),
     };
     const batches = {
@@ -416,6 +417,45 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
     ]);
     expect(rollback.rollbackAll).not.toHaveBeenCalled();
     expect(jobs.resetAfterRollback).not.toHaveBeenCalled();
+  });
+
+  describe.each([
+    ['D365 still has the header', (s: any) => s.headerExists.mockResolvedValue(true)],
+    [
+      'the existence check fails',
+      (s: any) => s.headerExists.mockRejectedValue(new Error('timeout')),
+    ],
+    [
+      'the route cannot verify headers',
+      (s: any) => {
+        delete s.headerExists;
+      },
+    ],
+  ])('never creates a second journal when %s', (_name, arrange) => {
+    it('keeps the persisted header and fails with the original error', async () => {
+      const group = makeGroup(glRoute);
+      const { processor, job, cashStrategy, jobs } = buildProcessor([group]);
+      jobs.listGroups.mockResolvedValue([
+        {
+          index: 0,
+          status: QueueJobGroupStatus.ACTIVE,
+          createdHeaderId: 'Mesco-000013757',
+          payload: group,
+        },
+      ]);
+      arrange(cashStrategy);
+      cashStrategy.postLinesForHeader.mockRejectedValue(
+        new Error('Journal Mesco-000013757 was not found.'),
+      );
+
+      await expect(processor.process(job as any)).rejects.toThrow(
+        'Journal Mesco-000013757 was not found.',
+      );
+
+      expect(cashStrategy.postHeadersInBatches).not.toHaveBeenCalled();
+      expect(jobs.setCreatedHeader).not.toHaveBeenCalled();
+      expect(cashStrategy.postLinesForHeader).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('retains a completed header and the current persisted header when a later route fails', async () => {

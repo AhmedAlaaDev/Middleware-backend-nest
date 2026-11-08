@@ -28,6 +28,35 @@ const VENDOR_INVOICE_LOOKUP_CHUNK_SIZE = 20;
 /** Keep settlement lookup URLs bounded when a journal contains many lines. */
 const VENDOR_PAYMENT_SETTLED_LINE_LOOKUP_CHUNK_SIZE = 20;
 
+/**
+ * Failure categories for the OData settlement step. They prefix the message so
+ * skip reports and traces show an actionable category per row.
+ */
+export type SettlementFailureCode =
+  | 'JOURNAL_LINE_NOT_FOUND'
+  | 'JOURNAL_LINE_AMBIGUOUS'
+  | 'INVOICE_NOT_FOUND'
+  | 'INVOICE_AMBIGUOUS'
+  | 'SETTLEMENT_AMOUNT_INVALID'
+  | 'D365_SETTLEMENT_REJECTED'
+  | 'SETTLEMENT_VERIFICATION_FAILED'
+  | 'WITHHOLDING_NOT_ENABLED';
+
+function settlementError(code: SettlementFailureCode, message: string): Error {
+  return new Error(`[${code}] ${message}`);
+}
+
+/**
+ * D365 stores money in the currency minor unit (2 decimals). Compare amounts
+ * as integer cents: source Excel values such as 119.9964 are stored as 120.00
+ * and floating-point differences such as 88 - 87.99 must not matter.
+ */
+function toCents(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.sign(parsed) * Math.round(Math.abs(parsed) * 100 + 1e-9);
+}
+
 export type VendorInvoiceVendorPairKey = string;
 
 export type VendorInvoiceSettlementState =
@@ -85,6 +114,13 @@ export interface VendorPaymentJournalSettlementTarget {
   uniqueId?: string;
   /** Excel LINENUMBER from the source workbook. */
   sourceLineNumber?: number;
+  /**
+   * Withholding D365 calculates natively for this line (no 223304 line). The
+   * line itself is the NET amount; the invoice mark covers net + withholding.
+   */
+  withholdingAmount?: number;
+  /** Withholding group written to the D365 line (TaxWithholdGroup). */
+  withholdingGroup?: string;
 }
 
 export interface VendorPaymentJournalSettlementPayload {
@@ -104,6 +140,12 @@ interface AggregatedVendorPaymentJournalSettlementTarget extends VendorPaymentJo
   settlementAmount: number;
   uniqueIds: string[];
   sourceLineNumbers: number[];
+  /** Real D365 lines that must have native withholding enabled. */
+  withholdingLines?: Array<{
+    lineNumber: number;
+    withholdingGroup: string;
+    withholdingAmount: number;
+  }>;
 }
 
 type VendTransLookupRow = {
@@ -535,6 +577,12 @@ export class VendorInvoiceJournalService {
     }
     if (targets.length === 0) return [];
 
+    // Native withholding replaces the explicit 223304 entry, so a failure here
+    // is never skipped: the journal would otherwise lack the withholding.
+    for (const target of targets) {
+      await this.enableNativeWithholding(company, journalBatchNumber, target);
+    }
+
     const existingByLine = await this.fetchSettledInvoicesByJournalLine(
       company,
       journalBatchNumber,
@@ -581,12 +629,14 @@ export class VendorInvoiceJournalService {
       return (
         result.status !== 'VERIFIED' ||
         !expected ||
-        Math.abs(result.settlementAmount - expected.expectedSettlementAmount) >
-          0.01
+        Math.abs(
+          toCents(result.settlementAmount) -
+            toCents(expected.expectedSettlementAmount),
+        ) > 1
       );
     });
     if (failures.length > 0) {
-      const message = `Cash-out settlement rows were not verified: ${failures
+      const message = `[SETTLEMENT_VERIFICATION_FAILED] Cash-out settlement rows were not verified: ${failures
         .map((failure) => `line ${failure.lineNumber}: ${failure.reason}`)
         .join('; ')}`;
       if (!continueOnError) {
@@ -624,6 +674,108 @@ export class VendorInvoiceJournalService {
     return verification;
   }
 
+  /**
+   * Enables D365's withholding calculation on each resolved vendor line that
+   * carries native withholding, then reads the line back. The custom X++
+   * endpoint writes the withholding group (its ITEMWITHHOLDINGTAXGROUP lands in
+   * TaxWithholdGroup) but never sets the calculation flag, so the flag is set
+   * through OData on the real D365 line. Verified in the sandbox: OData accepts
+   * updates of CalculateWithholdingTax and TaxWithholdGroup but refuses
+   * ItemWithholdingTaxGroupCode (403), which is therefore never used.
+   * Idempotent; any failure is raised, never skipped, because the explicit
+   * 223304 entry no longer exists.
+   */
+  private async enableNativeWithholding(
+    company: string,
+    journalBatchNumber: string,
+    target: AggregatedVendorPaymentJournalSettlementTarget,
+  ): Promise<void> {
+    for (const withholding of target.withholdingLines ?? []) {
+      const withholdingGroup = withholding.withholdingGroup;
+      const where = `${this.describeSettlementTarget(target)} (D365 line ${withholding.lineNumber})`;
+      if (!withholdingGroup) {
+        throw settlementError(
+          'WITHHOLDING_NOT_ENABLED',
+          `No withholding group for ${where}; the withholding would be lost.`,
+        );
+      }
+      const readLine = async () => {
+        const endpoint = this.queryBuilder.buildQuery(
+          '/data/VendorPaymentJournalLines',
+          {
+            filter: this.queryBuilder.and(
+              this.queryBuilder.eq('dataAreaId', company),
+              this.queryBuilder.eq('JournalBatchNumber', journalBatchNumber),
+              this.queryBuilder.eq('LineNumber', withholding.lineNumber),
+            ),
+            select: ['LineNumber', 'CalculateWithholdingTax', 'TaxWithholdGroup'],
+            crossCompany: true,
+          },
+        );
+        const response = await this.d365foClient.get<{
+          CalculateWithholdingTax?: string;
+          TaxWithholdGroup?: string;
+        }>(endpoint, { useCache: false });
+        return (response.value ?? [])[0];
+      };
+      const isEnabled = (
+        row:
+          | {
+              CalculateWithholdingTax?: string;
+              TaxWithholdGroup?: string;
+            }
+          | undefined,
+      ) =>
+        Boolean(row) &&
+        String(row?.CalculateWithholdingTax ?? '')
+          .trim()
+          .toLowerCase() === 'yes' &&
+        String(row?.TaxWithholdGroup ?? '')
+          .trim()
+          .toLowerCase() === withholdingGroup.toLowerCase();
+
+      let row = await readLine();
+      if (!row) {
+        throw settlementError(
+          'WITHHOLDING_NOT_ENABLED',
+          `D365 journal line not found for ${where}.`,
+        );
+      }
+      if (isEnabled(row)) continue;
+
+      const key = (value: string) => value.replace(/'/g, "''");
+      const endpoint =
+        `/data/VendorPaymentJournalLines(dataAreaId='${key(company)}',` +
+        `JournalBatchNumber='${key(journalBatchNumber)}',` +
+        `LineNumber=${withholding.lineNumber})?cross-company=true`;
+      try {
+        await this.d365foClient.patch<
+          { CalculateWithholdingTax: 'Yes'; TaxWithholdGroup: string },
+          unknown
+        >(
+          endpoint,
+          {
+            CalculateWithholdingTax: 'Yes',
+            TaxWithholdGroup: withholdingGroup,
+          },
+          { headers: { 'If-Match': '*' } },
+        );
+      } catch (error) {
+        throw settlementError(
+          'WITHHOLDING_NOT_ENABLED',
+          `D365 rejected native withholding ${withholdingGroup} for ${where}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      row = await readLine();
+      if (!isEnabled(row)) {
+        throw settlementError(
+          'WITHHOLDING_NOT_ENABLED',
+          `Read-back shows native withholding ${withholdingGroup} is not enabled for ${where}.`,
+        );
+      }
+    }
+  }
+
   private async settleOneVendorPaymentJournalTarget(options: {
     company: string;
     journalBatchNumber: string;
@@ -650,9 +802,9 @@ export class VendorInvoiceJournalService {
     if (existing) {
       if (
         Math.abs(
-          this.readNumber(existing.SettlementAmountInInvoiceCurrency) -
-            settlementAmount,
-        ) > 0.01
+          toCents(existing.SettlementAmountInInvoiceCurrency) -
+            toCents(settlementAmount),
+        ) > 1
       ) {
         await this.updateVendorPaymentJournalLineSettlement(
           company,
@@ -684,18 +836,28 @@ export class VendorInvoiceJournalService {
         invoice.ReportingCurrencyAmount,
       ),
     );
-    if (
-      remainingAmount !== null &&
-      Math.abs(settlementAmount) - remainingAmount > 0.01
-    ) {
-      throw new Error(
-        `Settlement amount ${Math.abs(settlementAmount)} for ${this.describeSettlementTarget(target)} exceeds invoice ${target.invoiceNumber} remainder ${remainingAmount}.`,
-      );
+    // Amounts are compared as integer cents. A source rounding difference of
+    // one cent is settled up to the open balance and never beyond it; anything
+    // larger is a genuine over-settlement and is rejected.
+    let amountToSettle = settlementAmount;
+    if (remainingAmount !== null) {
+      const requestedCents = Math.abs(toCents(settlementAmount));
+      const remainingCents = toCents(remainingAmount);
+      if (requestedCents - remainingCents > 1) {
+        throw settlementError(
+          'SETTLEMENT_AMOUNT_INVALID',
+          `Settlement amount ${Math.abs(settlementAmount)} for ${this.describeSettlementTarget(target)} exceeds invoice ${target.invoiceNumber} remainder ${remainingAmount}.`,
+        );
+      }
+      if (requestedCents > remainingCents) {
+        amountToSettle = (Math.sign(settlementAmount) * remainingCents) / 100;
+      }
     }
 
     const invoiceDueDate = String(invoice.DueDate ?? '').trim();
     if (!invoiceDueDate) {
-      throw new Error(
+      throw settlementError(
+        'INVOICE_NOT_FOUND',
         `Open invoice ${target.invoiceNumber} for vendor ${target.vendorAccount} has no due date (${this.describeSettlementTarget(target)}).`,
       );
     }
@@ -707,7 +869,7 @@ export class VendorInvoiceJournalService {
       InvoiceNumber: target.invoiceNumber.trim(),
       InvoiceCompany: company,
       InvoiceDueDate: invoiceDueDate,
-      SettlementAmountInInvoiceCurrency: settlementAmount,
+      SettlementAmountInInvoiceCurrency: amountToSettle,
       CashDiscountToTakeInInvoiceCurrency: 0,
     };
 
@@ -730,14 +892,18 @@ export class VendorInvoiceJournalService {
           target,
         )
       ) {
-        throw error;
+        // The write was rejected and no settlement row exists afterwards.
+        throw settlementError(
+          'D365_SETTLEMENT_REJECTED',
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
     options.verificationLines.push({
       lineNumber: settlementLineNumber,
       vendorAccount: target.vendorAccount,
       expectedInvoices: [target.invoiceNumber],
-      expectedSettlementAmount: settlementAmount,
+      expectedSettlementAmount: amountToSettle,
     });
   }
 
@@ -1407,40 +1573,57 @@ export class VendorInvoiceJournalService {
     const used = new Set<number>();
     for (const source of target.sourceTargets) {
       const uniqueId = String(source.uniqueId ?? '').trim();
+      // The planned line number is never an identity: D365 renumbers lines
+      // when UniqueIds are skipped. Only the payment ID (PAYMENTID) correlates
+      // a source line with its real D365 line.
+      if (!uniqueId) {
+        throw settlementError(
+          'JOURNAL_LINE_NOT_FOUND',
+          `Cannot safely match ${this.describeSettlementTarget(source)} to an uploaded D365 vendor payment line: found 0 matches because the source line has no payment ID and the planned line number is not used to identify a D365 line.`,
+        );
+      }
       const candidates = [...journalLines.values()].filter(
         (row) =>
-          (uniqueId
-            ? String(row.PaymentId ?? '').trim() === uniqueId
-            : this.readNumber(row.LineNumber) === source.lineNumber) &&
+          String(row.PaymentId ?? '').trim() === uniqueId &&
           this.normalizeVendorAccount(row.AccountDisplayValue) ===
             this.normalizeVendorAccount(source.vendorAccount) &&
           String(row.CurrencyCode ?? '').trim().toLowerCase() ===
             source.currencyCode.trim().toLowerCase() &&
-          Math.abs(this.readNumber(row.DebitAmount) - source.debitAmount) <
-            0.00001 &&
-          Math.abs(this.readNumber(row.CreditAmount) - source.creditAmount) <
-            0.00001,
+          toCents(row.DebitAmount) === toCents(source.debitAmount) &&
+          toCents(row.CreditAmount) === toCents(source.creditAmount),
       );
       if (candidates.length !== 1) {
-        throw new Error(
+        throw settlementError(
+          candidates.length === 0
+            ? 'JOURNAL_LINE_NOT_FOUND'
+            : 'JOURNAL_LINE_AMBIGUOUS',
           `Cannot safely match ${this.describeSettlementTarget(source)} to an uploaded D365 vendor payment line: found ${candidates.length} matches for payment ID, vendor, currency, debit and credit amounts.`,
         );
       }
       const actualLineNumber = this.readNumber(candidates[0].LineNumber);
       if (actualLineNumber <= 0 || used.has(actualLineNumber)) {
-        throw new Error(
+        throw settlementError(
+          'JOURNAL_LINE_AMBIGUOUS',
           `Duplicate or invalid D365 line mapping for ${this.describeSettlementTarget(source)}.`,
         );
       }
       used.add(actualLineNumber);
       resolved.set(source.lineNumber, actualLineNumber);
     }
+    const withholdingLines = target.sourceTargets
+      .filter((source) => toCents(source.withholdingAmount) > 0)
+      .map((source) => ({
+        lineNumber: resolved.get(source.lineNumber)!,
+        withholdingGroup: String(source.withholdingGroup ?? '').trim(),
+        withholdingAmount: Number(source.withholdingAmount),
+      }));
     return {
       ...target,
       lineNumber: resolved.get(target.lineNumber)!,
       lineNumbers: target.lineNumbers.map(
         (lineNumber) => resolved.get(lineNumber)!,
       ),
+      ...(withholdingLines.length > 0 ? { withholdingLines } : {}),
     };
   }
 
@@ -1481,13 +1664,17 @@ export class VendorInvoiceJournalService {
             Number(left.creditAmount ?? 0) - Number(left.debitAmount ?? 0),
           ),
       )[0];
-      const settlementAmount = group.reduce(
-        (sum, target) =>
-          sum +
-          Number(target.creditAmount ?? 0) -
-          Number(target.debitAmount ?? 0),
-        0,
-      );
+      // A line with native withholding is posted NET; the invoice is settled
+      // for net + withholding, so the withholding is part of the mark.
+      const settlementAmount =
+        group.reduce(
+          (sum, target) =>
+            sum +
+            toCents(target.creditAmount ?? 0) -
+            toCents(target.debitAmount ?? 0) -
+            toCents(target.withholdingAmount ?? 0),
+          0,
+        ) / 100;
       return {
         ...primary,
         sourceTargets: group,
@@ -1632,12 +1819,44 @@ export class VendorInvoiceJournalService {
       return isOpen && documentMatches && currencyMatches;
     });
 
-    if (candidates.length !== 1) {
-      throw new Error(
-        `Expected one open invoice transaction for vendor ${target.vendorAccount}, invoice ${target.invoiceNumber}, and document ${target.documentNumber || '(empty)'}, but found ${candidates.length} (${this.describeSettlementTarget(target)}).`,
+    let matches = candidates;
+    if (matches.length > 1) {
+      // Several open transactions can share vendor, invoice, document and
+      // currency. Pick one only when exactly one has a remaining balance equal
+      // to the settlement and no other candidate shares its due date (the due
+      // date is part of the D365 settlement key). Otherwise stay ambiguous.
+      const wanted = Math.abs(
+        toCents(
+          (target as { settlementAmount?: number }).settlementAmount ??
+            target.creditAmount - target.debitAmount,
+        ),
+      );
+      const dueKey = (row: VendTransLookupRow) =>
+        String(row.DueDate ?? '').slice(0, 10);
+      const exact = matches.filter(
+        (row) =>
+          toCents(
+            this.resolveRemainingAmount(
+              row,
+              this.firstDefinedNumber(row.AmountCur, row.AmountMST),
+            ),
+          ) === wanted,
+      );
+      if (
+        exact.length === 1 &&
+        matches.filter((row) => dueKey(row) === dueKey(exact[0])).length === 1
+      ) {
+        matches = exact;
+      }
+    }
+
+    if (matches.length !== 1) {
+      throw settlementError(
+        matches.length === 0 ? 'INVOICE_NOT_FOUND' : 'INVOICE_AMBIGUOUS',
+        `Expected one open invoice transaction for vendor ${target.vendorAccount}, invoice ${target.invoiceNumber}, and document ${target.documentNumber || '(empty)'}, but found ${matches.length} (${this.describeSettlementTarget(target)}).`,
       );
     }
-    return candidates[0];
+    return matches[0];
   }
 
   private async fetchVendorPaymentJournalLinesByNumber(
