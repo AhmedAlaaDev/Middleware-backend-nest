@@ -1,5 +1,9 @@
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import {
+  NativeWithholdingSettings,
+  reconcileNativeWithholding,
+} from '@/modules/cash/policies/cash-native-withholding.policy';
 import { isCashWithholdingLedgerLine } from '@/modules/cash/policies/cash-withholding.policy';
 import {
   aggregateVendorPaymentInvoiceLine,
@@ -33,6 +37,62 @@ function paymentOffsetForInvoice(
   );
 }
 
+/**
+ * Native withholding for one invoice: D365 calculates the tax on the net line
+ * instead of a separate 223304 companion. Same reconciliation rules as Custody
+ * Settlement (shared policy); anything unproven keeps the explicit companion.
+ */
+function evaluateNativeVendorPaymentWithholding(options: {
+  aggregatedVendorLine: CashEntryRawDataModel;
+  withholdingLines: CashEntryRawDataModel[];
+  withholdingAmount: number;
+  settings: NativeWithholdingSettings;
+}):
+  | {
+      eligible: true;
+      native: {
+        withholdingGroup: string;
+        grossAmount: number;
+        withholdingAmount: number;
+      };
+    }
+  | { eligible: false; reason: string } {
+  const { aggregatedVendorLine, withholdingLines, settings } = options;
+  if (!String(aggregatedVendorLine.INVOICE ?? '').trim()) {
+    return {
+      eligible: false,
+      reason: 'the vendor line has no invoice to mark for the gross amount',
+    };
+  }
+  const conflicting = withholdingLines
+    .map((line) => String(line.ITEMWITHHOLDINGTAXGROUPCODE ?? '').trim())
+    .find((group) => group && group.toLowerCase() !== settings.withholdingGroup.toLowerCase());
+  if (conflicting) {
+    return {
+      eligible: false,
+      reason: `source withholding group ${conflicting} differs from ${settings.withholdingGroup}`,
+    };
+  }
+  // Removes binary floating-point noise from summed source amounts without
+  // rounding money to cents (source rows carry more than two decimals).
+  const gross = Number(Number(aggregatedVendorLine.DEBITAMOUNT ?? 0).toFixed(6));
+  const withholdingAmount = Number(options.withholdingAmount.toFixed(6));
+  const decision = reconcileNativeWithholding(
+    gross,
+    withholdingAmount,
+    settings,
+  );
+  if (!decision.eligible) return { eligible: false, reason: decision.reason };
+  return {
+    eligible: true,
+    native: {
+      withholdingGroup: settings.withholdingGroup,
+      grossAmount: gross,
+      withholdingAmount,
+    },
+  };
+}
+
 type BuildVendorLine = (
   sourceId: string,
   accountLine: CashEntryRawDataModel,
@@ -45,7 +105,12 @@ type BuildVendorLine = (
 
 /** Builds one Cash-Out Vendor Payment group from raw source rows. */
 export class VendorPaymentLineBuilder {
-  constructor(private readonly buildVendorLine: BuildVendorLine) {}
+  constructor(
+    private readonly buildVendorLine: BuildVendorLine,
+    private readonly nativeWithholding: () =>
+      | NativeWithholdingSettings
+      | undefined = () => undefined,
+  ) {}
 
   build(
     sourceId: string,
@@ -210,6 +275,36 @@ export class VendorPaymentLineBuilder {
             return [invalid];
           }
 
+          // Native withholding: D365 calculates the tax on the net line, so no
+          // companion is emitted. X++ would mark only the line's own (net)
+          // amount, so the settlement step marks the invoice for the gross
+          // amount and enables the calculation on the real D365 line. Only
+          // when the source withholding reconciles exactly with the configured
+          // group; otherwise the explicit companions below are kept.
+          const nativeSettings = this.nativeWithholding();
+          const nativeDecision = nativeSettings
+            ? evaluateNativeVendorPaymentWithholding({
+                aggregatedVendorLine,
+                withholdingLines: invoiceWithholdingLines,
+                withholdingAmount,
+                settings: nativeSettings,
+              })
+            : undefined;
+          if (nativeDecision?.eligible) {
+            const nativeMain = this.buildVendorLine(
+              sourceId,
+              aggregatedVendorLine,
+              paymentOffsetForInvoice(paymentOffset, invoicePaymentAmount),
+              'OFFSET',
+              exchangeRateContext,
+              invoiceSettlements,
+              true,
+            );
+            nativeMain.NativeWithholding = { ...nativeDecision.native };
+            results.push(nativeMain);
+            continue;
+          }
+
           // Emit one false-flag 223304 companion for every source withholding
           // row. Never aggregate or drop source withholding transactions.
           // Companions must be marked before the main line in the same X++ TTS.
@@ -243,17 +338,20 @@ export class VendorPaymentLineBuilder {
               ),
             );
           }
-          results.push(
-            this.buildVendorLine(
-              sourceId,
-              aggregatedVendorLine,
-              paymentOffsetForInvoice(paymentOffset, invoicePaymentAmount),
-              'OFFSET',
-              exchangeRateContext,
-              invoiceSettlements,
-              true,
-            ),
+          const explicitMain = this.buildVendorLine(
+            sourceId,
+            aggregatedVendorLine,
+            paymentOffsetForInvoice(paymentOffset, invoicePaymentAmount),
+            'OFFSET',
+            exchangeRateContext,
+            invoiceSettlements,
+            true,
           );
+          if (nativeDecision && !nativeDecision.eligible) {
+            // Keep the reason on the line so the fallback is traceable.
+            explicitMain.WithholdingFallbackReason = nativeDecision.reason;
+          }
+          results.push(explicitMain);
         }
         continue;
       }

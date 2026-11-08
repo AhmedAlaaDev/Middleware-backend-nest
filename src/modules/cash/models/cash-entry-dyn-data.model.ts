@@ -64,6 +64,18 @@ export class CashEntryDynDataModel extends EntryDynDataModel {
   SettlementTargetType: 'VendorInvoice' | 'CustodyLedger' | 'None';
   /** Excel LINENUMBER. Survives cash-out journal reindexing of LineNumber. */
   SourceLineNumber?: number;
+  /**
+   * Set when D365 calculates this line's withholding natively instead of a
+   * separate 223304 line. The invoice is then marked for the gross amount and
+   * the withholding calculation is enabled on the resolved D365 line.
+   */
+  NativeWithholding?: {
+    withholdingGroup: string;
+    grossAmount: number;
+    withholdingAmount: number;
+  };
+  /** Why the explicit 223304 entry was kept when native was requested. */
+  WithholdingFallbackReason?: string;
 
   constructor(
     dimensionModel: EntryDimensionsModel,

@@ -393,6 +393,219 @@ describe('CashJournalPostingStrategy', () => {
     ]);
   });
 
+  describe('native withholding', () => {
+    const nativeLine = (vendorGroup: string) => ({
+      dataAreaId: 'm-p',
+      LineNumber: 5,
+      sourceLineNumber: 3837,
+      cashDirection: 'out',
+      nativeWithholding: {
+        withholdingGroup: 'WHT-3%',
+        grossAmount: 2260.62,
+        withholdingAmount: 59.49,
+      },
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: 'Sl-000036',
+        accountTypeStr: 'Vendor',
+        VendorGroup: vendorGroup,
+        currency: 'USD',
+        debitAmount: 2201.13,
+        creditAmount: 0,
+        PAYMENTID: '559989',
+        ITEMWITHHOLDINGTAXGROUP: '',
+        MarkedLines: [
+          {
+            InvoiceNumber: '5815410364',
+            OperationNumber: 'OP-1',
+            DocumentNumber: '25544',
+            HasWithHoldingLine: true,
+          },
+        ],
+      },
+    });
+
+    it('writes the group through X++ and hands the flag and gross mark to the settlement step', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(custodySettlementRoute);
+
+      await harness.strategy.postLinesForHeader(
+        'Mesco-000019377',
+        [nativeLine('Shiplines')],
+        'm-p',
+        20,
+      );
+
+      const posted =
+        harness.customerPaymentJournalService
+          .postCashOutLinesForHeaderAllowingSkips.mock.calls[0][1];
+      // Sandbox-verified: X++ writes ITEMWITHHOLDINGTAXGROUP into the line's
+      // TaxWithholdGroup; the calculation flag is enabled afterwards.
+      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('WHT-3%');
+      expect(posted[0].customLineApiBody.MarkedLines).toEqual([]);
+      const options =
+        harness.vendorInvoiceJournalService
+          .createVendorPaymentJournalLineSettlements.mock.calls[0][0];
+      expect(options.targets).toEqual([
+        expect.objectContaining({
+          lineNumber: 5,
+          debitAmount: 2201.13,
+          invoiceNumber: '5815410364',
+          uniqueId: '559989',
+          withholdingAmount: 59.49,
+          withholdingGroup: 'WHT-3%',
+        }),
+      ]);
+    });
+
+    it('refuses to post a native line that cannot reach the settlement step', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(custodySettlementRoute);
+
+      // A custody-holder vendor group is settled by document, so no OData
+      // settlement target exists and the withholding would be lost.
+      await expect(
+        harness.strategy.postLinesForHeader(
+          'Mesco-000019377',
+          [nativeLine('Custody')],
+          'm-p',
+          20,
+        ),
+      ).rejects.toThrow('[WITHHOLDING_NOT_ENABLED]');
+      expect(
+        harness.customerPaymentJournalService
+          .postCashOutLinesForHeaderAllowingSkips,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('native withholding on the Vendor Payment route', () => {
+    const mark = {
+      InvoiceNumber: '5815410364',
+      OperationNumber: 'OP-1',
+      DocumentNumber: '25544',
+      HasWithHoldingLine: true,
+    };
+    const vendorPaymentLine = (options: {
+      native: boolean;
+      vendorGroup?: string;
+      lineNumber?: number;
+    }) => ({
+      dataAreaId: 'm-p',
+      LineNumber: options.lineNumber ?? 3,
+      cashDirection: 'out',
+      ...(options.native
+        ? {
+            nativeWithholding: {
+              withholdingGroup: 'WHT-3%',
+              grossAmount: 2260.62,
+              withholdingAmount: 59.49,
+            },
+          }
+        : {}),
+      customLineApiBody: {
+        journalNum: '',
+        AccountNum: 'Sl-000036',
+        accountTypeStr: 'Vendor',
+        VendorGroup: options.vendorGroup ?? 'Shiplines',
+        currency: 'EGP',
+        debitAmount: 2201.13,
+        creditAmount: 0,
+        PAYMENTID: '559989',
+        MarkedLines: [mark],
+      },
+    });
+
+    it('marks the gross through the settlement step instead of X++', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(apRoute);
+
+      await harness.strategy.postLinesForHeader(
+        'Mesco-000019377',
+        [vendorPaymentLine({ native: true })],
+        'm-p',
+        20,
+      );
+
+      const posted =
+        harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+          .calls[0][1];
+      expect(posted[0].customLineApiBody.MarkedLines).toEqual([]);
+      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('WHT-3%');
+      const options =
+        harness.vendorInvoiceJournalService
+          .createVendorPaymentJournalLineSettlements.mock.calls[0][0];
+      expect(options.continueOnError).toBe(false);
+      expect(options.targets).toEqual([
+        expect.objectContaining({
+          lineNumber: 3,
+          debitAmount: 2201.13,
+          invoiceNumber: '5815410364',
+          withholdingAmount: 59.49,
+          withholdingGroup: 'WHT-3%',
+        }),
+      ]);
+    });
+
+    it('leaves an ordinary Vendor Payment line to X++ exactly as before', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(apRoute);
+
+      await harness.strategy.postLinesForHeader(
+        'Mesco-000019377',
+        [vendorPaymentLine({ native: false })],
+        'm-p',
+        20,
+      );
+
+      const posted =
+        harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+          .calls[0][1];
+      expect(posted[0].customLineApiBody.MarkedLines).toEqual([mark]);
+      expect(
+        harness.vendorInvoiceJournalService
+          .createVendorPaymentJournalLineSettlements,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('refuses a native Vendor Payment line that cannot reach the settlement step', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(apRoute);
+
+      await expect(
+        harness.strategy.postLinesForHeader(
+          'Mesco-000019377',
+          [vendorPaymentLine({ native: true, vendorGroup: 'Custody' })],
+          'm-p',
+          20,
+        ),
+      ).rejects.toThrow('[WITHHOLDING_NOT_ENABLED] Vendor Payment line');
+      expect(
+        harness.customerPaymentJournalService.postCashOutLinesForHeader,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('settles after the lines exist, so the real D365 line can be resolved', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(apRoute);
+
+      await harness.strategy.postLinesForHeader(
+        'Mesco-000019377',
+        [vendorPaymentLine({ native: true })],
+        'm-p',
+        20,
+      );
+
+      expect(
+        harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        harness.vendorInvoiceJournalService
+          .createVendorPaymentJournalLineSettlements.mock.invocationCallOrder[0],
+      );
+    });
+  });
+
   it('defers non-Custody marks until after Custody Settlement lines are posted', async () => {
     const harness = buildStrategy();
     const shiplineMark = {

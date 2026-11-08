@@ -33,6 +33,16 @@ export interface D365FOCustomerPaymentJournalLineRequest {
    */
   sourceLineNumber?: number;
   /**
+   * Native withholding for this vendor line: D365 calculates the tax instead
+   * of a separate 223304 line. The settlement step marks the invoice for the
+   * gross amount and enables the calculation on the resolved D365 line.
+   */
+  nativeWithholding?: {
+    withholdingGroup: string;
+    grossAmount: number;
+    withholdingAmount: number;
+  };
+  /**
    * Used by cash posting pipeline to route cash-in/out line posting to the
    * correct custom ledger journal transaction API.
    */

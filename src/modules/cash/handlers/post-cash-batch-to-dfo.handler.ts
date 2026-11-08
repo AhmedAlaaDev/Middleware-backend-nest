@@ -685,6 +685,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ...(Number(line.SourceLineNumber) > 0
           ? { sourceLineNumber: Number(line.SourceLineNumber) }
           : {}),
+        // Not part of the X++ contract: consumed by the settlement step that
+        // enables native withholding on the resolved D365 line.
+        ...(line.NativeWithholding
+          ? { nativeWithholding: { ...line.NativeWithholding } }
+          : {}),
       };
     });
   }

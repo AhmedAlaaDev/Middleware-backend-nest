@@ -3,6 +3,7 @@ import { prepareCustodySettlementLines } from './custody-settlement.processor';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
 import { firstCashFinancialTag } from '@/modules/cash/policies/cash-invoice.policy';
+import { NativeWithholdingSettings } from '@/modules/cash/policies/cash-native-withholding.policy';
 import { CashOutExchangeRateContext } from '@/modules/cash/services/cash-out-exchange-rate.service';
 
 type BuildSourceLine = (
@@ -13,14 +14,21 @@ type BuildSourceLine = (
 
 /** Builder for the Cash-Out Custody Settlement output lines. */
 export class CustodySettlementBuilder {
-  constructor(private readonly buildSourceLine: BuildSourceLine) {}
+  constructor(
+    private readonly buildSourceLine: BuildSourceLine,
+    private readonly nativeWithholding: () =>
+      | NativeWithholdingSettings
+      | undefined = () => undefined,
+  ) {}
 
   build(
     sourceId: string,
     lines: CashEntryRawDataModel[],
     exchangeRateContext?: CashOutExchangeRateContext,
   ): CashEntryDynDataModel[] {
-    return prepareCustodySettlementLines(lines).map((plan) => {
+    return prepareCustodySettlementLines(lines, {
+      nativeWithholding: this.nativeWithholding(),
+    }).map((plan) => {
       const dynLine = this.buildSourceLine(
         sourceId,
         plan.line,
@@ -90,8 +98,17 @@ export class CustodySettlementBuilder {
 
       // Withholding is posted from the source amount, either as the offset of
       // a vendor line or as its own ledger line. D365 must not recalculate it.
+      // The group for native withholding is written by the posting strategy
+      // (X++ puts it in TaxWithholdGroup) and the calculation flag is enabled
+      // afterwards through OData, so the explicit-mode fields stay empty here.
       dynLine.IsWithholdingCalculationEnabled = 'No';
       dynLine.ItemWithholdingTaxGroupCode = '';
+      if (plan.nativeWithholding) {
+        dynLine.NativeWithholding = { ...plan.nativeWithholding };
+      }
+      if (plan.withholdingFallbackReason) {
+        dynLine.WithholdingFallbackReason = plan.withholdingFallbackReason;
+      }
       return dynLine;
     });
   }

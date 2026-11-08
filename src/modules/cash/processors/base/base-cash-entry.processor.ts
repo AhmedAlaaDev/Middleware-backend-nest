@@ -32,6 +32,7 @@ import {
   resolveCashJournalName,
 } from '@/modules/cash/policies/cash-journal.policy';
 import { resolveCashPaymentMethod } from '@/modules/cash/policies/cash-line.policy';
+import { resolveNativeWithholdingSettings } from '@/modules/cash/policies/cash-native-withholding.policy';
 import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
 import { cashPaymentReferenceLengthErrorMessage } from '@/modules/cash/policies/cash-payment-reference.policy';
@@ -1066,8 +1067,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
             settlements,
             disableAutomaticWithholdingCalculation,
           ),
+        () => resolveNativeWithholdingSettings('VENDOR_PAYMENT'),
       ),
-      new CustodySettlementBuilder(buildSourceLine),
+      new CustodySettlementBuilder(buildSourceLine, () =>
+        resolveNativeWithholdingSettings('CUSTODY_SETTLEMENT'),
+      ),
       new CustodyIssueBuilder(buildSourceLine),
       buildSourceLine,
     );

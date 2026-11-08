@@ -305,3 +305,42 @@ The workbook tests mock live D365 responses because a test run must not post or
 depend on production finance data. Separate service and processor tests cover
 normal vendor lookup, exact custody matching, missing targets, duplicate
 targets, invalid dimensions, and valid optional blanks.
+
+## Native withholding (Vendor Payment and Custody Settlement) - gated
+
+Source files carry the vendor debit GROSS, the payment/custody credit NET and
+the tax as a `223304` credit (for example 2,260.62 = 2,201.13 + 59.49). By
+default the middleware keeps the tax explicit (a `223304` companion line).
+
+When a workflow's gate is open and the settings are configured, a transaction
+instead posts:
+
+- one vendor line at the NET amount (Vendor Payment: offset = payment account;
+  Custody Settlement: equal to the custody credit) and no `223304` line;
+- the withholding group written through the X++ endpoint (its
+  `ITEMWITHHOLDINGTAXGROUP` lands in the D365 line's `TaxWithholdGroup`);
+- `CalculateWithholdingTax = Yes` set through OData on the real D365 line (the
+  X++ endpoint never sets the flag) and read back;
+- the invoice mark for the GROSS amount, written through OData. X++ cannot do
+  this: `settleVendorInvoice` always settles the line's own `AmountCurDebit`.
+
+Sandbox-verified: OData accepts updates of `CalculateWithholdingTax` and
+`TaxWithholdGroup` on an X++-created line and refuses
+`ItemWithholdingTaxGroupCode` (403), which is never used.
+
+Gates (all default off): `CASH_OUT_NATIVE_WITHHOLDING_VENDOR_PAYMENT_VERIFIED`,
+`CASH_OUT_NATIVE_WITHHOLDING_CUSTODY_SETTLEMENT_VERIFIED` and the legacy
+`CASH_OUT_NATIVE_WITHHOLDING_VERIFIED` (Custody Settlement only).
+`CASH_OUT_NATIVE_WITHHOLDING_RATE_PERCENT` and
+`CASH_OUT_NATIVE_WITHHOLDING_VAT_PERCENT` must be set (no built-in VAT);
+`CASH_OUT_NATIVE_WITHHOLDING_GROUP` defaults to `WHT-3%`.
+
+Per transaction it applies only when the source has a `223304` row, the vendor
+line is settled by invoice, a source group (if any) equals the configured group,
+and the source tax equals `round(gross x rate / (100 + VAT))` to the cent.
+Anything else keeps the explicit entry and records why. If native withholding
+cannot be enabled and read back, posting stops with `[WITHHOLDING_NOT_ENABLED]`;
+it is never skipped.
+
+Not yet verified: the tax D365 generates at posting and its ledger accounting.
+Post one sandbox test journal per workflow before opening a gate.

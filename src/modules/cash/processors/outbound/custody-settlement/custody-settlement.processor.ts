@@ -5,13 +5,39 @@ import {
 
 import { CashEntryMarkedLine } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
+import {
+  NativeWithholdingSettings,
+  reconcileNativeWithholding,
+} from '@/modules/cash/policies/cash-native-withholding.policy';
 import { isCashWithholdingLedgerLine } from '@/modules/cash/policies/cash-withholding.policy';
+
+export interface CustodyNativeWithholding {
+  /** Line-level item withholding group to enable on the vendor line. */
+  withholdingGroup: string;
+  /** Gross invoice amount the invoice mark must cover. */
+  grossAmount: number;
+  /** Source withholding that D365 is expected to calculate. */
+  withholdingAmount: number;
+}
 
 export interface CustodySettlementLinePlan {
   line: CashEntryRawDataModel;
   isVendorLine: boolean;
   markedInvoice: string;
   markedLines: readonly CashEntryMarkedLine[];
+  /** Set when D365 calculates the withholding instead of a 223304 line. */
+  nativeWithholding?: CustodyNativeWithholding;
+  /** Why an explicit 223304 entry was kept although native was requested. */
+  withholdingFallbackReason?: string;
+}
+
+export interface CustodySettlementOptions {
+  /**
+   * Replace the explicit 223304 entry with D365's native calculation for the
+   * transactions that reconcile with these settings. Undefined keeps the
+   * explicit entry (the gate is closed or the settings are not configured).
+   */
+  nativeWithholding?: NativeWithholdingSettings;
 }
 
 /**
@@ -36,6 +62,7 @@ export interface CustodySettlementLinePlan {
  */
 export function prepareCustodySettlementLines(
   lines: CashEntryRawDataModel[],
+  options: CustodySettlementOptions = {},
 ): CustodySettlementLinePlan[] {
   const withholdingLines = lines.filter(isCashWithholdingLedgerLine);
   const nonWithholdingLines = lines.filter(
@@ -89,6 +116,40 @@ export function prepareCustodySettlementLines(
       withholdingLine,
     });
 
+    let nativeWithholding: CustodyNativeWithholding | undefined;
+    let withholdingFallbackReason: string | undefined;
+    if (withholdingLine && options.nativeWithholding) {
+      const decision = evaluateNativeWithholding(
+        line,
+        withholdingLine,
+        options.nativeWithholding,
+      );
+      if (decision.eligible) {
+        nativeWithholding = decision.native;
+      } else {
+        withholdingFallbackReason = decision.reason;
+      }
+    }
+
+    if (nativeWithholding && withholdingLine) {
+      // D365 calculates the withholding on this line, so no 223304 entry is
+      // posted. The line carries the NET amount (custody credit = net); the
+      // invoice is marked for the gross amount by the settlement step.
+      line.DEBITAMOUNT = subtractCustodyAmount(
+        Number(line.DEBITAMOUNT || 0),
+        custodyWithholdingAmount(withholdingLine),
+      );
+      withholdingPostedAsOffset.add(withholdingLine);
+      plans.push({
+        line,
+        isVendorLine,
+        markedInvoice: marking.markedInvoice,
+        markedLines: marking.markedLines,
+        nativeWithholding,
+      });
+      continue;
+    }
+
     const companion = withholdingLine
       ? buildCustodyWithholdingCompanion(line, withholdingLine)
       : undefined;
@@ -113,6 +174,7 @@ export function prepareCustodySettlementLines(
       isVendorLine,
       markedInvoice: marking.markedInvoice,
       markedLines: marking.markedLines,
+      ...(withholdingFallbackReason ? { withholdingFallbackReason } : {}),
     });
   }
 
@@ -137,6 +199,50 @@ export function prepareCustodySettlementLines(
   }
 
   return plans;
+}
+
+/**
+ * Native withholding applies only to a vendor invoice line settled through the
+ * invoice path (not a custody-holder line) whose source withholding reconciles
+ * exactly with the WHT-3% group. Anything else keeps the explicit entry.
+ */
+function evaluateNativeWithholding(
+  vendorLine: CashEntryRawDataModel,
+  withholdingLine: CashEntryRawDataModel,
+  settings: NativeWithholdingSettings,
+):
+  | { eligible: true; native: CustodyNativeWithholding }
+  | { eligible: false; reason: string } {
+  if (vendorLine.IsCustodyVendor) {
+    return {
+      eligible: false,
+      reason: 'custody-holder vendor lines are settled by document, not invoice',
+    };
+  }
+  const sourceGroup = String(
+    withholdingLine.ITEMWITHHOLDINGTAXGROUPCODE ?? '',
+  ).trim();
+  if (
+    sourceGroup &&
+    sourceGroup.toLowerCase() !== settings.withholdingGroup.toLowerCase()
+  ) {
+    return {
+      eligible: false,
+      reason: `source withholding group ${sourceGroup} differs from ${settings.withholdingGroup}`,
+    };
+  }
+  const gross = Number(vendorLine.DEBITAMOUNT || 0);
+  const withholding = custodyWithholdingAmount(withholdingLine);
+  const decision = reconcileNativeWithholding(gross, withholding, settings);
+  if (!decision.eligible) return { eligible: false, reason: decision.reason };
+  return {
+    eligible: true,
+    native: {
+      withholdingGroup: settings.withholdingGroup,
+      grossAmount: gross,
+      withholdingAmount: withholding,
+    },
+  };
 }
 
 function custodyWithholdingAmount(line: CashEntryRawDataModel): number {

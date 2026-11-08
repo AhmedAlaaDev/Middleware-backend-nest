@@ -394,8 +394,23 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
             }
           : {}),
       };
+      // Native withholding: X++ writes ITEMWITHHOLDINGTAXGROUP into the D365
+      // line's TaxWithholdGroup (verified in the sandbox). It never sets the
+      // calculation flag, which the settlement step enables afterwards.
+      if (line.nativeWithholding) {
+        body.ITEMWITHHOLDINGTAXGROUP = line.nativeWithholding.withholdingGroup;
+      }
       const normalizedLine = { ...line, customLineApiBody: body };
-      if (route.safeType !== 'Custody Settlement') return normalizedLine;
+      // Vendor Payment normally lets X++ mark the invoice, but X++ marks only
+      // the line's own (net) amount. A native-withholding line must be marked
+      // for the GROSS amount, so it takes the same OData settlement route as
+      // Custody Settlement invoice lines. Every other Vendor Payment line is
+      // untouched.
+      const isNativeVendorPayment =
+        route.safeType === 'Vendor Payment' && Boolean(line.nativeWithholding);
+      if (route.safeType !== 'Custody Settlement' && !isNativeVendorPayment) {
+        return normalizedLine;
+      }
 
       const isVendor =
         String(body.accountTypeStr ?? '')
@@ -408,7 +423,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       if (!isCustodyVendorGroup) {
         const markedLines = body.MarkedLines ?? [];
         if (markedLines.length > 1) {
-          const message = `Custody Settlement line ${line.LineNumber ?? '?'} has ${markedLines.length} invoice marks; OData settlement requires one invoice per journal line.`;
+          const message = `${route.safeType} line ${line.LineNumber ?? '?'} has ${markedLines.length} invoice marks; OData settlement requires one invoice per journal line.`;
           if (skipFailedUniqueIds) {
             skipLine(line, message);
             return normalizedLine;
@@ -419,7 +434,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
         if (markedLine && isVendor) {
           const invoiceNumber = String(markedLine.InvoiceNumber ?? '').trim();
           if (!invoiceNumber) {
-            const message = `Custody Settlement line ${line.LineNumber ?? '?'} cannot use OData settlement without InvoiceNumber.`;
+            const message = `${route.safeType} line ${line.LineNumber ?? '?'} cannot use OData settlement without InvoiceNumber.`;
             if (skipFailedUniqueIds) {
               skipLine(line, message);
               return normalizedLine;
@@ -438,6 +453,12 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
             ...(uniqueId ? { uniqueId } : {}),
             ...(Number(line.sourceLineNumber) > 0
               ? { sourceLineNumber: Number(line.sourceLineNumber) }
+              : {}),
+            ...(line.nativeWithholding
+              ? {
+                  withholdingAmount: line.nativeWithholding.withholdingAmount,
+                  withholdingGroup: line.nativeWithholding.withholdingGroup,
+                }
               : {}),
           });
         }
@@ -501,12 +522,32 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       };
     });
 
+    const keptLines = postingLines.filter((line) => {
+      if (skippedLineNumbers.has(Number(line.LineNumber))) return false;
+      const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
+      return !uniqueId || !skippedUniqueIds.has(uniqueId);
+    });
+
+    // A native-withholding line has no explicit 223304 entry: D365 only
+    // accounts for the tax if the settlement step enables the calculation on
+    // it. If such a line would not reach that step, stop instead of posting a
+    // journal that silently lacks the withholding.
+    for (const line of keptLines) {
+      if (!line.nativeWithholding) continue;
+      const hasTarget = deferredSettlements.some(
+        (target) =>
+          target.lineNumber === line.LineNumber &&
+          !(target.uniqueId && skippedUniqueIds.has(target.uniqueId)),
+      );
+      if (!hasTarget) {
+        throw new Error(
+          `[WITHHOLDING_NOT_ENABLED] ${route.safeType} line ${line.LineNumber} relies on native withholding but has no invoice settlement target to enable it; refusing to post without the withholding entry.`,
+        );
+      }
+    }
+
     return {
-      postingLines: postingLines.filter((line) => {
-        if (skippedLineNumbers.has(Number(line.LineNumber))) return false;
-        const uniqueId = String(line.customLineApiBody?.PAYMENTID ?? '').trim();
-        return !uniqueId || !skippedUniqueIds.has(uniqueId);
-      }),
+      postingLines: keptLines,
       deferredSettlements: deferredSettlements.filter(
         (target) =>
           !target.uniqueId || !skippedUniqueIds.has(target.uniqueId),
