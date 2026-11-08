@@ -1585,7 +1585,19 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
       TransactionText: description,
       Company: this.company,
       AccountType: accountLine.ACCOUNTTYPE,
-      OffsetAccountType: isNotesReceivable ? 'Bank' : offsetLine.ACCOUNTTYPE,
+      // Vendor Payment only: WCApp accounts (WCA-US / WCA-EUR / 125901 /
+      // 125902) are Ledger main accounts in D365FO even when Finance tags the
+      // payment row `Bank`. The display value is already emitted as the main
+      // account, so the type must follow it (as Cash-In does) or posting
+      // validation rejects the line. Other workflows keep the source type.
+      OffsetAccountType: isNotesReceivable
+        ? 'Bank'
+        : isVendorPaymentRoute
+          ? resolveCashAccountType(
+              offsetLine.ACCOUNTDISPLAYVALUE,
+              offsetLine.ACCOUNTTYPE,
+            )
+          : offsetLine.ACCOUNTTYPE,
       PaymentMethodName: resolveCashPaymentMethod(accountLine, offsetLine),
       PaymentReference: paymentReference,
       OffsetTransactionText: (() => {
