@@ -778,7 +778,8 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       [
         line(1, '5810265983', 0, 1.59, 'Custody'),
         line(2, '5810265983', 1.59, 0),
-        line(3, '5815371117', 0, 33.2889, 'Custody'),
+        // Each invoice group must balance on its own to be its own request.
+        line(3, '5815371117', 0, 34.1886, 'Custody'),
         line(4, '5815371117', 34.1886, 0),
       ] as any[],
       20,
@@ -936,6 +937,28 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           groupInvoice: '5810265983',
           customLineApiBody: {
             journalNum: '',
+            AccountNum: '3210',
+            accountTypeStr: 'Vendor',
+            creditAmount: 1.59,
+            PAYMENTID: '475848',
+            VendorGroup: 'Custody',
+            MarkedLines: [
+              {
+                InvoiceNumber: '5810265983',
+                OperationNumber: 'OP-1',
+                DocumentNumber: '16627',
+                HasWithHoldingLine: false,
+              },
+            ],
+          },
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 5,
+          cashDirection: 'out',
+          groupInvoice: '5810265983',
+          customLineApiBody: {
+            journalNum: '',
             AccountNum: 'Sl-000036',
             accountTypeStr: 'Vendor',
             debitAmount: 1.59,
@@ -963,7 +986,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
       requests.map((posted: any[]) => posted.map((row: any) => row.AccountNum)),
     ).toEqual([
       ['3210', '223304', 'Sl-000036'],
-      ['Sl-000036'],
+      ['3210', 'Sl-000036'],
     ]);
   });
 
@@ -1819,6 +1842,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         customLineApiBody: {
           journalNum: '',
           AccountNum: 'Sl-000036',
+          // Self-balancing line (carries an offset): this test covers skip
+          // mechanics, not voucher balance.
+          OffsetAccountTypeStr: 'Bank',
           PAYMENTID: '475761',
           debitAmount: 298.86,
           creditAmount: 0,
@@ -1840,6 +1866,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
         customLineApiBody: {
           journalNum: '',
           AccountNum: 'Sl-000020',
+          OffsetAccountTypeStr: 'Bank',
           PAYMENTID: '999001',
           debitAmount: 100,
           creditAmount: 0,
@@ -1923,6 +1950,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
             journalNum: '',
             AccountNum: 'Sl-000020',
             accountTypeStr: 'Vendor',
+            // Self-balancing line (carries an offset): this test covers the
+            // already-marked retry mechanics, not voucher balance.
+            OffsetAccountTypeStr: 'Bank',
             VendorGroup: 'Shiplines',
             currency: 'EGP',
             PAYMENTID: '466596',
@@ -1946,6 +1976,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           customLineApiBody: {
             journalNum: '',
             AccountNum: 'Sl-000036',
+            OffsetAccountTypeStr: 'Bank',
             PAYMENTID: '999001',
             debitAmount: 200,
             creditAmount: 0,

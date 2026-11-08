@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import {
+  CashOutGroupingLine,
+  cashOutInvoiceSplitKey,
+  resolveBalancedInvoiceSplitKeys,
+  simulateCashOutVouchers,
+  toCashOutCents,
+} from './cash-out-request-grouping';
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
@@ -369,11 +376,19 @@ export class CustomerPaymentJournalService {
     const skippedUniqueIds = new Set<string>();
     const skippedLineNumbers = new Set<number>();
 
+    // Only invoice groups that balance by themselves may become their own
+    // request; every other group stays inside the UniqueId's main request.
+    const splitKeys =
+      cashDirection === 'out'
+        ? this.planCashOutInvoiceSplits(lines, skipFailedUniqueIds)
+        : new Set<string>();
+
     if (cashDirection === 'out') {
       const atomicity = this.inspectCashOutUniqueIdAtomicity(
         lines,
         existingLines,
         skipFailedUniqueIds,
+        splitKeys,
       );
       if (!skipFailedUniqueIds) {
         this.assertCashOutUniqueIdAtomicity(atomicity, headerKey);
@@ -424,8 +439,12 @@ export class CustomerPaymentJournalService {
         skippedUniqueIds.has(
           this.cashOutLineGroupKey(
             uniqueId,
-            line.groupInvoice,
+            this.cashOutEffectiveGroupInvoice(
+              line.groupInvoice,
+              line.customLineApiBody,
+            ),
             skipFailedUniqueIds,
+            splitKeys,
           ),
         )
       )
@@ -466,6 +485,7 @@ export class CustomerPaymentJournalService {
         ? this.groupCashOutPendingLinesByUniqueId(
             pendingLines,
             skipFailedUniqueIds,
+            splitKeys,
           )
         : this.chunkCashPendingLines(pendingLines, this.cashOutBulkBatchSize);
     const totalBatches = batches.length;
@@ -501,8 +521,12 @@ export class CustomerPaymentJournalService {
         skippedUniqueIds.add(
           this.cashOutLineGroupKey(
             skipRow.uniqueId,
-            pendingBatch[0]?.groupInvoice,
+            this.cashOutEffectiveGroupInvoice(
+              pendingBatch[0]?.groupInvoice,
+              pendingBatch[0]?.body,
+            ),
             skipFailedUniqueIds,
+            splitKeys,
           ),
         );
         this.logger.warn(
@@ -527,6 +551,7 @@ export class CustomerPaymentJournalService {
         target.uniqueId,
         target.invoiceNumber,
         skipFailedUniqueIds,
+        splitKeys,
       );
       return (
         !skippedUniqueIds.has(skipKey) &&
@@ -556,8 +581,12 @@ export class CustomerPaymentJournalService {
         return !skippedUniqueIds.has(
           this.cashOutLineGroupKey(
             uniqueId,
-            line.groupInvoice,
+            this.cashOutEffectiveGroupInvoice(
+              line.groupInvoice,
+              line.customLineApiBody,
+            ),
             skipFailedUniqueIds,
+            splitKeys,
           ),
         );
       })
@@ -620,6 +649,12 @@ export class CustomerPaymentJournalService {
     skipFailedUniqueIds = false,
   ): Promise<CashOutBulkBatchResult> {
     if (pendingLines.length === 0) return { unmarkedSettlements: [] };
+
+    // Custody Settlement lines carry no offset account, so X++ balances them
+    // per request. Never send a request that cannot balance on its own.
+    if (skipFailedUniqueIds && cashDirection === 'out') {
+      this.assertCashOutRequestBalanced(headerKey, pendingLines);
+    }
 
     this.logger.log(
       `[CASH-CUSTOM] Submitting ${pendingLines.length} cash-${cashDirection} lines in request ${batch.number}/${batch.total} for header ${headerKey}`,
@@ -1163,6 +1198,7 @@ export class CustomerPaymentJournalService {
     lines: D365FOCustomerPaymentJournalLineRequest[],
     existingLines: ReadonlySet<number>,
     splitByInvoice = false,
+    splitKeys?: ReadonlySet<string>,
   ): {
     missingPaymentIdLines: D365FOCustomerPaymentJournalLineRequest[];
     partialGroups: Array<{
@@ -1194,8 +1230,12 @@ export class CustomerPaymentJournalService {
 
       const atomicKey = this.cashOutLineGroupKey(
         uniqueId,
-        line.groupInvoice,
+        this.cashOutEffectiveGroupInvoice(
+          line.groupInvoice,
+          line.customLineApiBody,
+        ),
         splitByInvoice,
+        splitKeys,
       );
       const group = groups.get(atomicKey) ?? {
         uniqueId,
@@ -1244,13 +1284,16 @@ export class CustomerPaymentJournalService {
 
   /**
    * Build Cash-Out requests per source UniqueId. Custody Settlement UniqueIds
-   * that contain several invoices are split so each invoice is its own TTS.
+   * that contain several invoices are split so each invoice is its own TTS,
+   * but only for invoice groups that balance by themselves (`splitKeys`);
+   * all other lines stay together, in source order, in the main request.
    * Groups containing a Custody vendor are sent first, followed by other
    * non-empty vendor groups, then groups whose VendorGroup is empty.
    */
   private groupCashOutPendingLinesByUniqueId(
     pendingLines: CashBulkPendingLine[],
     splitByInvoice = false,
+    splitKeys?: ReadonlySet<string>,
   ): CashBulkPendingLine[][] {
     const groups = new Map<
       string,
@@ -1270,9 +1313,9 @@ export class CustomerPaymentJournalService {
         vendorGroup.toLowerCase() === 'custody' ? 0 : vendorGroup ? 1 : 2;
       const groupKey = this.cashOutLineGroupKey(
         uniqueId,
-        line.groupInvoice ||
-          String(line.body.MarkedLines?.[0]?.InvoiceNumber ?? '').trim(),
+        this.cashOutEffectiveGroupInvoice(line.groupInvoice, line.body),
         splitByInvoice,
+        splitKeys,
       );
       const group = groups.get(groupKey) ?? {
         lines: [],
@@ -1292,22 +1335,92 @@ export class CustomerPaymentJournalService {
     return orderedGroups.map(([, group]) => group.lines);
   }
 
+  /**
+   * Atomic request key of a Cash-Out line. A UniqueId is one request unless
+   * `splitByInvoice` is on AND the line's invoice group is in `splitKeys`,
+   * the set of invoice groups that balance by themselves.
+   *
+   * Cash-Out source exports use 0/00/000 as an empty invoice placeholder; it
+   * is treated exactly like a blank. A request must balance on its own: X++
+   * assigns vouchers per request, so an invoice group that does not balance
+   * alone stays inside the UniqueId's main request (see
+   * cash-out-request-grouping.ts). Without a plan nothing is split.
+   */
   private cashOutLineGroupKey(
     uniqueId: string,
     groupInvoice: string | undefined,
     splitByInvoice: boolean,
+    splitKeys?: ReadonlySet<string>,
   ): string {
     if (!splitByInvoice) return uniqueId;
-    const normalizedInvoice = String(groupInvoice ?? '').trim();
+    const splitKey = cashOutInvoiceSplitKey(uniqueId, groupInvoice);
+    if (!splitKey || !splitKeys?.has(splitKey)) return uniqueId;
+    return splitKey;
+  }
 
-    // Cash-Out source exports use 0/00/000 as an empty invoice placeholder.
-    // Treat it exactly like a blank when building the UniqueId request. If it
-    // becomes a separate invoice key, custody vendor lines are sent before
-    // their ledger/cash balancing lines and D365 generates split, unbalanced
-    // vouchers even though the source sequence is balanced.
-    if (!normalizedInvoice || /^0+$/.test(normalizedInvoice)) return uniqueId;
+  /** Invoice used for request grouping: the line's own, else its first mark. */
+  private cashOutEffectiveGroupInvoice(
+    groupInvoice: string | undefined,
+    body: TSLedgerJournalTransCustomRequestBody | undefined,
+  ): string {
+    return (
+      String(groupInvoice ?? '').trim() ||
+      String(body?.MarkedLines?.[0]?.InvoiceNumber ?? '').trim()
+    );
+  }
 
-    return `${uniqueId}::${normalizedInvoice}`;
+  /** Per-header plan: which invoice groups of Custody UniqueIds may be split. */
+  private planCashOutInvoiceSplits(
+    lines: D365FOCustomerPaymentJournalLineRequest[],
+    splitByInvoice: boolean,
+  ): Set<string> {
+    if (!splitByInvoice) return new Set();
+    const grouping: CashOutGroupingLine[] = [];
+    for (const line of lines) {
+      const body = line.customLineApiBody;
+      const uniqueId = String(body?.PAYMENTID ?? '').trim();
+      if (!body || !uniqueId) continue;
+      grouping.push({
+        uniqueId,
+        invoice: this.cashOutEffectiveGroupInvoice(line.groupInvoice, body),
+        offsetless: !String(body.OffsetAccountTypeStr ?? '').trim(),
+        debitCents: toCashOutCents(body.debitAmount),
+        creditCents: toCashOutCents(body.creditAmount),
+      });
+    }
+    return resolveBalancedInvoiceSplitKeys(grouping);
+  }
+
+  /**
+   * Custody Settlement guard: a request whose offset-less lines do not balance
+   * would leave an unbalanced voucher in D365, so it is never sent.
+   */
+  private assertCashOutRequestBalanced(
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+  ): void {
+    // Nominal amounts of different currencies cannot be compared; such a
+    // request is balanced in the accounting currency, which is validated
+    // earlier with the official exchange rates.
+    const currencies = new Set(
+      pendingLines
+        .map((line) => String(line.body.currency ?? '').trim().toUpperCase())
+        .filter(Boolean),
+    );
+    if (currencies.size > 1) return;
+
+    const { openLines, openNetCents } = simulateCashOutVouchers(
+      pendingLines.map((line) => ({
+        offsetless: !String(line.body.OffsetAccountTypeStr ?? '').trim(),
+        debitCents: toCashOutCents(line.body.debitAmount),
+        creditCents: toCashOutCents(line.body.creditAmount),
+      })),
+    );
+    if (openLines === 0) return;
+    const uniqueId = String(pendingLines[0]?.body.PAYMENTID ?? '').trim();
+    throw new NonRetryableDfoPostingError(
+      `[JOURNAL_IMBALANCE] UniqueId ${uniqueId || '?'} in header ${headerKey}: ${openLines} of ${pendingLines.length} line(s) would stay in an unbalanced voucher (debit minus credit = ${openNetCents} cent(s)); the request was not sent so D365 does not create an unbalanced voucher.`,
+    );
   }
 
   private toUnmarkedODataSettlementTarget(
