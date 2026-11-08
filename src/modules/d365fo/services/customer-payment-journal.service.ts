@@ -2,6 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
+  ActualJournalLine,
+  classifyTimeoutRecovery,
+  countJournalIdentities,
+  decimalToCents,
+  journalLineIdentityKey,
+  PlannedJournalLine,
+  reconcileExistingJournalLines,
+} from './cash-journal-line-identity';
+import {
   CashOutGroupingLine,
   cashOutInvoiceSplitKey,
   resolveBalancedInvoiceSplitKeys,
@@ -67,6 +76,16 @@ type CashBulkAttempt = 'initial' | 'unmarked_retry';
 interface CashBulkBatch {
   number: number;
   total: number;
+}
+
+/**
+ * Custody Settlement recovery state. D365 numbers lines in insertion order, so
+ * recovery identifies lines by content (see cash-journal-line-identity.ts) and
+ * tracks how many of each identity D365 is known to hold.
+ */
+interface CashIdentityRecovery {
+  /** Identity -> number of lines D365 is known to hold (updated per request). */
+  counts: Map<string, number>;
 }
 
 interface CashOutBulkBatchResult {
@@ -326,7 +345,29 @@ export class CustomerPaymentJournalService {
     );
 
     let existingLines: Set<number> = new Set();
-    if (dataAreaId && lines.length > 0) {
+    let actualJournalLines: ActualJournalLine[] | undefined;
+    if (
+      dataAreaId &&
+      lines.length > 0 &&
+      cashDirection === 'out' &&
+      skipFailedUniqueIds
+    ) {
+      // Custody Settlement: planned line numbers are never an identity. Read
+      // the COMPLETE journal (all pages) and recognise existing lines by
+      // content. A read failure stops posting rather than risking duplicates.
+      try {
+        actualJournalLines =
+          await this.vendorPaymentJournalService.listJournalLineDetails(
+            headerKey,
+            dataAreaId,
+          );
+      } catch (error) {
+        const lookupError = this.dfoErrorExtractor.extractMessage(error);
+        throw new NonRetryableDfoPostingError(
+          `[JOURNAL_READBACK_FAILED] Could not read journal ${headerKey} from D365 before posting; posting was stopped to prevent duplicates: ${lookupError}`,
+        );
+      }
+    } else if (dataAreaId && lines.length > 0) {
       try {
         // Cash-out lines live on VendorPaymentJournalLines; cash-in on CustomerPaymentJournalLines.
         const existing = existingLinesLoader
@@ -355,18 +396,37 @@ export class CustomerPaymentJournalService {
       allowUnmarkedInvoiceRetry,
       cashDirection,
       skipFailedUniqueIds,
+      actualJournalLines,
     );
+  }
+
+  /** Request line -> the identity used to find it in D365. */
+  private toPlannedJournalLine(
+    lineNumber: number,
+    body: TSLedgerJournalTransCustomRequestBody,
+  ): PlannedJournalLine {
+    return {
+      lineNumber,
+      paymentId: String(body.PAYMENTID ?? '').trim(),
+      accountType: String(body.accountTypeStr ?? '').trim(),
+      account: String(body.AccountNum ?? '').trim(),
+      currency: String(body.currency ?? '').trim(),
+      debitCents: decimalToCents(body.debitAmount),
+      creditCents: decimalToCents(body.creditAmount),
+      offsetless: !String(body.OffsetAccountTypeStr ?? '').trim(),
+    };
   }
 
   private async postCashBulkLinesForHeader(
     endpoint: string,
     headerKey: string,
     lines: D365FOCustomerPaymentJournalLineRequest[],
-    existingLines: Set<number>,
+    existingLinesInput: Set<number>,
     dataAreaId: string,
     allowUnmarkedInvoiceRetry: boolean,
     cashDirection: 'in' | 'out',
     skipFailedUniqueIds = false,
+    actualJournalLines?: ActualJournalLine[],
   ): Promise<{
     postedLines: Array<{ headerId: string; lineNumber: number }>;
     skipped: CustodySettlementSkipRow[];
@@ -375,6 +435,7 @@ export class CustomerPaymentJournalService {
     const skipped: CustodySettlementSkipRow[] = [];
     const skippedUniqueIds = new Set<string>();
     const skippedLineNumbers = new Set<number>();
+    let existingLines = existingLinesInput;
 
     // Only invoice groups that balance by themselves may become their own
     // request; every other group stays inside the UniqueId's main request.
@@ -382,6 +443,75 @@ export class CustomerPaymentJournalService {
       cashDirection === 'out'
         ? this.planCashOutInvoiceSplits(lines, skipFailedUniqueIds)
         : new Set<string>();
+
+    // Custody Settlement: which planned lines already exist in D365 is decided
+    // by content identity, never by planned line number (D365 renumbers).
+    let identityRecovery: CashIdentityRecovery | undefined;
+    if (cashDirection === 'out' && skipFailedUniqueIds && actualJournalLines) {
+      const planned = lines
+        .filter((line) => line.customLineApiBody)
+        .map((line) =>
+          this.toPlannedJournalLine(line.LineNumber, line.customLineApiBody),
+        );
+      const reconciliation = reconcileExistingJournalLines(
+        planned,
+        actualJournalLines,
+      );
+      existingLines = reconciliation.existingPlannedLineNumbers;
+      identityRecovery = { counts: countJournalIdentities(actualJournalLines) };
+
+      // Lines that cannot be attributed one by one (repeated identical lines
+      // whose count in D365 differs from the plan) are never resumed or
+      // re-posted automatically: fail closed for their UniqueId.
+      for (const ambiguous of reconciliation.ambiguousIdentities) {
+        const affected = new Set(ambiguous.plannedLineNumbers);
+        const firstLine = lines.find((line) => affected.has(line.LineNumber));
+        const uniqueId = String(
+          firstLine?.customLineApiBody?.PAYMENTID ?? '',
+        ).trim();
+        if (!firstLine || !uniqueId) continue;
+        const atomicKey = this.cashOutLineGroupKey(
+          uniqueId,
+          this.cashOutEffectiveGroupInvoice(
+            firstLine.groupInvoice,
+            firstLine.customLineApiBody,
+          ),
+          skipFailedUniqueIds,
+          splitKeys,
+        );
+        if (skippedUniqueIds.has(atomicKey)) continue;
+        skippedUniqueIds.add(atomicKey);
+        const groupLines = lines.filter(
+          (line) =>
+            String(line.customLineApiBody?.PAYMENTID ?? '').trim() ===
+              uniqueId &&
+            this.cashOutLineGroupKey(
+              uniqueId,
+              this.cashOutEffectiveGroupInvoice(
+                line.groupInvoice,
+                line.customLineApiBody,
+              ),
+              skipFailedUniqueIds,
+              splitKeys,
+            ) === atomicKey,
+        );
+        skipped.push(
+          this.toCashOutPostSkipRow(
+            headerKey,
+            groupLines.map((line) => ({
+              lineNumber: line.LineNumber,
+              sourceLineNumber: line.sourceLineNumber,
+              groupInvoice: line.groupInvoice,
+              body: line.customLineApiBody,
+            })),
+            `[JOURNAL_RECOVERY_AMBIGUOUS] UniqueId ${uniqueId} in header ${headerKey}: D365 holds ${ambiguous.actual} line(s) identical to ${ambiguous.planned} planned line(s) (same UniqueId, account, currency and amounts), so the lines that already exist cannot be told apart. Posting was skipped; resolve the journal manually.`,
+          ),
+        );
+        this.logger.warn(
+          `[CASH-CUSTOM] Skipping UniqueId ${uniqueId} for header ${headerKey}: ambiguous existing lines (${ambiguous.actual} in D365, ${ambiguous.planned} planned)`,
+        );
+      }
+    }
 
     if (cashDirection === 'out') {
       const atomicity = this.inspectCashOutUniqueIdAtomicity(
@@ -410,6 +540,7 @@ export class CustomerPaymentJournalService {
           skippedLineNumbers.add(line.LineNumber);
         }
         for (const group of atomicity.partialGroups) {
+          if (skippedUniqueIds.has(group.atomicKey)) continue;
           skippedUniqueIds.add(group.atomicKey);
           skipped.push(
             this.toCashOutPostSkipRow(
@@ -503,7 +634,20 @@ export class CustomerPaymentJournalService {
           { number: index + 1, total: totalBatches },
           cashDirection,
           skipFailedUniqueIds,
+          identityRecovery,
         );
+        if (identityRecovery) {
+          // The request returned without error: D365 now holds its lines.
+          for (const pending of pendingBatch) {
+            const key = journalLineIdentityKey(
+              this.toPlannedJournalLine(pending.lineNumber, pending.body),
+            );
+            identityRecovery.counts.set(
+              key,
+              (identityRecovery.counts.get(key) ?? 0) + 1,
+            );
+          }
+        }
         unmarkedSettlements.push(...batchResult.unmarkedSettlements);
         if (batchResult.settlementSkip) {
           skipped.push(batchResult.settlementSkip);
@@ -647,6 +791,7 @@ export class CustomerPaymentJournalService {
     batch: CashBulkBatch,
     cashDirection: 'in' | 'out' = 'out',
     skipFailedUniqueIds = false,
+    identityRecovery?: CashIdentityRecovery,
   ): Promise<CashOutBulkBatchResult> {
     if (pendingLines.length === 0) return { unmarkedSettlements: [] };
 
@@ -666,6 +811,7 @@ export class CustomerPaymentJournalService {
       { headerKey, pendingLines, attempt: 'initial', batch },
       cashDirection,
       dataAreaId,
+      identityRecovery,
     );
     const failures = this.extractCashBulkFailures(result, pendingLines);
     await this.logCashBulkOutcome({
@@ -721,6 +867,7 @@ export class CustomerPaymentJournalService {
         },
         cashDirection,
         dataAreaId,
+        identityRecovery,
       );
       const retryFailures = this.extractCashBulkFailures(
         retryResult,
@@ -1542,6 +1689,7 @@ export class CustomerPaymentJournalService {
     },
     cashDirection: 'in' | 'out',
     dataAreaId: string,
+    identityRecovery?: CashIdentityRecovery,
   ): Promise<TSLedgerJournalTransCustomBulkResponseBody> {
     try {
       return await this.postCustomCashLines(
@@ -1555,12 +1703,21 @@ export class CustomerPaymentJournalService {
         throw error;
       }
 
-      const recovered = await this.cashLinesCommittedAfterTimeout(
-        context.headerKey,
-        pendingLines,
-        dataAreaId,
-        cashDirection,
-      );
+      // Custody Settlement recovers by content identity; planned line
+      // numbers are not trusted. Every other flow keeps its existing logic.
+      const recovered = identityRecovery
+        ? await this.cashLinesCommittedAfterTimeoutByIdentity(
+            context.headerKey,
+            pendingLines,
+            dataAreaId,
+            identityRecovery,
+          )
+        : await this.cashLinesCommittedAfterTimeout(
+            context.headerKey,
+            pendingLines,
+            dataAreaId,
+            cashDirection,
+          );
       if (!recovered) throw error;
 
       this.logger.warn(
@@ -1577,6 +1734,54 @@ export class CustomerPaymentJournalService {
   private isBulkClientTimeout(error: unknown): boolean {
     const message = this.dfoErrorExtractor.extractMessage(error).toLowerCase();
     return message.includes('timeout') && message.includes('exceeded');
+  }
+
+  /**
+   * After a client timeout D365 may or may not have committed the request.
+   * The ACTUAL journal is read and every submitted line is recognised by its
+   * identity (UniqueId, account type, account, currency, debit, credit), as a
+   * count relative to what D365 held before the request:
+   *   - all lines present   -> committed, do not re-send;
+   *   - none present        -> not committed, the original timeout is raised;
+   *   - anything in between -> [JOURNAL_RECOVERY_AMBIGUOUS], fail closed.
+   */
+  private async cashLinesCommittedAfterTimeoutByIdentity(
+    headerKey: string,
+    pendingLines: CashBulkPendingLine[],
+    dataAreaId: string,
+    recovery: CashIdentityRecovery,
+  ): Promise<boolean> {
+    const planned = pendingLines.map((line) =>
+      this.toPlannedJournalLine(line.lineNumber, line.body),
+    );
+    let outcome: ReturnType<typeof classifyTimeoutRecovery> = 'NOT_COMMITTED';
+
+    for (const delayMs of this.timeoutRecoveryDelaysMs) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      let actual: ActualJournalLine[];
+      try {
+        actual = await this.vendorPaymentJournalService.listJournalLineDetails(
+          headerKey,
+          dataAreaId,
+        );
+      } catch (lookupError: unknown) {
+        this.logger.warn(
+          `[CASH-CUSTOM] Could not confirm lines for header ${headerKey} after timeout: ${this.dfoErrorExtractor.extractMessage(lookupError)}`,
+        );
+        return false;
+      }
+      outcome = classifyTimeoutRecovery(planned, recovery.counts, actual);
+      if (outcome === 'COMMITTED') return true;
+    }
+
+    if (outcome === 'AMBIGUOUS') {
+      throw new NonRetryableDfoPostingError(
+        `[JOURNAL_RECOVERY_AMBIGUOUS] Header ${headerKey} timed out and D365 holds only part of the ${planned.length} submitted line(s), or a number of identical lines that cannot be attributed. Posting stopped so the request is not sent again.`,
+      );
+    }
+    return false;
   }
 
   private async cashLinesCommittedAfterTimeout(

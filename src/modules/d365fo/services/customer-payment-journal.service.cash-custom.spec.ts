@@ -28,6 +28,7 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
 
     const vendorPaymentJournalService = {
       listLinesForHeader: jest.fn().mockResolvedValue([]),
+      listJournalLineDetails: jest.fn().mockResolvedValue([]),
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
       updateLineDescription: jest.fn().mockResolvedValue(undefined),
     };
@@ -2098,8 +2099,19 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
   it('skips a partially present UniqueId and continues later UniqueIds on the Custody Settlement path', async () => {
     const { service, d365foClient, vendorPaymentJournalService } =
       buildService();
-    vendorPaymentJournalService.listLinesForHeader.mockResolvedValueOnce([
-      { LineNumber: 1 },
+    // D365 already holds the FIRST line of the UniqueId, but under its own
+    // line number (7): the planned number (1) is never used as identity.
+    vendorPaymentJournalService.listJournalLineDetails.mockResolvedValueOnce([
+      {
+        lineNumber: 7,
+        paymentId: 'PARTIAL-UNIQUE-ID',
+        accountType: 'Vend',
+        account: 'Sl-000036',
+        currency: 'EGP',
+        debitCents: 1000,
+        creditCents: 0,
+        voucher: 'V-1',
+      },
     ]);
     d365foClient.post.mockResolvedValueOnce({
       StatusCode: 'Success',
@@ -2117,6 +2129,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           customLineApiBody: {
             journalNum: '',
             AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            currency: 'EGP',
+            debitAmount: 10,
             PAYMENTID: 'PARTIAL-UNIQUE-ID',
           },
         },
@@ -2128,6 +2143,9 @@ describe('CustomerPaymentJournalService - cash custom line APIs', () => {
           customLineApiBody: {
             journalNum: '',
             AccountNum: 'Sl-000036',
+            accountTypeStr: 'Vendor',
+            currency: 'EGP',
+            creditAmount: 10,
             PAYMENTID: 'PARTIAL-UNIQUE-ID',
           },
         },

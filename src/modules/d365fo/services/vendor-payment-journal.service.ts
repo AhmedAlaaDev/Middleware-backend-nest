@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import {
+  ActualJournalLine,
+  toActualJournalLine,
+  VendorPaymentJournalLineRow,
+} from './cash-journal-line-identity';
 import { D365FOClientService } from './d365fo-client.service';
 import { DfoErrorExtractorService } from './dfo-error-extractor.service';
 import { ODataQueryBuilderService } from './odata-query-builder.service';
@@ -178,6 +183,76 @@ export class VendorPaymentJournalService {
     );
 
     return response.value || [];
+  }
+
+  /**
+   * Every line of a journal with the fields that identify it (all verified on
+   * the VendorPaymentJournalLines entity). Follows @odata.nextLink to the end
+   * and refuses a repeated page or continuation loop, so a caller can trust it
+   * to be the COMPLETE journal. Used by Custody Settlement recovery and
+   * post-write verification; other callers keep listLinesForHeader.
+   */
+  public async listJournalLineDetails(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<ActualJournalLine[]> {
+    const filter = this.queryBuilder.and(
+      this.queryBuilder.eq('dataAreaId', dataAreaId),
+      this.queryBuilder.eq('JournalBatchNumber', headerKey),
+    );
+    let endpoint = this.queryBuilder.buildQuery(
+      '/data/VendorPaymentJournalLines',
+      {
+        filter,
+        select: [
+          'LineNumber',
+          'PaymentId',
+          'AccountType',
+          'AccountDisplayValue',
+          'CurrencyCode',
+          'DebitAmount',
+          'CreditAmount',
+          'Voucher',
+        ],
+        crossCompany: true,
+      },
+    );
+
+    const lines: ActualJournalLine[] = [];
+    const seenPages = new Set<string>();
+    const seenLineNumbers = new Set<number>();
+    for (;;) {
+      if (seenPages.has(endpoint)) {
+        throw new Error(
+          `D365 journal ${headerKey} read-back repeated the page ${endpoint}; refusing to trust an incomplete result.`,
+        );
+      }
+      seenPages.add(endpoint);
+
+      const response = await this.d365foClient.get<VendorPaymentJournalLineRow>(
+        endpoint,
+        { useCache: false },
+      );
+      for (const row of response.value ?? []) {
+        const line = toActualJournalLine(row);
+        if (line.lineNumber <= 0 || seenLineNumbers.has(line.lineNumber)) {
+          throw new Error(
+            `D365 journal ${headerKey} read-back returned line ${line.lineNumber} twice or without a line number; refusing to trust it.`,
+          );
+        }
+        seenLineNumbers.add(line.lineNumber);
+        lines.push(line);
+      }
+      const nextLink = response['@odata.nextLink'];
+      if (!nextLink) break;
+      try {
+        const url = new URL(nextLink);
+        endpoint = `${url.pathname}${url.search}`;
+      } catch {
+        endpoint = nextLink;
+      }
+    }
+    return lines;
   }
 
   /**

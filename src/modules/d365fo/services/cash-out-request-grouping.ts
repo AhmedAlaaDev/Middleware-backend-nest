@@ -11,6 +11,8 @@
  * All arithmetic uses integer minor units (cents); there is no tolerance.
  */
 
+import { decimalToCents } from './cash-journal-line-identity';
+
 export interface CashOutGroupingLine {
   uniqueId: string;
   /** Invoice used to split a UniqueId into per-invoice requests (may be blank). */
@@ -21,11 +23,13 @@ export interface CashOutGroupingLine {
   creditCents: number;
 }
 
-/** Converts a decimal money amount to integer cents (no float noise). */
+/**
+ * Converts a decimal money amount to integer cents with the same decimal
+ * half-up rounding D365 applies (see decimalToCents), so request grouping,
+ * recovery and read-back all agree on every amount.
+ */
 export function toCashOutCents(amount: unknown): number {
-  const value = Number(amount ?? 0);
-  if (!Number.isFinite(value)) return 0;
-  return Math.round(value * 100);
+  return decimalToCents(amount);
 }
 
 /**

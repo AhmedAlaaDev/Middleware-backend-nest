@@ -27,6 +27,7 @@ describe('Custody Settlement - large UniqueIds', () => {
     };
     const vendorPaymentJournalService = {
       listLinesForHeader: jest.fn().mockResolvedValue([]),
+      listJournalLineDetails: jest.fn().mockResolvedValue([]),
       updateLineFinancialTags: jest.fn().mockResolvedValue(undefined),
       updateLineDescription: jest.fn().mockResolvedValue(undefined),
     };
@@ -153,6 +154,18 @@ describe('Custody Settlement - large UniqueIds', () => {
     });
     return specs;
   };
+
+  /** What D365 returns for a posted spec line (its own line number). */
+  const actualLine = (s: Spec, d365LineNumber: number) => ({
+    lineNumber: d365LineNumber,
+    paymentId: s.id,
+    accountType: s.type === 'Vendor' ? 'Vend' : s.type,
+    account: s.account ?? `ACC-${s.n}`,
+    currency: s.currency ?? 'EGP',
+    debitCents: toCashOutCents(s.dr),
+    creditCents: toCashOutCents(s.cr),
+    voucher: `V-${s.id}`,
+  });
 
   const netCents = (specs: Spec[]) =>
     specs.reduce(
@@ -531,8 +544,10 @@ describe('Custody Settlement - large UniqueIds', () => {
       const { service, d365foClient, vendorPaymentJournalService } =
         buildService();
       const big = bigUniqueId('PARTIAL', 1, 40);
-      vendorPaymentJournalService.listLinesForHeader.mockResolvedValue(
-        big.slice(0, 15).map((s) => ({ LineNumber: s.n })),
+      // 15 of its 40 lines already exist in D365, under D365's own line
+      // numbers (100+), which differ from the planned ones (1..15).
+      vendorPaymentJournalService.listJournalLineDetails.mockResolvedValue(
+        big.slice(0, 15).map((s, index) => actualLine(s, 100 + index)),
       );
 
       const result = await post(service, [
