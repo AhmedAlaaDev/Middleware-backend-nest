@@ -266,30 +266,43 @@ describe('VendorPaymentLineBuilder', () => {
     ] as any[]);
 
     expect(result).toHaveLength(2);
+    // The withholding row is tagged operation ...12510, so the allocation
+    // policy (exact invoice + operation first; see
+    // vendor-payment-withholding.policy.spec) pairs it with the vendor line of
+    // that operation (461), not the earlier line of the same invoice (437).
+    // The companion therefore carries operation ...12510 and the withholding
+    // amount; the aggregated main line carries the full invoice and the
+    // allocation stays visible in its settlements.
     expect(
       buildVendorLine.mock.calls.map((call) => ({
         lineNumber: call[1].LINENUMBER,
         amount: call[2].CREDITAMOUNT,
         operation: call[1].FINTAGDISPLAYVALUE.split('|')[0],
-        withholdingLineNumber: call[5][0].withholdingLine?.LINENUMBER,
         offset: call[2].ACCOUNTDISPLAYVALUE,
       })),
     ).toEqual([
       {
-        lineNumber: 437,
+        lineNumber: 461,
         amount: 27,
-        operation: 'O25-IMP-AI-12501',
-        withholdingLineNumber: 460,
+        operation: 'O25-IMP-AI-12510',
         offset: '223304|dims',
       },
       {
         lineNumber: 437,
         amount: 999,
         operation: 'O25-IMP-AI-12501',
-        withholdingLineNumber: 460,
         offset: '223201|dims',
       },
     ]);
+    const [companionCall, mainCall] = buildVendorLine.mock.calls;
+    expect(companionCall[5][0].withholdingLine?.LINENUMBER).toBe(460);
+    expect(
+      mainCall[5].some(
+        (settlement: any) =>
+          settlement.vendorLine.LINENUMBER === 461 &&
+          settlement.withholdingLine?.LINENUMBER === 460,
+      ),
+    ).toBe(true);
   });
 
   it('rejects explicit withholding when main plus withholding does not equal the Vendor total', () => {
