@@ -1,6 +1,10 @@
 import { CashJournalPostingStrategy } from './cash-journal-posting.strategy';
 
 import { CashJournalRoute } from '@/modules/cash/services/cash-journal-routing.service';
+import {
+  ActualJournalLine,
+  decimalToCents,
+} from '@/modules/d365fo/services/cash-journal-line-identity';
 
 describe('CashJournalPostingStrategy', () => {
   const apRoute: CashJournalRoute = {
@@ -106,6 +110,37 @@ describe('CashJournalPostingStrategy', () => {
       setHeaderCashDirectionContext: jest.fn(),
     };
     const vendorPaymentStrategy = createHeaderStrategyMock('AP-0001', 11);
+    // Default D365 read-back for Custody Settlement tests that mock the posting
+    // service: D365 holds exactly the lines the (mocked) service reported as
+    // posted, under its own numbers and without a voucher. Tests of the
+    // verification itself override this with explicit D365 content.
+    (vendorPaymentStrategy as any).listJournalLineDetails = jest
+      .fn()
+      .mockImplementation(async (): Promise<ActualJournalLine[]> => {
+        const post =
+          customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips;
+        const call = post.mock.calls[post.mock.calls.length - 1];
+        const result =
+          await post.mock.results[post.mock.results.length - 1]?.value;
+        if (!call || !result) return [];
+        const posted = new Set(
+          (result.postedLines as Array<{ lineNumber: number }>).map((l) =>
+            Number(l.lineNumber),
+          ),
+        );
+        return (call[1] as any[])
+          .filter((line) => posted.has(Number(line.LineNumber)))
+          .map((line, index) => ({
+            lineNumber: 1000 + index,
+            paymentId: String(line.customLineApiBody?.PAYMENTID ?? ''),
+            accountType: String(line.customLineApiBody?.accountTypeStr ?? ''),
+            account: String(line.customLineApiBody?.AccountNum ?? ''),
+            currency: String(line.customLineApiBody?.currency ?? ''),
+            debitCents: decimalToCents(line.customLineApiBody?.debitAmount),
+            creditCents: decimalToCents(line.customLineApiBody?.creditAmount),
+            voucher: '',
+          }));
+      });
     const ledgerStrategy = createHeaderStrategyMock('GL-0001', 21);
 
     const strategy = new CashJournalPostingStrategy(
@@ -381,8 +416,8 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedLines =
-      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
-        .calls[0][1];
+      harness.customerPaymentJournalService
+        .postCashOutLinesForHeaderAllowingSkips.mock.calls[0][1];
     expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([
       {
         InvoiceNumber: '920262100001342781',
@@ -441,7 +476,9 @@ describe('CashJournalPostingStrategy', () => {
           .postCashOutLinesForHeaderAllowingSkips.mock.calls[0][1];
       // Sandbox-verified: X++ writes ITEMWITHHOLDINGTAXGROUP into the line's
       // TaxWithholdGroup; the calculation flag is enabled afterwards.
-      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('WHT-3%');
+      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe(
+        'WHT-3%',
+      );
       expect(posted[0].customLineApiBody.MarkedLines).toEqual([]);
       const options =
         harness.vendorInvoiceJournalService
@@ -531,7 +568,9 @@ describe('CashJournalPostingStrategy', () => {
         harness.customerPaymentJournalService.postCashOutLinesForHeader.mock
           .calls[0][1];
       expect(posted[0].customLineApiBody.MarkedLines).toEqual([]);
-      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe('WHT-3%');
+      expect(posted[0].customLineApiBody.ITEMWITHHOLDINGTAXGROUP).toBe(
+        'WHT-3%',
+      );
       const options =
         harness.vendorInvoiceJournalService
           .createVendorPaymentJournalLineSettlements.mock.calls[0][0];
@@ -601,7 +640,8 @@ describe('CashJournalPostingStrategy', () => {
           .invocationCallOrder[0],
       ).toBeLessThan(
         harness.vendorInvoiceJournalService
-          .createVendorPaymentJournalLineSettlements.mock.invocationCallOrder[0],
+          .createVendorPaymentJournalLineSettlements.mock
+          .invocationCallOrder[0],
       );
     });
   });
@@ -664,8 +704,8 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedLines =
-      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
-        .calls[0][1];
+      harness.customerPaymentJournalService
+        .postCashOutLinesForHeaderAllowingSkips.mock.calls[0][1];
     expect(postedLines[0].customLineApiBody.MarkedLines).toEqual([]);
     expect(postedLines[1].customLineApiBody.MarkedLines).toEqual([custodyMark]);
     expect(
@@ -727,7 +767,8 @@ describe('CashJournalPostingStrategy', () => {
       );
 
       expect(
-        harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips,
+        harness.customerPaymentJournalService
+          .postCashOutLinesForHeaderAllowingSkips,
       ).toHaveBeenCalledTimes(1);
       expect(
         harness.customerPaymentJournalService.postCashOutLinesForHeader,
@@ -804,8 +845,9 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     const postedBody =
-      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mock
-        .calls[0][1][0].customLineApiBody;
+      harness.customerPaymentJournalService
+        .postCashOutLinesForHeaderAllowingSkips.mock.calls[0][1][0]
+        .customLineApiBody;
     expect(postedBody.AccountNum).toBe(
       '124101|1602|016|001|003|201000283|201000283|3098|3098',
     );
@@ -885,7 +927,8 @@ describe('CashJournalPostingStrategy', () => {
     );
 
     expect(
-      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips,
+      harness.customerPaymentJournalService
+        .postCashOutLinesForHeaderAllowingSkips,
     ).toHaveBeenCalledWith(
       'Mesco-000015139',
       [],
@@ -898,7 +941,9 @@ describe('CashJournalPostingStrategy', () => {
       expect.objectContaining({
         uniqueId: 'SKIP-CREDIT',
         phase: 'post',
-        error: expect.stringContaining('cannot be posted without DocumentNumber'),
+        error: expect.stringContaining(
+          'cannot be posted without DocumentNumber',
+        ),
       }),
     ]);
   });
@@ -929,7 +974,10 @@ describe('CashJournalPostingStrategy', () => {
         skipped?: Array<Record<string, unknown>>;
       }) => {
         expect(options.targets).toEqual([
-          expect.objectContaining({ uniqueId: '999001', invoiceNumber: 'INV-OK' }),
+          expect.objectContaining({
+            uniqueId: '999001',
+            invoiceNumber: 'INV-OK',
+          }),
         ]);
         options.skipped?.push({
           uniqueId: '999001',
@@ -1128,8 +1176,8 @@ describe('CashJournalPostingStrategy', () => {
       }),
     );
     expect(
-      harness.vendorInvoiceJournalService.createVendorPaymentJournalLineSettlements
-        .mock.calls[0][0].targets,
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements.mock.calls[0][0].targets,
     ).toHaveLength(2);
     expect(harness.strategy.consumeSkipReport()).toEqual([
       expect.objectContaining({
@@ -1203,5 +1251,293 @@ describe('CashJournalPostingStrategy', () => {
         lineDirection: 'in',
       }),
     ).toThrow('mismatched module, lineDirection');
+  });
+
+  describe('Custody Settlement journal verification before settlement marks', () => {
+    const LEDGER =
+      '223404|1201|012|001|001|301000002|301000002|3066|3066|16517|MESCO CC ALEX|3115|Payable|||EXPORT||||';
+
+    /**
+     * One balanced Custody UniqueId: a supplier invoice debit (settled by
+     * invoice) against a ledger credit and a petty-cash credit.
+     */
+    const custodyLines = () => {
+      const body = (extra: Record<string, unknown>) => ({
+        journalNum: '',
+        currency: 'EGP',
+        PAYMENTID: 'U-1',
+        debitAmount: 0,
+        creditAmount: 0,
+        ...extra,
+      });
+      return [
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 1,
+          sourceLineNumber: 901,
+          cashDirection: 'out' as const,
+          customLineApiBody: body({
+            AccountNum: 'Sl-000020',
+            accountTypeStr: 'Vendor',
+            VendorGroup: 'Shiplines',
+            debitAmount: 200,
+            MarkedLines: [
+              {
+                InvoiceNumber: 'INV-1',
+                OperationNumber: '',
+                DocumentNumber: 'DOC-1',
+                HasWithHoldingLine: false,
+              },
+            ],
+          }),
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 2,
+          sourceLineNumber: 902,
+          cashDirection: 'out' as const,
+          customLineApiBody: body({
+            AccountNum: LEDGER,
+            accountTypeStr: 'Ledger',
+            creditAmount: 100,
+          }),
+        },
+        {
+          dataAreaId: 'm-p',
+          LineNumber: 3,
+          sourceLineNumber: 903,
+          cashDirection: 'out' as const,
+          customLineApiBody: body({
+            AccountNum: 'AlexHO EG',
+            accountTypeStr: 'RCash',
+            creditAmount: 100,
+          }),
+        },
+      ];
+    };
+
+    const postedAll = {
+      postedLines: [1, 2, 3].map((lineNumber) => ({
+        headerId: 'Mesco-1',
+        lineNumber,
+      })),
+      skipped: [],
+    };
+
+    /** The journal as D365 returns it: its own numbers, canonical casing. */
+    const d365Journal = (): ActualJournalLine[] => [
+      {
+        lineNumber: 41,
+        paymentId: 'U-1',
+        accountType: 'Vend',
+        account: 'Sl-000020',
+        currency: 'EGP',
+        debitCents: 20000,
+        creditCents: 0,
+        voucher: 'P-Freight-1',
+      },
+      {
+        lineNumber: 42,
+        paymentId: 'U-1',
+        accountType: 'Ledger',
+        account: LEDGER.replace('EXPORT', 'Export'),
+        currency: 'EGP',
+        debitCents: 0,
+        creditCents: 10000,
+        voucher: 'P-Freight-1',
+      },
+      {
+        lineNumber: 43,
+        paymentId: 'U-1',
+        accountType: 'RCash',
+        account: 'AlexHO EG',
+        currency: 'EGP',
+        debitCents: 0,
+        creditCents: 10000,
+        voucher: 'P-Freight-1',
+      },
+    ];
+
+    const run = async (
+      journal: ActualJournalLine[] | Error,
+      posted = postedAll,
+      extraLines: ReturnType<typeof custodyLines> = [],
+    ) => {
+      const harness = buildStrategy();
+      harness.customerPaymentJournalService.postCashOutLinesForHeaderAllowingSkips.mockResolvedValue(
+        posted,
+      );
+      if (journal instanceof Error) {
+        harness.vendorPaymentStrategy.listJournalLineDetails.mockRejectedValue(
+          journal,
+        );
+      } else {
+        harness.vendorPaymentStrategy.listJournalLineDetails.mockResolvedValue(
+          journal,
+        );
+      }
+      harness.strategy.setRouteContext(custodySettlementRoute);
+      const outcome = harness.strategy
+        .postLinesForHeader(
+          'Mesco-1',
+          [...custodyLines(), ...extraLines],
+          'm-p',
+          20,
+        )
+        .then(
+          () => undefined,
+          (error: Error) => error,
+        );
+      return { harness, error: await outcome };
+    };
+
+    const marksWritten = (harness: ReturnType<typeof buildStrategy>) =>
+      harness.vendorInvoiceJournalService
+        .createVendorPaymentJournalLineSettlements.mock.calls.length;
+
+    it('writes settlement marks when D365 holds exactly the expected journal', async () => {
+      const { harness, error } = await run(d365Journal());
+
+      expect(error).toBeUndefined();
+      expect(marksWritten(harness)).toBe(1);
+    });
+
+    it.each([
+      [
+        'a missing line',
+        (j: ActualJournalLine[]) => j.slice(0, 2),
+        '[JOURNAL_LINES_MISSING]',
+      ],
+      [
+        'an extra line',
+        (j: ActualJournalLine[]) => [
+          ...j,
+          { ...j[0], lineNumber: 44, paymentId: 'STRANGER' },
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'a duplicated line',
+        (j: ActualJournalLine[]) => [...j, { ...j[2], lineNumber: 44 }],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'the wrong vendor',
+        (j: ActualJournalLine[]) => [
+          { ...j[0], account: 'Sl-000099' },
+          j[1],
+          j[2],
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'the wrong ledger account',
+        (j: ActualJournalLine[]) => [
+          j[0],
+          { ...j[1], account: LEDGER.replace('223404', '223405') },
+          j[2],
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'the wrong currency',
+        (j: ActualJournalLine[]) => [j[0], j[1], { ...j[2], currency: 'USD' }],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'the wrong debit amount',
+        (j: ActualJournalLine[]) => [
+          { ...j[0], debitCents: 20001 },
+          j[1],
+          j[2],
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'the wrong credit amount',
+        (j: ActualJournalLine[]) => [
+          j[0],
+          { ...j[1], creditCents: 9999 },
+          j[2],
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'wrong lines with the same count and totals (credits swapped)',
+        (j: ActualJournalLine[]) => [
+          j[0],
+          { ...j[1], creditCents: 4000 },
+          { ...j[2], creditCents: 16000 },
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'a ledger line that lost its financial dimensions',
+        (j: ActualJournalLine[]) => [
+          j[0],
+          { ...j[1], account: '223404' },
+          j[2],
+        ],
+        '[JOURNAL_LINE_MISMATCH]',
+      ],
+      [
+        'an unbalanced voucher',
+        (j: ActualJournalLine[]) => [
+          j[0],
+          j[1],
+          { ...j[2], voucher: 'P-Freight-2' },
+        ],
+        '[JOURNAL_IMBALANCE]',
+      ],
+    ])(
+      'stops before any settlement mark when D365 holds %s',
+      async (_name, tamper, code) => {
+        const { harness, error } = await run(tamper(d365Journal()));
+
+        expect(error?.message).toContain(code);
+        expect(error?.message).toContain('settlement marks were not written');
+        expect(marksWritten(harness)).toBe(0);
+      },
+    );
+
+    it('stops before any settlement mark when the journal cannot be read back', async () => {
+      const { harness, error } = await run(new Error('OData unavailable'));
+
+      expect(error?.message).toContain('[JOURNAL_READBACK_FAILED]');
+      expect(error?.message).toContain('OData unavailable');
+      expect(marksWritten(harness)).toBe(0);
+    });
+
+    it('verifies only the lines of UniqueIds that were posted, not skipped ones', async () => {
+      // UniqueId U-2 (lines 4 and 5) was skipped by the posting service, so
+      // only U-1's three lines count as posted and D365 is expected to hold
+      // exactly those.
+      const skippedUniqueId = custodyLines()
+        .slice(1)
+        .map((line, index) => ({
+          ...line,
+          LineNumber: 4 + index,
+          customLineApiBody: { ...line.customLineApiBody, PAYMENTID: 'U-2' },
+        }));
+      const { harness, error } = await run(
+        d365Journal(),
+        postedAll,
+        skippedUniqueId,
+      );
+
+      expect(error).toBeUndefined();
+      expect(marksWritten(harness)).toBe(1);
+    });
+
+    it('does not verify the journal for a route that is not Custody Settlement', async () => {
+      const harness = buildStrategy();
+      harness.strategy.setRouteContext(apRoute);
+
+      await harness.strategy.postLinesForHeader('AP-0001', [], 'm-p', 20);
+
+      expect(
+        harness.vendorPaymentStrategy.listJournalLineDetails,
+      ).not.toHaveBeenCalled();
+    });
   });
 });

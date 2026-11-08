@@ -7,6 +7,7 @@ import {
 } from './dfo-posting-strategy.interface';
 
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
+import { ActualJournalLine } from '@/modules/d365fo/services/cash-journal-line-identity';
 import { VendorPaymentJournalService } from '@/modules/d365fo/services/vendor-payment-journal.service';
 import {
   D365FOVendorPaymentJournalHeaderRequest,
@@ -155,6 +156,16 @@ export class VendorPaymentJournalPostingStrategy implements IDfoPostingStrategy 
     dataAreaId: string,
   ): Promise<Array<{ LineNumber: number }>> {
     return await this.vendorPaymentJournalService.listLinesForHeader(
+      headerKey,
+      dataAreaId,
+    );
+  }
+
+  public async listJournalLineDetails(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<ActualJournalLine[]> {
+    return await this.vendorPaymentJournalService.listJournalLineDetails(
       headerKey,
       dataAreaId,
     );

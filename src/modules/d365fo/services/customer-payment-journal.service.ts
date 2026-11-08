@@ -5,10 +5,10 @@ import {
   ActualJournalLine,
   classifyTimeoutRecovery,
   countJournalIdentities,
-  decimalToCents,
   journalLineIdentityKey,
   PlannedJournalLine,
   reconcileExistingJournalLines,
+  toPlannedJournalLine,
 } from './cash-journal-line-identity';
 import {
   CashOutGroupingLine,
@@ -405,16 +405,7 @@ export class CustomerPaymentJournalService {
     lineNumber: number,
     body: TSLedgerJournalTransCustomRequestBody,
   ): PlannedJournalLine {
-    return {
-      lineNumber,
-      paymentId: String(body.PAYMENTID ?? '').trim(),
-      accountType: String(body.accountTypeStr ?? '').trim(),
-      account: String(body.AccountNum ?? '').trim(),
-      currency: String(body.currency ?? '').trim(),
-      debitCents: decimalToCents(body.debitAmount),
-      creditCents: decimalToCents(body.creditAmount),
-      offsetless: !String(body.OffsetAccountTypeStr ?? '').trim(),
-    };
+    return toPlannedJournalLine(lineNumber, body);
   }
 
   private async postCashBulkLinesForHeader(

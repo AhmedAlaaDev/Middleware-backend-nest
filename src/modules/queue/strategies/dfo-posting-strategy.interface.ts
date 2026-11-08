@@ -1,3 +1,5 @@
+import type { ActualJournalLine } from '@/modules/d365fo/services/cash-journal-line-identity';
+
 /**
  * Result of posting headers
  */
@@ -110,4 +112,14 @@ export interface IDfoPostingStrategy {
    * this omit the method; the caller then keeps the existing header.
    */
   headerExists?(headerId: string, dataAreaId: string): Promise<boolean>;
+
+  /**
+   * Every line of a journal with the fields that identify it (all pages).
+   * Optional: only the routes that verify the posted journal content
+   * (Custody Settlement) implement it.
+   */
+  listJournalLineDetails?(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<ActualJournalLine[]>;
 }

@@ -138,6 +138,34 @@ export function journalLineIdentityKey(line: {
   ].join('\u001f');
 }
 
+/** The request-body fields that make up a planned line (all optional). */
+export interface JournalRequestBody {
+  PAYMENTID?: unknown;
+  accountTypeStr?: unknown;
+  AccountNum?: unknown;
+  currency?: unknown;
+  debitAmount?: unknown;
+  creditAmount?: unknown;
+  OffsetAccountTypeStr?: unknown;
+}
+
+/** A cash-out request line as the identity used to find it in D365. */
+export function toPlannedJournalLine(
+  lineNumber: number,
+  body: JournalRequestBody,
+): PlannedJournalLine {
+  return {
+    lineNumber,
+    paymentId: asText(body.PAYMENTID).trim(),
+    accountType: asText(body.accountTypeStr).trim(),
+    account: asText(body.AccountNum).trim(),
+    currency: asText(body.currency).trim(),
+    debitCents: decimalToCents(body.debitAmount),
+    creditCents: decimalToCents(body.creditAmount),
+    offsetless: !asText(body.OffsetAccountTypeStr).trim(),
+  };
+}
+
 export function toActualJournalLine(
   row: VendorPaymentJournalLineRow,
 ): ActualJournalLine {

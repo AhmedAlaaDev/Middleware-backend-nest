@@ -18,6 +18,14 @@ import {
   isAlreadyMarkedUnmarkedUploadSkip,
 } from '@/modules/cash/services/custody-settlement-skip-report';
 import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
+import {
+  ActualJournalLine,
+  toPlannedJournalLine,
+} from '@/modules/d365fo/services/cash-journal-line-identity';
+import {
+  formatJournalIntegrityFailure,
+  verifyJournalContent,
+} from '@/modules/d365fo/services/cash-journal-readback';
 import { CustomerPaymentJournalService } from '@/modules/d365fo/services/customer-payment-journal.service';
 import {
   VendorInvoiceJournalService,
@@ -200,6 +208,18 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
         );
     }
 
+    if (skipFailedUniqueIds && route.lineDirection === 'out') {
+      // A successful HTTP response does not prove the journal is right.
+      // Compare the COMPLETE actual D365 journal with the expected one before
+      // any settlement mark is made.
+      await this.verifyPostedJournal(
+        headerKey,
+        dataAreaId,
+        postingLines,
+        new Set(postedLines.map((line) => Number(line.lineNumber))),
+      );
+    }
+
     const skippedUniqueIds = new Set(
       this.skipReport
         .filter((row) => !isAlreadyMarkedUnmarkedUploadSkip(row))
@@ -225,6 +245,63 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
     }
 
     return postedLines;
+  }
+
+  /**
+   * Post-write integrity gate for Custody Settlement. The EXPECTED journal is
+   * the batch's planned lines for this header minus the UniqueIds that were
+   * skipped; the ACTUAL journal is every line D365 holds for it (all pages).
+   * They are compared line by line by content identity, never by planned line
+   * number (D365 renumbers) and never by counts or totals alone (a missing
+   * debit and a duplicated credit still add up). Any discrepancy stops the
+   * flow BEFORE settlement marks are written, and the journal is left as it is
+   * for controlled recovery.
+   */
+  private async verifyPostedJournal(
+    headerKey: string,
+    dataAreaId: string,
+    postingLines: D365FOCustomerPaymentJournalLineRequest[],
+    postedLineNumbers: ReadonlySet<number>,
+  ): Promise<void> {
+    const planned = postingLines
+      .filter(
+        (line) =>
+          line.customLineApiBody && postedLineNumbers.has(Number(line.LineNumber)),
+      )
+      .map((line) =>
+        toPlannedJournalLine(Number(line.LineNumber), line.customLineApiBody),
+      );
+
+    const active = this.activeHeaderStrategy();
+    if (!active.listJournalLineDetails) {
+      throw new NonRetryableDfoPostingError(
+        `[JOURNAL_READBACK_FAILED] Journal ${headerKey} cannot be read back for this route. Invoice settlement marks were not written.`,
+      );
+    }
+
+    let actual: ActualJournalLine[];
+    try {
+      actual = await active.listJournalLineDetails(headerKey, dataAreaId);
+    } catch (error: unknown) {
+      throw new NonRetryableDfoPostingError(
+        `[JOURNAL_READBACK_FAILED] Could not read journal ${headerKey} back from D365 (${error instanceof Error ? error.message : String(error)}). Invoice settlement marks were not written.`,
+      );
+    }
+
+    const errors = verifyJournalContent({
+      journalNumber: headerKey,
+      planned,
+      actual,
+      // X++ balances only offset-less lines, so voucher balance is a valid
+      // invariant only when every expected line is offset-less.
+      checkVoucherBalance:
+        planned.length > 0 && planned.every((line) => line.offsetless),
+    });
+    if (errors.length > 0) {
+      throw new NonRetryableDfoPostingError(
+        formatJournalIntegrityFailure(errors),
+      );
+    }
   }
 
   public deleteHeader(headerId: string, dataAreaId: string): Promise<void> {
