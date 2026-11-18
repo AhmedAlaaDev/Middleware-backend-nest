@@ -10,7 +10,10 @@ import {
   YardInvoiceJobRecord,
   YardInvoiceJobStore,
 } from './yard-invoice-job.store';
+import { microToString } from './yard-invoice-decimal';
+import { YardInvoiceGroup } from './yard-invoice-aggregation';
 import { buildYardCashInSourceRows } from './yard-invoice-posting-adapter';
+import { YardInvoiceGroupValidation } from './yard-invoice-validation';
 import {
   YardInvoicePreviewService,
   YardInvoiceReview,
@@ -243,6 +246,13 @@ export class YardInvoiceSubmitService {
         companyId: company,
       });
       await this.storeReview(jobId, review);
+      const batchId = await this.createReviewBatch(
+        jobId,
+        company,
+        fileName,
+        review,
+      );
+      await this.store.update(jobId, { batchId });
     } catch (error) {
       await this.store.update(jobId, {
         status: 'REVIEW_FAILED',
@@ -330,7 +340,9 @@ export class YardInvoiceSubmitService {
       const { rows } = buildYardCashInSourceRows(
         this.preview.toPostingInputs(review),
       );
-      batchId = await this.createBatch(jobId, job.company, rows);
+      // The batch is created at review time; submit reuses it.
+      batchId =
+        job.batchId ?? (await this.createBatch(jobId, job.company, rows));
       await this.store.update(jobId, {
         status: 'BATCH_CREATED',
         batchId,
@@ -425,6 +437,93 @@ export class YardInvoiceSubmitService {
     return batch.id;
   }
 
+  /**
+   * Creates the standard Cash In batch for this upload when the review completes,
+   * so the batch pages show it like the other Cash In types. One row per invoice.
+   * Valid invoices are formatted exactly as before. Blocked invoices keep their
+   * reasons as batch errors. The standard post refuses a batch with errors, so a
+   * blocked invoice still cannot be posted.
+   */
+  private async createReviewBatch(
+    jobId: string,
+    company: string,
+    fileName: string,
+    review: YardInvoiceReview,
+  ): Promise<string> {
+    const checks = new Map(
+      review.validation.groups.map((check) => [check.invoiceNumber, check]),
+    );
+    const rows: EntryRawDataModel[] = [];
+    const rowChecks: YardInvoiceGroupValidation[] = [];
+    review.groups.forEach((group, index) => {
+      const check = checks.get(group.invoiceNumber);
+      if (!check) {
+        throw new Error(
+          `invoice ${group.invoiceNumber} is missing review data`,
+        );
+      }
+      rowChecks.push(check);
+      if (check.status === 'VALID' && check.metadata && check.offsetAccount) {
+        rows.push(
+          buildYardCashInSourceRows([
+            {
+              group,
+              metadata: check.metadata,
+              offsetAccount: check.offsetAccount,
+            },
+          ]).rows[0],
+        );
+      } else {
+        rows.push(blockedReviewRow(group, index, check));
+      }
+    });
+
+    const processor = this.processorFactory.getProcessorByName(
+      EntryProcessorTypes.CashInYard,
+    );
+    const enriched = (await processor.formatAndEnrichAsync(
+      rows,
+      company,
+    )) as EntryDynDataModel[];
+    const validated = (await processor.validateAsync(
+      enriched,
+      company,
+    )) as EntryDynDataModel[];
+    if (validated.length !== rows.length) {
+      throw new Error('Yard batch rows could not be matched to invoices');
+    }
+    validated.forEach((line, index) => {
+      for (const message of rowChecks[index].errors) {
+        line.AddError('Yard', message);
+      }
+    });
+
+    const batch = await this.dataBatchService.createAsync(
+      EntryProcessorTypes.CashInYard,
+      ENTRY_PROCESSOR_NAMES.CASH_IN_YARD,
+      company,
+      fileName,
+      rows,
+      validated,
+      undefined,
+      'last.ledger.voucher.cash.in.yard',
+    );
+    const blockedInvoiceCount = rowChecks.filter(
+      (check) => check.status === 'BLOCKED',
+    ).length;
+    await this.operationalLogs.emit({
+      level: blockedInvoiceCount > 0 ? 'warn' : 'info',
+      message: `Yard invoice batch created: ${rows.length} invoice(s), ${blockedInvoiceCount} blocked`,
+      context: YardInvoiceSubmitService.name,
+      eventType: 'yard_invoice.batch',
+      jobId,
+      batchId: batch.id,
+      status: blockedInvoiceCount > 0 ? 'blocked' : 'validated',
+      metadata: { invoiceCount: rows.length, blockedInvoiceCount },
+    });
+    return batch.id;
+  }
+
   private async loadOwnedJob(
     jobId: string,
     user: YardInvoiceUser,
@@ -466,6 +565,45 @@ function invoiceOutcome(
     default:
       return 'PROCESSING';
   }
+}
+
+/**
+ * Row for a blocked invoice. It has the same fields as a valid row; D365-derived
+ * values are blank where the invoice could not be resolved. A blocked row is never
+ * posted, because the batch holds errors.
+ */
+function blockedReviewRow(
+  group: YardInvoiceGroup,
+  index: number,
+  check: YardInvoiceGroupValidation,
+): EntryRawDataModel {
+  const metadata = check.metadata;
+  const offset = check.offsetAccount;
+  return {
+    UniqueId: index + 1,
+    LINENUMBER: index + 1,
+    TRANSDATE: group.paymentDate,
+    DESCRIPTION: `Yard receipt ${group.invoiceNumber}`,
+    ACCOUNTTYPE: 'Cust',
+    ACCOUNTDISPLAYVALUE: metadata?.customerAccount ?? '',
+    DEFAULTDIMENSIONDISPLAYVALUE: metadata?.defaultDimensionDisplayValue ?? '',
+    FINTAGDISPLAYVALUE: metadata?.financialTagDisplayValue ?? '',
+    OFFSETACCOUNTTYPE: offset?.accountType ?? '',
+    OFFSETACCOUNTDISPLAYVALUE: group.safeBankAccount.trim(),
+    OFFSETFINTAGDISPLAYVALUE: metadata?.financialTagDisplayValue ?? '',
+    CURRENCYCODE: group.currencyCode,
+    EXCHANGERATE: 0,
+    CREDITAMOUNT: Number(microToString(group.roundedTotal)),
+    DEBITAMOUNT: 0,
+    INVOICE: group.invoiceNumber,
+    PAYMENTID: group.paymentSerials[0] ?? '',
+    PAYMENTREFERENCE: group.paymentReference,
+    VOUCHERTYPE: group.paymentType,
+    SafeType: 'Customer Collection',
+    DOCUMENT: '',
+    DOCUMENTDATE: group.paymentDate,
+    DUEDATE: '',
+  } as unknown as EntryRawDataModel;
 }
 
 function safeMessage(error: unknown, fallback: string): string {

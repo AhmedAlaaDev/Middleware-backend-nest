@@ -153,6 +153,7 @@ async function setup(
     rows?: TemplateFixtureRow[];
     account?: YardOffsetAccountResolution;
     pollBatchStatus?: DataBatchStatus;
+    processorErrors?: string[];
   } = {},
 ) {
   const store = new MemoryJobStore();
@@ -175,7 +176,9 @@ async function setup(
   } as unknown as YardInvoiceAccountResolver;
   const preview = new YardInvoicePreviewService(enrichment, accounts);
 
-  const processorState: { errors: string[] } = { errors: [] };
+  const processorState: { errors: string[] } = {
+    errors: options.processorErrors ?? [],
+  };
   const processor = {
     formatAndEnrichAsync: jest.fn((rows: Record<string, unknown>[]) =>
       Promise.resolve(
@@ -184,7 +187,11 @@ async function setup(
     ),
     validateAsync: jest.fn((lines: Record<string, unknown>[]) =>
       Promise.resolve(
-        lines.map((l) => ({ ...l, GetErrors: () => processorState.errors })),
+        lines.map((l) => ({
+          ...l,
+          GetErrors: () => processorState.errors,
+          AddError: () => undefined,
+        })),
       ),
     ),
   };
@@ -407,10 +414,11 @@ describe('YardInvoiceSubmitService: submit', () => {
     const ctx = await setup({
       account: { ...ACCOUNT_OK, status: 'INACTIVE', message: 'inactive' },
     });
+    await waitFor(() => Boolean(ctx.store.records.get(ctx.jobId)?.batchId));
     await expect(
       ctx.service.submit(ctx.jobId, ctx.buffer, USER),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a changed file: the job returns to PREVIEWED with a message and no batch is created', async () => {
@@ -431,7 +439,7 @@ describe('YardInvoiceSubmitService: submit', () => {
     expect(ctx.store.records.get(ctx.jobId)?.lastError).toMatch(
       /changed since review/,
     );
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a change in D365 metadata after review (the payload hash covers resolved values)', async () => {
@@ -447,22 +455,21 @@ describe('YardInvoiceSubmitService: submit', () => {
     };
     await ctx.service.submit(ctx.jobId, ctx.buffer, USER);
     await waitFor(() => ctx.store.records.get(ctx.jobId)?.lastError !== null);
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
     expect(ctx.store.records.get(ctx.jobId)?.status).toBe('PREVIEWED');
   });
 
-  it('keeps the job reviewable when the processor reports line errors', async () => {
-    const ctx = await setup();
-    ctx.processorState.errors = [
-      'AccountDisplayValue: customer ACCOUNTDISPLAYVALUE is required.',
-    ];
-    await ctx.service.submit(ctx.jobId, ctx.buffer, USER);
-    await waitFor(() => ctx.store.records.get(ctx.jobId)?.lastError !== null);
-    expect(ctx.commandBus.execute).not.toHaveBeenCalled();
+  it('keeps the job reviewable and records processor line errors on the batch as errors', async () => {
+    const ctx = await setup({
+      processorErrors: [
+        'AccountDisplayValue: customer ACCOUNTDISPLAYVALUE is required.',
+      ],
+    });
+    expect(ctx.store.records.get(ctx.jobId)?.batchId).toBeTruthy();
     expect(ctx.store.records.get(ctx.jobId)?.status).toBe('PREVIEWED');
-    expect(ctx.store.records.get(ctx.jobId)?.lastError).toMatch(
-      /failed validation/,
-    );
+    expect(ctx.store.records.get(ctx.jobId)?.lastError).toBeNull();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
+    expect(ctx.commandBus.execute).not.toHaveBeenCalled();
   });
 
   it('marks SUBMIT_FAILED when queueing fails, and a retry re-queues the same batch', async () => {
@@ -492,7 +499,7 @@ describe('YardInvoiceSubmitService: submit', () => {
     ctx.store.records.get(ctx.jobId)!.batchId = 'batch-1';
     await ctx.service.submit(ctx.jobId, ctx.buffer, USER);
     await waitFor(() => ctx.store.records.get(ctx.jobId)?.status === 'QUEUED');
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
     expect(ctx.commandBus.execute).toHaveBeenCalledTimes(1);
   });
 
@@ -500,6 +507,7 @@ describe('YardInvoiceSubmitService: submit', () => {
     const ctx = await setup();
     const record = ctx.store.records.get(ctx.jobId)!;
     record.status = 'SUBMITTING';
+    record.batchId = null;
     record.updatedAt = new Date(Date.now() - YARD_INVOICE_STALE_MS - 60_000);
     expect((await ctx.service.getJob(ctx.jobId, USER)).status).toBe(
       'RECONCILE_REQUIRED',
@@ -507,7 +515,7 @@ describe('YardInvoiceSubmitService: submit', () => {
     await expect(
       ctx.service.submit(ctx.jobId, ctx.buffer, USER),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
   it('shows POSTED per invoice only when the batch reports Posted with no errors, and never settlement', async () => {
@@ -537,7 +545,7 @@ describe('YardInvoiceSubmitService: submit', () => {
         role: 'user',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
   it('returns NotFound for an unknown job', async () => {
