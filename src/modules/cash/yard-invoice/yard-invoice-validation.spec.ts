@@ -277,6 +277,50 @@ describe('validateYardInvoiceGroups', () => {
     expect(blockedTag.groups[0].status).toBe('BLOCKED');
   });
 
+  it('treats "MSC LINE" in the workbook and "MSCLINE" in D365 as the same tag, but still blocks a different container', () => {
+    const sameValue = run(
+      [
+        rec({
+          format: 'YARDS_SOURCE',
+          sourceSheet: 'yard.',
+          layoutId: 'YARDS_LAYOUT_REMARK',
+          workbookCustomerAccount: 'C-100',
+          workbookDimension: '|2401|024',
+          workbookFinTag:
+            '||MSC LINE|||MSDU2144809|20DC  |||||||||||46309|46309',
+        }),
+      ],
+      found(
+        metadata({
+          financialTagDisplayValue:
+            '||MSCLINE|||MSDU2144809|20DC|||||||||||46309|46309|',
+        }),
+      ),
+    );
+    expect(sameValue.groups[0].status).toBe('VALID');
+
+    const differentContainer = run(
+      [
+        rec({
+          format: 'YARDS_SOURCE',
+          sourceSheet: 'yard.',
+          layoutId: 'YARDS_LAYOUT_REMARK',
+          workbookCustomerAccount: 'C-100',
+          workbookDimension: '|2401|024',
+          workbookFinTag:
+            '||MSC LINE|||MSNU3726851 - MSMU3406638|20DC  |||||||||||46315|46315',
+        }),
+      ],
+      found(
+        metadata({
+          financialTagDisplayValue:
+            '||MSCLINE|||MSNU3726851|20DC|||||||||||46315|46315|',
+        }),
+      ),
+    );
+    expect(differentContainer.groups[0].status).toBe('BLOCKED');
+  });
+
   it('blocks the whole submission when a record-level issue exists', () => {
     const aggregation = aggregateYardInvoiceRecords([rec()]);
     const result = validateYardInvoiceGroups({

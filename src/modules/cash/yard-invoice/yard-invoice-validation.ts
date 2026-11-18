@@ -82,11 +82,15 @@ export function sameDisplayValue(
 }
 
 function canonicalSegments(value: string): string {
-  return value
-    .split('|')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== '')
-    .join('|');
+  return (
+    value
+      .split('|')
+      // Spaces inside a segment are not significant: the workbook writes "MSC LINE"
+      // where D365 stores "MSCLINE".
+      .map((segment) => segment.replace(/\s+/g, ''))
+      .filter((segment) => segment !== '')
+      .join('|')
+  );
 }
 
 function validateGroup(
