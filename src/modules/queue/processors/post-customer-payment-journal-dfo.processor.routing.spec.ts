@@ -128,6 +128,7 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
       logs as any,
       trace as any,
       pauseControl as any,
+      { settleJournal: jest.fn() } as any,
     );
     const job = {
       id: 'job-2045',
@@ -420,7 +421,10 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
   });
 
   describe.each([
-    ['D365 still has the header', (s: any) => s.headerExists.mockResolvedValue(true)],
+    [
+      'D365 still has the header',
+      (s: any) => s.headerExists.mockResolvedValue(true),
+    ],
     [
       'the existence check fails',
       (s: any) => s.headerExists.mockRejectedValue(new Error('timeout')),
@@ -549,50 +553,49 @@ describe('PostCustomerPaymentJournalDFOProcessor - routed cash journals', () => 
   ] as const)(
     'completes a Custody Settlement %s job when UniqueIds are skipped and writes them to the error Excel',
     async (_target, route) => {
-    const group = makeGroup(route);
-    const { processor, job, cashStrategy, batches, jobs } = buildProcessor([
-      group,
-    ]);
-    cashStrategy.consumeSkipReport.mockReturnValue([
-      {
-        uniqueId: '475761',
-        excelLineNumbers: [841],
-        journalBatchNumber: 'D365-RET-001',
-        d365LineNumbers: [4],
-        vendorAccount: 'Sl-000036',
-        invoiceNumber: '5815372458',
-        documentNumber: '16760',
-        amount: 298.86,
-        phase: 'settle',
-        error: 'Settlement amount 298.86 exceeds remainder 298.84.',
-      },
-    ]);
+      const group = makeGroup(route);
+      const { processor, job, cashStrategy, batches, jobs } = buildProcessor([
+        group,
+      ]);
+      cashStrategy.consumeSkipReport.mockReturnValue([
+        {
+          uniqueId: '475761',
+          excelLineNumbers: [841],
+          journalBatchNumber: 'D365-RET-001',
+          d365LineNumbers: [4],
+          vendorAccount: 'Sl-000036',
+          invoiceNumber: '5815372458',
+          documentNumber: '16760',
+          amount: 298.86,
+          phase: 'settle',
+          error: 'Settlement amount 298.86 exceeds remainder 298.84.',
+        },
+      ]);
 
-    await processor.process(job as any);
+      await processor.process(job as any);
 
-    expect(jobs.markCompleted).toHaveBeenCalledWith('job-2045');
-    expect(jobs.markFailed).not.toHaveBeenCalled();
-    expect(batches.appendCustodySettlementSkipErrorsAsync).toHaveBeenCalledWith(
-      'batch-2045',
-      [
+      expect(jobs.markCompleted).toHaveBeenCalledWith('job-2045');
+      expect(jobs.markFailed).not.toHaveBeenCalled();
+      expect(
+        batches.appendCustodySettlementSkipErrorsAsync,
+      ).toHaveBeenCalledWith('batch-2045', [
         expect.objectContaining({
           uniqueId: '475761',
           excelLineNumbers: [841],
           phase: 'settle',
         }),
-      ],
-    );
-    expect(batches.updateDfoPostingErrorsAsync).toHaveBeenCalledWith(
-      'batch-2045',
-      [
-        'Skipped lines: 1 skipped UniqueId issue(s) across 1 UniqueId(s) and 1 Excel line(s) (0 upload, 1 settlement). Open View Errors or download the error Excel for UniqueId, Excel LINENUMBER, and reason.',
-      ],
-    );
-    expect(batches.updateStatusAsync).toHaveBeenCalledWith(
-      'batch-2045',
-      DataBatchStatus.Posted,
-    );
-    expect(batches.clearDfoPostingErrorsAsync).not.toHaveBeenCalled();
+      ]);
+      expect(batches.updateDfoPostingErrorsAsync).toHaveBeenCalledWith(
+        'batch-2045',
+        [
+          'Skipped lines: 1 skipped UniqueId issue(s) across 1 UniqueId(s) and 1 Excel line(s) (0 upload, 1 settlement). Open View Errors or download the error Excel for UniqueId, Excel LINENUMBER, and reason.',
+        ],
+      );
+      expect(batches.updateStatusAsync).toHaveBeenCalledWith(
+        'batch-2045',
+        DataBatchStatus.Posted,
+      );
+      expect(batches.clearDfoPostingErrorsAsync).not.toHaveBeenCalled();
     },
   );
 });

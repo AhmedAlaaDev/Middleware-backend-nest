@@ -6,9 +6,16 @@ import {
   CustodySettlementSkipRow,
   formatCustodySettlementSkipBatchSummary,
 } from '@/modules/cash/services/custody-settlement-skip-report';
+import {
+  isYardInvoiceSettlementEnabled,
+  YardInvoiceSettlementService,
+} from '@/modules/cash/yard-invoice/yard-invoice-settlement.service';
 import { dfoErrorMessage } from '@/modules/d365fo/errors/dfo-api.error';
 import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
-import { DataBatchStatus } from '@/modules/data-batch/enums/data-batch.enum';
+import {
+  DataBatchStatus,
+  EntryProcessorTypes,
+} from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import { TraceContextService } from '@/modules/observability/services/trace-context.service';
@@ -52,6 +59,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     private readonly logs: OperationalLoggerService,
     private readonly trace: TraceContextService,
     private readonly pauseControl: BatchPostingControlService,
+    private readonly yardSettlement: YardInvoiceSettlementService,
   ) {
     super();
   }
@@ -460,6 +468,75 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
       await this.batches.clearDfoPostingErrorsAsync(batchId);
     }
     await this.batches.updateStatusAsync(batchId, DataBatchStatus.Posted);
+    await this.settleYardReceiptsIfEnabled(batchId);
+  }
+
+  /**
+   * Yard receipts are settled to their invoices after the journal exists in D365.
+   * Off unless YARD_INVOICE_SETTLEMENT_ENABLED is 'true'. Never fails the posting:
+   * any error is reported to Observability and the batch stays posted.
+   */
+  private async settleYardReceiptsIfEnabled(batchId: string): Promise<void> {
+    if (!isYardInvoiceSettlementEnabled()) return;
+    try {
+      const batch = await this.batches.getByIdAsync(batchId);
+      if (
+        !batch ||
+        batch.entryProcessorType !== EntryProcessorTypes.CashInYard
+      ) {
+        return;
+      }
+      const journals = [
+        ...new Set(
+          (batch.dfoJournalMappings ?? [])
+            .map((mapping) =>
+              String(mapping.financeJournalBatchNumber ?? '').trim(),
+            )
+            .filter(Boolean),
+        ),
+      ];
+      for (const journalBatchNumber of journals) {
+        const report = await this.yardSettlement.settleJournal({
+          company: batch.company,
+          journalBatchNumber,
+        });
+        const blocked = report.problems.length > 0 || report.failed > 0;
+        await this.logs.emit({
+          level: blocked ? 'warn' : 'info',
+          message: blocked
+            ? `Yard receipt settlement needs review: ${report.settled} settled, ${report.failed} failed, ${report.problems.length} problem(s)`
+            : `Yard receipts settled to invoices: ${report.settled} of ${report.yardLines}`,
+          context: PostCustomerPaymentJournalDFOProcessor.name,
+          eventType: 'yard_invoice.settlement',
+          batchId,
+          status: blocked ? 'partial' : 'settled',
+          metadata: {
+            journalBatchNumber,
+            yardLines: report.yardLines,
+            alreadySettled: report.alreadySettled,
+            settled: report.settled,
+            failed: report.failed,
+            problemCount: report.problems.length,
+            stoppedEarly: report.stoppedEarly,
+            verifiedRows: report.verifiedRows,
+            verifiedTotal: report.verifiedTotal,
+          },
+        });
+      }
+    } catch (error) {
+      await this.logs.emit({
+        level: 'error',
+        message: 'Yard receipt settlement could not run',
+        context: PostCustomerPaymentJournalDFOProcessor.name,
+        eventType: 'yard_invoice.settlement',
+        batchId,
+        status: 'failed',
+        error: {
+          name: error instanceof Error ? error.name : 'Error',
+          message: error instanceof Error ? error.message : 'unknown error',
+        },
+      });
+    }
   }
 
   private async failBatch(

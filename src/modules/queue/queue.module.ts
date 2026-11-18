@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { IConfig, RedisConfig } from '@/config';
+import { YardInvoiceSettlementService } from '@/modules/cash/yard-invoice/yard-invoice-settlement.service';
 import { D365FOModule } from '@/modules/d365fo/d365fo.module';
 import { DataBatchModule } from '@/modules/data-batch/data-batch.module';
 import { MasterDataModule } from '@/modules/master-data/master-data.module';
@@ -100,7 +101,12 @@ const queueServices = [
       ...Object.values(QUEUES).map((queue) => ({ name: queue })),
     ),
   ],
-  providers: [...processors, ...strategies, ...queueServices],
+  providers: [
+    ...processors,
+    ...strategies,
+    ...queueServices,
+    YardInvoiceSettlementService,
+  ],
   controllers: [AdminQueuesController],
   exports: [QueueService, QueueJobStoreService, BatchPostingControlService],
 })
