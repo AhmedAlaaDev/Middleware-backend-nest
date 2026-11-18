@@ -108,7 +108,7 @@ Every stage is company-scoped and reads up to 40 keys per request. Each key list
 | 2 | `CustTransBiEntities` | `Invoice` | Posted invoice transaction (positive `AmountCur` with a voucher), account, currency, closed state, open balance |
 | 3 | `GeneralJournalEntryBiEntities` | `SubledgerVoucher` | GL entries of the voucher |
 | 4 | `GeneralJournalAccountEntryBiEntities` | `GeneralJournalEntry` (Int64) | The posted receivable line (`PostingType` `CustBalance`, debit); its `FinTag` |
-| 5 | `FinTageBiEntities` | `SourceKey` (Int64) | Tag display value |
+| 5 | `FinTagBiEntities` | `SourceKey` (Int64) | Tag display value |
 
 Assumptions still to confirm on a posted non-production invoice: `CustTransBiEntities.Invoice` equals the free-text number; the receivable line carries the header tag; the enum comes back as `CustBalance` or `31`.
 

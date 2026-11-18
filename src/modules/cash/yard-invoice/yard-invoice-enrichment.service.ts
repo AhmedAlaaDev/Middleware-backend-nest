@@ -28,7 +28,7 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
  *   4. GeneralJournalAccountEntryBiEntities GeneralJournalEntry -> posted
  *                               receivable line (PostingType CustBalance, debit)
  *                               and its FinTag record id
- *   5. FinTageBiEntities        SourceKey = FinTag -> DisplayValue
+ *   5. FinTagBiEntities        SourceKey = FinTag -> DisplayValue
  *
  * Only the receivable line supplies the invoice financial tag. More than one
  * distinct tag on the receivable lines makes the invoice AMBIGUOUS.
@@ -364,7 +364,7 @@ export class YardInvoiceEnrichmentService {
       ...new Set([...pending.values()].flatMap((s) => s.entryKeys ?? [])),
     ];
     const linesByEntry = new Map<string, GlAccountEntryRow[]>();
-    await this.runStage(
+    const failedEntryKeys = await this.runStage(
       entryKeys,
       chunkSize,
       concurrency,
@@ -396,6 +396,10 @@ export class YardInvoiceEnrichmentService {
     );
     for (const state of pending.values()) {
       if (!state.entryKeys || state.result) continue;
+      if (state.entryKeys.some((key) => failedEntryKeys.includes(key))) {
+        state.result = lookupFailed(state.invoiceNumber);
+        continue;
+      }
       const receivable = state.entryKeys
         .flatMap((key) => linesByEntry.get(key) ?? [])
         .filter(
@@ -441,7 +445,7 @@ export class YardInvoiceEnrichmentService {
       ),
     ];
     const tagValues = new Map<string, string>();
-    await this.runStage(
+    const failedTagIds = await this.runStage(
       tagIds,
       chunkSize,
       concurrency,
@@ -449,7 +453,7 @@ export class YardInvoiceEnrichmentService {
       async (chunk) => {
         const rows = await this.readAll<FinTagRow>(
           this.buildQuery(
-            '/data/FinTageBiEntities',
+            '/data/FinTagBiEntities',
             company,
             'SourceKey',
             chunk,
@@ -475,6 +479,10 @@ export class YardInvoiceEnrichmentService {
 
     for (const state of pending.values()) {
       if (state.result) continue;
+      if (state.tagId && failedTagIds.includes(state.tagId)) {
+        state.result = lookupFailed(state.invoiceNumber);
+        continue;
+      }
       if (!state.tagId || !tagValues.has(state.tagId)) {
         state.result = fail(
           state.invoiceNumber,
@@ -535,7 +543,8 @@ export class YardInvoiceEnrichmentService {
     concurrency: number,
     pending: Map<string, Pending> | undefined,
     work: (chunk: string[]) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<string[]> {
+    const failedKeys: string[] = [];
     const chunks: string[][] = [];
     for (let i = 0; i < keys.length; i += chunkSize)
       chunks.push(keys.slice(i, i + chunkSize));
@@ -549,6 +558,7 @@ export class YardInvoiceEnrichmentService {
           this.logger.warn(
             `Yard invoice lookup chunk failed (${chunk.length} keys): ${error instanceof Error ? error.name : 'unknown'}`,
           );
+          failedKeys.push(...chunk);
           if (pending) {
             for (const key of chunk) {
               const state = pending.get(key);
@@ -568,6 +578,7 @@ export class YardInvoiceEnrichmentService {
     await Promise.all(
       Array.from({ length: Math.min(concurrency, chunks.length) }, worker),
     );
+    return failedKeys;
   }
 
   /**
@@ -617,6 +628,16 @@ export class YardInvoiceEnrichmentService {
   }
 }
 
+/** A D365 read failed for this invoice's stage: retryable, not missing data. */
+function lookupFailed(invoiceNumber: string): YardInvoiceLookupResult {
+  return {
+    status: 'LOOKUP_FAILED',
+    invoiceNumber,
+    message: 'D365 read failed; retry the review',
+    retryable: true,
+  };
+}
+
 function pendingKeys(
   pending: Map<string, Pending>,
   include: (state: Pending) => boolean,
@@ -661,16 +682,15 @@ function toInt64(value: string): number {
 /** Text of a scalar D365 value; anything else is the empty string. */
 function asText(value: unknown): string {
   if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
   return '';
 }
 
 function isYes(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
-  const text = asText(value)
-    .trim()
-    .toLowerCase();
+  const text = asText(value).trim().toLowerCase();
   return text === 'yes' || text === 'true' || text === '1';
 }
 

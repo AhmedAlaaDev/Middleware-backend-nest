@@ -16,7 +16,7 @@ export interface YardInvoiceMetadata {
   currencyCode: string;
   /** FreeTextInvoiceHeaders.DefaultDimensionDisplayValue. */
   defaultDimensionDisplayValue: string;
-  /** FinTageBiEntities.DisplayValue of the posted receivable line's tag. */
+  /** FinTagBiEntities.DisplayValue of the posted receivable line's tag. */
   financialTagDisplayValue: string;
   /** CustTransBiEntities.Voucher of the posted invoice transaction. */
   voucher: string;

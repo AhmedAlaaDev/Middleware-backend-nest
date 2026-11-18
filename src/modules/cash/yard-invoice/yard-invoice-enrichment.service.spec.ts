@@ -51,7 +51,10 @@ function evaluateEq(clause: string, row: Row): boolean {
   const expected = quoted !== undefined ? quoted.replace(/''/g, "'") : numeric;
   const actual = row[field];
   if (actual === undefined || actual === null) return false;
-  const text = typeof actual === 'string' || typeof actual === 'number' ? String(actual) : '';
+  const text =
+    typeof actual === 'string' || typeof actual === 'number'
+      ? String(actual)
+      : '';
   return text === expected;
 }
 
@@ -137,7 +140,7 @@ function datasetFor(fixtures: ReturnType<typeof invoiceFixture>[]): Dataset {
     CustTransBiEntities: fixtures.map((f) => f.trans),
     GeneralJournalEntryBiEntities: fixtures.map((f) => f.gl),
     GeneralJournalAccountEntryBiEntities: fixtures.flatMap((f) => f.lines),
-    FinTageBiEntities: [
+    FinTagBiEntities: [
       { SourceKey: 555, DisplayValue: 'MSC LINE|MSNU7435730' },
       { SourceKey: 556, DisplayValue: 'OTHER TAG' },
     ],
@@ -217,7 +220,7 @@ describe('YardInvoiceEnrichmentService (batched)', () => {
     const filter =
       new URL(`http://d365.test${glAccount}`).searchParams.get('$filter') ?? '';
     expect(filter).toMatch(/GeneralJournalEntry eq [^']/);
-    const tag = calls.find((c) => c.includes('/data/FinTageBiEntities'));
+    const tag = calls.find((c) => c.includes('/data/FinTagBiEntities'));
     expect(
       new URL(`http://d365.test${tag}`).searchParams.get('$filter'),
     ).toMatch(/SourceKey eq 555/);
@@ -337,6 +340,26 @@ describe('YardInvoiceEnrichmentService (batched)', () => {
       status: 'LOOKUP_FAILED',
       retryable: true,
     });
+  });
+
+  it('returns LOOKUP_FAILED, not MISSING_TAG, when the tag entity read fails', async () => {
+    const dataset = datasetFor([invoiceFixture('INV-A')]);
+    const { service: svc } = service(dataset, {
+      failEntity: 'FinTagBiEntities',
+    });
+    expect(
+      (await svc.resolveInvoices(COMPANY, ['INV-A'])).get('INV-A'),
+    ).toMatchObject({ status: 'LOOKUP_FAILED', retryable: true });
+  });
+
+  it('returns LOOKUP_FAILED, not MISSING_TAG, when the journal line read fails', async () => {
+    const dataset = datasetFor([invoiceFixture('INV-A')]);
+    const { service: svc } = service(dataset, {
+      failEntity: 'GeneralJournalAccountEntryBiEntities',
+    });
+    expect(
+      (await svc.resolveInvoices(COMPANY, ['INV-A'])).get('INV-A'),
+    ).toMatchObject({ status: 'LOOKUP_FAILED', retryable: true });
   });
 
   it('keeps one result per distinct invoice number', async () => {
