@@ -20,6 +20,7 @@ import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash
 import {
   YardBatchRowSnapshot,
   YardInvoicePostingRecheck,
+  yardBatchRowFromStoredRecord,
 } from '@/modules/cash/yard-invoice/yard-invoice-posting-recheck';
 import {
   CashJournalRoute,
@@ -166,28 +167,11 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     for await (const record of this.cursorToAsyncIterable<CashEntryDynDataModel>(
       cursor,
     )) {
-      const data = record.data as unknown as Record<string, unknown>;
-      // The invoice is in INVOICE; the description "Yard receipt <invoice>" is the fallback.
-      const invoiceNumber =
-        String(data.INVOICE ?? '').trim() ||
-        String(data.DESCRIPTION ?? '')
-          .replace(/^Yard receipt /, '')
-          .trim();
-      lineByInvoice.set(
-        invoiceNumber,
-        Number(data.LINENUMBER ?? rows.length + 1),
+      const { lineNumber, row } = yardBatchRowFromStoredRecord(
+        record.data as unknown as Record<string, unknown>,
       );
-      rows.push({
-        invoiceNumber,
-        customerAccount: String(data.ACCOUNTDISPLAYVALUE ?? ''),
-        defaultDimension: String(data.DEFAULTDIMENSIONDISPLAYVALUE ?? ''),
-        financialTag: String(data.FINTAGDISPLAYVALUE ?? ''),
-        offsetAccount: String(data.OFFSETACCOUNTDISPLAYVALUE ?? ''),
-        paymentType: String(data.VOUCHERTYPE ?? ''),
-        paymentDate: String(data.TRANSDATE ?? ''),
-        currencyCode: String(data.CURRENCYCODE ?? ''),
-        amount: Number(data.CREDITAMOUNT ?? 0),
-      });
+      lineByInvoice.set(row.invoiceNumber, lineNumber ?? rows.length + 1);
+      rows.push(row);
     }
     const problems = await this.yardRecheck!.recheck(company, rows);
     if (problems.length > 0) {

@@ -1,6 +1,7 @@
 import {
   compareYardBatchRowToD365,
   YardBatchRowSnapshot,
+  yardBatchRowFromStoredRecord,
 } from './yard-invoice-posting-recheck';
 
 const DIMENSION =
@@ -115,5 +116,53 @@ describe('compareYardBatchRowToD365', () => {
         OK_OFFSET as never,
       ),
     ).toEqual([]);
+  });
+});
+
+describe('yardBatchRowFromStoredRecord', () => {
+  it('reads the invoice and fields from the stored PascalCase names', () => {
+    const { lineNumber, row } = yardBatchRowFromStoredRecord({
+      Invoice: 'INV-1001',
+      LineNumber: 7,
+      AccountDisplayValue: ' CUST-01 ',
+      DefaultDimensionsForAccountDisplayValue: DIMENSION,
+      FinTagDisplayValue: TAG,
+      OffsetAccountDisplayValue: 'SAFE-BANK',
+      VoucherType: 'Bank',
+      TransactionDate: '2026-11-01',
+      CurrencyCode: 'USD',
+      CreditAmount: 1250.5,
+    });
+    expect(lineNumber).toBe(7);
+    expect(row).toEqual({
+      invoiceNumber: 'INV-1001',
+      customerAccount: 'CUST-01',
+      defaultDimension: DIMENSION,
+      financialTag: TAG,
+      offsetAccount: 'SAFE-BANK',
+      paymentType: 'Bank',
+      paymentDate: '2026-11-01',
+      currencyCode: 'USD',
+      amount: 1250.5,
+    });
+  });
+
+  it('falls back to MarkedInvoice, then to the Yard receipt description', () => {
+    expect(
+      yardBatchRowFromStoredRecord({ MarkedInvoice: 'INV-2' }).row.invoiceNumber,
+    ).toBe('INV-2');
+    expect(
+      yardBatchRowFromStoredRecord({ Description: 'Yard receipt INV-3' }).row
+        .invoiceNumber,
+    ).toBe('INV-3');
+  });
+
+  it('does not read the uppercase upload names that stored records do not have', () => {
+    const { row } = yardBatchRowFromStoredRecord({
+      INVOICE: 'INV-OLD',
+      ACCOUNTDISPLAYVALUE: 'CUST-OLD',
+    });
+    expect(row.invoiceNumber).toBe('');
+    expect(row.customerAccount).toBe('');
   });
 });

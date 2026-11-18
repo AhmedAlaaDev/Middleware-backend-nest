@@ -25,6 +25,38 @@ export interface YardBatchRowSnapshot {
 }
 
 /**
+ * Reads one stored enhanced record back into a batch row. Stored records use the
+ * CashEntryDynDataModel property names (PascalCase), so the reader uses those.
+ * The invoice is Invoice, then MarkedInvoice, then the "Yard receipt <invoice>"
+ * description.
+ */
+export function yardBatchRowFromStoredRecord(data: Record<string, unknown>): {
+  lineNumber: number | undefined;
+  row: YardBatchRowSnapshot;
+} {
+  const text = (key: string): string => String(data[key] ?? '').trim();
+  const invoiceNumber =
+    text('Invoice') ||
+    text('MarkedInvoice') ||
+    text('Description').replace(/^Yard receipt /, '').trim();
+  const lineNumber = Number(data.LineNumber);
+  return {
+    lineNumber: lineNumber > 0 ? lineNumber : undefined,
+    row: {
+      invoiceNumber,
+      customerAccount: text('AccountDisplayValue'),
+      defaultDimension: text('DefaultDimensionsForAccountDisplayValue'),
+      financialTag: text('FinTagDisplayValue'),
+      offsetAccount: text('OffsetAccountDisplayValue'),
+      paymentType: text('VoucherType'),
+      paymentDate: text('TransactionDate') || text('TransDate'),
+      currencyCode: text('CurrencyCode'),
+      amount: Number(data.CreditAmount ?? 0),
+    },
+  };
+}
+
+/**
  * Compares one uploaded batch row with the live D365 values for its invoice. The
  * same rules as the review: the customer, the default dimension, the financial
  * tag, the offset account and the open balance must still agree.
