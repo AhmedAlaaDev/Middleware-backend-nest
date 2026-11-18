@@ -235,3 +235,14 @@ describe('buildYardCashInSourceRows', () => {
     expect(mapping.map((m) => m.rowIndex)).toEqual([0, 1]);
   });
 });
+
+describe('buildYardCashInSourceRows payment type field', () => {
+  it('sets VoucherType, which the shared Cash-In builder and the re-check read', () => {
+    const group = groupOf([rec({ paymentType: 'Cash' })]);
+    const { rows } = buildYardCashInSourceRows([
+      inputFor(group, account('Petty cash')),
+    ]);
+    expect(rows[0].VoucherType).toBe('Cash');
+    expect(rows[0].VOUCHERTYPE).toBe('Cash');
+  });
+});

@@ -107,6 +107,7 @@ export function buildYardCashInSourceRows(inputs: YardPostingAdapterInput[]): {
       PAYMENTID: group.paymentSerials[0] ?? '',
       PAYMENTREFERENCE: group.paymentReference,
       VOUCHERTYPE: group.paymentType,
+      VoucherType: group.paymentType,
       SafeType: 'Customer Collection',
       DOCUMENT: '',
       DOCUMENTDATE: group.paymentDate,
