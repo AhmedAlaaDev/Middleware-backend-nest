@@ -2,7 +2,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
@@ -28,6 +27,7 @@ import {
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import {
   EntryDynDataModel,
   EntryRawDataModel,
@@ -77,14 +77,13 @@ export interface YardInvoiceLinesView {
  */
 @Injectable()
 export class YardInvoiceSubmitService {
-  private readonly logger = new Logger(YardInvoiceSubmitService.name);
-
   constructor(
     private readonly store: YardInvoiceJobStore,
     private readonly preview: YardInvoicePreviewService,
     private readonly commandBus: CommandBus,
     private readonly dataBatchService: DataBatchService,
     private readonly processorFactory: EntryProcessorFactory,
+    private readonly operationalLogs: OperationalLoggerService,
   ) {}
 
   /** Creates the job and starts the review in the background. */
@@ -249,9 +248,14 @@ export class YardInvoiceSubmitService {
         status: 'REVIEW_FAILED',
         lastError: safeMessage(error, 'review could not complete'),
       });
-      this.logger.warn(
-        JSON.stringify({ event: 'yard_invoice_review_failed', jobId }),
-      );
+      await this.operationalLogs.emit({
+        level: 'warn',
+        message: 'Yard invoice review failed',
+        context: YardInvoiceSubmitService.name,
+        eventType: 'yard_invoice.review',
+        jobId,
+        status: 'failed',
+      });
     }
   }
 
@@ -271,14 +275,27 @@ export class YardInvoiceSubmitService {
       correlationId: review.correlationId,
       lastError: null,
     });
-    this.logger.log(
-      JSON.stringify({
-        event: 'yard_invoice_review_stored',
-        jobId,
+    const canSubmit = review.validation.canSubmit;
+    await this.operationalLogs.emit({
+      level: canSubmit ? 'info' : 'warn',
+      message: canSubmit
+        ? `Yard invoice review ready: ${review.groups.length} invoice(s)`
+        : `Yard invoice review blocked: ${summary.blockedInvoiceCount} of ${review.groups.length} invoice(s) blocked`,
+      context: YardInvoiceSubmitService.name,
+      eventType: 'yard_invoice.review',
+      jobId,
+      status: canSubmit ? 'validated' : 'blocked',
+      metadata: {
+        format: review.format,
+        recordCount: summary.recordCount,
         invoiceCount: review.groups.length,
-        canSubmit: review.validation.canSubmit,
-      }),
-    );
+        blockedInvoiceCount: summary.blockedInvoiceCount,
+        discrepancyCount: summary.discrepancyCount,
+        creditNoteInvoiceCount: summary.creditNoteInvoiceCount,
+        lookupFailedCount: summary.lookupFailedCount,
+        canSubmit,
+      },
+    });
   }
 
   private async runSubmit(
@@ -346,26 +363,30 @@ export class YardInvoiceSubmitService {
         postingJobId: result.jobId,
         submissionStatus: result.submissionStatus,
       });
-      this.logger.log(
-        JSON.stringify({
-          event: 'yard_invoice_queued',
-          jobId,
-          batchId,
-          submissionStatus: result.submissionStatus,
-        }),
-      );
+      await this.operationalLogs.emit({
+        level: 'info',
+        message: 'Yard invoice batch queued for D365 posting',
+        context: YardInvoiceSubmitService.name,
+        eventType: 'yard_invoice.submit',
+        jobId,
+        batchId,
+        status: 'queued',
+        metadata: { submissionStatus: result.submissionStatus },
+      });
     } catch (error) {
       await this.store.update(jobId, {
         status: 'SUBMIT_FAILED',
         lastError: safeMessage(error, 'posting could not be queued'),
       });
-      this.logger.warn(
-        JSON.stringify({
-          event: 'yard_invoice_enqueue_failed',
-          jobId,
-          batchId,
-        }),
-      );
+      await this.operationalLogs.emit({
+        level: 'error',
+        message: 'Yard invoice batch could not be queued for D365 posting',
+        context: YardInvoiceSubmitService.name,
+        eventType: 'yard_invoice.submit',
+        jobId,
+        batchId,
+        status: 'failed',
+      });
     }
   }
 

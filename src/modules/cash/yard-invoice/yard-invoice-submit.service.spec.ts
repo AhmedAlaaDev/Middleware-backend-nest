@@ -132,6 +132,11 @@ const FOUND = (invoice: string): YardInvoiceLookupResult => ({
 
 const USER = { id: 'user-1', role: 'user' };
 
+/** Records operational events so tests can assert what the Observability page receives. */
+const operationalLogs = {
+  emit: jest.fn().mockResolvedValue(undefined),
+};
+
 async function waitFor(
   predicate: () => boolean,
   attempts = 2000,
@@ -215,6 +220,7 @@ async function setup(
     commandBus as never,
     dataBatchService as never,
     processorFactory as never,
+    operationalLogs as never,
   );
 
   const buffer = await buildTemplateWorkbook(
@@ -278,6 +284,23 @@ describe('YardInvoiceSubmitService: background review', () => {
     expect(ctx.store.lines.get(ctx.jobId)).toHaveLength(2);
   });
 
+  it('emits an observability event for the review result, tied to the job', async () => {
+    operationalLogs.emit.mockClear();
+    const ctx = await setup();
+    expect(operationalLogs.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'yard_invoice.review',
+        jobId: ctx.jobId,
+        status: 'validated',
+        level: 'info',
+        metadata: expect.objectContaining({
+          invoiceCount: 2,
+          canSubmit: true,
+        }),
+      }),
+    );
+  });
+
   it('returns a page of lines with the per-invoice outcome', async () => {
     const ctx = await setup();
     const page = await ctx.service.getLines(ctx.jobId, USER, 1, 1);
@@ -297,6 +320,7 @@ describe('YardInvoiceSubmitService: background review', () => {
       {} as never,
       {} as never,
       {} as never,
+      operationalLogs as never,
     );
     const view = await service.startReview({
       fileBuffer: Buffer.from('x'),
