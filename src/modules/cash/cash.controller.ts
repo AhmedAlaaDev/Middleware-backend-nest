@@ -1,10 +1,16 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  Param,
   Post,
+  Query,
+  Req,
+  UnauthorizedException,
   UseInterceptors,
 } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
@@ -41,6 +47,13 @@ import {
   VendorPaymentSettlementImportResponse,
   VendorPaymentSettlementImportService,
 } from '@/modules/cash/services/vendor-payment-settlement-import.service';
+import { isYardInvoiceUploadEnabled } from '@/modules/cash/yard-invoice/yard-invoice-preview.service';
+import {
+  YardInvoiceSubmitService,
+  YardInvoiceUser,
+} from '@/modules/cash/yard-invoice/yard-invoice-submit.service';
+import { YardInvoiceTemplateError } from '@/modules/cash/yard-invoice/yard-invoice-template.parser';
+import { YARD_INVOICE_LIMITS } from '@/modules/cash/yard-invoice/yard-invoice.constants';
 import { ApplicationLogQueryService } from '@/modules/observability/services/application-log-query.service';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import {
@@ -48,6 +61,30 @@ import {
   QueueService,
 } from '@/modules/queue/services/queue.service';
 import { UserRole } from '@/modules/user/schemas/user.schema';
+
+type AuthenticatedRequest = { user?: { id?: string; role?: string } };
+
+function assertYardInvoiceEnabled(): void {
+  if (!isYardInvoiceUploadEnabled()) {
+    throw new NotFoundException();
+  }
+}
+
+function requireYardInvoiceUser(req: AuthenticatedRequest): YardInvoiceUser {
+  const id = String(req.user?.id ?? '').trim();
+  if (!id) {
+    throw new UnauthorizedException('Authentication is required');
+  }
+  return { id, role: req.user?.role };
+}
+
+/** Maps Yard upload errors to HTTP responses without leaking internals. */
+function mapYardInvoiceError(error: unknown): unknown {
+  if (error instanceof YardInvoiceTemplateError) {
+    return new BadRequestException(error.message);
+  }
+  return error;
+}
 
 /** Every cash batch, in or out, is posted through this queue. */
 const CASH_POSTING_QUEUE = QUEUES.DFO_CUSTOMER_PAYMENT_JOURNAL;
@@ -63,6 +100,7 @@ export class CashController {
     private readonly logs: ApplicationLogQueryService,
     private readonly queues: QueueService,
     private readonly vendorPaymentSettlements: VendorPaymentSettlementImportService,
+    private readonly yardInvoiceSubmit: YardInvoiceSubmitService,
   ) {}
 
   /**
@@ -177,6 +215,124 @@ export class CashController {
     return this.commandBus.execute(
       new ProcessCashInYardCommand(file.buffer, companyId),
     );
+  }
+
+  /**
+   * Cash-In Yard invoice upload: review. Accepts the eight-column template or a
+   * Yards source workbook. The review runs in the background and creates a job;
+   * the client polls the job and its lines. Nothing is posted here.
+   * Gated by YARD_INVOICE_UPLOAD_ENABLED.
+   */
+  @Post('CashIn-Yard-Invoice-Preview')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload a Yard invoice workbook (.xlsx) + company',
+    type: CashInYardDocDto,
+  })
+  @ApiOperation({
+    summary:
+      'Start an invoice-driven Yard cash-in review (creates a job, posts nothing)',
+  })
+  @UseInterceptors(
+    FileInterceptor('dataFile', {
+      limits: { fileSize: YARD_INVOICE_LIMITS.maxFileBytes, files: 1 },
+    }),
+  )
+  public async previewYardInvoiceUpload(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInYardDocDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    assertYardInvoiceEnabled();
+    const user = requireYardInvoiceUser(req);
+    try {
+      return await this.yardInvoiceSubmit.startReview({
+        fileBuffer: file.buffer,
+        fileName: file.originalname,
+        companyId: companyId || 'm-p',
+        user,
+      });
+    } catch (error) {
+      throw mapYardInvoiceError(error);
+    }
+  }
+
+  /**
+   * Cash-In Yard invoice upload: submit. The same file is reviewed again on the
+   * server in the background and its payload hash must match the job. One batch
+   * is created per job and queued through the existing cash posting command.
+   */
+  @Post('CashIn-Yard-Invoice-Jobs/:jobId/submit')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload the same workbook again to submit the reviewed job',
+    type: CashInYardDocDto,
+  })
+  @ApiOperation({ summary: 'Submit a reviewed Yard invoice upload job' })
+  @UseInterceptors(
+    FileInterceptor('dataFile', {
+      limits: { fileSize: YARD_INVOICE_LIMITS.maxFileBytes, files: 1 },
+    }),
+  )
+  public async submitYardInvoiceJob(
+    @Param('jobId') jobId: string,
+    @ExcelFile() file: MulterFile,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    assertYardInvoiceEnabled();
+    try {
+      return await this.yardInvoiceSubmit.submit(
+        jobId,
+        file.buffer,
+        requireYardInvoiceUser(req),
+      );
+    } catch (error) {
+      throw mapYardInvoiceError(error);
+    }
+  }
+
+  /** Cash-In Yard invoice upload: job state, summary and batch status. */
+  @Get('CashIn-Yard-Invoice-Jobs/:jobId')
+  @ApiOperation({ summary: 'Get a Yard invoice upload job' })
+  public async getYardInvoiceJob(
+    @Param('jobId') jobId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    assertYardInvoiceEnabled();
+    try {
+      return await this.yardInvoiceSubmit.getJob(
+        jobId,
+        requireYardInvoiceUser(req),
+      );
+    } catch (error) {
+      throw mapYardInvoiceError(error);
+    }
+  }
+
+  /** Cash-In Yard invoice upload: one page of reviewed invoices. */
+  @Get('CashIn-Yard-Invoice-Jobs/:jobId/invoices')
+  @ApiOperation({
+    summary: 'Get one page of reviewed invoices for a Yard upload job',
+  })
+  public async getYardInvoiceJobLines(
+    @Param('jobId') jobId: string,
+    @Query('page') page: string | undefined,
+    @Query('pageSize') pageSize: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    assertYardInvoiceEnabled();
+    try {
+      return await this.yardInvoiceSubmit.getLines(
+        jobId,
+        requireYardInvoiceUser(req),
+        Math.max(1, Number(page ?? 1) || 1),
+        Math.max(1, Math.min(Number(pageSize ?? 100) || 100, 500)),
+      );
+    } catch (error) {
+      throw mapYardInvoiceError(error);
+    }
   }
 
   /**

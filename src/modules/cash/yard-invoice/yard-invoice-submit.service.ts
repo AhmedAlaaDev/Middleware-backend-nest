@@ -1,0 +1,453 @@
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { CommandBus } from '@nestjs/cqrs';
+
+import {
+  YardInvoiceJobRecord,
+  YardInvoiceJobStore,
+} from './yard-invoice-job.store';
+import { buildYardCashInSourceRows } from './yard-invoice-posting-adapter';
+import {
+  YardInvoicePreviewService,
+  YardInvoiceReview,
+  YardInvoiceReviewLine,
+  YardInvoiceSummary,
+} from './yard-invoice-preview.service';
+import { YardInvoiceJobStatus } from './yard-invoice-upload-job.schema';
+
+import { PostCashBatchToDFOCommand } from '@/modules/cash/commands';
+import {
+  DataBatchStatus,
+  EntryProcessorTypes,
+} from '@/modules/data-batch/enums/data-batch.enum';
+import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
+import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
+import {
+  EntryDynDataModel,
+  EntryRawDataModel,
+} from '@/modules/entry-processor/models';
+
+/** A job stuck in SUBMITTING or REVIEWING longer than this is reported for reconciliation. */
+export const YARD_INVOICE_STALE_MS = 30 * 60 * 1000;
+
+export interface YardInvoiceUser {
+  id: string;
+  role?: string;
+}
+
+export interface YardInvoiceJobView {
+  jobId: string;
+  company: string;
+  fileName: string;
+  status: YardInvoiceJobStatus | 'REVIEW_INTERRUPTED' | 'RECONCILE_REQUIRED';
+  format: string | null;
+  payloadHash: string | null;
+  canSubmit: boolean;
+  summary: YardInvoiceSummary | null;
+  batchId: string | null;
+  batchStatus: string | null;
+  batchErrorCount: number;
+  postingJobId: string | null;
+  submissionStatus: string | null;
+  /** Journal posting only. Yard receipts are unmarked, so invoices are not settled. */
+  settlement: 'NOT_SETTLED_UNMARKED';
+  lastError: string | null;
+  correlationId: string;
+}
+
+export interface YardInvoiceLinesView {
+  jobId: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  items: (YardInvoiceReviewLine & { outcome: string })[];
+}
+
+/**
+ * Upload job lifecycle: background review, durable state, and submit through
+ * the existing Cash-In Yard processor, batch service and cash posting command.
+ * Review and submit run in the background because a large file takes minutes;
+ * the client polls the job. No posting route or D365 client is added here.
+ */
+@Injectable()
+export class YardInvoiceSubmitService {
+  private readonly logger = new Logger(YardInvoiceSubmitService.name);
+
+  constructor(
+    private readonly store: YardInvoiceJobStore,
+    private readonly preview: YardInvoicePreviewService,
+    private readonly commandBus: CommandBus,
+    private readonly dataBatchService: DataBatchService,
+    private readonly processorFactory: EntryProcessorFactory,
+  ) {}
+
+  /** Creates the job and starts the review in the background. */
+  public async startReview(input: {
+    fileBuffer: Buffer<ArrayBufferLike>;
+    fileName: string;
+    companyId: string;
+    user: YardInvoiceUser;
+  }): Promise<YardInvoiceJobView> {
+    const job = await this.store.create({
+      company: input.companyId,
+      createdByUserId: input.user.id,
+      fileName: input.fileName,
+      status: 'REVIEWING',
+      correlationId: '',
+    });
+    void this.runReview(
+      job.id,
+      input.fileBuffer,
+      input.fileName,
+      input.companyId,
+    );
+    return this.getJob(job.id, input.user);
+  }
+
+  public async getJob(
+    jobId: string,
+    user: YardInvoiceUser,
+  ): Promise<YardInvoiceJobView> {
+    const job = await this.loadOwnedJob(jobId, user);
+    const batch = job.batchId
+      ? await this.dataBatchService.getByIdAsync(job.batchId)
+      : null;
+    const age = Date.now() - job.updatedAt.getTime();
+    let status: YardInvoiceJobView['status'] = job.status;
+    if (job.status === 'REVIEWING' && age > YARD_INVOICE_STALE_MS)
+      status = 'REVIEW_INTERRUPTED';
+    if (
+      job.status === 'SUBMITTING' &&
+      age > YARD_INVOICE_STALE_MS &&
+      !job.batchId
+    )
+      status = 'RECONCILE_REQUIRED';
+    return {
+      jobId: job.id,
+      company: job.company,
+      fileName: job.fileName,
+      status,
+      format: job.format,
+      payloadHash: job.payloadHash,
+      canSubmit: job.canSubmit,
+      summary: (job.summary as unknown as YardInvoiceSummary | null) ?? null,
+      batchId: job.batchId,
+      batchStatus: batch
+        ? (DataBatchStatus[batch.status] ?? String(batch.status))
+        : null,
+      batchErrorCount: batch?.errorCount ?? 0,
+      postingJobId: job.postingJobId,
+      submissionStatus: job.submissionStatus,
+      settlement: 'NOT_SETTLED_UNMARKED',
+      lastError: job.lastError,
+      correlationId: job.correlationId,
+    };
+  }
+
+  /** One page of reviewed invoices, with the per-invoice outcome of the job. */
+  public async getLines(
+    jobId: string,
+    user: YardInvoiceUser,
+    page: number,
+    pageSize: number,
+  ): Promise<YardInvoiceLinesView> {
+    const job = await this.loadOwnedJob(jobId, user);
+    const view = await this.getJob(jobId, user);
+    const result = await this.store.pageLines(jobId, page, pageSize);
+    return {
+      jobId,
+      page,
+      pageSize,
+      total: result.total,
+      items: result.items.map((line) => ({
+        ...line,
+        outcome:
+          line.status !== 'VALID'
+            ? 'BLOCKED'
+            : invoiceOutcome(
+                job.status,
+                view.batchStatus,
+                view.batchErrorCount,
+              ),
+      })),
+    };
+  }
+
+  /**
+   * Starts a submit. The job is claimed atomically (PREVIEWED, or a batch that
+   * was never confirmed queued). The file is reviewed again in the background, the
+   * payload hash must match the job, and only then is a batch created and queued.
+   */
+  public async submit(
+    jobId: string,
+    fileBuffer: Buffer<ArrayBufferLike>,
+    user: YardInvoiceUser,
+  ): Promise<YardInvoiceJobView> {
+    const job = await this.loadOwnedJob(jobId, user);
+
+    if (job.status === 'QUEUED') {
+      return this.getJob(jobId, user);
+    }
+    if (
+      job.status === 'REVIEWING' ||
+      job.status === 'SUBMITTING' ||
+      job.status === 'REVIEW_FAILED'
+    ) {
+      throw new ConflictException(
+        `This upload is ${job.status.toLowerCase().replace('_', ' ')}; it cannot be submitted now.`,
+      );
+    }
+    if (job.status === 'PREVIEWED' && !job.canSubmit) {
+      throw new ConflictException(
+        'The review found blocking issues. Upload a corrected workbook to review again.',
+      );
+    }
+
+    const retryQueue =
+      (job.status === 'BATCH_CREATED' || job.status === 'SUBMIT_FAILED') &&
+      job.batchId !== null;
+    const claimed = await this.store.claim(
+      jobId,
+      retryQueue ? ['BATCH_CREATED', 'SUBMIT_FAILED'] : ['PREVIEWED'],
+      'SUBMITTING',
+    );
+    if (!claimed) {
+      throw new ConflictException(
+        'This upload is already being submitted or cannot be submitted.',
+      );
+    }
+
+    if (retryQueue) {
+      void this.enqueue(jobId, claimed.batchId as string);
+    } else {
+      void this.runSubmit(jobId, fileBuffer, claimed);
+    }
+    return this.getJob(jobId, user);
+  }
+
+  private async runReview(
+    jobId: string,
+    fileBuffer: Buffer<ArrayBufferLike>,
+    fileName: string,
+    company: string,
+  ): Promise<void> {
+    try {
+      const review = await this.preview.review({
+        fileBuffer,
+        fileName,
+        companyId: company,
+      });
+      await this.storeReview(jobId, review);
+    } catch (error) {
+      await this.store.update(jobId, {
+        status: 'REVIEW_FAILED',
+        lastError: safeMessage(error, 'review could not complete'),
+      });
+      this.logger.warn(
+        JSON.stringify({ event: 'yard_invoice_review_failed', jobId }),
+      );
+    }
+  }
+
+  private async storeReview(
+    jobId: string,
+    review: YardInvoiceReview,
+  ): Promise<void> {
+    const summary = this.preview.toSummary(review);
+    await this.store.replaceLines(jobId, this.preview.toLines(review));
+    await this.store.update(jobId, {
+      status: 'PREVIEWED',
+      format: review.format,
+      payloadHash: review.payloadHash,
+      summary: summary as unknown as Record<string, unknown>,
+      invoiceCount: review.groups.length,
+      canSubmit: review.validation.canSubmit,
+      correlationId: review.correlationId,
+      lastError: null,
+    });
+    this.logger.log(
+      JSON.stringify({
+        event: 'yard_invoice_review_stored',
+        jobId,
+        invoiceCount: review.groups.length,
+        canSubmit: review.validation.canSubmit,
+      }),
+    );
+  }
+
+  private async runSubmit(
+    jobId: string,
+    fileBuffer: Buffer<ArrayBufferLike>,
+    job: YardInvoiceJobRecord,
+  ): Promise<void> {
+    let batchId: string | null = null;
+    try {
+      const review = await this.preview.review({
+        fileBuffer,
+        fileName: job.fileName,
+        companyId: job.company,
+      });
+      if (review.payloadHash !== job.payloadHash) {
+        await this.store.update(jobId, {
+          status: 'PREVIEWED',
+          lastError:
+            'the file or D365 data changed since review; review the upload again',
+        });
+        return;
+      }
+      if (!review.validation.canSubmit) {
+        await this.storeReview(jobId, review);
+        await this.store.update(jobId, {
+          lastError:
+            'the review found blocking issues; the upload was not submitted',
+        });
+        return;
+      }
+
+      const { rows } = buildYardCashInSourceRows(
+        this.preview.toPostingInputs(review),
+      );
+      batchId = await this.createBatch(jobId, job.company, rows);
+      await this.store.update(jobId, {
+        status: 'BATCH_CREATED',
+        batchId,
+        submittedAt: new Date(),
+      });
+    } catch (error) {
+      if (!batchId) {
+        await this.store.update(jobId, {
+          status: 'PREVIEWED',
+          lastError: safeMessage(error, 'submission could not start'),
+        });
+        return;
+      }
+      await this.store.update(jobId, {
+        status: 'SUBMIT_FAILED',
+        lastError: safeMessage(error, 'batch was created but not queued'),
+      });
+      return;
+    }
+    await this.enqueue(jobId, batchId);
+  }
+
+  private async enqueue(jobId: string, batchId: string): Promise<void> {
+    try {
+      const result = await this.commandBus.execute(
+        new PostCashBatchToDFOCommand(batchId),
+      );
+      await this.store.update(jobId, {
+        status: 'QUEUED',
+        postingJobId: result.jobId,
+        submissionStatus: result.submissionStatus,
+      });
+      this.logger.log(
+        JSON.stringify({
+          event: 'yard_invoice_queued',
+          jobId,
+          batchId,
+          submissionStatus: result.submissionStatus,
+        }),
+      );
+    } catch (error) {
+      await this.store.update(jobId, {
+        status: 'SUBMIT_FAILED',
+        lastError: safeMessage(error, 'posting could not be queued'),
+      });
+      this.logger.warn(
+        JSON.stringify({
+          event: 'yard_invoice_enqueue_failed',
+          jobId,
+          batchId,
+        }),
+      );
+    }
+  }
+
+  private async createBatch(
+    jobId: string,
+    company: string,
+    rows: EntryRawDataModel[],
+  ): Promise<string> {
+    const processor = this.processorFactory.getProcessorByName(
+      EntryProcessorTypes.CashInYard,
+    );
+    const enriched = (await processor.formatAndEnrichAsync(
+      rows,
+      company,
+    )) as EntryDynDataModel[];
+    const validated = (await processor.validateAsync(
+      enriched,
+      company,
+    )) as EntryDynDataModel[];
+    const lineErrors = validated.flatMap((line) => line.GetErrors());
+    if (lineErrors.length > 0) {
+      throw new Error(
+        `Yard posting lines failed validation (${lineErrors.length}): ${lineErrors.slice(0, 3).join('; ')}`,
+      );
+    }
+    const batch = await this.dataBatchService.createAsync(
+      EntryProcessorTypes.CashInYard,
+      ENTRY_PROCESSOR_NAMES.CASH_IN_YARD,
+      company,
+      `Yard invoice job ${jobId}`,
+      rows,
+      validated,
+      undefined,
+      'last.ledger.voucher.cash.in.yard',
+    );
+    return batch.id;
+  }
+
+  private async loadOwnedJob(
+    jobId: string,
+    user: YardInvoiceUser,
+  ): Promise<YardInvoiceJobRecord> {
+    const job = await this.store.findById(jobId);
+    if (!job) throw new NotFoundException('Yard invoice upload job not found');
+    if (
+      job.createdByUserId !== user.id &&
+      user.role?.toLowerCase() !== 'admin'
+    ) {
+      throw new ForbiddenException(
+        'Only the uploader or an administrator can access this job.',
+      );
+    }
+    return job;
+  }
+}
+
+function invoiceOutcome(
+  jobStatus: YardInvoiceJobStatus,
+  batchStatus: string | null,
+  errorCount: number,
+): string {
+  if (jobStatus === 'PREVIEWED') return 'READY_TO_SUBMIT';
+  if (jobStatus === 'SUBMITTING') return 'SUBMITTING';
+  if (jobStatus === 'SUBMIT_FAILED') return 'NOT_POSTED_RETRY';
+  if (jobStatus === 'REVIEWING' || jobStatus === 'REVIEW_FAILED')
+    return 'NOT_REVIEWED';
+  if (errorCount > 0) return 'FAILED';
+  switch (batchStatus) {
+    case 'Posted':
+      return 'POSTED';
+    case 'Posting':
+      return 'POSTING';
+    case 'Canceled':
+      return 'FAILED';
+    case 'PendingPosting':
+      return 'QUEUED';
+    default:
+      return 'PROCESSING';
+  }
+}
+
+function safeMessage(error: unknown, fallback: string): string {
+  const text = error instanceof Error ? error.message : '';
+  return (text || fallback).slice(0, 500);
+}
