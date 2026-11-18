@@ -253,10 +253,28 @@ describe('validateYardInvoiceGroups', () => {
         }),
       ),
     );
-    expect(realDifference.groups[0].status).toBe('BLOCKED');
-    expect(realDifference.groups[0].errors.join(' ')).toMatch(
-      /workbook default dimensions .* differs from D365/,
+    // A workbook dimension that differs from D365 is a warning: posting uses D365.
+    expect(realDifference.groups[0].status).toBe('VALID');
+    expect(realDifference.groups[0].warnings.join(' ')).toMatch(
+      /workbook default dimensions .* differs from D365 .*posting uses the D365 default dimension/,
     );
+  });
+
+  it('still blocks a financial tag difference (tags are not overridden)', () => {
+    const blockedTag = run(
+      [
+        rec({
+          format: 'YARDS_SOURCE',
+          sourceSheet: 'yard.',
+          layoutId: 'YARDS_LAYOUT_REMARK',
+          workbookCustomerAccount: 'C-100',
+          workbookDimension: '|2401|024',
+          workbookFinTag: 'TAG-X',
+        }),
+      ],
+      found(metadata({ financialTagDisplayValue: 'TAG-A' })),
+    );
+    expect(blockedTag.groups[0].status).toBe('BLOCKED');
   });
 
   it('blocks the whole submission when a record-level issue exists', () => {

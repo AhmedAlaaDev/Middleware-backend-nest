@@ -167,15 +167,21 @@ function validateGroup(
         sameDisplayValue(label, workbookValues[0], String(d365Value ?? ''))
       )
         continue;
-      errors.push(
+      const difference =
         'workbook ' +
-          label +
-          ' (' +
-          workbookValues.join(' | ') +
-          ') differs from D365 (' +
-          d365Value +
-          '); resolve the difference before submitting',
-      );
+        label +
+        ' (' +
+        workbookValues.join(' | ') +
+        ') differs from D365 (' +
+        d365Value +
+        ')';
+      // The default dimension is posted from D365 (the customer's master
+      // setting), so a workbook dimension that differs is shown as a warning.
+      if (label === 'default dimensions' && workbookValues.length === 1) {
+        warnings.push(difference + '; posting uses the D365 default dimension');
+      } else {
+        errors.push(difference + '; resolve the difference before submitting');
+      }
     }
   }
 
