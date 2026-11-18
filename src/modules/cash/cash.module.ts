@@ -17,6 +17,7 @@ import { CashOutTemplateValidationService } from '@/modules/cash/services/cash-o
 import { VendorPaymentSettlementImportService } from '@/modules/cash/services/vendor-payment-settlement-import.service';
 import { YardInvoiceAccountResolver } from '@/modules/cash/yard-invoice/yard-invoice-account.resolver';
 import { YardInvoiceEnrichmentService } from '@/modules/cash/yard-invoice/yard-invoice-enrichment.service';
+import { YardInvoicePostingRecheck } from '@/modules/cash/yard-invoice/yard-invoice-posting-recheck';
 import {
   YardInvoiceJobStore,
   MongoYardInvoiceJobStore,
@@ -70,6 +71,7 @@ const CommandHandlers = [
     VendorPaymentSettlementImportService,
     YardInvoiceEnrichmentService,
     YardInvoiceAccountResolver,
+    YardInvoicePostingRecheck,
     YardInvoicePreviewService,
     { provide: YardInvoiceJobStore, useClass: MongoYardInvoiceJobStore },
     YardInvoiceSubmitService,

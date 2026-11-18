@@ -18,6 +18,10 @@ import {
 } from '@/modules/cash/policies/cash-payment-reference.policy';
 import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
+  YardBatchRowSnapshot,
+  YardInvoicePostingRecheck,
+} from '@/modules/cash/yard-invoice/yard-invoice-posting-recheck';
+import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
@@ -58,6 +62,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     private readonly dataBatchService: DataBatchService,
     private readonly queueService: QueueService,
     private readonly routingService: CashJournalRoutingService = new CashJournalRoutingService(),
+    private readonly yardRecheck?: YardInvoicePostingRecheck,
   ) {}
 
   public async execute(
@@ -68,6 +73,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     this.logger.log(`Received post-to-DFO request for cash batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
+    if (
+      batch.entryProcessorType === EntryProcessorTypes.CashInYard &&
+      this.yardRecheck
+    ) {
+      await this.ensureYardBatchMatchesD365(batchId, batch.company);
+    }
     const cashDirection = this.getCashDirection(batch.entryProcessorType);
     this.ensureCashEntryProcessor(batch.entryProcessorType);
     const targetProcessor = this.getTargetProcessor(batch.entryProcessorType);
@@ -136,6 +147,42 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       default:
         // Cash-In does not choose P-Freight vs P-Fleet.
         return undefined;
+    }
+  }
+
+  /**
+   * Yard batches are checked against live D365 before they post: customer,
+   * dimension, tag, offset account and open balance must still agree with the
+   * upload. A change blocks the post with the standard error message.
+   */
+  private async ensureYardBatchMatchesD365(
+    batchId: string,
+    company: string,
+  ): Promise<void> {
+    const rows: YardBatchRowSnapshot[] = [];
+    const cursor =
+      await this.dataBatchService.getEnhancedRecordsStream(batchId);
+    for await (const record of this.cursorToAsyncIterable<CashEntryDynDataModel>(
+      cursor,
+    )) {
+      const data = record.data as unknown as Record<string, unknown>;
+      rows.push({
+        invoiceNumber: String(data.INVOICE ?? ''),
+        customerAccount: String(data.ACCOUNTDISPLAYVALUE ?? ''),
+        defaultDimension: String(data.DEFAULTDIMENSIONDISPLAYVALUE ?? ''),
+        financialTag: String(data.FINTAGDISPLAYVALUE ?? ''),
+        offsetAccount: String(data.OFFSETACCOUNTDISPLAYVALUE ?? ''),
+        paymentType: String(data.VOUCHERTYPE ?? ''),
+        paymentDate: String(data.TRANSDATE ?? ''),
+        currencyCode: String(data.CURRENCYCODE ?? ''),
+        amount: Number(data.CREDITAMOUNT ?? 0),
+      });
+    }
+    const problems = await this.yardRecheck!.recheck(company, rows);
+    if (problems.length > 0) {
+      throw new BadRequestException(
+        `D365 changed since this batch was uploaded for ${problems.length} invoice(s); upload the file again before posting. ${problems.slice(0, 5).join(' ')}`,
+      );
     }
   }
 
@@ -414,13 +461,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
       const accountTypeStr = this.mapEntryAccountTypeStrForCustom(
         cashDirection === 'in' &&
-        this.isCashInWcaEuAccount(line.AccountDisplayValue)
+          this.isCashInWcaEuAccount(line.AccountDisplayValue)
           ? 'Ledger'
           : line.AccountType,
       );
       const offsetAccountTypeStr = this.mapEntryAccountTypeStrForCustom(
         cashDirection === 'in' &&
-        this.isCashInWcaEuAccount(line.OffsetAccountDisplayValue)
+          this.isCashInWcaEuAccount(line.OffsetAccountDisplayValue)
           ? 'Ledger'
           : line.OffsetAccountType,
       );
@@ -656,7 +703,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
                     DocumentNumber: String(
                       (line as any).DocumentNumber ?? line.Document ?? '',
                     ).trim(),
-                    HasWithHoldingLine: Boolean((line as any).HasWithHoldingLine),
+                    HasWithHoldingLine: Boolean(
+                      (line as any).HasWithHoldingLine,
+                    ),
                     ...((line as any).FullSettlement !== undefined
                       ? {
                           FullSettlement: Boolean((line as any).FullSettlement),
