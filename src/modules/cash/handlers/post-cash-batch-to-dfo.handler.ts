@@ -160,14 +160,25 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     company: string,
   ): Promise<void> {
     const rows: YardBatchRowSnapshot[] = [];
+    const lineByInvoice = new Map<string, number>();
     const cursor =
       await this.dataBatchService.getEnhancedRecordsStream(batchId);
     for await (const record of this.cursorToAsyncIterable<CashEntryDynDataModel>(
       cursor,
     )) {
       const data = record.data as unknown as Record<string, unknown>;
+      // The invoice is in INVOICE; the description "Yard receipt <invoice>" is the fallback.
+      const invoiceNumber =
+        String(data.INVOICE ?? '').trim() ||
+        String(data.DESCRIPTION ?? '')
+          .replace(/^Yard receipt /, '')
+          .trim();
+      lineByInvoice.set(
+        invoiceNumber,
+        Number(data.LINENUMBER ?? rows.length + 1),
+      );
       rows.push({
-        invoiceNumber: String(data.INVOICE ?? ''),
+        invoiceNumber,
         customerAccount: String(data.ACCOUNTDISPLAYVALUE ?? ''),
         defaultDimension: String(data.DEFAULTDIMENSIONDISPLAYVALUE ?? ''),
         financialTag: String(data.FINTAGDISPLAYVALUE ?? ''),
@@ -180,9 +191,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
     const problems = await this.yardRecheck!.recheck(company, rows);
     if (problems.length > 0) {
-      throw new BadRequestException(
-        `D365 changed since this batch was uploaded for ${problems.length} invoice(s); upload the file again before posting. ${problems.slice(0, 5).join(' ')}`,
-      );
+      // Same shape as the other validation failures, so the post dialog lists each line.
+      throw new BadRequestException({
+        message: 'D365 changed since this batch was uploaded',
+        errors: problems.map((problem) => ({
+          lineNumber: lineByInvoice.get(problem.split(':')[0]),
+          missingFields: [problem],
+        })),
+        details: `${problems.length} invoice(s) changed in D365; upload the file again before posting.`,
+      });
     }
   }
 
