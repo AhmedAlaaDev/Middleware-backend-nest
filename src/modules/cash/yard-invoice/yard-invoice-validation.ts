@@ -64,6 +64,31 @@ export function validateYardInvoiceGroups(input: {
   };
 }
 
+/**
+ * Compares a workbook value with the D365 value. Customer accounts compare
+ * trimmed. Dimensions and tags are D365 display strings padded with separators
+ * and spaces, so they compare by their non-empty segments in order. A real
+ * difference in any segment value still fails the comparison.
+ */
+export function sameDisplayValue(
+  label: string,
+  workbookValue: string,
+  d365Value: string,
+): boolean {
+  if (label === 'customer account') {
+    return workbookValue.trim() === d365Value.trim();
+  }
+  return canonicalSegments(workbookValue) === canonicalSegments(d365Value);
+}
+
+function canonicalSegments(value: string): string {
+  return value
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '')
+    .join('|');
+}
+
 function validateGroup(
   group: YardInvoiceGroup,
   lookup: YardInvoiceLookupResult | undefined,
@@ -137,10 +162,9 @@ function validateGroup(
     ];
     for (const [label, workbookValues, d365Value] of checks) {
       if (workbookValues.length === 0) continue;
-      // Both sides are compared trimmed: the source pads text fields with spaces.
       if (
         workbookValues.length === 1 &&
-        workbookValues[0].trim() === String(d365Value ?? '').trim()
+        sameDisplayValue(label, workbookValues[0], String(d365Value ?? ''))
       )
         continue;
       errors.push(

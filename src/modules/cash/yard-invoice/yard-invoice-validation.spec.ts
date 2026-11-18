@@ -215,6 +215,50 @@ describe('validateYardInvoiceGroups', () => {
     expect(agrees.groups[0].status).toBe('VALID');
   });
 
+  it('accepts a padded tag that has the same D365 segments, and still blocks a real segment difference', () => {
+    const d365Tag = '||MSC LINE|||TCLU7736429|40HC|||||||||||46204|46204|';
+    const padded = run(
+      [
+        rec({
+          format: 'YARDS_SOURCE',
+          sourceSheet: 'yard.',
+          layoutId: 'YARDS_LAYOUT_REMARK',
+          workbookCustomerAccount: 'C-100',
+          workbookDimension: '|2401|024',
+          workbookFinTag:
+            '||MSC LINE|||TCLU7736429|40HC ||||||||||||46204|46204',
+        }),
+      ],
+      found(metadata({ financialTagDisplayValue: d365Tag })),
+    );
+    expect(padded.groups[0].status).toBe('VALID');
+
+    const realDifference = run(
+      [
+        rec({
+          format: 'YARDS_SOURCE',
+          sourceSheet: 'yard.',
+          layoutId: 'YARDS_LAYOUT_REMARK',
+          workbookCustomerAccount: 'C-100',
+          workbookDimension:
+            '|2401|024|002|019|101002504|101002504|||00002|3171|3171|Payable|||Domestic||||',
+          workbookFinTag: d365Tag,
+        }),
+      ],
+      found(
+        metadata({
+          defaultDimensionDisplayValue:
+            '|2401|024|002|019|101002504|101002504|||00019|3171|3171|Payable|||Domestic||||',
+          financialTagDisplayValue: d365Tag,
+        }),
+      ),
+    );
+    expect(realDifference.groups[0].status).toBe('BLOCKED');
+    expect(realDifference.groups[0].errors.join(' ')).toMatch(
+      /workbook default dimensions .* differs from D365/,
+    );
+  });
+
   it('blocks the whole submission when a record-level issue exists', () => {
     const aggregation = aggregateYardInvoiceRecords([rec()]);
     const result = validateYardInvoiceGroups({
