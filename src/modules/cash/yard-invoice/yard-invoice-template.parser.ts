@@ -66,7 +66,9 @@ const COLUMN_INDEX = YARD_INVOICE_TEMPLATE_HEADERS.reduce<
  */
 export async function parseYardInvoiceTemplate(
   buffer: Buffer<ArrayBufferLike>,
+  options: { maxDataRows?: number } = {},
 ): Promise<YardInvoiceTemplateParseResult> {
+  const maxRows = options.maxDataRows ?? YARD_INVOICE_LIMITS.maxDataRows;
   try {
     assertSafeXlsxArchive(buffer);
   } catch (error) {
@@ -129,9 +131,9 @@ export async function parseYardInvoiceTemplate(
       continue;
     }
     contentRowCount++;
-    if (contentRowCount > YARD_INVOICE_LIMITS.maxDataRows) {
+    if (contentRowCount > maxRows) {
       throw new YardInvoiceTemplateError(
-        `template exceeds the ${YARD_INVOICE_LIMITS.maxDataRows} data row limit`,
+        `template exceeds the ${maxRows} data row limit`,
       );
     }
     const parsed = parseRow(rowNumber, row, issues);

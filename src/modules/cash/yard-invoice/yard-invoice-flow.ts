@@ -1,5 +1,9 @@
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants/entry-processor-names.constant';
+import {
+  SHIPLINK_TEMPLATE_MAX_DATA_ROWS,
+  YARD_INVOICE_LIMITS,
+} from './yard-invoice.constants';
 
 /**
  * Invoice-driven review flows. Yard and ShipLink use the same review, D365
@@ -14,6 +18,8 @@ export interface InvoiceReviewFlowConfig {
   processorType: EntryProcessorTypes;
   processorName: string;
   voucherLogicalName: string;
+  /** Largest eight-column template accepted for this flow, in data rows. */
+  maxTemplateRows: number;
   /** Prefix of the receipt text: "<prefix><invoice>" in DESCRIPTION and TransactionText. */
   receiptPrefix: string;
 }
@@ -28,6 +34,7 @@ export const INVOICE_REVIEW_FLOWS: Record<
     processorType: EntryProcessorTypes.CashInYard,
     processorName: ENTRY_PROCESSOR_NAMES.CASH_IN_YARD,
     voucherLogicalName: 'last.ledger.voucher.cash.in.yard',
+    maxTemplateRows: YARD_INVOICE_LIMITS.maxDataRows,
     receiptPrefix: 'Yard receipt ',
   },
   SHIPLINK: {
@@ -36,6 +43,7 @@ export const INVOICE_REVIEW_FLOWS: Record<
     processorType: EntryProcessorTypes.CashInShiplink,
     processorName: ENTRY_PROCESSOR_NAMES.CASH_IN_SHIPLINK,
     voucherLogicalName: 'last.ledger.voucher.cash.in.shiplink',
+    maxTemplateRows: SHIPLINK_TEMPLATE_MAX_DATA_ROWS,
     receiptPrefix: 'ShipLink receipt ',
   },
 };

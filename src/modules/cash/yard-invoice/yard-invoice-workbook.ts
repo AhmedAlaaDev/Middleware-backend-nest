@@ -47,6 +47,7 @@ export const YARD_FORMAT_LABELS: Record<YardUploadFormat, string> = {
  */
 export async function parseYardWorkbook(
   buffer: Buffer<ArrayBufferLike>,
+  options: { maxTemplateRows?: number } = {},
 ): Promise<YardWorkbookParseResult> {
   try {
     assertSafeXlsxArchive(buffer);
@@ -73,7 +74,9 @@ export async function parseYardWorkbook(
     workbook.worksheets.length === 1 &&
     sheetNames[0] === YARD_INVOICE_TEMPLATE_SHEET
   ) {
-    const template = await parseYardInvoiceTemplate(buffer);
+    const template = await parseYardInvoiceTemplate(buffer, {
+      maxDataRows: options.maxTemplateRows,
+    });
     return {
       format: 'TEMPLATE_8',
       formatLabel: YARD_FORMAT_LABELS.TEMPLATE_8,

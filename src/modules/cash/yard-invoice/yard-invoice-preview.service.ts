@@ -140,10 +140,13 @@ export class YardInvoicePreviewService {
     fileBuffer: Buffer<ArrayBufferLike>;
     fileName: string;
     companyId: string;
+    maxTemplateRows?: number;
   }): Promise<YardInvoiceReview> {
     const correlationId = randomUUID();
     const company = String(input.companyId ?? '').trim();
-    const parsed = await parseYardWorkbook(input.fileBuffer);
+    const parsed = await parseYardWorkbook(input.fileBuffer, {
+      maxTemplateRows: input.maxTemplateRows,
+    });
     const aggregation = aggregateYardInvoiceRecords(parsed.records);
 
     const eligible = aggregation.groups.filter(

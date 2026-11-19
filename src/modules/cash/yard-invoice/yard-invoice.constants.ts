@@ -21,6 +21,9 @@ export const YARD_INVOICE_TEMPLATE_HEADERS = [
 export type YardInvoiceTemplateHeader =
   (typeof YARD_INVOICE_TEMPLATE_HEADERS)[number];
 
+/** ShipLink template row limit: the same bound as the Yards source workbook. */
+export const SHIPLINK_TEMPLATE_MAX_DATA_ROWS = 25_000;
+
 /** Hard limits applied before any D365 call. */
 export const YARD_INVOICE_LIMITS = {
   /** Largest accepted workbook. The Yards source workbook is about 1.3 MB. */

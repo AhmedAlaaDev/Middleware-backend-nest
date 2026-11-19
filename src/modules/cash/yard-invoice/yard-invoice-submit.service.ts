@@ -254,6 +254,7 @@ export class YardInvoiceSubmitService {
         fileBuffer,
         fileName,
         companyId: company,
+        maxTemplateRows: INVOICE_REVIEW_FLOWS[flow].maxTemplateRows,
       });
       if (flow === 'SHIPLINK' && review.format !== 'TEMPLATE_8') {
         throw new Error(
@@ -336,6 +337,7 @@ export class YardInvoiceSubmitService {
         fileBuffer,
         fileName: job.fileName,
         companyId: job.company,
+        maxTemplateRows: config.maxTemplateRows,
       });
       if (review.payloadHash !== job.payloadHash) {
         await this.store.update(jobId, {

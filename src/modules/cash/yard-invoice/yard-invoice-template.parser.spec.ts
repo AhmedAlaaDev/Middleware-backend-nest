@@ -241,3 +241,27 @@ describe('parseYardInvoiceTemplate', () => {
     await expect(parseYardInvoiceTemplate(buffer)).rejects.toThrow(/row limit/);
   });
 });
+
+describe('template row limit per flow', () => {
+  async function templateWithRows(count: number): Promise<Buffer> {
+    const rows = Array.from({ length: count }, (_, i) =>
+      baseRow({ InvoiceNumber: `INV-${i + 1}`, PaymentSerial: `PS-${i + 1}` }),
+    );
+    return buildTemplateWorkbook(rows);
+  }
+
+  it('rejects more rows than the default Yard limit', async () => {
+    const buffer = await templateWithRows(2001);
+    await expect(parseYardInvoiceTemplate(buffer)).rejects.toThrow(
+      YardInvoiceTemplateError,
+    );
+  });
+
+  it('accepts more rows when a larger limit is given (ShipLink)', async () => {
+    const buffer = await templateWithRows(2404);
+    const result = await parseYardInvoiceTemplate(buffer, {
+      maxDataRows: 25_000,
+    });
+    expect(result.rows).toHaveLength(2404);
+  });
+});
