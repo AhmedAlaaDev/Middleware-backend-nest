@@ -1,4 +1,9 @@
 import {
+  INVOICE_REVIEW_FLOWS,
+  InvoiceReviewFlow,
+  InvoiceReviewFlowConfig,
+} from './yard-invoice-flow';
+import {
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -95,19 +100,23 @@ export class YardInvoiceSubmitService {
     fileName: string;
     companyId: string;
     user: YardInvoiceUser;
+    flow?: InvoiceReviewFlow;
   }): Promise<YardInvoiceJobView> {
+    const flow: InvoiceReviewFlow = input.flow ?? 'YARD';
     const job = await this.store.create({
       company: input.companyId,
       createdByUserId: input.user.id,
       fileName: input.fileName,
       status: 'REVIEWING',
       correlationId: '',
+      flow,
     });
     void this.runReview(
       job.id,
       input.fileBuffer,
       input.fileName,
       input.companyId,
+      flow,
     );
     return this.getJob(job.id, input.user);
   }
@@ -238,6 +247,7 @@ export class YardInvoiceSubmitService {
     fileBuffer: Buffer<ArrayBufferLike>,
     fileName: string,
     company: string,
+    flow: InvoiceReviewFlow,
   ): Promise<void> {
     try {
       const review = await this.preview.review({
@@ -245,12 +255,18 @@ export class YardInvoiceSubmitService {
         fileName,
         companyId: company,
       });
+      if (flow === 'SHIPLINK' && review.format !== 'TEMPLATE_8') {
+        throw new Error(
+          'ShipLink invoice uploads accept the eight-column template only.',
+        );
+      }
       await this.storeReview(jobId, review);
       const batchId = await this.createReviewBatch(
         jobId,
         company,
         fileName,
         review,
+        INVOICE_REVIEW_FLOWS[flow],
       );
       await this.store.update(jobId, { batchId });
     } catch (error) {
@@ -314,6 +330,7 @@ export class YardInvoiceSubmitService {
     job: YardInvoiceJobRecord,
   ): Promise<void> {
     let batchId: string | null = null;
+    const config = INVOICE_REVIEW_FLOWS[job.flow ?? 'YARD'];
     try {
       const review = await this.preview.review({
         fileBuffer,
@@ -339,10 +356,12 @@ export class YardInvoiceSubmitService {
 
       const { rows } = buildYardCashInSourceRows(
         this.preview.toPostingInputs(review),
+        config.receiptPrefix,
       );
       // The batch is created at review time; submit reuses it.
       batchId =
-        job.batchId ?? (await this.createBatch(jobId, job.company, rows));
+        job.batchId ??
+        (await this.createBatch(jobId, job.company, rows, config));
       await this.store.update(jobId, {
         status: 'BATCH_CREATED',
         batchId,
@@ -406,9 +425,10 @@ export class YardInvoiceSubmitService {
     jobId: string,
     company: string,
     rows: EntryRawDataModel[],
+    config: InvoiceReviewFlowConfig,
   ): Promise<string> {
     const processor = this.processorFactory.getProcessorByName(
-      EntryProcessorTypes.CashInYard,
+      config.processorType,
     );
     const enriched = (await processor.formatAndEnrichAsync(
       rows,
@@ -425,14 +445,15 @@ export class YardInvoiceSubmitService {
       );
     }
     const batch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.CashInYard,
-      ENTRY_PROCESSOR_NAMES.CASH_IN_YARD,
+      config.processorType,
+      config.processorName,
       company,
-      `Yard invoice job ${jobId}`,
+      `${config.label} invoice job ${jobId}`,
       rows,
       validated,
       undefined,
-      'last.ledger.voucher.cash.in.yard',
+      config.voucherLogicalName,
+      { invoiceReviewFlow: config.flow },
     );
     return batch.id;
   }
@@ -449,6 +470,7 @@ export class YardInvoiceSubmitService {
     company: string,
     fileName: string,
     review: YardInvoiceReview,
+    config: InvoiceReviewFlowConfig,
   ): Promise<string> {
     const checks = new Map(
       review.validation.groups.map((check) => [check.invoiceNumber, check]),
@@ -465,16 +487,19 @@ export class YardInvoiceSubmitService {
       rowChecks.push(check);
       if (check.status === 'VALID' && check.metadata && check.offsetAccount) {
         rows.push(
-          buildYardCashInSourceRows([
-            {
-              group,
-              metadata: check.metadata,
-              offsetAccount: check.offsetAccount,
-            },
-          ]).rows[0],
+          buildYardCashInSourceRows(
+            [
+              {
+                group,
+                metadata: check.metadata,
+                offsetAccount: check.offsetAccount,
+              },
+            ],
+            config.receiptPrefix,
+          ).rows[0],
         );
       } else {
-        rows.push(blockedReviewRow(group, index, check));
+        rows.push(blockedReviewRow(group, index, check, config.receiptPrefix));
       }
     });
 
@@ -499,14 +524,15 @@ export class YardInvoiceSubmitService {
     });
 
     const batch = await this.dataBatchService.createAsync(
-      EntryProcessorTypes.CashInYard,
-      ENTRY_PROCESSOR_NAMES.CASH_IN_YARD,
+      config.processorType,
+      config.processorName,
       company,
       fileName,
       rows,
       validated,
       undefined,
-      'last.ledger.voucher.cash.in.yard',
+      config.voucherLogicalName,
+      { invoiceReviewFlow: config.flow },
     );
     const blockedInvoiceCount = rowChecks.filter(
       (check) => check.status === 'BLOCKED',
@@ -576,6 +602,7 @@ function blockedReviewRow(
   group: YardInvoiceGroup,
   index: number,
   check: YardInvoiceGroupValidation,
+  receiptPrefix: string,
 ): EntryRawDataModel {
   const metadata = check.metadata;
   const offset = check.offsetAccount;
@@ -583,7 +610,7 @@ function blockedReviewRow(
     UniqueId: index + 1,
     LINENUMBER: index + 1,
     TRANSDATE: group.paymentDate,
-    DESCRIPTION: `Yard receipt ${group.invoiceNumber}`,
+    DESCRIPTION: `${receiptPrefix}${group.invoiceNumber}`,
     ACCOUNTTYPE: 'Cust',
     ACCOUNTDISPLAYVALUE: metadata?.customerAccount ?? '',
     DEFAULTDIMENSIONDISPLAYVALUE: metadata?.defaultDimensionDisplayValue ?? '',

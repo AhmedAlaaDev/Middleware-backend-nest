@@ -47,6 +47,7 @@ import {
   VendorPaymentSettlementImportResponse,
   VendorPaymentSettlementImportService,
 } from '@/modules/cash/services/vendor-payment-settlement-import.service';
+import { isShiplinkInvoiceUploadEnabled } from '@/modules/cash/yard-invoice/yard-invoice-flow';
 import { isYardInvoiceUploadEnabled } from '@/modules/cash/yard-invoice/yard-invoice-preview.service';
 import {
   YardInvoiceSubmitService,
@@ -66,6 +67,12 @@ type AuthenticatedRequest = { user?: { id?: string; role?: string } };
 
 function assertYardInvoiceEnabled(): void {
   if (!isYardInvoiceUploadEnabled()) {
+    throw new NotFoundException();
+  }
+}
+
+function assertShiplinkInvoiceEnabled(): void {
+  if (!isShiplinkInvoiceUploadEnabled()) {
     throw new NotFoundException();
   }
 }
@@ -252,6 +259,47 @@ export class CashController {
         fileName: file.originalname,
         companyId: companyId || 'm-p',
         user,
+      });
+    } catch (error) {
+      throw mapYardInvoiceError(error);
+    }
+  }
+
+  /**
+   * ShipLink invoice upload: the same eight-column template and the same review
+   * as Yard, with the ShipLink processor. Gated by SHIPLINK_INVOICE_UPLOAD_ENABLED.
+   * The job, its lines and submit use the Yard routes below.
+   */
+  @Post('CashIn-Shiplink-Invoice-Preview')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload a ShipLink invoice workbook (.xlsx) + company',
+    type: CashInShiplinkDocDto,
+  })
+  @ApiOperation({
+    summary:
+      'Start an invoice-driven ShipLink cash-in review (creates a job, posts nothing)',
+  })
+  @UseInterceptors(
+    FileInterceptor('dataFile', {
+      limits: { fileSize: YARD_INVOICE_LIMITS.maxFileBytes, files: 1 },
+    }),
+  )
+  public async previewShiplinkInvoiceUpload(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInShiplinkDocDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    assertShiplinkInvoiceEnabled();
+    const user = requireYardInvoiceUser(req);
+    try {
+      return await this.yardInvoiceSubmit.startReview({
+        fileBuffer: file.buffer,
+        fileName: file.originalname,
+        companyId: companyId || 'm-p',
+        user,
+        flow: 'SHIPLINK',
       });
     } catch (error) {
       throw mapYardInvoiceError(error);

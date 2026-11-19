@@ -1,3 +1,4 @@
+import { invoiceReviewFlowOfBatch } from '@/modules/cash/yard-invoice/yard-invoice-flow';
 import {
   BadRequestException,
   Injectable,
@@ -74,10 +75,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     this.logger.log(`Received post-to-DFO request for cash batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
-    if (
-      batch.entryProcessorType === EntryProcessorTypes.CashInYard &&
-      this.yardRecheck
-    ) {
+    if (invoiceReviewFlowOfBatch(batch) && this.yardRecheck) {
       await this.ensureYardBatchMatchesD365(batchId, batch.company);
     }
     const cashDirection = this.getCashDirection(batch.entryProcessorType);

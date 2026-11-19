@@ -22,6 +22,10 @@ export class DataBatch {
   @Prop()
   entryProcessorName: string;
 
+  /** Set when an invoice review (Yard or ShipLink) created the batch. */
+  @Prop()
+  invoiceReviewFlow?: string;
+
   @Prop()
   description?: string;
 

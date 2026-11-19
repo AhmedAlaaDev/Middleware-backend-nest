@@ -14,6 +14,7 @@ export interface YardInvoiceJobRecord {
   company: string;
   createdByUserId: string;
   fileName: string;
+  flow: 'YARD' | 'SHIPLINK';
   format: string | null;
   payloadHash: string | null;
   status: YardInvoiceJobStatus;
@@ -40,6 +41,7 @@ export interface NewYardInvoiceJob {
   fileName: string;
   status: YardInvoiceJobStatus;
   correlationId: string;
+  flow?: 'YARD' | 'SHIPLINK';
 }
 
 export interface YardInvoiceLinePage {
@@ -181,6 +183,7 @@ function toRecord(doc: Record<string, unknown>): YardInvoiceJobRecord {
     company: String(doc.company),
     createdByUserId: String(doc.createdByUserId),
     fileName: typeof doc.fileName === 'string' ? doc.fileName : '',
+    flow: doc.flow === 'SHIPLINK' ? 'SHIPLINK' : 'YARD',
     format: typeof doc.format === 'string' ? doc.format : null,
     payloadHash: typeof doc.payloadHash === 'string' ? doc.payloadHash : null,
     status: doc.status as YardInvoiceJobStatus,

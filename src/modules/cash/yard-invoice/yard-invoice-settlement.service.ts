@@ -1,3 +1,4 @@
+import { RECEIPT_PREFIXES } from './yard-invoice-flow';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
@@ -17,7 +18,6 @@ import { ODataQueryBuilderService } from '@/modules/d365fo/services/odata-query-
  */
 export const YARD_INVOICE_SETTLEMENT_FLAG = 'YARD_INVOICE_SETTLEMENT_ENABLED';
 
-const YARD_RECEIPT_PREFIX = 'Yard receipt ';
 const CHUNK_SIZE = 40;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const AMOUNT_TOLERANCE = 0.005;
@@ -72,11 +72,14 @@ export interface YardSettlementReport {
 
 /** Yard receipt invoice number from the journal line text. */
 export function yardInvoiceOf(line: YardJournalLine): string {
-  return line.TransactionText.slice(YARD_RECEIPT_PREFIX.length).trim();
+  const text = line.TransactionText ?? '';
+  const prefix = RECEIPT_PREFIXES.find((p) => text.startsWith(p)) ?? '';
+  return text.slice(prefix.length).trim();
 }
 
 export function isYardReceiptLine(line: YardJournalLine): boolean {
-  return (line.TransactionText ?? '').startsWith(YARD_RECEIPT_PREFIX);
+  const text = line.TransactionText ?? '';
+  return RECEIPT_PREFIXES.some((p) => text.startsWith(p));
 }
 
 /**

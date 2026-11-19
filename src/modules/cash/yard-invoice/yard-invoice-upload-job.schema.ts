@@ -40,6 +40,10 @@ export class YardInvoiceUploadJob {
   @Prop()
   fileName: string;
 
+  /** Invoice review flow that created the job: YARD (default) or SHIPLINK. */
+  @Prop({ type: String, enum: ['YARD', 'SHIPLINK'], default: 'YARD' })
+  flow?: 'YARD' | 'SHIPLINK';
+
   /** Upload format detected by the review: TEMPLATE_8 or YARDS_SOURCE. */
   @Prop()
   format?: string;

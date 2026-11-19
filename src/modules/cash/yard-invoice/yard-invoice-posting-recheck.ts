@@ -38,7 +38,9 @@ export function yardBatchRowFromStoredRecord(data: Record<string, unknown>): {
   const invoiceNumber =
     text('Invoice') ||
     text('MarkedInvoice') ||
-    text('Description').replace(/^Yard receipt /, '').trim();
+    text('Description')
+      .replace(/^(Yard|ShipLink) receipt /, '')
+      .trim();
   const lineNumber = Number(data.LineNumber);
   return {
     lineNumber: lineNumber > 0 ? lineNumber : undefined,

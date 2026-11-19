@@ -7,6 +7,7 @@ export interface ICreateDataBatch {
   company: string;
   entryProcessorType: EntryProcessorTypes;
   entryProcessorName: string;
+  invoiceReviewFlow?: string;
   description: string;
   successCount: number;
   errorCount: number;
@@ -53,6 +54,7 @@ export class IDataBatch {
   company: string;
   entryProcessorType: EntryProcessorTypes;
   entryProcessorName: string;
+  invoiceReviewFlow?: string;
   description?: string;
   successCount: number;
   errorCount: number;

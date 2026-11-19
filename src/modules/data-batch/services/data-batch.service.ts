@@ -411,6 +411,7 @@ export class DataBatchService {
     options?: {
       withholdingRemovedCount?: number;
       withholdingRemovedAmount?: number;
+      invoiceReviewFlow?: string;
     },
   ): Promise<IDataBatch> {
     this.logger.log(
@@ -447,6 +448,7 @@ export class DataBatchService {
       reprocessCount: 0,
       withholdingRemovedCount: options?.withholdingRemovedCount ?? 0,
       withholdingRemovedAmount: options?.withholdingRemovedAmount ?? 0,
+      invoiceReviewFlow: options?.invoiceReviewFlow,
       sourceColumnHeaders:
         sourceColumnHeaders.length > 0 ? sourceColumnHeaders : undefined,
     });

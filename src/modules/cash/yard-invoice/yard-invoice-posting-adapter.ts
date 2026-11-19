@@ -52,7 +52,10 @@ export interface YardPostingAdapterInput {
 
 export class YardPostingAdapterError extends Error {}
 
-export function buildYardCashInSourceRows(inputs: YardPostingAdapterInput[]): {
+export function buildYardCashInSourceRows(
+  inputs: YardPostingAdapterInput[],
+  receiptPrefix = 'Yard receipt ',
+): {
   rows: EntryRawDataModel[];
   mapping: YardPostingSourceMapping[];
 } {
@@ -91,7 +94,7 @@ export function buildYardCashInSourceRows(inputs: YardPostingAdapterInput[]): {
       UniqueId: lineNumber,
       LINENUMBER: lineNumber,
       TRANSDATE: group.paymentDate,
-      DESCRIPTION: `Yard receipt ${group.invoiceNumber}`,
+      DESCRIPTION: `${receiptPrefix}${group.invoiceNumber}`,
       ACCOUNTTYPE: 'Cust',
       ACCOUNTDISPLAYVALUE: metadata.customerAccount,
       DEFAULTDIMENSIONDISPLAYVALUE: metadata.defaultDimensionDisplayValue,

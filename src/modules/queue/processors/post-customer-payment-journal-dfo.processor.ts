@@ -1,3 +1,4 @@
+import { invoiceReviewFlowOfBatch } from '@/modules/cash/yard-invoice/yard-invoice-flow';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
@@ -480,10 +481,7 @@ export class PostCustomerPaymentJournalDFOProcessor extends WorkerHost {
     if (!isYardInvoiceSettlementEnabled()) return;
     try {
       const batch = await this.batches.getByIdAsync(batchId);
-      if (
-        !batch ||
-        batch.entryProcessorType !== EntryProcessorTypes.CashInYard
-      ) {
+      if (!batch || !invoiceReviewFlowOfBatch(batch)) {
         return;
       }
       const journals = [
