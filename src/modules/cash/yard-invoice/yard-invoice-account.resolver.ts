@@ -194,8 +194,9 @@ function isDateWithin(
 ): boolean {
   const day = date.slice(0, 10);
   const lower = yearOf(from) >= 1901 ? (from ?? '').slice(0, 10) : '';
+  // 1900 and 2154-style sentinels mean no bound, on either side.
   const upper =
-    yearOf(to) > 0 && yearOf(to) <= 2100 ? (to ?? '').slice(0, 10) : '';
+    yearOf(to) >= 1901 && yearOf(to) <= 2100 ? (to ?? '').slice(0, 10) : '';
   if (lower && day < lower) return false;
   if (upper && day > upper) return false;
   return true;

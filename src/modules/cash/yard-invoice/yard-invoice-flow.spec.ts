@@ -11,6 +11,7 @@ import {
   YardJournalLine,
 } from './yard-invoice-settlement.service';
 import { yardBatchRowFromStoredRecord } from './yard-invoice-posting-recheck';
+import { evaluateBankAccountRows } from './yard-invoice-account.resolver';
 
 function journalLine(text: string): YardJournalLine {
   return {
@@ -92,5 +93,35 @@ describe('ShipLink receipts in settlement and re-check', () => {
       Description: 'ShipLink receipt 000061183/YD',
     });
     expect(row.invoiceNumber).toBe('000061183/YD');
+  });
+});
+
+describe('bank account active dates', () => {
+  const activeRow = (from: string, to: string) => ({
+    BankAccountId: 'CIB-EG-CA1',
+    CurrencyCode: 'EGP',
+    BankAccountStatus: 'ActiveForAllTransactions',
+    ActiveFrom: from,
+    ActiveTo: to,
+  });
+
+  it('accepts a payment when both D365 dates are the 1900 no-limit sentinel', () => {
+    const result = evaluateBankAccountRows({
+      rows: [activeRow('1900-01-01T00:00:00Z', '1900-01-01T00:00:00Z')],
+      safeBankAccount: 'CIB-EG-CA1',
+      currencyCode: 'EGP',
+      paymentDate: '2026-10-04',
+    });
+    expect(result.status).toBe('OK');
+  });
+
+  it('still rejects a payment after a real ActiveTo date', () => {
+    const result = evaluateBankAccountRows({
+      rows: [activeRow('1900-01-01T00:00:00Z', '2026-08-15T00:00:00Z')],
+      safeBankAccount: 'CIB-EG-CA1',
+      currencyCode: 'EGP',
+      paymentDate: '2026-10-04',
+    });
+    expect(result.status).toBe('NOT_ACTIVE_ON_DATE');
   });
 });
