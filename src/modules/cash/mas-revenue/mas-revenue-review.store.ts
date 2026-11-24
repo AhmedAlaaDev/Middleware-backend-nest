@@ -128,6 +128,8 @@ export abstract class MasRevenueReviewStore {
     reviewId: string,
     batchId: string,
   ): Promise<void>;
+  /** Frees the receipts of a batch that no longer exists: removes its claims and clears its lines' batch. */
+  abstract releaseBatchReceipts(batchId: string): Promise<void>;
   abstract markLinesSubmitted(reviewId: string, batchId: string): Promise<void>;
 }
 
@@ -286,6 +288,11 @@ export class MongoMasRevenueReviewStore extends MasRevenueReviewStore {
     batchId: string,
   ): Promise<void> {
     await this.claims.updateMany({ reviewId }, { $set: { batchId } }).exec();
+  }
+
+  public async releaseBatchReceipts(batchId: string): Promise<void> {
+    await this.claims.deleteMany({ batchId }).exec();
+    await this.lines.updateMany({ batchId }, { $unset: { batchId: 1 } }).exec();
   }
 
   public async markLinesSubmitted(

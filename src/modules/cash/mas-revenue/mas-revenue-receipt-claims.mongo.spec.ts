@@ -45,6 +45,7 @@ describeWithMongo(
     let connection: Connection;
     let store: MongoMasRevenueReviewStore;
     let claims: ReturnType<Connection['model']>;
+    let lines: ReturnType<Connection['model']>;
 
     beforeAll(async () => {
       connection = await createConnection(uri as string).asPromise();
@@ -53,7 +54,7 @@ describeWithMongo(
         MasRevenueReview.name,
         MasRevenueReviewSchema,
       );
-      const lines = connection.model(
+      lines = connection.model(
         MasRevenueReviewLine.name,
         MasRevenueReviewLineSchema,
       );
@@ -169,6 +170,36 @@ describeWithMongo(
         batchId?: string;
       } | null;
       expect(kept?.batchId).toBe('batch-42');
+    });
+
+    it('releaseBatchReceipts removes the claims and clears the lines of a deleted batch', async () => {
+      await store.claimReceiptIdentities('review-del', [
+        claimFor('21', '2026-10-28'),
+      ]);
+      await store.attachBatchToReceiptClaims('review-del', 'batch-gone');
+      await (
+        lines as unknown as { create: (doc: unknown) => Promise<unknown> }
+      ).create({
+        reviewId: 'review-del',
+        company: 'mas',
+        position: 1,
+        invoiceNumber: '21',
+        transactionDate: '2026-10-28',
+        currency: '',
+        raw: { InvoiceNumber: '21' },
+        batchId: 'batch-gone',
+      });
+
+      await store.releaseBatchReceipts('batch-gone');
+
+      expect(await claims.countDocuments({ batchId: 'batch-gone' })).toBe(0);
+      expect(await store.findSubmittedReceiptLines('mas', ['21'])).toEqual([]);
+      // The identity can be claimed again.
+      expect(
+        await store.claimReceiptIdentities('review-new', [
+          claimFor('21', '2026-10-28'),
+        ]),
+      ).toEqual({ ok: true });
     });
 
     it('findReceiptClaims returns claims of every year for the invoice', async () => {

@@ -19,7 +19,10 @@ import {
 } from '@/modules/cash/mas-revenue/mas-revenue-cash-account-verifier';
 import { getMasRevenueSubmissionBlockers } from '@/modules/cash/mas-revenue/mas-revenue-config';
 import { MasRevenueConfigProvider } from '@/modules/cash/mas-revenue/mas-revenue-config.provider';
-import { resolveReceiptCurrencies } from '@/modules/cash/mas-revenue/mas-revenue-currency';
+import {
+  cashIdsToLookUp,
+  resolveReceiptCurrencies,
+} from '@/modules/cash/mas-revenue/mas-revenue-currency';
 import {
   buildMasRevenueGlHeaderBody,
   buildMasRevenueGlLines,
@@ -196,11 +199,16 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     );
     // Each receipt takes the currency of its verified D365 cash account, here as at
     // review time, so a corrected configuration works on an existing batch.
-    const receipts = resolveReceiptCurrencies(
-      stored.map((entry) => storedRawToReceipt(entry.raw)),
-      config,
-      cashChecks,
-    );
+    const storedReceipts = stored.map((entry) => storedRawToReceipt(entry.raw));
+    const lookupIds = cashIdsToLookUp(storedReceipts, config);
+    const lookupChecks =
+      lookupIds.length > 0
+        ? await this.masRevenueCashVerifier.verify(lookupIds)
+        : [];
+    const receipts = resolveReceiptCurrencies(storedReceipts, config, [
+      ...cashChecks,
+      ...lookupChecks,
+    ]);
     const blockers = getMasRevenueSubmissionBlockers(config, receipts);
     const cashBlockers = masRevenueCashAccountBlockers(
       cashChecks,

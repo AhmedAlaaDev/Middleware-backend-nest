@@ -279,6 +279,29 @@ describe('PostCashBatchToDFOHandler: MAS Revenue GL route', () => {
     expect(queueService.addDurableJob).not.toHaveBeenCalled();
   });
 
+  it('looks up an unmapped cash account by its sheet value, so its currency is not a blocker (the mapping gate still applies)', async () => {
+    const { handler, queueService } = buildHandler(
+      { ...completeConfig(), cashAccountIdsByDisplayName: {} },
+      () =>
+        records([
+          {
+            id: 'r1',
+            journal: 'MASREV-202610-001',
+            raw: { ...raw('0012', 2), Currency: '' },
+          },
+        ]),
+    );
+
+    const error = await handler
+      .execute({ batchId: 'batch-1' } as never)
+      .catch((e: unknown) => e);
+    const errors = (error as { response: { errors: string[] } }).response
+      .errors;
+    expect(errors.join(' ')).toContain('unknown or unsupported cash account');
+    expect(errors.join(' ')).not.toContain('currency is not resolved');
+    expect(queueService.addDurableJob).not.toHaveBeenCalled();
+  });
+
   it('blocks posting while the configuration is incomplete, before anything is queued', async () => {
     const { handler, queueService } = buildHandler(
       { ...completeConfig(), journalName: null },

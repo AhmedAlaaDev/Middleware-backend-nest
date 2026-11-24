@@ -16,7 +16,10 @@ import {
 } from './mas-revenue-cash-account-verifier';
 import { getMasRevenueSubmissionBlockers } from './mas-revenue-config';
 import { MasRevenueConfigProvider } from './mas-revenue-config.provider';
-import { resolveReceiptCurrencies } from './mas-revenue-currency';
+import {
+  cashIdsToLookUp,
+  resolveReceiptCurrencies,
+} from './mas-revenue-currency';
 import {
   masRevenueFingerprint,
   masRevenueIdentity,
@@ -157,11 +160,14 @@ export class MasRevenueReviewService {
     const cashAccountChecks = await this.cashVerifier.verify(
       Object.values(config.cashAccountIdsByDisplayName),
     );
-    const receipts = resolveReceiptCurrencies(
-      result.receipts,
-      config,
-      cashAccountChecks,
-    );
+    // Accounts that are not in the configuration are looked up by their sheet value.
+    const lookupIds = cashIdsToLookUp(result.receipts, config);
+    const lookupChecks =
+      lookupIds.length > 0 ? await this.cashVerifier.verify(lookupIds) : [];
+    const receipts = resolveReceiptCurrencies(result.receipts, config, [
+      ...cashAccountChecks,
+      ...lookupChecks,
+    ]);
     const rawRows = receipts.map((receipt, index) =>
       receiptToStoredRaw(receipt, index + 1),
     );
@@ -453,10 +459,19 @@ export class MasRevenueReviewService {
   private async loadPriorReceipts(
     invoices: string[],
   ): Promise<MasRevenuePriorReceipt[]> {
-    const [lines, claims] = await Promise.all([
+    const [foundLines, foundClaims] = await Promise.all([
       this.store.findSubmittedReceiptLines(MAS_REVENUE_COMPANY_ID, invoices),
       this.store.findReceiptClaims(MAS_REVENUE_COMPANY_ID, invoices),
     ]);
+    // Receipts of a batch that was deleted are freed, so they can be uploaded again.
+    const deleted = await this.releaseDeletedBatches([
+      ...foundLines.map((line) => line.batchId),
+      ...foundClaims.map((claim) => claim.batchId),
+    ]);
+    const lines = foundLines.filter((line) => !deleted.has(line.batchId ?? ''));
+    const claims = foundClaims.filter(
+      (claim) => !deleted.has(claim.batchId ?? ''),
+    );
     const fromLines: MasRevenuePriorReceipt[] = lines.map((line) => {
       const year = reliableYear(line.transactionDate);
       const versioned =
@@ -485,6 +500,30 @@ export class MasRevenueReviewService {
         : `review ${claim.reviewId} (in progress)`,
     }));
     return [...fromLines, ...fromClaims];
+  }
+
+  /**
+   * Finds which of the batches no longer exist and frees their receipts. A batch is
+   * treated as existing unless the lookup says it was not found, so a lookup failure
+   * never frees a receipt.
+   */
+  private async releaseDeletedBatches(
+    batchIds: Array<string | null>,
+  ): Promise<Set<string>> {
+    const deleted = new Set<string>();
+    for (const batchId of new Set(batchIds.filter(Boolean) as string[])) {
+      let exists = true;
+      try {
+        exists = Boolean(await this.dataBatchService.getByIdAsync(batchId));
+      } catch (error) {
+        exists = !(error instanceof NotFoundException);
+      }
+      if (!exists) {
+        await this.store.releaseBatchReceipts(batchId);
+        deleted.add(batchId);
+      }
+    }
+    return deleted;
   }
 
   private async loadOwnedReview(

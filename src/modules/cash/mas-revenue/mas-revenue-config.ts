@@ -354,7 +354,7 @@ export function getMasRevenueSubmissionBlockers(
   ];
   for (const name of unresolved) {
     blockers.push(
-      `cash account "${name}": currency is not resolved from D365 (the account must be in the verified cash-account configuration and be an RCash account in D365)`,
+      `cash account "${name}": currency is not resolved from D365 (the account value must exist as an RCash account in D365)`,
     );
   }
 

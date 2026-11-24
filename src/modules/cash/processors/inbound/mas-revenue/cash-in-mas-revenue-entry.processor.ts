@@ -164,12 +164,9 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
       if (!textOf(fields.AccountDisplayValue).trim()) {
         line.AddError('AccountDisplayValue', 'cash account is required');
       }
-      if (!/^[A-Z]{3}$/.test(textOf(fields.Currency))) {
-        line.AddError(
-          'Currency',
-          'currency is not resolved from the D365 cash account (the account must be in the verified cash-account configuration and be an RCash account in D365)',
-        );
-      }
+      // The currency is the D365 cash account's currency and is resolved at posting time.
+      // An unresolved currency is a posting blocker, not a line error, so the batch can still
+      // be posted once the account is found.
       if (!(Number(fields.DebitAmount) > 0)) {
         line.AddError(
           'DebitAmount',

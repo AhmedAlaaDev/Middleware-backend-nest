@@ -208,6 +208,12 @@ class FakeStore extends MasRevenueReviewStore {
       (c) => !(c.reviewId === reviewId && c.batchId === null),
     );
   }
+  async releaseBatchReceipts(batchId: string): Promise<void> {
+    this.claims = this.claims.filter((c) => c.batchId !== batchId);
+    this.lines = this.lines.map((l) =>
+      l.batchId === batchId ? { ...l, batchId: null } : l,
+    );
+  }
   async attachBatchToReceiptClaims(
     reviewId: string,
     batchId: string,
@@ -230,6 +236,9 @@ function buildService(config: MasRevenueVerifiedConfig) {
   } as unknown as MasRevenueConfigProvider;
   const dataBatchService = {
     createAsync: jest.fn(async (..._args: unknown[]) => ({ id: 'batch-1' })),
+    getByIdAsync: jest.fn(
+      async (id: string) => ({ id }) as { id: string } | null,
+    ),
   };
   const processor = new CashInMasRevenueEntryProcessor({} as never);
   const processorFactory = {
@@ -341,7 +350,19 @@ describe('MasRevenueReviewService.preview', () => {
     expect(currencies).toEqual(['EGP']);
   });
 
-  it('creates the batch with error lines, and names the cash account in the blockers, when its currency cannot be resolved from D365', async () => {
+  it('resolves the currency of an unmapped cash account by looking up its sheet value in D365', async () => {
+    const { service, store, cashVerifier } = buildService(
+      emptyMasRevenueConfig(),
+    );
+    const view = await previewValid(service);
+    expect(cashVerifier.verify).toHaveBeenCalledWith([CASH]);
+    expect([...store.lines].map((line) => line.raw.Currency)).toEqual(['EGP']);
+    expect(view.blockers.join(' ')).not.toContain(
+      'currency is not resolved from D365',
+    );
+  });
+
+  it('creates the batch without error lines, and names the cash account in the blockers, when its currency cannot be resolved from D365', async () => {
     const { service, cashVerifier, dataBatchService } =
       buildService(completeConfig());
     cashVerifier.verify.mockResolvedValueOnce([
@@ -364,7 +385,8 @@ describe('MasRevenueReviewService.preview', () => {
     const validated = dataBatchService.createAsync.mock.calls[0][5] as Array<{
       ErrorCount: number;
     }>;
-    expect(validated[0].ErrorCount).toBeGreaterThan(0);
+    // An unresolved currency is a posting blocker, not a line error, so the batch can still post.
+    expect(validated[0].ErrorCount).toBe(0);
   });
 
   it('reports an empty template as a review with nothing to submit', async () => {
@@ -423,6 +445,37 @@ describe('MasRevenueReviewService.submit', () => {
         OWNER,
       ),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('frees the receipts of a deleted batch so the same file can be uploaded again', async () => {
+    const { service, dataBatchService, store } = buildService(completeConfig());
+    const first = await previewValid(service);
+    await service.submit(
+      first.reviewId,
+      submitBody(first.payloadHash, 'k1'),
+      OWNER,
+    );
+
+    // Still present: a second upload of the same receipt is a duplicate.
+    const blocked = await previewValid(service);
+    await expect(
+      service.submit(
+        blocked.reviewId,
+        submitBody(blocked.payloadHash, 'k2'),
+        OWNER,
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    // The batch is deleted: its receipts are freed and the upload goes through.
+    dataBatchService.getByIdAsync.mockImplementation(async () => null);
+    const again = await previewValid(service);
+    const result = await service.submit(
+      again.reviewId,
+      submitBody(again.payloadHash, 'k3'),
+      OWNER,
+    );
+    expect(result.batchId).toBe('batch-1');
+    expect(store.claims).toHaveLength(1);
   });
 
   it('creates the batch even when configuration gates are open; the gates stop posting, not creation', async () => {
