@@ -195,7 +195,7 @@ export class MasRevenueReviewService {
       nonTransactionRows: result.nonTransactionRows,
       accounting: result.accounting,
       totalsByCurrency: totalsByCurrency(rawRows),
-      journalGroups: groupCounts(groups),
+      journalGroups: glLineCounts(groups, rawRows),
       issueCount: result.issues.length,
       issues: result.issues.slice(0, MAX_ISSUES_IN_SUMMARY).map(toIssueView),
     };
@@ -689,15 +689,26 @@ function totalsByCurrency(
   );
 }
 
-function groupCounts(
+/**
+ * GL lines per planned journal. Each receipt posts one line, and a second line when
+ * it carries VAT, so the count is per GL line, not per receipt.
+ */
+function glLineCounts(
   groups: EntryDynDataModel[],
+  raws: MasRevenueStoredRaw[],
 ): Array<{ journalBatchNumber: string; lineCount: number }> {
-  const counts = new Map<string, number>();
+  const journalBySourceRow = new Map<number, string>();
   for (const line of groups) {
-    counts.set(
-      line.JournalBatchNumber,
-      (counts.get(line.JournalBatchNumber) ?? 0) + 1,
+    const sourceRow = Number(
+      (line as unknown as { SourceRow?: unknown }).SourceRow,
     );
+    journalBySourceRow.set(sourceRow, line.JournalBatchNumber);
+  }
+  const counts = new Map<string, number>();
+  for (const raw of raws) {
+    const journal = journalBySourceRow.get(raw.SourceRow);
+    if (!journal) continue;
+    counts.set(journal, (counts.get(journal) ?? 0) + (raw.VatMinor > 0 ? 2 : 1));
   }
   return [...counts.entries()].map(([journalBatchNumber, lineCount]) => ({
     journalBatchNumber,

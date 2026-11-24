@@ -108,7 +108,8 @@ export class MasRevenueReviewLine {
   @Prop({ required: true })
   transactionDate: string;
 
-  @Prop({ required: true })
+  /** Empty when the receipt cash account could not be resolved; submit is then blocked. */
+  @Prop({ type: String, default: '' })
   currency: string;
 
   @Prop({ type: Object, required: true })
