@@ -18,6 +18,9 @@ services:
       - 1.1.1.1
     environment:
       NODE_ENV: production
+      YARD_INVOICE_UPLOAD_ENABLED: 'true'
+      YARD_INVOICE_SETTLEMENT_ENABLED: 'true'
+      SHIPLINK_INVOICE_UPLOAD_ENABLED: 'true'
       JSON_BODY_LIMIT: '${JSON_BODY_LIMIT:-50mb}'
       NODE_OPTIONS: '--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-6144} --dns-result-order=ipv4first'
       CACHE_REDIS_HOST: cache-redis
