@@ -266,12 +266,12 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
 
     const transDate = new Date(source.TRANSDATE);
 
-    // Determine monthly exchange rate to EGP
-    if (source.CURRENCYCODE?.toUpperCase() !== 'EGP') {
+    // Determine monthly exchange rate to the company accounting currency
+    if (source.CURRENCYCODE?.toUpperCase() !== this.accountingCurrency) {
       const rate = exchangeRates.find(
         (r) =>
           r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'EGP' &&
+          r.ToCurrency.toUpperCase() === this.accountingCurrency &&
           transDate >= new Date(r.StartDate) &&
           transDate <= new Date(r.EndDate),
       );
@@ -280,26 +280,26 @@ export class ClosingTruckingEntryProcessor extends EntryProcessorBase {
       monthlyExchangeRate = 1;
     }
 
-    // Determine reporting currency exchange rate to USD
+    // Determine reporting currency exchange rate to the company reporting currency
     if (
-      source.CURRENCYCODE?.toUpperCase() !== 'EGP' &&
-      source.CURRENCYCODE?.toUpperCase() !== 'USD'
+      source.CURRENCYCODE?.toUpperCase() !== this.accountingCurrency &&
+      source.CURRENCYCODE?.toUpperCase() !== this.reportingCurrency
     ) {
       const rate = exchangeRates.find(
         (r) =>
           r.FromCurrency.toUpperCase() === source.CURRENCYCODE?.toUpperCase() &&
-          r.ToCurrency.toUpperCase() === 'USD' &&
+          r.ToCurrency.toUpperCase() === this.reportingCurrency &&
           transDate >= new Date(r.StartDate) &&
           transDate <= new Date(r.EndDate),
       );
       reportExchangeRate = rate?.Rate || 0;
-    } else if (source.CURRENCYCODE?.toUpperCase() === 'USD') {
+    } else if (source.CURRENCYCODE?.toUpperCase() === this.reportingCurrency) {
       reportExchangeRate = 1;
     } else {
       // Convert from EGP to USD by inverting the USD->EGP rate
       const usdToEgp = exchangeRates.find(
         (r) =>
-          r.FromCurrency.toUpperCase() === 'USD' &&
+          r.FromCurrency.toUpperCase() === this.reportingCurrency &&
           transDate >= new Date(r.StartDate) &&
           transDate <= new Date(r.EndDate),
       );

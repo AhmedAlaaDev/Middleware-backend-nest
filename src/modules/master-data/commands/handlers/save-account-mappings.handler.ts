@@ -20,7 +20,7 @@ export class SaveAccountMappingsHandler implements ICommandHandler<SaveAccountMa
       await this.masterDataService.getAccountMappingsAsync({});
     const existingMap = new Map<string, boolean>();
     existingMappings.forEach((m) =>
-      existingMap.set(`${m.name}|${m.serviceType}`, true),
+      existingMap.set(`${m.company ?? 'm-p'}|${m.name}|${m.serviceType}`, true),
     );
 
     let mappingsCreated = 0;
@@ -41,7 +41,7 @@ export class SaveAccountMappingsHandler implements ICommandHandler<SaveAccountMa
         continue;
       }
 
-      const key = `${mappingData.name}|${mappingData.serviceType}`;
+      const key = `${mappingData.company ?? 'm-p'}|${mappingData.name}|${mappingData.serviceType}`;
       if (existingMap.has(key)) {
         mappingsUpdated++;
       } else {

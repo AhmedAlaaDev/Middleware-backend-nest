@@ -80,6 +80,7 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
         filter: {
           financialDimensionKey: v.financialDimensionKey,
           value: v.value,
+          legalEntityId: v.legalEntityId ?? '',
         },
         update: { $set: v },
         upsert: true,
@@ -108,6 +109,20 @@ export class FinancialDimensionValueMongoRepository implements FinancialDimensio
         $regex: this.escapeRegExp(filter.value),
         $options: 'i',
       };
+    }
+    if (filter.company) {
+      // Shared values ('') plus values restricted to this company. Legacy rows without
+      // an owner are m-p only: nothing proves they are shared, so MAS never inherits them.
+      const company = filter.company.trim().toLowerCase();
+      if (company === 'm-p') {
+        q['$or'] = [
+          { legalEntityId: { $in: ['', 'm-p'] } },
+          { legalEntityId: { $exists: false } },
+          { legalEntityId: null },
+        ];
+      } else {
+        q['legalEntityId'] = { $in: ['', company] };
+      }
     }
     let query = this.model.find(q).lean();
 

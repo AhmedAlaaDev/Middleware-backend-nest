@@ -1,18 +1,31 @@
 import { CashEntryRawDataModel } from '@/modules/cash/models/cash-entry-raw-data.model';
-import { CashInDirectLineBuilder } from '@/modules/cash/processors/inbound/direct/cash-in-direct-line.builder';
 import { formatCashInboundInvoice } from '@/modules/cash/policies/cash-invoice.policy';
+import { CashInDirectLineBuilder } from '@/modules/cash/processors/inbound/direct/cash-in-direct-line.builder';
 import { EntryDimensionsModel } from '@/modules/entry-processor/models';
+import {
+  accountingCurrencyQuotation,
+  resolveCompanyRunConfig,
+} from '@/modules/master-data/company-run-config';
+
+const LEGACY_MP_RUN = resolveCompanyRunConfig('m-p', [], {
+  rateType: 'default',
+  chartOfAccounts: 'Chart of Accounts',
+});
 
 describe('CashInDirectLineBuilder', () => {
   const dimension =
     '|3101|031|003|001|101009047|101009047|||02009|General|General|Prepaid|||Export||||';
 
   const createBuilder = (
-    overrides?: Partial<ConstructorParameters<typeof CashInDirectLineBuilder>[0]>,
+    overrides?: Partial<
+      ConstructorParameters<typeof CashInDirectLineBuilder>[0]
+    >,
   ) =>
     new CashInDirectLineBuilder({
       company: 'm-p',
       requireInvoice: true,
+      quotationFactor: (currency: string) =>
+        accountingCurrencyQuotation(currency, LEGACY_MP_RUN),
       parseDimensionString: () => new EntryDimensionsModel(),
       getDimensionSegmentLength: () => 19,
       isValidDimensionSegmentLength: () => true,
@@ -154,9 +167,11 @@ describe('CashInDirectLineBuilder', () => {
     );
 
     expect(
-      line.GetErrors().some((error) =>
-        error.includes('PAYMENTREFERENCE exceeds 35 characters (36)'),
-      ),
+      line
+        .GetErrors()
+        .some((error) =>
+          error.includes('PAYMENTREFERENCE exceeds 35 characters (36)'),
+        ),
     ).toBe(true);
   });
 

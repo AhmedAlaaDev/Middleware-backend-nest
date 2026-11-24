@@ -22,9 +22,11 @@ export interface CashJournalRoute {
     | 'Direct'
     | 'Other'
     | 'DownPayment'
-    | 'CN';
+    | 'CN'
+    | 'MAS Revenue';
   targetProcessor?: CashTargetProcessor;
-  journalName: 'P-Fleet' | 'P-Freight' | 'CustSettle' | 'CashOut' | 'Cust-Pay';
+  /** GL JournalName for the MAS route comes from verified MAS configuration. */
+  journalName: string;
   headerApi: CashJournalHeaderApi;
   lineDirection: 'in' | 'out';
 }
@@ -37,6 +39,8 @@ export interface ResolveCashJournalRouteInput {
    * It remains an input to the existing Cash/Cheque/Other batching rules.
    */
   voucherType?: unknown;
+  /** Verified MAS GL JournalName. Required only for the MAS Revenue route. */
+  masRevenueJournalName?: unknown;
 }
 
 export class CashJournalRoutingError extends Error {
@@ -120,6 +124,19 @@ export class CashJournalRoutingService {
           headerApi: 'CustomerPaymentJournalHeaders',
           lineDirection: 'in',
         };
+      case 'masrevenue':
+        // Inbound revenue: petty cash is debited and the revenue ledger is credited
+        // through a GL journal. Direct/Other and the AR/AP routes are unchanged.
+        return {
+          kind: 'ledger',
+          module: 'GL',
+          safeType: 'MAS Revenue',
+          journalName: this.requireMasRevenueJournalName(
+            input.masRevenueJournalName,
+          ),
+          headerApi: 'LedgerJournalHeaders',
+          lineDirection: 'in',
+        };
       case 'cn':
         return {
           kind: 'customer-payment',
@@ -134,6 +151,16 @@ export class CashJournalRoutingService {
           `Unsupported Safe Type "${this.displayValue(input.safeType)}". Supported values are Vendor Payment, Custody Settlement, Custody Issue, Customer Collection, Direct, Other, DownPayment, and CN.`,
         );
     }
+  }
+
+  private requireMasRevenueJournalName(value: unknown): string {
+    const name = this.safeString(value).trim();
+    if (!name) {
+      throw new CashJournalRoutingError(
+        'MAS Revenue requires a verified GL JournalName from MAS configuration.',
+      );
+    }
+    return name;
   }
 
   private resolveVendorPayment(target: unknown): CashJournalRoute {

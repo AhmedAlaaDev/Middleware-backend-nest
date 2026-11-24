@@ -356,6 +356,21 @@ describe('YardInvoiceSubmitService: background review', () => {
   });
 });
 
+describe('YardInvoiceSubmitService: empty uploads', () => {
+  it('does not create or queue a batch from a workbook with no transaction rows', async () => {
+    const ctx = await setup({ rows: [] });
+    const job = ctx.store.records.get(ctx.jobId)!;
+    expect(job).toMatchObject({
+      status: 'REVIEW_FAILED',
+      lastError: 'No transaction rows found.',
+      batchId: null,
+    });
+    expect(ctx.store.lines.get(ctx.jobId) ?? []).toHaveLength(0);
+    expect(ctx.dataBatchService.createAsync).not.toHaveBeenCalled();
+    expect(ctx.commandBus.execute).not.toHaveBeenCalled();
+  });
+});
+
 describe('YardInvoiceSubmitService: submit', () => {
   it('creates one batch from the reviewed file, sums same-invoice rows and queues it through the existing command', async () => {
     const ctx = await setup();

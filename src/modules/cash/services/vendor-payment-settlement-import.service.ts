@@ -147,8 +147,10 @@ export class VendorPaymentSettlementImportService {
   public async process(
     workbookBuffer: Buffer,
     dryRun = false,
+    selectedCompany?: string,
   ): Promise<VendorPaymentSettlementImportResponse> {
     const candidates = await this.readCandidates(workbookBuffer);
+    this.assertWorkbookMatchesCompany(candidates, selectedCompany);
     const duplicateRows = this.findDuplicateRows(candidates);
     const prepared = await this.mapWithConcurrency<
       SettlementCandidate,
@@ -231,6 +233,32 @@ export class VendorPaymentSettlementImportService {
     });
 
     return response;
+  }
+
+  /**
+   * When the caller selected a company, every workbook row with a Company value
+   * must belong to it. Any mismatch stops the whole file before D365 is read or
+   * written. Blank Company cells are not treated as a mismatch.
+   * Without a selection the rows decide the company, as before.
+   */
+  private assertWorkbookMatchesCompany(
+    candidates: SettlementCandidate[],
+    selectedCompany: string | undefined,
+  ): void {
+    if (!selectedCompany) return;
+    const expected = selectedCompany.trim().toLowerCase();
+    const mismatched = candidates.filter((candidate) => {
+      const rowCompany = candidate.company.trim().toLowerCase();
+      return rowCompany !== '' && rowCompany !== expected;
+    });
+    if (mismatched.length === 0) return;
+    const examples = mismatched
+      .slice(0, 5)
+      .map((candidate) => `row ${candidate.excelRow} (${candidate.company})`)
+      .join(', ');
+    throw new BadRequestException(
+      `${mismatched.length} workbook row(s) belong to a different company than the selected "${selectedCompany}": ${examples}. Nothing was settled.`,
+    );
   }
 
   private async readCandidates(buffer: Buffer): Promise<SettlementCandidate[]> {

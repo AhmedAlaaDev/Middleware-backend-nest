@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { resolveLegacyCompanyCode } from '@/common/company/company-code';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
@@ -29,7 +30,7 @@ export class ProcessVendorPaymentFreightHandler implements ICommandHandler<Proce
     fileBuffer,
     rawData,
   }: ProcessVendorPaymentFreightCommand): Promise<IDataBatch> {
-    const company = companyId || 'm-p';
+    const company = resolveLegacyCompanyCode(companyId);
 
     if (!fileBuffer && !rawData) {
       throw new BadRequestException(

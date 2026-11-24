@@ -7,6 +7,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
@@ -26,6 +27,10 @@ import {
   SaveAccountMappingsCommand,
   CreateCustomerFromMissingDataCommand,
 } from '@/modules/master-data/commands';
+import {
+  LEGACY_COMPANY_CODE,
+  resolveCompanyRunConfig,
+} from '@/modules/master-data/company-run-config';
 import {
   GetAccountMappingsDto,
   GetBillingClassificationsDto,
@@ -341,8 +346,11 @@ export class MasterDataController {
     description: 'A sync job is already pending or processing',
   })
   public async syncMainAccountsAsync(@Query() dto: SyncMainAccountsDto) {
+    const chartOfAccounts =
+      dto.chartOfAccounts ??
+      (await this.resolveCompanyLedgerSetting(dto.company, 'chartOfAccounts'));
     return this.commandBus.execute(
-      new CreateSyncMainAccountsJobCommand(dto.chartOfAccounts),
+      new CreateSyncMainAccountsJobCommand(chartOfAccounts),
     );
   }
 
@@ -360,7 +368,7 @@ export class MasterDataController {
   ): Promise<IPaginatedRes<IAccountCustomerInvoiceMapping>> {
     return this.queryBus.execute(
       new GetAccountMappingsQuery(
-        { serviceType: query.serviceType },
+        { serviceType: query.serviceType, company: query.company },
         query.skipCount,
         query.maxCount,
       ),
@@ -440,6 +448,7 @@ export class MasterDataController {
         customerAccount: m.customerAccount,
         invoiceAccount: m.invoiceAccount,
         serviceType: m.serviceType,
+        company: m.company ?? LEGACY_COMPANY_CODE,
       }));
     return this.commandBus.execute(
       new SaveAccountMappingsCommand(commandMappings),
@@ -531,9 +540,38 @@ export class MasterDataController {
     description: 'A sync job is already pending or processing',
   })
   public async syncExchangeRatesAsync(@Query() dto: SyncExchangeRatesDto) {
+    // M-P keeps its request as sent. MAS reads its rate type from its ledger.
+    const rateType =
+      dto.rateType ??
+      (dto.company === 'm-p'
+        ? undefined
+        : await this.resolveCompanyLedgerSetting(dto.company, 'rateType'));
     return this.commandBus.execute(
-      new CreateSyncExchangeRatesJobCommand(dto.company, dto.rateType),
+      new CreateSyncExchangeRatesJobCommand(dto.company, rateType),
     );
+  }
+
+  /**
+   * Reads a company-specific setting from its synced ledger. Never falls back
+   * to another company. Missing ledger settings fail with an actionable error.
+   */
+  private async resolveCompanyLedgerSetting(
+    company: string | undefined,
+    setting: 'chartOfAccounts' | 'rateType',
+  ): Promise<string> {
+    if (!company) {
+      throw new BadRequestException(
+        'Provide the company, or the chart of accounts / rate type explicitly.',
+      );
+    }
+    const { items } = await this.queryBus.execute(
+      new GetLedgersQuery({ company }),
+    );
+    const config = resolveCompanyRunConfig(company, items ?? [], {
+      rateType: 'default',
+      chartOfAccounts: 'Chart of Accounts',
+    });
+    return setting === 'rateType' ? config.rateType : config.chartOfAccounts;
   }
 
   /**

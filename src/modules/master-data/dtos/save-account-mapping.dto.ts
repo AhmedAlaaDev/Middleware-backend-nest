@@ -1,6 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
+import { SUPPORTED_COMPANY_CODES } from '@/common/company/company-code';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 
 export class SaveAccountMappingDto {
@@ -40,4 +47,17 @@ export class SaveAccountMappingDto {
   @IsEnum(ServiceTypes)
   @IsNotEmpty()
   serviceType: ServiceTypes;
+
+  @ApiProperty({
+    description:
+      'Company that owns the mapping. Omit only for legacy clients: the mapping is then stored as m-p, as before.',
+    enum: SUPPORTED_COMPANY_CODES,
+    example: 'mas',
+    required: false,
+  })
+  @IsOptional()
+  @IsIn(SUPPORTED_COMPANY_CODES, {
+    message: `company must be one of: ${SUPPORTED_COMPANY_CODES.join(', ')}`,
+  })
+  company?: string;
 }

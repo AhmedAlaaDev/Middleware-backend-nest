@@ -6,6 +6,8 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import type { MasRevenueGlLineRow } from '@/modules/cash/mas-revenue/mas-revenue-readback';
+
 import { GeneralJournalService } from '@/modules/d365fo/services/general-journal.service';
 import {
   LedgerJournalHeaderRequest,
@@ -160,6 +162,35 @@ export class LedgerJournalPostingStrategy implements IDfoPostingStrategy {
       throw new Error('JournalBatchNumber not found in header response');
     }
     return typed.JournalBatchNumber;
+  }
+
+  /**
+   * Full GL line content of one journal, for MAS Revenue readback. Field names follow
+   * the LedgerJournalLines entity and are verified per environment (see configuration).
+   */
+  public async listGlLineRows(
+    headerKey: string,
+    dataAreaId: string,
+  ): Promise<MasRevenueGlLineRow[]> {
+    const lines = await this.generalJournalService.getJournalLines(
+      dataAreaId,
+      headerKey,
+      {
+        select: [
+          'LineNumber',
+          'AccountType',
+          'AccountDisplayValue',
+          'CurrencyCode',
+          'DebitAmount',
+          'CreditAmount',
+          'OffsetAccountType',
+          'OffsetAccountDisplayValue',
+          'Voucher',
+        ],
+        maxCount: 10_000,
+      },
+    );
+    return lines as MasRevenueGlLineRow[];
   }
 
   public async listLinesForHeader(

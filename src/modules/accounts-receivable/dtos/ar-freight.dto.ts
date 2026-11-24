@@ -1,9 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+
+import { SUPPORTED_COMPANY_CODES } from '@/common/company/company-code';
 
 export class ARFreightDto {
   @IsNotEmpty()
   @IsString()
+  @IsIn(SUPPORTED_COMPANY_CODES, {
+    message: `companyId must be one of: ${SUPPORTED_COMPANY_CODES.join(', ')}`,
+  })
   companyId: string;
 
   @IsOptional()

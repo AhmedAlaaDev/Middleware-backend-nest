@@ -98,4 +98,5 @@ export class IDataBatch {
 export interface IDataBatchListFilter {
   entryProcessorTypes?: EntryProcessorTypes[];
   batchNumberIds?: string[];
+  company?: string;
 }

@@ -25,6 +25,12 @@ import {
   DimensionKey,
   RequiredDimensionsConfig,
 } from '@/modules/entry-processor/types/dimension-key.type';
+import {
+  CompanyConfigurationError,
+  CompanyRunConfig,
+  LEGACY_COMPANY_CODE,
+  resolveCompanyRunConfig,
+} from '@/modules/master-data/company-run-config';
 import { ServiceTypes } from '@/modules/master-data/enums/master-data.enum';
 import {
   IBillingClassification,
@@ -45,6 +51,7 @@ import {
 import { GetAccountMappingsQuery } from '@/modules/master-data/queries/get-account-mappings.query';
 import { GetExchangeRatesQuery } from '@/modules/master-data/queries/get-exchange-rates.query';
 import { GetFinancialDimensionValueQuery } from '@/modules/master-data/queries/get-financial-dimension-values.query';
+import { GetLedgersQuery } from '@/modules/master-data/queries/get-ledgers.query';
 import { GetMainAccountsQuery } from '@/modules/master-data/queries/get-main-accounts.query';
 import {
   DimensionValidationConfig,
@@ -130,6 +137,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
 
   protected rateType: string;
   protected chartNumber: string;
+  /** Rate type and chart before any company run changes them (legacy M-P values). */
+  private readonly legacyRateType: string;
+  private readonly legacyChartNumber: string;
+  /** Set by prepareCompanyRun for the company of the current run. */
+  protected companyRunConfig: CompanyRunConfig | null = null;
 
   protected dimensionsMap: Map<DimensionKey, Set<string>> | null = null;
   protected accountNumberSet: Set<string> | null = null;
@@ -171,7 +183,11 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   constructor(protected readonly options: EntryProcessorBaseOptions) {
     this.rateType = options.rateType ?? 'default';
     this.chartNumber = options.chartNumber ?? 'Chart of Accounts';
-    this._company = 'm-p';
+    this.legacyRateType = this.rateType;
+    this.legacyChartNumber = this.chartNumber;
+    // Company is set by each run (see resetCompanyScopedState). Reading it
+    // before a run sets it throws, so a missed path can never reach m-p.
+    this._company = '';
     this.queryBus = options.dependencies.queryBus;
     this.exchangeRateService = options.dependencies.exchangeRateService;
     this.utilsService = options.dependencies.utilsService;
@@ -189,7 +205,92 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
   }
 
   protected get company(): string {
+    if (!this._company) {
+      throw new Error(
+        `[${this.constructor.name}] Company is not set for this processor run`,
+      );
+    }
     return this._company;
+  }
+
+  /**
+   * Loads the company's run configuration before a run: exchange-rate type,
+   * chart of accounts and currencies come from that company's ledger. M-P keeps
+   * its legacy values. A missing ledger setting throws CompanyConfigurationError.
+   * Called by runProcessorForCompany while the processor lock is held.
+   */
+  public async prepareCompanyRun(company: string): Promise<void> {
+    const ledgers =
+      company === LEGACY_COMPANY_CODE
+        ? []
+        : (await this.queryBus.execute(new GetLedgersQuery({ company }))).items;
+    const config = resolveCompanyRunConfig(company, ledgers, {
+      rateType: this.legacyRateType,
+      chartOfAccounts: this.legacyChartNumber,
+    });
+    this.companyRunConfig = config;
+    this.rateType = config.rateType;
+    this.chartNumber = config.chartOfAccounts;
+  }
+
+  /** Accounting (base) currency for the current run. */
+  protected get accountingCurrency(): string {
+    return this.requireRunConfig().accountingCurrency;
+  }
+
+  /** Reporting currency for the current run. */
+  protected get reportingCurrency(): string {
+    return this.requireRunConfig().reportingCurrency;
+  }
+
+  /** The run configuration of the current run. Throws when a non-M-P run has none. */
+  protected requireRunConfig(): CompanyRunConfig {
+    if (this.companyRunConfig) {
+      return this.companyRunConfig;
+    }
+    // Direct calls outside a lock run as M-P (the legacy default). Any other
+    // company without a loaded run configuration must not reach legacy values.
+    if (this._company === LEGACY_COMPANY_CODE) {
+      return resolveCompanyRunConfig(LEGACY_COMPANY_CODE, [], {
+        rateType: this.legacyRateType,
+        chartOfAccounts: this.legacyChartNumber,
+      });
+    }
+    throw new CompanyConfigurationError(
+      this._company,
+      ['run configuration'],
+      `Company run configuration for "${this._company}" is not loaded. Run the upload through its company run.`,
+    );
+  }
+
+  /**
+   * Switches the processor to `company` and drops every company-scoped cache so
+   * no lookup loaded for another company is reused. Runs through
+   * runProcessorForCompany, which also holds a per-processor lock.
+   */
+  public resetCompanyScopedState(company?: string): void {
+    if (company !== undefined) {
+      this._company = company;
+    }
+    this.rateType = this.legacyRateType;
+    this.chartNumber = this.legacyChartNumber;
+    this.companyRunConfig = null;
+    this.billingClassifications = new Map();
+    this.dimensionsMap = null;
+    this.accountNumberSet = null;
+    this.financialDimensionValuesMap = null;
+    this.mainAccountMap = null;
+    this.billingCodeVersionsList = null;
+    this.billingCodesList = null;
+    this.billingClassificationsList = null;
+    this.customersList = null;
+    this.exchangeRateMap = null;
+    this.customerNameMap = null;
+    this.vendorNameMap = null;
+    this.vendorTaxNumberAndTermsOfPaymentMap = null;
+    this.freeTextInvoiceMap = null;
+    this.validTaxItemGroupCodes = null;
+    this.unbalancedUniqueIds = new Set();
   }
 
   abstract formatAndEnrichAsync(
@@ -392,7 +493,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     const fetchKeyToValues = new Map<string, IFinancialDimensionValue[]>();
     for (const fetchKey of uniqueFetchKeys) {
       let values = await this.queryBus.execute(
-        new GetFinancialDimensionValueQuery(fetchKey),
+        new GetFinancialDimensionValueQuery(fetchKey, {
+          company: this.company,
+        }),
       );
       if (
         (!Array.isArray(values) || values.length === 0) &&
@@ -700,7 +803,9 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     );
 
     const values = await this.queryBus.execute(
-      new GetFinancialDimensionValueQuery(financialKey),
+      new GetFinancialDimensionValueQuery(financialKey, {
+        company: this.company,
+      }),
     );
     return values ?? [];
   }
@@ -925,7 +1030,7 @@ export abstract class EntryProcessorBase implements IEntryProcessor {
     );
 
     const res = await this.queryBus.execute(
-      new GetAccountMappingsQuery({ serviceType }),
+      new GetAccountMappingsQuery({ serviceType, company: this.company }),
     );
     return res.items;
   }

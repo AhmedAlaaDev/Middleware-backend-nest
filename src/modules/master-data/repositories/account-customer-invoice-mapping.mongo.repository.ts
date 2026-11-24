@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { LEGACY_COMPANY_CODE } from '@/modules/master-data/company-run-config';
 import {
   IAccountCustomerInvoiceMapping,
   ICreateAccountCustomerInvoiceMapping,
@@ -20,13 +21,27 @@ export class AccountCustomerInvoiceMappingMongoRepository implements AccountCust
   async upsertMany(
     mappings: ICreateAccountCustomerInvoiceMapping[],
   ): Promise<void> {
-    const ops = mappings.map((m) => ({
-      updateOne: {
-        filter: { name: m.name, serviceType: m.serviceType },
-        update: { $set: m },
-        upsert: true,
-      },
-    }));
+    // Mappings are unique per company. M-P also owns legacy rows without a company.
+    const ops = mappings.map((m) => {
+      const company = m.company ?? LEGACY_COMPANY_CODE;
+      const owner =
+        company === LEGACY_COMPANY_CODE
+          ? {
+              $or: [
+                { company },
+                { company: { $exists: false } },
+                { company: null },
+              ],
+            }
+          : { company };
+      return {
+        updateOne: {
+          filter: { name: m.name, serviceType: m.serviceType, ...owner },
+          update: { $set: { ...m, company } },
+          upsert: true,
+        },
+      };
+    });
     if (ops.length > 0) {
       await this.model.bulkWrite(ops, { ordered: false });
     }
@@ -40,6 +55,18 @@ export class AccountCustomerInvoiceMappingMongoRepository implements AccountCust
 
     if (filter.serviceType !== undefined) {
       q['serviceType'] = filter.serviceType;
+    }
+
+    if (filter.company !== undefined) {
+      // Legacy mappings were saved before company existed. They belong to m-p only.
+      q['$or'] =
+        filter.company === 'm-p'
+          ? [
+              { company: 'm-p' },
+              { company: { $exists: false } },
+              { company: null },
+            ]
+          : [{ company: filter.company }];
     }
 
     let query = this.model.find(q).lean();

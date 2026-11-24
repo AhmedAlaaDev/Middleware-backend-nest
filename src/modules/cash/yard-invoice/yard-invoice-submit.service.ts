@@ -1,9 +1,4 @@
 import {
-  INVOICE_REVIEW_FLOWS,
-  InvoiceReviewFlow,
-  InvoiceReviewFlowConfig,
-} from './yard-invoice-flow';
-import {
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -11,14 +6,18 @@ import {
 } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
+import { YardInvoiceGroup } from './yard-invoice-aggregation';
+import { microToString } from './yard-invoice-decimal';
+import {
+  INVOICE_REVIEW_FLOWS,
+  InvoiceReviewFlow,
+  InvoiceReviewFlowConfig,
+} from './yard-invoice-flow';
 import {
   YardInvoiceJobRecord,
   YardInvoiceJobStore,
 } from './yard-invoice-job.store';
-import { microToString } from './yard-invoice-decimal';
-import { YardInvoiceGroup } from './yard-invoice-aggregation';
 import { buildYardCashInSourceRows } from './yard-invoice-posting-adapter';
-import { YardInvoiceGroupValidation } from './yard-invoice-validation';
 import {
   YardInvoicePreviewService,
   YardInvoiceReview,
@@ -26,6 +25,7 @@ import {
   YardInvoiceSummary,
 } from './yard-invoice-preview.service';
 import { YardInvoiceJobStatus } from './yard-invoice-upload-job.schema';
+import { YardInvoiceGroupValidation } from './yard-invoice-validation';
 
 import { PostCashBatchToDFOCommand } from '@/modules/cash/commands';
 import {
@@ -33,15 +33,19 @@ import {
   EntryProcessorTypes,
 } from '@/modules/data-batch/enums/data-batch.enum';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { runProcessorForCompany } from '@/modules/entry-processor/company-scope/run-for-company';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
-import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 import {
   EntryDynDataModel,
   EntryRawDataModel,
 } from '@/modules/entry-processor/models';
+import { OperationalLoggerService } from '@/modules/observability/services/operational-logger.service';
 
 /** A job stuck in SUBMITTING or REVIEWING longer than this is reported for reconciliation. */
+/** Shown when an uploaded Yard workbook has no transaction rows. */
+export const NO_TRANSACTION_ROWS_MESSAGE = 'No transaction rows found.';
+
 export const YARD_INVOICE_STALE_MS = 30 * 60 * 1000;
 
 export interface YardInvoiceUser {
@@ -256,6 +260,11 @@ export class YardInvoiceSubmitService {
         companyId: company,
         maxTemplateRows: INVOICE_REVIEW_FLOWS[flow].maxTemplateRows,
       });
+      // An upload with no transaction rows is not a financial batch. Nothing is stored
+      // as reviewed and no batch is created, so nothing can be queued.
+      if (review.recordCount === 0 || review.groups.length === 0) {
+        throw new Error(NO_TRANSACTION_ROWS_MESSAGE);
+      }
       if (flow === 'SHIPLINK' && review.format !== 'TEMPLATE_8') {
         throw new Error(
           'ShipLink invoice uploads accept the eight-column template only.',
@@ -432,14 +441,21 @@ export class YardInvoiceSubmitService {
     const processor = this.processorFactory.getProcessorByName(
       config.processorType,
     );
-    const enriched = (await processor.formatAndEnrichAsync(
-      rows,
+    const { validated } = await runProcessorForCompany(
+      processor,
       company,
-    )) as EntryDynDataModel[];
-    const validated = (await processor.validateAsync(
-      enriched,
-      company,
-    )) as EntryDynDataModel[];
+      async () => {
+        const enriched = (await processor.formatAndEnrichAsync(
+          rows,
+          company,
+        )) as EntryDynDataModel[];
+        const validated = (await processor.validateAsync(
+          enriched,
+          company,
+        )) as EntryDynDataModel[];
+        return { validated };
+      },
+    );
     const lineErrors = validated.flatMap((line) => line.GetErrors());
     if (lineErrors.length > 0) {
       throw new Error(
@@ -477,6 +493,9 @@ export class YardInvoiceSubmitService {
     const checks = new Map(
       review.validation.groups.map((check) => [check.invoiceNumber, check]),
     );
+    if (review.groups.length === 0) {
+      throw new Error(NO_TRANSACTION_ROWS_MESSAGE);
+    }
     const rows: EntryRawDataModel[] = [];
     const rowChecks: YardInvoiceGroupValidation[] = [];
     review.groups.forEach((group, index) => {
@@ -508,14 +527,21 @@ export class YardInvoiceSubmitService {
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.CashInYard,
     );
-    const enriched = (await processor.formatAndEnrichAsync(
-      rows,
+    const { validated } = await runProcessorForCompany(
+      processor,
       company,
-    )) as EntryDynDataModel[];
-    const validated = (await processor.validateAsync(
-      enriched,
-      company,
-    )) as EntryDynDataModel[];
+      async () => {
+        const enriched = (await processor.formatAndEnrichAsync(
+          rows,
+          company,
+        )) as EntryDynDataModel[];
+        const validated = (await processor.validateAsync(
+          enriched,
+          company,
+        )) as EntryDynDataModel[];
+        return { validated };
+      },
+    );
     if (validated.length !== rows.length) {
       throw new Error('Yard batch rows could not be matched to invoices');
     }

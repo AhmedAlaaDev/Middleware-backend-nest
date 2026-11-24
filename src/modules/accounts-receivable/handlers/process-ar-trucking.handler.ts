@@ -9,6 +9,7 @@ import {
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { runProcessorForCompany } from '@/modules/entry-processor/company-scope/run-for-company';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
 
@@ -41,21 +42,28 @@ export class ProcessARTruckingHandler implements ICommandHandler<ProcessARTrucki
       EntryProcessorTypes.AccountReceivableTrucking,
     );
 
-    const enriched = await processor.formatAndEnrichAsync(
-      rawData,
+    const { enriched, validated } = await runProcessorForCompany(
+      processor,
       command.companyId,
-      command.billingCodeId || '',
+      async () => {
+        const enriched = await processor.formatAndEnrichAsync(
+          rawData,
+          command.companyId,
+          command.billingCodeId || '',
+        );
+        const validated = await processor.validateAsync(
+          enriched,
+          command.companyId,
+          command.billingCodeId || '',
+        );
+        return { enriched, validated };
+      },
     );
     const enrichedErrors = enriched.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Enriched rows: ${enriched.length}, errors: ${enrichedErrors}`,
     );
 
-    const validated = await processor.validateAsync(
-      enriched,
-      command.companyId,
-      command.billingCodeId || '',
-    );
     const validatedErrors = validated.filter((d) => d.ErrorCount > 0).length;
     this.logger.debug(
       `Validated rows: ${validated.length}, errors: ${validatedErrors}`,

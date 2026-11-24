@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { resolveLegacyCompanyCode } from '@/common/company/company-code';
 import { ProcessCashInTruckingCommand } from '@/modules/cash/commands/process-cash-in-trucking.command';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { runProcessorForCompany } from '@/modules/entry-processor/company-scope/run-for-company';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { EntryRawDataModel } from '@/modules/entry-processor/models';
@@ -23,7 +25,7 @@ export class ProcessCashInTruckingHandler implements ICommandHandler<ProcessCash
     companyId,
     fileBuffer,
   }: ProcessCashInTruckingCommand): Promise<IDataBatch> {
-    const company = companyId || 'm-p';
+    const company = resolveLegacyCompanyCode(companyId);
 
     const rawData =
       await this.excelService.excelToJson<EntryRawDataModel>(fileBuffer);
@@ -36,9 +38,15 @@ export class ProcessCashInTruckingHandler implements ICommandHandler<ProcessCash
       EntryProcessorTypes.CashInTrucking,
     );
 
-    const enriched = await processor.formatAndEnrichAsync(rawData, company);
-
-    const validated = await processor.validateAsync(enriched, company);
+    const { validated } = await runProcessorForCompany(
+      processor,
+      company,
+      async () => {
+        const enriched = await processor.formatAndEnrichAsync(rawData, company);
+        const validated = await processor.validateAsync(enriched, company);
+        return { validated };
+      },
+    );
 
     const dataBatch = await this.dataBatchService.createAsync(
       EntryProcessorTypes.CashInTrucking,

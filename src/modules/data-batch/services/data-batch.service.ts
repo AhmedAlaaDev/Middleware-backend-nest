@@ -47,6 +47,7 @@ import {
   DataSourceRecordRepository,
   DataBatchMissingMasterDataRepository,
 } from '@/modules/data-batch/repositories/interfaces';
+import { runProcessorForCompany } from '@/modules/entry-processor/company-scope/run-for-company';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import {
   DynDataModel,
@@ -341,13 +342,32 @@ export class DataBatchService {
       batch.entryProcessorType,
     );
 
-    let enriched;
-    try {
-      enriched = await processor.formatAndEnrichAsync(rawData, batch.company);
-    } catch (error: unknown) {
-      const validationErrors = this.getCashOutPreFormatValidationErrors(error);
+    const outcome = await runProcessorForCompany(
+      processor,
+      batch.company,
+      async () => {
+        let enriched;
+        try {
+          enriched = await processor.formatAndEnrichAsync(
+            rawData,
+            batch.company,
+          );
+        } catch (error: unknown) {
+          return { error } as const;
+        }
+        const validated = await processor.validateAsync(
+          enriched,
+          batch.company,
+        );
+        return { enriched, validated } as const;
+      },
+    );
+    if ('error' in outcome) {
+      const validationErrors = this.getCashOutPreFormatValidationErrors(
+        outcome.error,
+      );
       if (!validationErrors) {
-        throw error;
+        throw outcome.error;
       }
 
       await this.finalizeProcessingValidationFailureAsync(
@@ -356,8 +376,7 @@ export class DataBatchService {
       );
       return;
     }
-
-    const validated = await processor.validateAsync(enriched, batch.company);
+    const { enriched, validated } = outcome;
     const metadata = (
       enriched as {
         metadata?: {
@@ -1066,16 +1085,21 @@ export class DataBatchService {
       const processor = this.processorFactory.getProcessor(
         batch.entryProcessorType,
       );
-      let dynData = await processor.formatAndEnrichAsync(
-        rawData,
+      const dynData = await runProcessorForCompany(
+        processor,
         batch.company,
-        batch.billingCodeId,
-      );
-
-      dynData = await processor.validateAsync(
-        dynData,
-        batch.company,
-        batch.billingCodeId,
+        async () => {
+          const enrichedData = await processor.formatAndEnrichAsync(
+            rawData,
+            batch.company,
+            batch.billingCodeId,
+          );
+          return processor.validateAsync(
+            enrichedData,
+            batch.company,
+            batch.billingCodeId,
+          );
+        },
       );
 
       const groupedMissingData = this.groupMissingMasterData(dynData);

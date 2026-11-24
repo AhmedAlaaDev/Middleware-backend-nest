@@ -10,6 +10,7 @@ export class GetDataBatchListQuery extends Query<IPaginatedRes<IDataBatch>> {
     public readonly batchNumberIds?: string[],
     public readonly skipCount?: number,
     public readonly maxCount?: number,
+    public readonly company?: string,
   ) {
     super();
   }

@@ -14,6 +14,7 @@ import {
   CashInTruckingEntryProcessor,
   CashInShiplinkEntryProcessor,
   CashInYardEntryProcessor,
+  CashInMasRevenueEntryProcessor,
   CashOutFreightEntryProcessor,
   CashOutTruckingEntryProcessor,
 } from '@/modules/cash/processors';
@@ -56,6 +57,7 @@ const EntryProcessors = [
   CashOutTruckingEntryProcessor,
   CashInShiplinkEntryProcessor,
   CashInYardEntryProcessor,
+  CashInMasRevenueEntryProcessor,
   ClosingFreightEntryProcessor,
   ClosingFreightDifferenceEntryProcessor,
   ClosingTruckingEntryProcessor,

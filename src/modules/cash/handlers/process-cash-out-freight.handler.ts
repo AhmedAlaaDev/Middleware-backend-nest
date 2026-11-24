@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { resolveLegacyCompanyCode } from '@/common/company/company-code';
 import { ProcessCashOutFreightCommand } from '@/modules/cash/commands/process-cash-out-freight.command';
 import { CashEntryRawDataModel } from '@/modules/cash/models';
 import { CashOutTemplateValidationService } from '@/modules/cash/services/cash-out-template-validation.service';
@@ -29,7 +30,7 @@ export class ProcessCashOutFreightHandler implements ICommandHandler<ProcessCash
     companyId,
     fileBuffer,
   }: ProcessCashOutFreightCommand): Promise<IDataBatch> {
-    const company = companyId || 'm-p';
+    const company = resolveLegacyCompanyCode(companyId);
 
     const sheet =
       await this.excelService.excelToSheetData<CashEntryRawDataModel>(

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 
 import { CashInEntryProcessor } from '../cash-in-entry.processor';
+
 import { CashInDirectLineBuilder } from './cash-in-direct-line.builder';
 
 import {
@@ -16,6 +17,7 @@ import {
   EntryRawDataModel,
 } from '@/modules/entry-processor/models';
 import { EntryProcessorBaseDependencies } from '@/modules/entry-processor/services/entry-processor-base-dependencies.service';
+import { accountingCurrencyQuotation } from '@/modules/master-data/company-run-config';
 
 /**
  * Shared Cash-In path for Shiplink and Yard.
@@ -65,11 +67,14 @@ export abstract class CashInDirectEntryProcessor extends CashInEntryProcessor {
     const exchangeRateContext = await this.cashOutExchangeRateService.load(
       company,
       rawLines,
+      this.cashOutExchangeCurrencies(),
     );
 
     const builder = new CashInDirectLineBuilder({
       company: this.company,
       requireInvoice: directProduct !== 'Shiplink',
+      quotationFactor: (currencyCode) =>
+        accountingCurrencyQuotation(currencyCode, this.requireRunConfig()),
       parseDimensionString: (displayValue) =>
         this.utilsService.parseDimensionString(displayValue),
       getDimensionSegmentLength: (displayValue) =>

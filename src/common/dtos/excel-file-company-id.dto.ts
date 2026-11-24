@@ -1,13 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional } from 'class-validator';
+
+import { SUPPORTED_COMPANY_CODES } from '@/common/company/company-code';
 
 export class ExcelFileCompanyIdDto {
   /**
-   * Company ID
-   * @example m-p
+   * Company (legal entity) the upload is posted to. Required by the UI;
+   * legacy callers that omit it fall back to m-p. Explicit unsupported
+   * values are rejected.
+   * @example mas
    */
   @IsOptional()
-  @IsString()
+  @IsIn(SUPPORTED_COMPANY_CODES, {
+    message: `companyId must be one of: ${SUPPORTED_COMPANY_CODES.join(', ')}`,
+  })
   companyId?: string;
 
   /**

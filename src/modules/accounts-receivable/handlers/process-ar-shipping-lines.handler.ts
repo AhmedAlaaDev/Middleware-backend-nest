@@ -9,6 +9,7 @@ import {
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataBatch } from '@/modules/data-batch/interfaces/data-batch.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import { runProcessorForCompany } from '@/modules/entry-processor/company-scope/run-for-company';
 import { ENTRY_PROCESSOR_NAMES } from '@/modules/entry-processor/constants/entry-processor-names.constant';
 import { EntryProcessorFactory } from '@/modules/entry-processor/entry-processor.factory';
 import { ExcelService } from '@/modules/excel/excel.service';
@@ -42,13 +43,16 @@ export class ProcessARShippingLinesHandler implements ICommandHandler<ProcessARS
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.AccountReceivableShippingLines,
     );
-    const enrichedRows = await processor.formatAndEnrichAsync(
-      rawRows,
+    const validatedRows = await runProcessorForCompany(
+      processor,
       command.companyId,
-    );
-    const validatedRows = await processor.validateAsync(
-      enrichedRows,
-      command.companyId,
+      async () => {
+        const enrichedRows = await processor.formatAndEnrichAsync(
+          rawRows,
+          command.companyId,
+        );
+        return processor.validateAsync(enrichedRows, command.companyId);
+      },
     );
 
     return this.dataBatchService.createAsync<

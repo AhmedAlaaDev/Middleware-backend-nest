@@ -14,6 +14,8 @@ import { EntryDimensionsModel } from '@/modules/entry-processor/models';
 export interface CashInDirectLineBuilderContext {
   company: string;
   requireInvoice: boolean;
+  /** Accounting-currency quotation for a currency, or undefined when it is not the accounting currency. */
+  quotationFactor: (currencyCode: string) => number | undefined;
   parseDimensionString: (displayValue?: string) => EntryDimensionsModel;
   getDimensionSegmentLength: (displayValue?: string) => number;
   isValidDimensionSegmentLength: (segmentLength: number) => boolean;
@@ -64,8 +66,7 @@ export class CashInDirectLineBuilder {
       reportingRate,
       exchangeRateError,
       reportingRateError,
-    } =
-      this.resolveRates(row, currencyCode);
+    } = this.resolveRates(row, currencyCode);
 
     const dynLine = createCashInboundDynamicLine(dimensions, {
       SourceIds: [String(row.UniqueId || row.LINENUMBER || '')],
@@ -198,9 +199,10 @@ export class CashInDirectLineBuilder {
         ? reportingResolution.message
         : undefined;
 
-    if (currencyCode === 'EGP') {
+    const quotation = this.context.quotationFactor(currencyCode);
+    if (quotation !== undefined) {
       return {
-        exchangeRate: 100,
+        exchangeRate: quotation,
         reportingRate,
         reportingRateError,
       };

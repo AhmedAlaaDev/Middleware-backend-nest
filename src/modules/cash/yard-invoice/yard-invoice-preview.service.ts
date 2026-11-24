@@ -27,6 +27,8 @@ import { YARD_INVOICE_FEATURE_FLAG } from './yard-invoice.constants';
 
 import type { YardsSheetSummary } from './yard-invoice-source-workbook.parser';
 
+import { requireCompanyCode } from '@/common/company/company-code';
+
 /** Everything a review produces. Submit re-runs this on the server. */
 export interface YardInvoiceReview {
   correlationId: string;
@@ -143,7 +145,7 @@ export class YardInvoicePreviewService {
     maxTemplateRows?: number;
   }): Promise<YardInvoiceReview> {
     const correlationId = randomUUID();
-    const company = String(input.companyId ?? '').trim();
+    const company = requireCompanyCode(input.companyId);
     const parsed = await parseYardWorkbook(input.fileBuffer, {
       maxTemplateRows: input.maxTemplateRows,
     });

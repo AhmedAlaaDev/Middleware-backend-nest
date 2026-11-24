@@ -22,6 +22,7 @@ import {
   ApiOperation,
 } from '@nestjs/swagger';
 
+import { requireCompanyCode } from '@/common/company/company-code';
 import { ExcelFile } from '@/common/decorators';
 import { Roles } from '@/modules/auth/decorators/roles.decorator';
 import {
@@ -257,7 +258,7 @@ export class CashController {
       return await this.yardInvoiceSubmit.startReview({
         fileBuffer: file.buffer,
         fileName: file.originalname,
-        companyId: companyId || 'm-p',
+        companyId: requireCompanyCode(companyId),
         user,
       });
     } catch (error) {
@@ -297,7 +298,7 @@ export class CashController {
       return await this.yardInvoiceSubmit.startReview({
         fileBuffer: file.buffer,
         fileName: file.originalname,
-        companyId: companyId || 'm-p',
+        companyId: requireCompanyCode(companyId),
         user,
         flow: 'SHIPLINK',
       });
@@ -405,7 +406,11 @@ export class CashController {
     @ExcelFile() file: MulterFile,
     @Body() body: VendorPaymentSettlementUploadDto,
   ): Promise<VendorPaymentSettlementImportResponse> {
-    return this.vendorPaymentSettlements.process(file.buffer, body.dryRun);
+    return this.vendorPaymentSettlements.process(
+      file.buffer,
+      body.dryRun,
+      body.companyId,
+    );
   }
 
   /** Post a cash batch to its task-2045 AP, GL, or AR journal route. */

@@ -5,6 +5,7 @@ export * from './inbound/fleet/cash-in-trucking-entry.processor';
 export * from './inbound/direct/cash-in-direct-entry.processor';
 export * from './inbound/shiplink/cash-in-shiplink-entry.processor';
 export * from './inbound/yard/cash-in-yard-entry.processor';
+export * from './inbound/mas-revenue/cash-in-mas-revenue-entry.processor';
 export * from './outbound/cash-out-entry.processor';
 export * from './outbound/freight/cash-out-freight-entry.processor';
 export * from './outbound/fleet/cash-out-trucking-entry.processor';

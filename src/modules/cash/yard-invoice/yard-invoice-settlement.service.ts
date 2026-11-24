@@ -205,7 +205,7 @@ export class YardInvoiceSettlementService {
     ).filter(isYardReceiptLine);
     report.yardLines = lines.length;
 
-    const settledRows = await this.readSettled(journal);
+    const settledRows = await this.readSettled(company, journal);
     const settledLines = new Set(
       settledRows.map((row) => Number(row.JournalLineNumber)),
     );
@@ -215,7 +215,7 @@ export class YardInvoiceSettlementService {
     report.alreadySettled = lines.length - todo.length;
     report.toSettle = todo.length;
     if (todo.length === 0) {
-      return this.verify(report, journal);
+      return this.verify(report, company, journal);
     }
 
     const openByInvoice = await this.readOpenInvoices(company, [
@@ -228,7 +228,7 @@ export class YardInvoiceSettlementService {
       this.logger.warn(
         `Yard settlement for ${journalBatchNumber} stopped before writing: ${problems.length} receipt(s) do not match`,
       );
-      return this.verify(report, journal);
+      return this.verify(report, company, journal);
     }
 
     const endpoint = this.query.buildQuery(
@@ -267,14 +267,15 @@ export class YardInvoiceSettlementService {
         }
       }
     }
-    return this.verify(report, journal);
+    return this.verify(report, company, journal);
   }
 
   private async verify(
     report: YardSettlementReport,
+    company: string,
     journal: string,
   ): Promise<YardSettlementReport> {
-    const rows = await this.readSettled(journal, true);
+    const rows = await this.readSettled(company, journal, true);
     report.verifiedRows = rows.length;
     report.verifiedTotal = rows.reduce(
       (sum, row) => sum + Number(row.SettlementAmountInInvoiceCurrency ?? 0),
@@ -284,7 +285,12 @@ export class YardInvoiceSettlementService {
     return report;
   }
 
+  /**
+   * Settled rows for this journal batch of this company only. The journal batch
+   * number is not unique across legal entities, so company is part of the filter.
+   */
   private async readSettled(
+    company: string,
     journal: string,
     withAmount = false,
   ): Promise<
@@ -295,7 +301,7 @@ export class YardInvoiceSettlementService {
   > {
     return this.readAll(
       this.query.buildQuery('/data/PaymentJournalLineSettledInvoices', {
-        filter: `JournalBatchNumber eq '${journal}'`,
+        filter: `JournalLineCompany eq '${escapeOData(company)}' and JournalBatchNumber eq '${journal}'`,
         select: withAmount
           ? ['JournalLineNumber', 'SettlementAmountInInvoiceCurrency']
           : ['JournalLineNumber'],

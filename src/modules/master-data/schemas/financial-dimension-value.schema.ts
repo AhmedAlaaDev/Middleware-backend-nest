@@ -15,6 +15,10 @@ export class FinancialDimensionValue {
   @Prop()
   value: string;
 
+  /** '' = shared by every company. A company code = restricted to that company. Missing = legacy (m-p only). */
+  @Prop()
+  legalEntityId?: string;
+
   @Prop()
   description?: string;
 

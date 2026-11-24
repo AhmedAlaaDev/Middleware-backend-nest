@@ -164,6 +164,9 @@ export class SyncFinancialDimensionsHandler implements ICommandHandler<SyncFinan
         dimensionValuePayload.push({
           financialDimensionKey: dimensionName,
           value: value,
+          legalEntityId: String(dv.LegalEntityId ?? '')
+            .trim()
+            .toLowerCase(),
           description: description,
           isSuspended: this.parseYesNo(dv.IsSuspended),
           isBlockedForManualEntry: this.parseYesNo(dv.IsBlockedForManualEntry),

@@ -13,6 +13,7 @@ import {
   CashInTruckingEntryProcessor,
   CashInShiplinkEntryProcessor,
   CashInYardEntryProcessor,
+  CashInMasRevenueEntryProcessor,
   CashOutFreightEntryProcessor,
   CashOutTruckingEntryProcessor,
 } from '@/modules/cash/processors';
@@ -55,6 +56,7 @@ export class EntryProcessorFactory {
     private readonly cashOutTruckingProcessor: CashOutTruckingEntryProcessor,
     private readonly cashInShiplinkProcessor: CashInShiplinkEntryProcessor,
     private readonly cashInYardProcessor: CashInYardEntryProcessor,
+    private readonly cashInMasRevenueProcessor: CashInMasRevenueEntryProcessor,
 
     private readonly closingFreightProcessor: ClosingFreightEntryProcessor,
     private readonly closingFreightDifferenceProcessor: ClosingFreightDifferenceEntryProcessor,
@@ -145,6 +147,10 @@ export class EntryProcessorFactory {
     this.processors.set(
       EntryProcessorTypes.CashInYard,
       this.cashInYardProcessor,
+    );
+    this.processors.set(
+      EntryProcessorTypes.CashInMasRevenue,
+      this.cashInMasRevenueProcessor,
     );
     // Register other processors
   }

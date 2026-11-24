@@ -98,6 +98,7 @@ describe('Vendor Business Rules Comprehensive Integration Test Suite', () => {
     }).compile();
 
     processor = module.get<TestVendorEntryProcessor>(TestVendorEntryProcessor);
+    processor.resetCompanyScopedState('m-p');
 
     (processor as any).dimensionsMap = new Map();
     (processor as any).accountNumberSet = new Set();

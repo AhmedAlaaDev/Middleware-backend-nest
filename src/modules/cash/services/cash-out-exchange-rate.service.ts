@@ -4,7 +4,28 @@ import { ExchangeRateService as D365FOExchangeRateService } from '@/modules/d365
 import { D365FOExchangeRate } from '@/modules/d365fo/types';
 import { EntryRawDataModel } from '@/modules/entry-processor/models';
 
+export interface CashOutExchangeRateCurrencies {
+  accountingCurrency: string;
+  reportingCurrency: string;
+  /** Exchange-rate type for the company (Ledger.ExchangeRateType). */
+  rateType: string;
+  /** Reporting rate type (Ledger.ReportingCurrencyExchangeRateType). null = not configured. */
+  reportingRateType: string | null;
+}
+
+/** M-P legacy values: EGP base, USD reporting, Default rate type. */
+export const LEGACY_CASH_OUT_CURRENCIES: CashOutExchangeRateCurrencies = {
+  accountingCurrency: 'EGP',
+  reportingCurrency: 'USD',
+  rateType: 'Default',
+  reportingRateType: 'Default',
+};
+
 export interface CashOutExchangeRateContext {
+  baseCurrency: string;
+  reportingCurrency: string;
+  rateType: string;
+  reportingRateType: string | null;
   earliestTransactionDate: string | null;
   latestTransactionDate: string | null;
   requestStartDate: string | null;
@@ -30,10 +51,6 @@ export type CashOutExchangeRateResolution =
  */
 @Injectable()
 export class CashOutExchangeRateService {
-  private static readonly BASE_CURRENCY = 'EGP';
-  private static readonly REPORTING_CURRENCY = 'USD';
-  private static readonly RATE_TYPE = 'Default';
-
   constructor(
     private readonly d365ExchangeRateService: D365FOExchangeRateService,
   ) {}
@@ -41,7 +58,12 @@ export class CashOutExchangeRateService {
   public async load(
     company: string,
     lines: EntryRawDataModel[],
+    currencies: CashOutExchangeRateCurrencies = LEGACY_CASH_OUT_CURRENCIES,
   ): Promise<CashOutExchangeRateContext> {
+    const baseCurrency = currencies.accountingCurrency;
+    const reportingCurrency = currencies.reportingCurrency;
+    const rateType = currencies.rateType;
+    const reportingRateType = currencies.reportingRateType;
     const transactionDates = lines
       .map((line) => this.normalizeDateOnly(line.TRANSDATE))
       .filter((date): date is string => Boolean(date))
@@ -61,15 +83,9 @@ export class CashOutExchangeRateService {
       ...new Set(
         lines
           .map((line) =>
-            this.normalizeCurrency(
-              line.CURRENCYCODE || CashOutExchangeRateService.BASE_CURRENCY,
-            ),
+            this.normalizeCurrency(line.CURRENCYCODE || baseCurrency),
           )
-          .filter(
-            (currency) =>
-              Boolean(currency) &&
-              currency !== CashOutExchangeRateService.BASE_CURRENCY,
-          ),
+          .filter((currency) => Boolean(currency) && currency !== baseCurrency),
       ),
     ].sort();
 
@@ -77,14 +93,10 @@ export class CashOutExchangeRateService {
       ...new Set(
         lines
           .map((line) =>
-            this.normalizeCurrency(
-              line.CURRENCYCODE || CashOutExchangeRateService.BASE_CURRENCY,
-            ),
+            this.normalizeCurrency(line.CURRENCYCODE || baseCurrency),
           )
           .filter(
-            (currency) =>
-              Boolean(currency) &&
-              currency !== CashOutExchangeRateService.REPORTING_CURRENCY,
+            (currency) => Boolean(currency) && currency !== reportingCurrency,
           ),
       ),
     ].sort();
@@ -117,9 +129,9 @@ export class CashOutExchangeRateService {
               await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
                 company,
                 {
-                  rateType: CashOutExchangeRateService.RATE_TYPE,
+                  rateType: rateType,
                   fromCurrency,
-                  toCurrency: CashOutExchangeRateService.BASE_CURRENCY,
+                  toCurrency: baseCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: true,
@@ -136,8 +148,8 @@ export class CashOutExchangeRateService {
               await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
                 company,
                 {
-                  rateType: CashOutExchangeRateService.RATE_TYPE,
-                  fromCurrency: CashOutExchangeRateService.BASE_CURRENCY,
+                  rateType: rateType,
+                  fromCurrency: baseCurrency,
                   toCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
@@ -155,9 +167,9 @@ export class CashOutExchangeRateService {
               await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
                 company,
                 {
-                  rateType: CashOutExchangeRateService.RATE_TYPE,
+                  rateType: reportingRateType ?? '',
                   fromCurrency,
-                  toCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
+                  toCurrency: reportingCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
                   useCache: true,
@@ -174,8 +186,8 @@ export class CashOutExchangeRateService {
               await this.d365ExchangeRateService.getExchangeRatesForCurrencyRange(
                 company,
                 {
-                  rateType: CashOutExchangeRateService.RATE_TYPE,
-                  fromCurrency: CashOutExchangeRateService.REPORTING_CURRENCY,
+                  rateType: reportingRateType ?? '',
+                  fromCurrency: reportingCurrency,
                   toCurrency,
                   startDate: requestStartDate,
                   endDate: requestEndDate,
@@ -203,6 +215,10 @@ export class CashOutExchangeRateService {
     }
 
     return {
+      baseCurrency,
+      reportingCurrency,
+      rateType,
+      reportingRateType,
       earliestTransactionDate,
       latestTransactionDate,
       requestStartDate,
@@ -222,7 +238,7 @@ export class CashOutExchangeRateService {
     const currency = this.normalizeCurrency(currencyCode);
     const date = this.normalizeDateOnly(transactionDate);
 
-    if (currency === CashOutExchangeRateService.BASE_CURRENCY) {
+    if (currency === context.baseCurrency) {
       return { kind: 'not-required', rate: 100 };
     }
 
@@ -235,8 +251,9 @@ export class CashOutExchangeRateService {
     const directSelected = this.matchPeriodRate(
       directRates,
       currency,
-      CashOutExchangeRateService.BASE_CURRENCY,
+      context.baseCurrency,
       date,
+      context.rateType,
     );
 
     if (directSelected) {
@@ -247,9 +264,10 @@ export class CashOutExchangeRateService {
     const reverseRates = context.reverseRatesByCurrency.get(currency) ?? [];
     const reverseSelected = this.matchPeriodRate(
       reverseRates,
-      CashOutExchangeRateService.BASE_CURRENCY,
+      context.baseCurrency,
       currency,
       date,
+      context.rateType,
     );
 
     if (reverseSelected) {
@@ -270,8 +288,15 @@ export class CashOutExchangeRateService {
     const date = this.normalizeDateOnly(transactionDate);
 
     // Rule: Currency is USD -> set value to 1
-    if (currency === CashOutExchangeRateService.REPORTING_CURRENCY) {
+    if (currency === context.reportingCurrency) {
       return { kind: 'not-required', rate: 1 };
+    }
+    if (!context.reportingRateType) {
+      return this.missingReporting(
+        currency || '(empty)',
+        date || '(invalid date)',
+        'the company ledger has no reporting exchange-rate type',
+      );
     }
 
     if (!currency || !date) {
@@ -286,8 +311,9 @@ export class CashOutExchangeRateService {
     const directSelected = this.matchPeriodRate(
       directRates,
       currency,
-      CashOutExchangeRateService.REPORTING_CURRENCY,
+      context.reportingCurrency,
       date,
+      context.reportingRateType,
     );
 
     if (directSelected) {
@@ -299,9 +325,10 @@ export class CashOutExchangeRateService {
       context.reverseReportingRatesByCurrency.get(currency) ?? [];
     const reverseSelected = this.matchPeriodRate(
       reverseRates,
-      CashOutExchangeRateService.REPORTING_CURRENCY,
+      context.reportingCurrency,
       currency,
       date,
+      context.reportingRateType,
     );
 
     if (reverseSelected) {
@@ -318,6 +345,7 @@ export class CashOutExchangeRateService {
     fromCurrency: string,
     toCurrency: string,
     targetDate: string,
+    rateType: string,
   ): { startDate: string; rate: number } | null {
     let selected: { startDate: string; rate: number } | null = null;
 
@@ -326,7 +354,7 @@ export class CashOutExchangeRateService {
         this.normalizeCurrency(rate.FromCurrency) !== fromCurrency ||
         this.normalizeCurrency(rate.ToCurrency) !== toCurrency ||
         (rate.RateTypeName || '').trim().toLowerCase() !==
-          CashOutExchangeRateService.RATE_TYPE.toLowerCase()
+          rateType.toLowerCase()
       ) {
         continue;
       }
@@ -368,11 +396,14 @@ export class CashOutExchangeRateService {
   private missingReporting(
     currency: string,
     date: string,
+    reason?: string,
   ): CashOutExchangeRateResolution {
     return {
       kind: 'missing',
       rate: 0,
-      message: `No valid reporting exchange rate found for ${currency} to USD on ${date}`,
+      message: reason
+        ? `No valid reporting exchange rate for ${currency} to USD on ${date}: ${reason}`
+        : `No valid reporting exchange rate found for ${currency} to USD on ${date}`,
     };
   }
 

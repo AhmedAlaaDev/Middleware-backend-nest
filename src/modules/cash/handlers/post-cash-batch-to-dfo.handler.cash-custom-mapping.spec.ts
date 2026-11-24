@@ -1,6 +1,30 @@
 import { PostCashBatchToDFOHandler } from './post-cash-batch-to-dfo.handler';
 
 import { CashJournalRoutingService } from '@/modules/cash/services/cash-journal-routing.service';
+import { resolveCompanyRunConfig } from '@/modules/master-data/company-run-config';
+
+/** Legacy M-P currencies for direct mapLines calls (posting resolves them per company). */
+const LEGACY_RUN = resolveCompanyRunConfig('m-p', [], {
+  rateType: 'default',
+  chartOfAccounts: 'Chart of Accounts',
+});
+
+const mapLinesWithLegacyCurrencies = (
+  handler: unknown,
+  lines: unknown,
+  company: string,
+  direction: 'in' | 'out',
+  route?: unknown,
+  direct = false,
+) =>
+  (handler as { mapLines: (...args: unknown[]) => any }).mapLines(
+    lines,
+    company,
+    direction,
+    route,
+    direct,
+    LEGACY_RUN,
+  );
 
 describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   const buildHandler = () =>
@@ -37,7 +61,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('maps cash-in dyn line into custom API body (strict key casing)', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -116,7 +141,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('posts Shiplink/Yard cash-in lines unmarked without settlement', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -204,7 +230,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('posts Shiplink/Yard debit-column lines without invoice settlement', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -251,7 +278,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const handler = buildHandler();
 
     expect(() =>
-      (handler as any).mapLines(
+      mapLinesWithLegacyCurrencies(
+        handler,
         [
           {
             data: {
@@ -277,7 +305,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('maps cash-out dyn line into custom API body (Vendor endpoint semantics)', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -359,7 +388,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('maps Petty cash / rcash account types to RCash (case-insensitive)', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -420,7 +450,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('keeps PAYMENTMETHODNAME empty for Petty cash when Excel has no payment method', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -451,7 +482,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('keeps Bank offsetAccountDisplayValue as account id (not dim string)', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -570,7 +602,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const ledgerDisplayValue =
       '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -622,7 +655,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const ledgerDisplayValue =
       '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -661,7 +695,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       targetProcessor: 'Freight',
     });
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -708,7 +743,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
         safeType: 'Custody Issue',
       });
 
-      const result = (handler as any).mapLines(
+      const result = mapLinesWithLegacyCurrencies(
+        handler,
         [
           {
             data: {
@@ -748,7 +784,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       safeType: 'Vendor Payment',
       targetProcessor: 'Freight',
     });
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -781,7 +818,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
       safeType: 'Custody Settlement',
       targetProcessor: 'Freight',
     });
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -924,7 +962,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const ledgerDisplayValue =
       '223404|2101|021|002|007|101000084|101000084|Tr-000052|Tr-000052|745|12021|12016|Payable|13||DOMESTIC||||';
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -971,7 +1010,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const offsetDimension =
       '|1201|012|001|001|101006533|101006533|Sl-000020|Sl-000020||3076|3040|Payable|||IMPORT||||';
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1078,7 +1118,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const finTag =
       'O25-IMP-OC-11585||Sl-000009|Ag-000010|261633796|||||EGY CROWN|CNSHA Shanghai|EGPSD Port Said West|||30/12/2025||02/12/2025|31/12/2025|';
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1133,7 +1174,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('sends the resolved Custody vendor group to the D365 settlement contract', () => {
     const handler = buildHandler();
-    const [mapped] = (handler as any).mapLines(
+    const [mapped] = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1180,7 +1222,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('repairs an empty Custody Settlement vendor group from its document-operation mark', () => {
     const handler = buildHandler();
-    const [mapped] = (handler as any).mapLines(
+    const [mapped] = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1226,7 +1269,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('preserves explicitly unmarked outbound text without mapper-side rewriting', () => {
     const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1262,7 +1306,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('labels a historical Vendor Payment with empty MarkedLines using its invoice', () => {
     const handler = new PostCashBatchToDFOHandler({} as any, {} as any);
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1296,7 +1341,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
   it('posts a 223304 withholding companion as marked with HasWithHoldingLine false', () => {
     const handler = buildHandler();
 
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1355,7 +1401,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
 
   it('does not trim the exact D365 invoice identity in MarkedLines', () => {
     const handler = buildHandler();
-    const result = (handler as any).mapLines(
+    const result = mapLinesWithLegacyCurrencies(
+      handler,
       [
         {
           data: {
@@ -1400,7 +1447,8 @@ describe('PostCashBatchToDFOHandler - cash custom line mapping', () => {
     const handler = buildHandler();
 
     expect(() =>
-      (handler as any).mapLines(
+      mapLinesWithLegacyCurrencies(
+        handler,
         [
           {
             data: {

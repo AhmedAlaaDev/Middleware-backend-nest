@@ -1,0 +1,37 @@
+{
+  "companyId": "mas",
+  "journalName": null,
+  "cashAccountIdsByDisplayName": {
+    "<exact debit-column cash account name>": "<verified petty-cash or bank account ID>"
+  },
+  "cashDefaultDimension": null,
+  "cashFinancialTag": null,
+  "revenueAccountsByRevenueType": {
+    "<exact Revenue type text for Empty Container Loading Revenue / Loading>": {
+      "account": "415101",
+      "defaultDimension": "<verified dimension string>",
+      "financialTag": "",
+      "verified": false
+    },
+    "<exact Revenue type text for another revenue type>": {
+      "account": "<verified revenue ledger combination>",
+      "defaultDimension": "<verified dimension string>",
+      "financialTag": "",
+      "verified": false
+    }
+  },
+  "vatAccount": {
+    "account": "<verified output VAT ledger account>",
+    "defaultDimension": "<verified dimension string>",
+    "financialTag": "",
+    "verified": false
+  },
+  "vatRatePercent": null,
+  "exchangeRatesByCurrency": {
+    "<ISO code, for example EGP>": { "exchangeRate": null, "reportingExchangeRate": null }
+  },
+  "deployedCompatibility": {
+    "lineServiceVerifiedForGl": false,
+    "glReadbackVerified": false
+  }
+}

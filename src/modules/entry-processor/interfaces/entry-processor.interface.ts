@@ -37,4 +37,13 @@ export interface IEntryProcessor {
   ): Promise<DynDataModel[]> | DynDataModel[];
 
   insertIntoDynamicsAsync(data: DynDataModel[], company: string): Promise<void>;
+
+  /**
+   * Switches the processor to `company` and clears every cache that holds
+   * company-specific lookups. Called by runProcessorForCompany before each run.
+   */
+  resetCompanyScopedState?(company?: string): void;
+
+  /** Loads the company's ledger-based run configuration. Throws when it is incomplete. */
+  prepareCompanyRun?(company: string): Promise<void>;
 }

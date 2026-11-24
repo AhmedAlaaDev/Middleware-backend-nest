@@ -6,4 +6,5 @@ export type EntrySafeType =
   | 'Custody Issue'
   | 'Direct'
   | 'Other'
-  | 'Vendor Payment';
+  | 'Vendor Payment'
+  | 'MAS Revenue';

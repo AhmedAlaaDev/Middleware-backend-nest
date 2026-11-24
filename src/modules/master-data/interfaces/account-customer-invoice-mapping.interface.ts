@@ -6,6 +6,7 @@ export class IAccountCustomerInvoiceMapping {
   customerAccount: string;
   invoiceAccount: string;
   serviceType: ServiceTypes;
+  company?: string;
 }
 
 export interface ICreateAccountCustomerInvoiceMapping {
@@ -13,6 +14,8 @@ export interface ICreateAccountCustomerInvoiceMapping {
   customerAccount: string;
   invoiceAccount: string;
   serviceType: ServiceTypes;
+  /** Owning company (m-p or mas). Saves without it are stored as m-p, as before. */
+  company?: string;
 }
 
 export type IUpdateAccountCustomerInvoiceMapping =
@@ -20,4 +23,8 @@ export type IUpdateAccountCustomerInvoiceMapping =
 
 export interface IAccountCustomerInvoiceMappingFilter {
   serviceType?: ServiceTypes;
+  /**
+   * Only mappings for this company. For m-p, legacy mappings without a company also match.
+   */
+  company?: string;
 }

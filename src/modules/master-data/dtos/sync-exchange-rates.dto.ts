@@ -12,7 +12,8 @@ export class SyncExchangeRatesDto {
   company: string;
 
   @ApiProperty({
-    description: 'Rate type',
+    description:
+      'Rate type. Optional for MAS: it is read from the company ledger.',
     example: 'default',
     required: false,
   })

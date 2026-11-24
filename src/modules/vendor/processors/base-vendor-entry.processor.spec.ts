@@ -91,6 +91,7 @@ describe('BaseVendorEntryProcessor - MarkedInvoice Fallback & 22420 Tag Tests', 
     }).compile();
 
     processor = module.get<TestVendorEntryProcessor>(TestVendorEntryProcessor);
+    processor.resetCompanyScopedState('m-p');
 
     jest
       .spyOn(processor as any, 'warmupProcessorData')

@@ -102,6 +102,7 @@ export class DataBatchController {
         query.batchNumberIds,
         query.skipCount,
         query.maxCount,
+        query.company,
       ),
     );
   }

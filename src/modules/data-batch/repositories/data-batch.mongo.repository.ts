@@ -221,10 +221,17 @@ export class DataBatchMongoRepository extends DataBatchRepository {
   }
 
   public async getList(
-    filter: { entryProcessorTypes?: number[]; batchNumberIds?: string[] },
+    filter: {
+      entryProcessorTypes?: number[];
+      batchNumberIds?: string[];
+      company?: string;
+    },
     options?: { skipCount?: number; maxCount?: number },
   ): Promise<IDataBatch[]> {
     const q: Record<string, unknown> = {};
+    if (filter?.company) {
+      q['company'] = filter.company;
+    }
 
     if (filter?.entryProcessorTypes && filter.entryProcessorTypes.length > 0) {
       q['entryProcessorType'] = { $in: filter.entryProcessorTypes } as unknown;
@@ -287,8 +294,12 @@ export class DataBatchMongoRepository extends DataBatchRepository {
   public async getCount(filter: {
     entryProcessorTypes?: number[];
     batchNumberIds?: string[];
+    company?: string;
   }): Promise<number> {
     const q: Record<string, unknown> = {};
+    if (filter?.company) {
+      q['company'] = filter.company;
+    }
     if (filter?.entryProcessorTypes && filter.entryProcessorTypes.length > 0) {
       q['entryProcessorType'] = { $in: filter.entryProcessorTypes } as unknown;
     }

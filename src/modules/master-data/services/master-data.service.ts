@@ -228,11 +228,12 @@ export class MasterDataService {
 
   async getFinancialDimensionWithValuesAsync(
     financialKey: string,
-    filter?: { value?: string },
+    filter?: { value?: string; company?: string },
   ): Promise<IFinancialDimensionValue[]> {
     const values = await this.finDimValRepo.getList({
       financialDimensionKey: financialKey,
       value: filter?.value,
+      company: filter?.company,
     });
 
     return values;

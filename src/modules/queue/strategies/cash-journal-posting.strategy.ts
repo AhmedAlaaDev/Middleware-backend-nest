@@ -6,6 +6,11 @@ import {
   PostHeadersResult,
 } from './dfo-posting-strategy.interface';
 
+import {
+  verifyMasRevenueReadback,
+  type MasRevenueGlLineRow,
+  type MasRevenuePlannedGlLine,
+} from '@/modules/cash/mas-revenue/mas-revenue-readback';
 import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   CashJournalRoute,
@@ -20,6 +25,7 @@ import {
 import { NonRetryableDfoPostingError } from '@/modules/d365fo/errors/non-retryable-dfo-posting.error';
 import {
   ActualJournalLine,
+  decimalToCents,
   toPlannedJournalLine,
 } from '@/modules/d365fo/services/cash-journal-line-identity';
 import {
@@ -222,6 +228,12 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       );
     }
 
+    if (route.safeType === 'MAS Revenue') {
+      // Compare the COMPLETE planned group with the journal D365 holds, not only the
+      // lines posted in this attempt, so a resumed journal is verified as a whole.
+      await this.verifyMasRevenueJournal(headerKey, dataAreaId, postingLines);
+    }
+
     const skippedUniqueIds = new Set(
       this.skipReport
         .filter((row) => !isAlreadyMarkedUnmarkedUploadSkip(row))
@@ -310,6 +322,45 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       // account (e.g. 223404 keeps 4 of 13). Not an error; recorded for audit.
       this.logger.warn(
         `Journal ${headerKey}: D365 dropped dimension values on ${droppedDimensionLines} ledger line(s) (account structure); nothing was changed or added.`,
+      );
+    }
+  }
+
+  /**
+   * GL readback for MAS Revenue. The journal must hold exactly the planned content:
+   * accounts, currency, amounts and offset accounts. A mismatch is non-retryable and
+   * stops the batch before it is marked complete.
+   */
+  private async verifyMasRevenueJournal(
+    headerKey: string,
+    dataAreaId: string,
+    postingLines: D365FOCustomerPaymentJournalLineRequest[],
+  ): Promise<void> {
+    const planned: MasRevenuePlannedGlLine[] = postingLines
+      .filter((line) => Boolean(line.customLineApiBody))
+      .map((line) => ({
+        account: String(line.customLineApiBody.AccountNum ?? ''),
+        currency: String(line.customLineApiBody.currency ?? ''),
+        debitCents: decimalToCents(line.customLineApiBody.debitAmount ?? 0),
+        creditCents: decimalToCents(line.customLineApiBody.creditAmount ?? 0),
+        offsetAccount: String(
+          line.customLineApiBody.offsetAccountDisplayValue ?? '',
+        ),
+      }));
+
+    let actual: MasRevenueGlLineRow[];
+    try {
+      actual = await this.ledgerStrategy.listGlLineRows(headerKey, dataAreaId);
+    } catch (error: unknown) {
+      throw new NonRetryableDfoPostingError(
+        `[JOURNAL_READBACK_FAILED] Could not read journal ${headerKey} back from D365 (${error instanceof Error ? error.message : String(error)}). The batch was not marked complete.`,
+      );
+    }
+
+    const problems = verifyMasRevenueReadback(planned, actual);
+    if (problems.length > 0) {
+      throw new NonRetryableDfoPostingError(
+        `[JOURNAL_READBACK_MISMATCH] Journal ${headerKey} does not match the MAS Revenue plan: ${problems.join('; ')}`,
       );
     }
   }
@@ -657,6 +708,7 @@ export class CashJournalPostingStrategy implements IDfoPostingStrategy {
       expected = this.routingService.resolve({
         safeType: route.safeType,
         targetProcessor: route.targetProcessor,
+        masRevenueJournalName: route.journalName,
       });
     } catch (error) {
       throw new Error(

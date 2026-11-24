@@ -1,34 +1,53 @@
-import { invoiceReviewFlowOfBatch } from '@/modules/cash/yard-invoice/yard-invoice-flow';
 import {
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, QueryBus } from '@nestjs/cqrs';
 
 import {
   PostCashBatchToDFOCommand,
   PostCashBatchToDFOResult,
 } from '@/modules/cash/commands';
+import {
+  MasRevenueCashAccountVerifier,
+  masRevenueCashAccountBlockers,
+  receiptCurrenciesByCashId,
+} from '@/modules/cash/mas-revenue/mas-revenue-cash-account-verifier';
+import { getMasRevenueSubmissionBlockers } from '@/modules/cash/mas-revenue/mas-revenue-config';
+import { MasRevenueConfigProvider } from '@/modules/cash/mas-revenue/mas-revenue-config.provider';
+import {
+  buildMasRevenueGlHeaderBody,
+  buildMasRevenueGlLines,
+} from '@/modules/cash/mas-revenue/mas-revenue-gl-body.builder';
+import {
+  MasRevenuePostingGroupLike,
+  validateMasRevenueJournalGroups,
+} from '@/modules/cash/mas-revenue/mas-revenue-posting-validator';
+import {
+  MasRevenueStoredRaw,
+  storedRawToReceipt,
+} from '@/modules/cash/mas-revenue/mas-revenue-stored';
 import { CashEntryDynDataModel } from '@/modules/cash/models/cash-entry-dyn-data.model';
 import { isKnownCashMainAccountNeverBank } from '@/modules/cash/policies/cash-account-classification.policy';
+import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
 import {
   CASH_PAYMENT_REFERENCE_MAX_LENGTH,
   isCashPaymentReferenceTooLong,
 } from '@/modules/cash/policies/cash-payment-reference.policy';
-import { normalizeCashCompositeDisplayValue } from '@/modules/cash/policies/cash-dimension.policy';
-import {
-  YardBatchRowSnapshot,
-  YardInvoicePostingRecheck,
-  yardBatchRowFromStoredRecord,
-} from '@/modules/cash/yard-invoice/yard-invoice-posting-recheck';
 import {
   CashJournalRoute,
   CashJournalRoutingError,
   CashJournalRoutingService,
   CashTargetProcessor,
 } from '@/modules/cash/services/cash-journal-routing.service';
+import { invoiceReviewFlowOfBatch } from '@/modules/cash/yard-invoice/yard-invoice-flow';
+import {
+  YardBatchRowSnapshot,
+  YardInvoicePostingRecheck,
+  yardBatchRowFromStoredRecord,
+} from '@/modules/cash/yard-invoice/yard-invoice-posting-recheck';
 import {
   D365FOCustomerPaymentJournalHeaderRequest,
   D365FOCustomerPaymentJournalLineRequest,
@@ -43,6 +62,14 @@ import {
 } from '@/modules/data-batch/enums/data-batch.enum';
 import { IDataEnhancedRecord } from '@/modules/data-batch/interfaces/data-enhanced-record.interface';
 import { DataBatchService } from '@/modules/data-batch/services/data-batch.service';
+import {
+  accountingCurrencyQuotation,
+  CompanyConfigurationError,
+  CompanyRunConfig,
+  LEGACY_COMPANY_CODE,
+  resolveCompanyRunConfig,
+} from '@/modules/master-data/company-run-config';
+import { GetLedgersQuery } from '@/modules/master-data/queries/get-ledgers.query';
 import { QUEUES } from '@/modules/queue/constants/queues';
 import {
   CashJournalHeaderRequest,
@@ -65,6 +92,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     private readonly queueService: QueueService,
     private readonly routingService: CashJournalRoutingService = new CashJournalRoutingService(),
     private readonly yardRecheck?: YardInvoicePostingRecheck,
+    private readonly masRevenueConfig: MasRevenueConfigProvider = new MasRevenueConfigProvider(),
+    private readonly masRevenueCashVerifier?: MasRevenueCashAccountVerifier,
+    private readonly queryBus?: QueryBus,
   ) {}
 
   public async execute(
@@ -75,6 +105,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     this.logger.log(`Received post-to-DFO request for cash batch ${batchId}`);
 
     const batch = await this.validateBatch(batchId);
+    if (batch.entryProcessorType === EntryProcessorTypes.CashInMasRevenue) {
+      // MAS Revenue uses the GL route. Every other cash batch keeps the paths below.
+      return this.postMasRevenueBatch(batchId, batch.company);
+    }
     if (invoiceReviewFlowOfBatch(batch) && this.yardRecheck) {
       await this.ensureYardBatchMatchesD365(batchId, batch.company);
     }
@@ -88,12 +122,14 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       targetProcessor,
     );
 
+    const postingCurrencies = await this.loadCompanyCurrencies(batch.company);
     const groupedJournals = this.mapToD365FOCashJournalRequests(
       journalGroups,
       batch.company,
       cashDirection,
       targetProcessor,
       this.isDirectCashInUpload(batch.entryProcessorType),
+      postingCurrencies,
     );
 
     const journalsToQueue = this.applyTestingMode(groupedJournals);
@@ -104,6 +140,142 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     return await this.enqueuePostingJob(batchId, batch.company, {
       groupedJournals: journalsToQueue,
       cashDirection,
+    });
+  }
+
+  /**
+   * MAS Revenue Cash In posts through the GL route: one LedgerJournalHeaders header
+   * per planned journal, then RCash/Ledger lines through the cash-in line service.
+   * Configuration and the stored receipt snapshot are checked again here, so a
+   * change since submit blocks the post instead of posting a stale value.
+   */
+  private async postMasRevenueBatch(
+    batchId: string,
+    company: string,
+  ): Promise<PostCashBatchToDFOResult> {
+    const { config } = this.masRevenueConfig.current();
+    const cursor =
+      await this.dataBatchService.getEnhancedRecordsStream(batchId);
+    const stored: Array<{
+      journalBatchNumber: string;
+      raw: MasRevenueStoredRaw;
+    }> = [];
+    for await (const record of this.cursorToAsyncIterable<CashEntryDynDataModel>(
+      cursor,
+    )) {
+      const data = record.data as unknown as {
+        JournalBatchNumber?: string;
+        MasRevenueRaw?: MasRevenueStoredRaw;
+      };
+      if (!data?.MasRevenueRaw) {
+        throw new BadRequestException(
+          `MAS Revenue record ${record.id} has no receipt snapshot; upload the file again.`,
+        );
+      }
+      stored.push({
+        journalBatchNumber: String(data.JournalBatchNumber ?? '').trim(),
+        raw: data.MasRevenueRaw,
+      });
+    }
+    if (stored.length === 0) {
+      throw new NotFoundException('No enhanced records found for this batch');
+    }
+
+    const blockers = getMasRevenueSubmissionBlockers(
+      config,
+      stored.map((entry) => storedRawToReceipt(entry.raw)),
+    );
+    if (blockers.length > 0) {
+      throw new BadRequestException({
+        message: 'Posting is blocked by MAS configuration.',
+        blockers,
+        details: blockers.join('; '),
+      });
+    }
+
+    // Every configured cash ID is checked against D365 at posting time, read-only.
+    // Unknown and bank-only IDs, and currency mismatches, block the post.
+    const receipts = stored.map((entry) => storedRawToReceipt(entry.raw));
+    if (!this.masRevenueCashVerifier) {
+      throw new BadRequestException(
+        'MAS Revenue cash-account verification is not available; posting is blocked.',
+      );
+    }
+    const cashChecks = await this.masRevenueCashVerifier.verify(
+      Object.values(config.cashAccountIdsByDisplayName),
+    );
+    const cashBlockers = masRevenueCashAccountBlockers(
+      cashChecks,
+      receiptCurrenciesByCashId(config.cashAccountIdsByDisplayName, receipts),
+    );
+    if (cashBlockers.length > 0) {
+      throw new BadRequestException({
+        message: 'Posting is blocked by MAS cash-account checks.',
+        blockers: cashBlockers,
+        details: cashBlockers.join('; '),
+      });
+    }
+
+    const byJournal = new Map<string, MasRevenueStoredRaw[]>();
+    for (const entry of stored) {
+      if (!entry.journalBatchNumber) {
+        throw new BadRequestException(
+          `MAS Revenue receipt ${entry.raw.SourceRow} has no journal group; upload the file again.`,
+        );
+      }
+      byJournal.set(entry.journalBatchNumber, [
+        ...(byJournal.get(entry.journalBatchNumber) ?? []),
+        entry.raw,
+      ]);
+    }
+
+    const route = this.routingService.resolve({
+      safeType: 'MAS Revenue',
+      masRevenueJournalName: config.journalName,
+    });
+    const journals: CashJournalPostingGroup[] = [...byJournal.values()].map(
+      (raws) => {
+        const receipts = raws.map(storedRawToReceipt);
+        const header = buildMasRevenueGlHeaderBody(config, receipts, batchId);
+        const bodies = buildMasRevenueGlLines(config, receipts);
+        return {
+          route,
+          header,
+          lines: bodies.map((planned, index) => ({
+            dataAreaId: company,
+            LineNumber: index + 1,
+            // Each planned line carries the source row it came from (a receipt can have two lines).
+            sourceLineNumber: planned.sourceRow,
+            cashDirection: 'in' as const,
+            customLineApiBody: planned.body,
+          })),
+        } as unknown as CashJournalPostingGroup;
+      },
+    );
+
+    const journalsToQueue = this.applyTestingMode(journals);
+    // MAS-only validation: the shared cash validator is not used for this route.
+    const journalErrors = validateMasRevenueJournalGroups(
+      journalsToQueue as unknown as MasRevenuePostingGroupLike[],
+      {
+        salesTaxGroup: config.taxGroups.salesTaxGroup as string,
+        itemSalesTaxGroup: config.taxGroups.itemSalesTaxGroup as string,
+      },
+    );
+    if (journalErrors.length > 0) {
+      throw new BadRequestException({
+        message: 'Validation failed for MAS Revenue journal data',
+        errors: journalErrors,
+        details: journalErrors.join('; '),
+      });
+    }
+
+    await this.prepareBatchForPosting(batchId);
+    return this.enqueuePostingJob(batchId, company, {
+      groupedJournals: journalsToQueue,
+      cashDirection: 'in',
+      // Routed groups carry their route metadata (payload version 2).
+      payloadVersion: 2,
     });
   }
 
@@ -342,7 +514,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     targetProcessor: CashTargetProcessor | undefined,
     directCashInUpload = false,
+    currencies?: CompanyRunConfig,
   ): CashJournalPostingGroup[] {
+    const postingCurrencies = this.requirePostingCurrencies(
+      company,
+      currencies,
+    );
     const result: CashJournalPostingGroup[] = [];
 
     for (const [_journalBatchNumber, lines] of journalGroups.entries()) {
@@ -356,6 +533,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
           'in',
           undefined,
           directCashInUpload,
+          postingCurrencies,
         );
         result.push({ header, lines: mappedLines });
         continue;
@@ -368,6 +546,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         company,
         route.lineDirection,
         route,
+        false,
+        postingCurrencies,
       );
 
       result.push({ route, header, lines: mappedLines });
@@ -422,7 +602,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route?: CashJournalRoute,
     directCashInUpload = false,
+    currencies?: CompanyRunConfig,
   ): D365FOCustomerPaymentJournalLineRequest[] {
+    const postingCurrencies = this.requirePostingCurrencies(
+      company,
+      currencies,
+    );
     return lines.map((lineRecord, groupLineIndex) => {
       const line = lineRecord.data;
 
@@ -613,10 +798,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
         ExchangeRate:
           cashDirection === 'in'
-            ? this.resolveCashInExchangeRate(line)
-            : (line.CurrencyCode ?? '').trim().toUpperCase() === 'EGP'
-              ? 100
-              : line.ExchRate || 100,
+            ? this.resolveCashInExchangeRate(line, postingCurrencies)
+            : this.resolveCashOutExchangeRate(line, postingCurrencies),
 
         // D365 expects exchange-rate fields in the scaled-by-100 format.
         ReportingExchangeRate: (line.ReportingCurrencyExchRate || 0) * 100,
@@ -743,6 +926,74 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   }
 
   /**
+   * Company currencies for a posting run, from the company's ledger. M-P keeps
+   * its legacy currencies. Any other company without a ledger fails here,
+   * before any D365 write.
+   */
+  private async loadCompanyCurrencies(
+    company: string,
+  ): Promise<CompanyRunConfig> {
+    if (company === LEGACY_COMPANY_CODE) {
+      return this.requirePostingCurrencies(company);
+    }
+    if (!this.queryBus) {
+      throw new CompanyConfigurationError(
+        company,
+        ['ledger'],
+        `Company "${company}" needs its ledger configuration to post, but none is available.`,
+      );
+    }
+    const result = await this.queryBus.execute(
+      new GetLedgersQuery({ company }),
+    );
+    return resolveCompanyRunConfig(company, result?.items ?? [], {
+      rateType: 'default',
+      chartOfAccounts: 'Chart of Accounts',
+    });
+  }
+
+  private requirePostingCurrencies(
+    company: string,
+    currencies?: CompanyRunConfig,
+  ): CompanyRunConfig {
+    if (currencies) return currencies;
+    if (company === LEGACY_COMPANY_CODE) {
+      return resolveCompanyRunConfig(LEGACY_COMPANY_CODE, [], {
+        rateType: 'default',
+        chartOfAccounts: 'Chart of Accounts',
+      });
+    }
+    throw new CompanyConfigurationError(
+      company,
+      ['posting currencies'],
+      `Company "${company}" has no posting currencies loaded. Post through the company ledger configuration.`,
+    );
+  }
+
+  /**
+   * Cash-Out line rate. M-P keeps its legacy rule (EGP as 100, otherwise the
+   * line rate or 100). Other companies use their own accounting-currency rule
+   * and must supply a rate for foreign lines; nothing is defaulted to 100.
+   */
+  private resolveCashOutExchangeRate(
+    line: CashEntryDynDataModel,
+    currencies: CompanyRunConfig,
+  ): number {
+    const currency = (line.CurrencyCode ?? '').trim().toUpperCase();
+    const quotation = accountingCurrencyQuotation(currency, currencies);
+    if (quotation !== undefined) return quotation;
+    if (currencies.source === 'legacy-m-p') {
+      return line.ExchRate || 100;
+    }
+    if (!line.ExchRate || line.ExchRate <= 0) {
+      throw new BadRequestException(
+        `Cash-Out line ${line.LineNumber ?? '?'} has no exchange rate for ${currency || '(empty)'} in company "${currencies.company}".`,
+      );
+    }
+    return line.ExchRate;
+  }
+
+  /**
    * Resolve the single transaction exchange-rate field used by the Cash-In
    * custom API contract.
    *
@@ -752,11 +1003,15 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
    * EGP is D365's accounting currency and must be sent as 100. A missing
    * foreign-currency rate is rejected instead of silently becoming 100.
    */
-  private resolveCashInExchangeRate(line: CashEntryDynDataModel): number {
+  private resolveCashInExchangeRate(
+    line: CashEntryDynDataModel,
+    currencies: CompanyRunConfig,
+  ): number {
     const currency = String(line.CurrencyCode ?? '')
       .trim()
       .toUpperCase();
-    if (currency === 'EGP') return 100;
+    const quotation = accountingCurrencyQuotation(currency, currencies);
+    if (quotation !== undefined) return quotation;
 
     const rate = [line.ExchRate, line.ExchangeRate]
       .map((value) => Number(value))
@@ -1127,6 +1382,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     payload: {
       groupedJournals: CashJournalPostingGroup[];
       cashDirection: 'in' | 'out';
+      payloadVersion?: 1 | 2;
     },
   ): Promise<PostCashBatchToDFOResult> {
     const submission = await this.queueService.addDurableJob(
@@ -1139,7 +1395,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         sourceModule: 'CASH',
         // Version 2 requires route metadata and is used only by task-2045
         // outbound groups. Cash-In keeps its backward-compatible v1 shape.
-        payloadVersion: payload.cashDirection === 'out' ? 2 : 1,
+        payloadVersion:
+          payload.payloadVersion ?? (payload.cashDirection === 'out' ? 2 : 1),
       },
       payload.groupedJournals,
     );

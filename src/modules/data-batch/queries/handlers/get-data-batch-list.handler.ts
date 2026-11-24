@@ -16,6 +16,7 @@ export class GetDataBatchListHandler implements IQueryHandler<GetDataBatchListQu
       {
         entryProcessorTypes: query.entryProcessorTypes,
         batchNumberIds: query.batchNumberIds,
+        company: query.company,
       },
       query.skipCount || 0,
       query.maxCount || 150,

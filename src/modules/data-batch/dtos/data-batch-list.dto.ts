@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
-import { IsArray, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 
+import { SUPPORTED_COMPANY_CODES } from '@/common/company/company-code';
 import { PaginatedDto } from '@/common/dtos/paginated.dto';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
 
@@ -30,4 +31,14 @@ export class DataBatchListDto extends PaginatedDto {
     each: true,
   })
   batchNumberIds?: string[];
+
+  /**
+   * Company to filter by (m-p or mas). Applied on the server before paging and counts.
+   * @example mas
+   */
+  @IsOptional()
+  @IsIn(SUPPORTED_COMPANY_CODES, {
+    message: `company must be one of: ${SUPPORTED_COMPANY_CODES.join(', ')}`,
+  })
+  company?: string;
 }

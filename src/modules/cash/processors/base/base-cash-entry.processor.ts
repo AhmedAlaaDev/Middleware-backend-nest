@@ -22,6 +22,7 @@ import {
   resolveCashOffsetAccountDisplayValue,
   toCashDefaultDimensionDisplayValue,
 } from '@/modules/cash/policies/cash-dimension.policy';
+import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import {
   firstCashFinancialTag,
   replaceCashShippingLineWithVendorName,
@@ -33,23 +34,24 @@ import {
 } from '@/modules/cash/policies/cash-journal.policy';
 import { resolveCashPaymentMethod } from '@/modules/cash/policies/cash-line.policy';
 import { resolveNativeWithholdingSettings } from '@/modules/cash/policies/cash-native-withholding.policy';
-import { CashIn421103CurrencyPolicy } from '@/modules/cash/policies/cash-in-421103-currency.policy';
 import { mapCashRawData } from '@/modules/cash/policies/cash-normalization.policy';
 import { cashPaymentReferenceLengthErrorMessage } from '@/modules/cash/policies/cash-payment-reference.policy';
 import {
   analyzeCashWithholding,
   isCashWithholdingLedgerLine,
 } from '@/modules/cash/policies/cash-withholding.policy';
+import { CashOutEntryBuilder } from '@/modules/cash/processors/outbound/cash-out-entry.builder';
+import { CustodyIssueBuilder } from '@/modules/cash/processors/outbound/custody-issue/custody-issue.builder';
+import { CustodySettlementBuilder } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.builder';
+import { validateCustodySettlementVendorInvoiceShape } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.validator';
 import {
   groupVendorPaymentValidationLines,
   resolveVendorPaymentMarking,
   VendorInvoiceMatchStatus,
   VendorInvoiceVerificationService,
 } from '@/modules/cash/processors/outbound/vendor-payment';
-import { CustodyIssueBuilder } from '@/modules/cash/processors/outbound/custody-issue/custody-issue.builder';
-import { CustodySettlementBuilder } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.builder';
-import { validateCustodySettlementVendorInvoiceShape } from '@/modules/cash/processors/outbound/custody-settlement/custody-settlement.validator';
-import { CashOutEntryBuilder } from '@/modules/cash/processors/outbound/cash-out-entry.builder';
+import { VendorPaymentSettlementIntent } from '@/modules/cash/processors/outbound/vendor-payment/models/vendor-payment-marking-result';
+import { VendorPaymentDescriptionPolicy } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-payment-description.policy';
 import { VendorPaymentLineBuilder } from '@/modules/cash/processors/outbound/vendor-payment/vendor-payment-line.builder';
 import {
   buildCashLine,
@@ -77,13 +79,13 @@ import {
 } from '@/modules/cash/services/cash-line-building.service';
 import {
   CashOutExchangeRateContext,
+  CashOutExchangeRateCurrencies,
   CashOutExchangeRateResolution,
   CashOutExchangeRateService,
+  LEGACY_CASH_OUT_CURRENCIES,
 } from '@/modules/cash/services/cash-out-exchange-rate.service';
 import { processCashCustodySettlementLines } from '@/modules/cash/services/cash-settlement-processing.service';
 import { processCashVendorPaymentLines } from '@/modules/cash/services/cash-vendor-payment-processing.service';
-import { VendorPaymentDescriptionPolicy } from '@/modules/cash/processors/outbound/vendor-payment/policies/vendor-payment-description.policy';
-import { VendorPaymentSettlementIntent } from '@/modules/cash/processors/outbound/vendor-payment/models/vendor-payment-marking-result';
 import {
   CustodySettlementTarget,
   GeneralJournalService,
@@ -121,10 +123,32 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
    * Cash-out: cached D365 invoice snapshots keyed by
    * `invoice|vendor|document` when document is available.
    */
+  /**
+   * Currencies and rate type for Cash-Out/Cash-In exchange lookups. M-P keeps the
+   * legacy EGP/USD/Default values; other companies use their ledger settings.
+   */
+  protected cashOutExchangeCurrencies(): CashOutExchangeRateCurrencies {
+    const run = this.requireRunConfig();
+    if (run.source === 'legacy-m-p') {
+      return LEGACY_CASH_OUT_CURRENCIES;
+    }
+    return {
+      accountingCurrency: run.accountingCurrency,
+      reportingCurrency: run.reportingCurrency,
+      rateType: run.rateType,
+      reportingRateType: run.reportingRateType,
+    };
+  }
+
   protected vendorInvoiceSnapshotMap: Map<
     string,
     VendorInvoiceSettlementSnapshot
   > | null = null;
+
+  public override resetCompanyScopedState(company?: string): void {
+    super.resetCompanyScopedState(company);
+    this.vendorInvoiceSnapshotMap = null;
+  }
 
   protected readonly MAIN_ACCOUNTS_NP_MAP: Record<number, number> = {
     211201: 223201,
@@ -243,7 +267,11 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     }
 
     const cashOutExchangeRateContext =
-      await this.cashOutExchangeRateService.load(company, rawLines);
+      await this.cashOutExchangeRateService.load(
+        company,
+        rawLines,
+        this.cashOutExchangeCurrencies(),
+      );
 
     if (cashOutExchangeRateContext) {
       this.logger.debug(
@@ -557,7 +585,9 @@ export abstract class BaseCashEntryProcessor extends EntryProcessorBase {
     });
     if (
       message &&
-      !dynLine.GetErrors().some((error) => error.startsWith('PaymentReference:'))
+      !dynLine
+        .GetErrors()
+        .some((error) => error.startsWith('PaymentReference:'))
     ) {
       dynLine.AddError('PaymentReference', message);
     }

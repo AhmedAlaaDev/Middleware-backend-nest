@@ -20,8 +20,16 @@ export class AccountCustomerInvoiceMapping {
 
   @Prop()
   serviceType: number;
+
+  /**
+   * Company (m-p or mas). Documents without it are legacy m-p mappings;
+   * see the repository for how they are matched.
+   */
+  @Prop()
+  company?: string;
 }
 export const AccountCustomerInvoiceMappingSchema = SchemaFactory.createForClass(
   AccountCustomerInvoiceMapping,
 );
 AccountCustomerInvoiceMappingSchema.index({ serviceType: 1 });
+AccountCustomerInvoiceMappingSchema.index({ company: 1, serviceType: 1 });
