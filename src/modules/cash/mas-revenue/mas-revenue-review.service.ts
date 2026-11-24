@@ -594,8 +594,7 @@ function identityConflictBody(conflicts: MasRevenueIdentityConflict[]) {
     pick('RECONCILIATION_REQUIRED') ??
     pick('CORRECTION_REQUIRED');
   const messages: Record<MasRevenueIdentityConflict['code'], string> = {
-    DUPLICATE_RECEIPT:
-      'Receipt(s) already submitted: the same company, source, year and invoice number exist in another batch.',
+    DUPLICATE_RECEIPT: 'Receipt(s) already submitted in another batch',
     PAYMENT_ID_COLLISION:
       'A generated PaymentId belongs to another receipt. The submit is refused.',
     RECONCILIATION_REQUIRED:
@@ -603,9 +602,27 @@ function identityConflictBody(conflicts: MasRevenueIdentityConflict[]) {
     CORRECTION_REQUIRED:
       'Submission blocked: an invoice submitted in another year has the same content. This looks like a re-dated submitted receipt. Explicit correction handling is required and is not available in this flow.',
   };
+  const code = primary?.code ?? 'DUPLICATE_RECEIPT';
+  // Name the invoices and where they already are, so the user knows what to correct.
+  const same = conflicts.filter((conflict) => conflict.code === code);
+  const places = [
+    ...new Set(
+      same.map((conflict) =>
+        'reference' in conflict
+          ? `invoice ${conflict.invoiceNumber} (${conflict.reference})`
+          : `invoice ${conflict.invoiceNumber}`,
+      ),
+    ),
+  ];
+  const where = places.slice(0, 5).join(', ');
+  const more = places.length > 5 ? ` and ${places.length - 5} more` : '';
+  const message =
+    code === 'DUPLICATE_RECEIPT'
+      ? `${messages[code]}: ${where}${more}. Delete that batch to upload them again.`
+      : `${messages[code]} (${where}${more})`;
   return {
-    message: messages[primary?.code ?? 'DUPLICATE_RECEIPT'],
-    code: primary?.code ?? 'DUPLICATE_RECEIPT',
+    message,
+    code,
     conflicts: conflicts.slice(0, 100),
   };
 }

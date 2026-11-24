@@ -586,7 +586,9 @@ describe('MasRevenueReviewService.submit', () => {
         submitBody(second.payloadHash, 'k2'),
         OWNER,
       ),
-    ).rejects.toThrow(/already submitted/);
+    ).rejects.toThrow(
+      /already submitted in another batch: invoice 0012 \(batch batch-1\)\. Delete that batch/,
+    );
     expect(dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
