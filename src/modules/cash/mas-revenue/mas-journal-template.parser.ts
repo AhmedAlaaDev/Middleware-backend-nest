@@ -38,7 +38,8 @@ export interface MasJournalParseResult {
   rows: MasJournalRawRow[];
 }
 
-async function loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
+/** Loads an upload with the size and archive guards every MAS layout uses. */
+export async function loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
   if (buffer.length > MAS_REVENUE_LIMITS.maxFileBytes) {
     throw new MasRevenueError(
       `file is larger than ${MAS_REVENUE_LIMITS.maxFileBytes / (1024 * 1024)} MB`,

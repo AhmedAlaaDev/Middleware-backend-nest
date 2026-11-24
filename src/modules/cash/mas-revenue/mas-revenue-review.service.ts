@@ -21,6 +21,12 @@ import {
   isMasJournalWorkbook,
   parseMasJournalWorkbook,
 } from './mas-journal-template.parser';
+import { MAS_RECEIPTS_TEMPLATE_VERSION } from './mas-receipts-template.constants';
+import {
+  isMasReceiptsWorkbook,
+  normalizeMasReceipts,
+  parseMasReceiptsWorkbook,
+} from './mas-receipts-template.reader';
 import {
   MasRevenueCashAccountVerifier,
   masRevenueCashAccountBlockers,
@@ -164,11 +170,19 @@ export class MasRevenueReviewService {
     let parsed;
     let result;
     let journalTemplate = false;
+    let receiptsTemplate = false;
     try {
-      // The journal-lines template (version 2) has its own sheet. Any other workbook is
-      // read as the source layout (version 1).
-      journalTemplate = await isMasJournalWorkbook(input.fileBuffer);
-      if (journalTemplate) {
+      // The receipts template (version 3) and the journal-lines template (version 2)
+      // have their own sheets; both become journal lines. Any other workbook is read
+      // as the source layout (version 1).
+      receiptsTemplate = await isMasReceiptsWorkbook(input.fileBuffer);
+      journalTemplate =
+        receiptsTemplate || (await isMasJournalWorkbook(input.fileBuffer));
+      if (receiptsTemplate) {
+        const sheets = await parseMasReceiptsWorkbook(input.fileBuffer);
+        parsed = sheets;
+        result = normalizeMasReceipts(sheets);
+      } else if (journalTemplate) {
         parsed = await parseMasJournalWorkbook(input.fileBuffer);
         result = normalizeMasJournalRows(parsed);
       } else {
@@ -219,9 +233,11 @@ export class MasRevenueReviewService {
         ...lookupChecks,
       ]);
     }
-    const templateVersion = journalTemplate
-      ? MAS_JOURNAL_TEMPLATE_VERSION
-      : input.templateVersion;
+    const templateVersion = receiptsTemplate
+      ? MAS_RECEIPTS_TEMPLATE_VERSION
+      : journalTemplate
+        ? MAS_JOURNAL_TEMPLATE_VERSION
+        : input.templateVersion;
     const rawRows = receipts.map((receipt, index) =>
       receiptToStoredRaw(receipt, index + 1),
     );
@@ -239,7 +255,11 @@ export class MasRevenueReviewService {
     // unknown, bank-only, mismatched or unverifiable accounts before submitting.
     // Submit and posting still recheck live; this result never replaces them.
     const summary = {
-      layout: journalTemplate ? 'journal-lines' : 'source',
+      layout: receiptsTemplate
+        ? 'receipts'
+        : journalTemplate
+          ? 'journal-lines'
+          : 'source',
       cashAccountChecks,
       liveChecks,
       sourceSheet: parsed.sourceSheet,
@@ -725,10 +745,11 @@ function assertCompany(companyId: string): void {
 function assertTemplateVersion(version: number): void {
   if (
     version !== MAS_REVENUE_TEMPLATE_VERSION &&
-    version !== MAS_JOURNAL_TEMPLATE_VERSION
+    version !== MAS_JOURNAL_TEMPLATE_VERSION &&
+    version !== MAS_RECEIPTS_TEMPLATE_VERSION
   ) {
     throw new BadRequestException(
-      `templateVersion ${version} is not supported; this upload accepts versions ${MAS_REVENUE_TEMPLATE_VERSION} and ${MAS_JOURNAL_TEMPLATE_VERSION}`,
+      `templateVersion ${version} is not supported; this upload accepts versions ${MAS_REVENUE_TEMPLATE_VERSION}, ${MAS_JOURNAL_TEMPLATE_VERSION} and ${MAS_RECEIPTS_TEMPLATE_VERSION}`,
     );
   }
 }

@@ -339,10 +339,10 @@ describe('MasRevenueReviewService.preview', () => {
         fileBuffer: await workbookWithRows([receiptRow('1')]),
         fileName: 'x.xlsx',
         companyId: 'mas',
-        templateVersion: 3,
+        templateVersion: 4,
         user: OWNER,
       }),
-    ).rejects.toThrow(/templateVersion 3 is not supported/);
+    ).rejects.toThrow(/templateVersion 4 is not supported/);
   });
 
   it('takes the receipt currency from its verified D365 cash account', async () => {

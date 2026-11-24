@@ -29,6 +29,11 @@ import {
 } from './mas-journal-template';
 import { MAS_JOURNAL_TEMPLATE_VERSION } from './mas-journal-template.constants';
 import {
+  buildMasReceiptsGuide,
+  buildMasReceiptsTemplate,
+} from './mas-receipts-template';
+import { MAS_RECEIPTS_TEMPLATE_VERSION } from './mas-receipts-template.constants';
+import {
   MasRevenueReviewService,
   MasRevenueUser,
 } from './mas-revenue-review.service';
@@ -86,6 +91,37 @@ export class MasRevenueController {
       type: XLSX_CONTENT_TYPE,
       disposition: `attachment; filename="${masRevenueTemplateFileName()}"`,
       length: buffer.length,
+    });
+  }
+
+  @Get('CashIn-MAS-Receipts-Template')
+  @ApiOperation({
+    summary:
+      'Download the MAS cash receipts template (.xlsx, version 3: Receipts and Revenue Types)',
+  })
+  public async downloadReceiptsTemplate(
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const buffer = await buildMasReceiptsTemplate();
+    res.setHeader('X-Template-Version', String(MAS_RECEIPTS_TEMPLATE_VERSION));
+    return new StreamableFile(buffer, {
+      type: XLSX_CONTENT_TYPE,
+      disposition: `attachment; filename="MAS-Cash-Receipts-Template-v${MAS_RECEIPTS_TEMPLATE_VERSION}.xlsx"`,
+      length: buffer.length,
+    });
+  }
+
+  @Get('CashIn-MAS-Receipts-Guide')
+  @ApiOperation({
+    summary: 'Download the MAS cash receipts guide (Markdown)',
+  })
+  public downloadReceiptsGuide(@Res({ passthrough: true }) res: Response) {
+    const text = Buffer.from(buildMasReceiptsGuide(), 'utf8');
+    res.setHeader('X-Template-Version', String(MAS_RECEIPTS_TEMPLATE_VERSION));
+    return new StreamableFile(text, {
+      type: 'text/markdown; charset=utf-8',
+      disposition: `attachment; filename="MAS-Cash-Receipts-Guide-v${MAS_RECEIPTS_TEMPLATE_VERSION}.md"`,
+      length: text.length,
     });
   }
 
