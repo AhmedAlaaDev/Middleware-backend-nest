@@ -19,9 +19,7 @@ describeIfSample('MAS Revenue reconciliation (real workbook)', () => {
   it('accounts for every scanned row and reports per-currency totals', async () => {
     const buffer = readFileSync(samplePath as string);
     const parsed = await parseMasRevenueWorkbook(buffer);
-    const result = normalizeMasRevenueRows(parsed, {
-      transactionCurrency: sampleCurrency as string,
-    });
+    const result = normalizeMasRevenueRows(parsed);
 
     const dataRows = parsed.scannedRowCount - parsed.headerRow;
     const { blank, zeroPlaceholder, cancelled } = result.nonTransactionRows;

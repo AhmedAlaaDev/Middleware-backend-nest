@@ -114,7 +114,6 @@ describe('MAS Revenue HTTP contract', () => {
       const res = await preview({
         companyId: 'mas',
         templateVersion: '1',
-        transactionCurrency: 'egp',
       }).attach('dataFile', await workbookBuffer(), {
         filename: 'upload.xlsx',
         contentType: XLSX_TYPE,
@@ -126,7 +125,6 @@ describe('MAS Revenue HTTP contract', () => {
         expect.objectContaining({
           companyId: 'mas',
           templateVersion: 1,
-          transactionCurrency: 'egp',
           user: { id: 'user-1', role: 'user' },
         }),
       );
@@ -134,8 +132,8 @@ describe('MAS Revenue HTTP contract', () => {
 
     it('rejects a missing or other company before any service call', async () => {
       const invalidFields: Array<Record<string, string>> = [
-        { templateVersion: '1', transactionCurrency: 'EGP' },
-        { companyId: 'm-p', templateVersion: '1', transactionCurrency: 'EGP' },
+        { templateVersion: '1' },
+        { companyId: 'm-p', templateVersion: '1' },
       ];
       for (const fields of invalidFields) {
         const res = await preview(fields).attach(
@@ -155,7 +153,6 @@ describe('MAS Revenue HTTP contract', () => {
       const res = await preview({
         companyId: 'mas',
         templateVersion: '2',
-        transactionCurrency: 'EGP',
       }).attach('dataFile', await workbookBuffer(), {
         filename: 'upload.xlsx',
         contentType: XLSX_TYPE,
@@ -168,7 +165,6 @@ describe('MAS Revenue HTTP contract', () => {
       const res = await preview({
         companyId: 'mas',
         templateVersion: '1',
-        transactionCurrency: 'EGP',
       });
       expect(res.status).toBe(400);
       expect(service.preview).not.toHaveBeenCalled();
@@ -178,7 +174,6 @@ describe('MAS Revenue HTTP contract', () => {
       const res = await preview({
         companyId: 'mas',
         templateVersion: '1',
-        transactionCurrency: 'EGP',
       }).attach('dataFile', Buffer.from('plain text'), {
         filename: 'upload.csv',
         contentType: 'text/csv',
@@ -192,7 +187,6 @@ describe('MAS Revenue HTTP contract', () => {
         .post(`${base}/CashIn-MAS-Revenue-Preview`)
         .field('companyId', 'mas')
         .field('templateVersion', '1')
-        .field('transactionCurrency', 'EGP')
         .attach('dataFile', await workbookBuffer(), {
           filename: 'upload.xlsx',
           contentType: XLSX_TYPE,

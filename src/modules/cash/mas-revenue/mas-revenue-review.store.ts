@@ -20,7 +20,6 @@ export interface MasRevenueReviewRecord {
   createdByUserId: string;
   fileName: string;
   templateVersion: number;
-  transactionCurrency: string;
   status: MasRevenueReviewStatus;
   payloadHash: string;
   summary: Record<string, unknown> | null;
@@ -341,7 +340,6 @@ function toReviewRecord(doc: ReviewLean): MasRevenueReviewRecord {
     createdByUserId: doc.createdByUserId,
     fileName: doc.fileName,
     templateVersion: doc.templateVersion,
-    transactionCurrency: doc.transactionCurrency,
     status: doc.status,
     payloadHash: doc.payloadHash,
     summary: doc.summary ?? null,

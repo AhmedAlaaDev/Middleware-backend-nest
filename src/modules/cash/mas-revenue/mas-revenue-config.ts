@@ -343,6 +343,21 @@ export function getMasRevenueSubmissionBlockers(
 ): string[] {
   const blockers: string[] = [];
 
+  // A receipt's currency is its D365 cash account's currency. Without a verified
+  // account it is unknown, and the receipt cannot be posted.
+  const unresolved = [
+    ...new Set(
+      receipts
+        .filter((receipt) => !receipt.currency)
+        .map((receipt) => receipt.cashAccountDisplayName),
+    ),
+  ];
+  for (const name of unresolved) {
+    blockers.push(
+      `cash account "${name}": currency is not resolved from D365 (the account must be in the verified cash-account configuration and be an RCash account in D365)`,
+    );
+  }
+
   if (config.companyId !== MAS_REVENUE_COMPANY_ID) {
     blockers.push(
       `company must be "${MAS_REVENUE_COMPANY_ID}"; configuration has "${config.companyId}"`,

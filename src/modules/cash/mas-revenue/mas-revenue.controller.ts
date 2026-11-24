@@ -107,7 +107,7 @@ export class MasRevenueController {
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description:
-      'MAS workbook (.xlsx) with companyId, templateVersion and transactionCurrency',
+      "MAS workbook (.xlsx) with companyId and templateVersion. Currency comes from each receipt's D365 cash account.",
     type: MasRevenuePreviewDto,
   })
   @ApiOperation({
@@ -132,7 +132,6 @@ export class MasRevenueController {
       fileName: file.originalname,
       companyId: body.companyId,
       templateVersion: Number(body.templateVersion),
-      transactionCurrency: body.transactionCurrency,
       user: requireUser(req),
     });
   }

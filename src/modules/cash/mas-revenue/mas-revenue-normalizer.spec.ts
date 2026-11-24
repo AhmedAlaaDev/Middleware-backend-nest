@@ -9,7 +9,6 @@ import {
 } from './mas-revenue.constants';
 import {
   MasRevenueCellValue,
-  MasRevenueError,
   MasRevenueRawRow,
   MasRevenueWorkbookParseResult,
 } from './mas-revenue.types';
@@ -63,11 +62,9 @@ function parsed(rows: MasRevenueRawRow[]): MasRevenueWorkbookParseResult {
   };
 }
 
-const OPTIONS = { transactionCurrency: 'egp' };
-
 describe('normalizeMasRevenueRows', () => {
   it('accepts a valid receipt, treating VAT float noise as 224.00', () => {
-    const result = normalizeMasRevenueRows(parsed([row(2)]), OPTIONS);
+    const result = normalizeMasRevenueRows(parsed([row(2)]));
 
     expect(result.issues).toEqual([]);
     expect(result.receipts).toHaveLength(1);
@@ -76,22 +73,13 @@ describe('normalizeMasRevenueRows', () => {
     expect(receipt.vatMinor).toBe(22400);
     expect(receipt.totalMinor).toBe(182400);
     expect(receipt.transactionDate).toBe('2026-10-28');
-    expect(receipt.currency).toBe('EGP');
+    expect(receipt.currency).toBe(''); // resolved later from the D365 cash account
     expect(receipt.cashAccountDisplayName).toBe('خزينة بور سعيد مصري');
     expect(receipt.sourceRow).toBe(2);
   });
 
-  it('rejects a currency that is not a three-letter code instead of inferring one', () => {
-    expect(() =>
-      normalizeMasRevenueRows(parsed([row(2)]), { transactionCurrency: '' }),
-    ).toThrow(MasRevenueError);
-  });
-
   it('rejects a total that does not equal value plus VAT', () => {
-    const result = normalizeMasRevenueRows(
-      parsed([row(2, { total: 1800 })]),
-      OPTIONS,
-    );
+    const result = normalizeMasRevenueRows(parsed([row(2, { total: 1800 })]));
 
     expect(result.receipts).toHaveLength(0);
     expect(result.accounting).toEqual({
@@ -105,7 +93,6 @@ describe('normalizeMasRevenueRows', () => {
   it('blocks every occurrence of a duplicate invoice number', () => {
     const result = normalizeMasRevenueRows(
       parsed([row(2, { invoiceNumber: '9' }), row(3, { invoiceNumber: '9' })]),
-      OPTIONS,
     );
 
     expect(result.receipts).toHaveLength(0);
@@ -117,7 +104,6 @@ describe('normalizeMasRevenueRows', () => {
   it('rejects a row that populates the credit column', () => {
     const result = normalizeMasRevenueRows(
       parsed([row(2, { creditColumn: 'something' })]),
-      OPTIONS,
     );
 
     expect(result.receipts).toHaveLength(0);
@@ -130,7 +116,6 @@ describe('normalizeMasRevenueRows', () => {
         row(2, { value: 0, vat: 0, total: 0 }),
         row(3, { value: -10, vat: 0, total: -10 }),
       ]),
-      OPTIONS,
     );
 
     expect(result.receipts).toHaveLength(0);
@@ -141,10 +126,7 @@ describe('normalizeMasRevenueRows', () => {
   });
 
   it('rejects a formula in a critical cell', () => {
-    const result = normalizeMasRevenueRows(
-      parsed([row(2, {}, ['total'])]),
-      OPTIONS,
-    );
+    const result = normalizeMasRevenueRows(parsed([row(2, {}, ['total'])]));
 
     expect(result.receipts).toHaveLength(0);
     expect(result.issues[0].message).toMatch(/critical cell is a formula/);
@@ -168,7 +150,6 @@ describe('normalizeMasRevenueRows', () => {
         placeholder,
         cancelled,
       ]),
-      OPTIONS,
     );
 
     expect(result.nonTransactionRows).toEqual({
@@ -189,7 +170,6 @@ describe('normalizeMasRevenueRows', () => {
   it('requires a customer name and a cash account', () => {
     const result = normalizeMasRevenueRows(
       parsed([row(2, { customerName: null, cashAccountName: null })]),
-      OPTIONS,
     );
 
     expect(result.receipts).toHaveLength(0);

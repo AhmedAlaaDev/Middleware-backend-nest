@@ -14,7 +14,10 @@ import {
   receiptCurrenciesByCashId,
   type MasRevenueCashAccountCheck,
 } from './mas-revenue-cash-account-verifier';
-import { getMasRevenueSubmissionBlockers } from './mas-revenue-config';
+import {
+  getMasRevenueSubmissionBlockers,
+  type MasRevenueVerifiedConfig,
+} from './mas-revenue-config';
 import { MasRevenueConfigProvider } from './mas-revenue-config.provider';
 import {
   masRevenueFingerprint,
@@ -38,12 +41,19 @@ import {
   storedRawToReceipt,
   type MasRevenueStoredRaw,
 } from './mas-revenue-stored';
-import { parseMasRevenueWorkbook } from './mas-revenue-workbook.parser';
+import {
+  normalizeSourceText,
+  parseMasRevenueWorkbook,
+} from './mas-revenue-workbook.parser';
 import {
   MAS_REVENUE_COMPANY_ID,
   MAS_REVENUE_TEMPLATE_VERSION,
 } from './mas-revenue.constants';
-import { MasRevenueError, MasRevenueRowIssue } from './mas-revenue.types';
+import {
+  MasRevenueError,
+  type MasRevenueReceipt,
+  MasRevenueRowIssue,
+} from './mas-revenue.types';
 
 import { CashInMasRevenueEntryProcessor } from '@/modules/cash/processors/inbound/mas-revenue/cash-in-mas-revenue-entry.processor';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -69,7 +79,6 @@ export interface MasRevenueReviewView {
   company: string;
   fileName: string;
   templateVersion: number;
-  transactionCurrency: string;
   status: MasRevenueReviewRecord['status'];
   /** Submit is possible only when the file has no row issues AND configuration is complete. */
   canSubmit: boolean;
@@ -133,7 +142,6 @@ export class MasRevenueReviewService {
     fileName: string;
     companyId: string;
     templateVersion: number;
-    transactionCurrency: string;
     user: MasRevenueUser;
   }): Promise<MasRevenueReviewView> {
     assertCompany(input.companyId);
@@ -143,9 +151,7 @@ export class MasRevenueReviewService {
     let result;
     try {
       parsed = await parseMasRevenueWorkbook(input.fileBuffer);
-      result = normalizeMasRevenueRows(parsed, {
-        transactionCurrency: input.transactionCurrency,
-      });
+      result = normalizeMasRevenueRows(parsed);
     } catch (error) {
       if (error instanceof MasRevenueError) {
         throw new BadRequestException(error.message);
@@ -153,12 +159,22 @@ export class MasRevenueReviewService {
       throw error;
     }
 
-    const currency = input.transactionCurrency.trim().toUpperCase();
-    const rawRows = result.receipts.map((receipt, index) =>
+    // Each receipt takes the currency of its verified D365 cash account (read-only).
+    // A receipt whose account cannot be resolved keeps an empty currency and blocks
+    // submit with a named blocker. It is never given a guessed currency.
+    const { config } = this.configProvider.current();
+    const cashAccountChecks = await this.cashVerifier.verify(
+      Object.values(config.cashAccountIdsByDisplayName),
+    );
+    const receipts = resolveReceiptCurrencies(
+      result.receipts,
+      config,
+      cashAccountChecks,
+    );
+    const rawRows = receipts.map((receipt, index) =>
       receiptToStoredRaw(receipt, index + 1),
     );
-    const payloadHash = hashSnapshot(input.templateVersion, currency, rawRows);
-    const totals = sumTotals(rawRows);
+    const payloadHash = hashSnapshot(input.templateVersion, rawRows);
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.CashInMasRevenue,
     ) as CashInMasRevenueEntryProcessor;
@@ -167,15 +183,10 @@ export class MasRevenueReviewService {
       MAS_REVENUE_COMPANY_ID,
     );
 
-    const uploadValid =
-      result.issues.length === 0 && result.receipts.length > 0;
+    const uploadValid = result.issues.length === 0 && receipts.length > 0;
     // Preview runs the same read-only cash-account check as submit, so the user sees
     // unknown, bank-only, mismatched or unverifiable accounts before submitting.
     // Submit and posting still recheck live; this result never replaces them.
-    const { config } = this.configProvider.current();
-    const cashAccountChecks = await this.cashVerifier.verify(
-      Object.values(config.cashAccountIdsByDisplayName),
-    );
     const summary = {
       cashAccountChecks,
       sourceSheet: parsed.sourceSheet,
@@ -183,14 +194,7 @@ export class MasRevenueReviewService {
       scannedDataRows: parsed.scannedRowCount - parsed.headerRow,
       nonTransactionRows: result.nonTransactionRows,
       accounting: result.accounting,
-      transactionCurrency: currency,
-      totalsByCurrency: {
-        [currency]: {
-          value: minorText(totals.value),
-          vat: minorText(totals.vat),
-          total: minorText(totals.total),
-        },
-      },
+      totalsByCurrency: totalsByCurrency(rawRows),
       journalGroups: groupCounts(groups),
       issueCount: result.issues.length,
       issues: result.issues.slice(0, MAX_ISSUES_IN_SUMMARY).map(toIssueView),
@@ -202,11 +206,10 @@ export class MasRevenueReviewService {
       createdByUserId: input.user.id,
       fileName: input.fileName,
       templateVersion: input.templateVersion,
-      transactionCurrency: currency,
       payloadHash,
       summary,
       canSubmit: uploadValid,
-      receiptCount: result.receipts.length,
+      receiptCount: receipts.length,
       correlationId,
     });
     await this.store.insertLines(
@@ -227,16 +230,15 @@ export class MasRevenueReviewService {
     await this.operationalLogs.emit({
       level: uploadValid ? 'info' : 'warn',
       message: uploadValid
-        ? `MAS Revenue review ready: ${result.receipts.length} receipt(s)`
+        ? `MAS Revenue review ready: ${receipts.length} receipt(s)`
         : `MAS Revenue review has ${result.issues.length} row issue(s)`,
       context: MasRevenueReviewService.name,
       eventType: 'mas_revenue.review',
       jobId: record.id,
       status: uploadValid ? 'validated' : 'blocked',
       metadata: {
-        receiptCount: result.receipts.length,
+        receiptCount: receipts.length,
         issueCount: result.issues.length,
-        transactionCurrency: currency,
       },
     });
 
@@ -559,7 +561,6 @@ export class MasRevenueReviewService {
       company: record.company,
       fileName: record.fileName,
       templateVersion: record.templateVersion,
-      transactionCurrency: record.transactionCurrency,
       status: record.status,
       canSubmit: uploadValid && blockers.length === 0 && !record.batchId,
       uploadValid,
@@ -629,29 +630,62 @@ function assertTemplateVersion(version: number): void {
   }
 }
 
-/** Hash of the normalized snapshot: receipts in order, with the currency and template version. */
+/**
+ * Gives each receipt the currency of its verified D365 cash account. The cash ID comes
+ * from the verified configuration. A receipt whose ID, status or currency is missing
+ * keeps an empty currency; the submit blockers then name that cash account.
+ */
+export function resolveReceiptCurrencies(
+  receipts: MasRevenueReceipt[],
+  config: MasRevenueVerifiedConfig,
+  checks: MasRevenueCashAccountCheck[],
+): MasRevenueReceipt[] {
+  const checkById = new Map(checks.map((check) => [check.id, check]));
+  return receipts.map((receipt) => {
+    const id =
+      config.cashAccountIdsByDisplayName[
+        normalizeSourceText(receipt.cashAccountDisplayName)
+      ];
+    const check = id ? checkById.get(id) : undefined;
+    const currency =
+      check && check.status === 'RCASH' && check.currency ? check.currency : '';
+    return { ...receipt, currency };
+  });
+}
+
+/** Hash of the normalized snapshot: the receipts in order, with their currencies and template version. */
 function hashSnapshot(
   templateVersion: number,
-  currency: string,
   raws: MasRevenueStoredRaw[],
 ): string {
   return createHash('sha256')
-    .update(JSON.stringify({ templateVersion, currency, raws }))
+    .update(JSON.stringify({ templateVersion, raws }))
     .digest('hex');
 }
 
-function sumTotals(raws: MasRevenueStoredRaw[]): {
-  value: number;
-  vat: number;
-  total: number;
-} {
-  return raws.reduce(
-    (acc, raw) => ({
-      value: acc.value + raw.ValueMinor,
-      vat: acc.vat + raw.VatMinor,
-      total: acc.total + raw.TotalMinor,
-    }),
-    { value: 0, vat: 0, total: 0 },
+/** Totals grouped by each receipt's currency. Receipts without a resolved currency group under "UNRESOLVED". */
+function totalsByCurrency(
+  raws: MasRevenueStoredRaw[],
+): Record<string, { value: string; vat: string; total: string }> {
+  const sums = new Map<string, { value: number; vat: number; total: number }>();
+  for (const raw of raws) {
+    const key = raw.Currency || 'UNRESOLVED';
+    const current = sums.get(key) ?? { value: 0, vat: 0, total: 0 };
+    sums.set(key, {
+      value: current.value + raw.ValueMinor,
+      vat: current.vat + raw.VatMinor,
+      total: current.total + raw.TotalMinor,
+    });
+  }
+  return Object.fromEntries(
+    [...sums.entries()].map(([currency, sum]) => [
+      currency,
+      {
+        value: minorText(sum.value),
+        vat: minorText(sum.vat),
+        total: minorText(sum.total),
+      },
+    ]),
   );
 }
 

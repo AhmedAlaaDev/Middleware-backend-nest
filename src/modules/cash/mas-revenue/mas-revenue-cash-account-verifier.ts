@@ -175,6 +175,8 @@ export function receiptCurrenciesByCashId(
 ): Map<string, string[]> {
   const byId = new Map<string, string[]>();
   for (const receipt of receipts) {
+    // A receipt without a resolved currency is reported by the currency blocker, not here.
+    if (!receipt.currency) continue;
     const id = cashAccountIdsByDisplayName[receipt.cashAccountDisplayName];
     if (!id || id.trim() === '') continue;
     byId.set(id, [...(byId.get(id) ?? []), receipt.currency]);

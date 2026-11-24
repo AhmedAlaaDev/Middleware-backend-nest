@@ -120,9 +120,7 @@ describe('MAS Revenue upload template', () => {
     );
     expect(parsed.rows).toHaveLength(0);
 
-    const result = normalizeMasRevenueRows(parsed, {
-      transactionCurrency: 'EGP',
-    });
+    const result = normalizeMasRevenueRows(parsed);
     expect(result.receipts).toEqual([]);
     expect(result.issues).toEqual([]);
     expect(result.accounting).toEqual({
@@ -139,9 +137,7 @@ describe('MAS Revenue upload template', () => {
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
     const parsed = await parseMasRevenueWorkbook(buffer);
-    const result = normalizeMasRevenueRows(parsed, {
-      transactionCurrency: 'EGP',
-    });
+    const result = normalizeMasRevenueRows(parsed);
 
     expect(result.issues).toEqual([]);
     expect(result.receipts).toHaveLength(1);
@@ -191,9 +187,7 @@ describe('MAS Revenue upload template', () => {
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
     const parsed = await parseMasRevenueWorkbook(buffer);
-    const result = normalizeMasRevenueRows(parsed, {
-      transactionCurrency: 'EGP',
-    });
+    const result = normalizeMasRevenueRows(parsed);
 
     expect(result.accounting.transactionRowsRead).toBe(2);
     expect(result.receipts.map((r) => r.sourceRow).sort()).toEqual([2, 5]);

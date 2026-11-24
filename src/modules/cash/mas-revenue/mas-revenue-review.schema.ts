@@ -38,9 +38,6 @@ export class MasRevenueReview {
   @Prop({ required: true, type: Number })
   templateVersion: number;
 
-  @Prop({ required: true })
-  transactionCurrency: string;
-
   @Prop({
     type: String,
     required: true,

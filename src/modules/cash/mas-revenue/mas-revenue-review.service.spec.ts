@@ -280,7 +280,6 @@ async function previewValid(
     fileName: 'upload.xlsx',
     companyId: 'mas',
     templateVersion: 1,
-    transactionCurrency: 'EGP',
     user: OWNER,
   });
 }
@@ -319,7 +318,6 @@ describe('MasRevenueReviewService.preview', () => {
         fileName: 'x.xlsx',
         companyId: 'm-p',
         templateVersion: 1,
-        transactionCurrency: 'EGP',
         user: OWNER,
       }),
     ).rejects.toThrow(BadRequestException);
@@ -333,24 +331,35 @@ describe('MasRevenueReviewService.preview', () => {
         fileName: 'x.xlsx',
         companyId: 'mas',
         templateVersion: 2,
-        transactionCurrency: 'EGP',
         user: OWNER,
       }),
     ).rejects.toThrow(/templateVersion 2 is not supported/);
   });
 
-  it('refuses a missing or invalid currency rather than inferring one', async () => {
-    const { service } = buildService(completeConfig());
+  it('takes the receipt currency from its verified D365 cash account', async () => {
+    const { service, store } = buildService(completeConfig());
+    await previewValid(service);
+    const currencies = [...store.lines].map((line) => line.raw.Currency);
+    expect(currencies).toEqual(['EGP']);
+  });
+
+  it('blocks submit, and names the cash account, when its currency cannot be resolved from D365', async () => {
+    const { service, cashVerifier, dataBatchService } =
+      buildService(completeConfig());
+    cashVerifier.verify.mockResolvedValueOnce([
+      { id: 'PETTY-FIXTURE', status: 'UNKNOWN', currency: null, error: null },
+    ]);
+    const view = await previewValid(service);
+    expect(view.receiptCount).toBe(1);
+    expect(view.canSubmit).toBe(false);
+    expect(view.blockers.join(' ')).toContain(
+      'currency is not resolved from D365',
+    );
+    expect(view.blockers.join(' ')).toContain(CASH);
     await expect(
-      service.preview({
-        fileBuffer: await workbookWithRows([receiptRow('1')]),
-        fileName: 'x.xlsx',
-        companyId: 'mas',
-        templateVersion: 1,
-        transactionCurrency: '',
-        user: OWNER,
-      }),
-    ).rejects.toThrow(BadRequestException);
+      service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
+    ).rejects.toThrow(ConflictException);
+    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
   });
 
   it('reports an empty template as a review with nothing to submit', async () => {
@@ -360,7 +369,6 @@ describe('MasRevenueReviewService.preview', () => {
       fileName: 'blank.xlsx',
       companyId: 'mas',
       templateVersion: 1,
-      transactionCurrency: 'EGP',
       user: OWNER,
     });
     expect(view.uploadValid).toBe(false);

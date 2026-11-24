@@ -7,7 +7,6 @@ import {
   IsOptional,
   IsString,
   Length,
-  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -29,14 +28,6 @@ export class MasRevenuePreviewDto {
   @IsInt()
   @IsIn([MAS_REVENUE_TEMPLATE_VERSION])
   templateVersion: number;
-
-  /** Transaction currency chosen by the user. The workbook has no currency column. */
-  @ApiProperty({ example: 'EGP', description: 'ISO 4217 three-letter code' })
-  @IsString()
-  @Matches(/^[A-Za-z]{3}$/, {
-    message: 'transactionCurrency must be a three-letter code',
-  })
-  transactionCurrency: string;
 
   /** Raw workbook (.xlsx). Sent as the multipart field "dataFile". */
   @ApiProperty({ type: 'string', format: 'binary' })

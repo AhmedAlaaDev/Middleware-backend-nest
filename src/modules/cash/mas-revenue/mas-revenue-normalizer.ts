@@ -28,32 +28,21 @@ const CRITICAL_FORMULA_FIELDS: MasRevenueHeaderField[] = [
 /** Float noise tolerance when reading a number cell as money (see parseMinor). */
 const FLOAT_NOISE_TOLERANCE = 1e-6;
 
-const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const EXCEL_MAX_SERIAL = 2_958_465; // 9999-12-31
-
-export interface MasRevenueNormalizeOptions {
-  /** Transaction currency chosen by the user. Never inferred from the company. */
-  transactionCurrency: string;
-}
 
 /**
  * Turns classified rows into receipts. Every transaction row ends either as an
  * accepted receipt or as a rejected row with at least one issue. Nothing is
  * dropped silently.
+ *
+ * The workbook has no currency column. A receipt's currency is resolved later
+ * from its verified D365 cash account (see the review service), so it is empty here.
  */
 export function normalizeMasRevenueRows(
   parsed: MasRevenueWorkbookParseResult,
-  options: MasRevenueNormalizeOptions,
 ): MasRevenueNormalizationResult {
-  const currency = options.transactionCurrency.trim().toUpperCase();
-  if (!CURRENCY_PATTERN.test(currency)) {
-    throw new MasRevenueError(
-      `transaction currency must be a three-letter ISO code; received "${options.transactionCurrency}"`,
-    );
-  }
-
   const nonTransactionRows = { blank: 0, zeroPlaceholder: 0, cancelled: 0 };
   const transactionRows: MasRevenueRawRow[] = [];
   for (const row of parsed.rows) {
@@ -213,7 +202,7 @@ export function normalizeMasRevenueRows(
       sourceRow: row.sourceRow,
       invoiceNumber: invoiceNumber as string,
       transactionDate: (transactionDate as { ok: true; iso: string }).iso,
-      currency,
+      currency: '',
       valueMinor: (value as { ok: true; minor: number }).minor,
       vatMinor: (vat as { ok: true; minor: number }).minor,
       totalMinor: (total as { ok: true; minor: number }).minor,
