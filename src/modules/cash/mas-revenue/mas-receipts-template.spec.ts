@@ -280,3 +280,12 @@ describe('MAS cash receipts template (version 3)', () => {
     expect(guide).toContain('Total must equal Value + VAT');
   });
 });
+
+describe('MAS cash receipts template: row counts', () => {
+  it('counts only the rows entered, not the formatted empty rows of the template', async () => {
+    const parsed = await parseMasReceiptsWorkbook(await workbookWith(GIVAUDAN));
+    expect(parsed.scannedRowCount - parsed.headerRow).toBe(3);
+    expect(parsed.blankRows).toBe(0);
+    expect(parsed.receipts).toHaveLength(3);
+  });
+});

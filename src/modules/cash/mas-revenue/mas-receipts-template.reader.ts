@@ -89,7 +89,8 @@ export async function parseMasReceiptsWorkbook(
   return {
     sourceSheet: receiptsSheet.name,
     headerRow: receipts.headerRow,
-    scannedRowCount: receipts.scanned,
+    // The template formats hundreds of empty rows; only rows up to the last entry count.
+    scannedRowCount: receipts.lastDataRow,
     receipts: receipts.rows,
     blankRows: receipts.blankRows,
     revenueTypes: types.rows,
@@ -124,6 +125,7 @@ function readSheet<F extends string>(
   scanned: number;
   rows: Array<SheetRow<F>>;
   blankRows: number;
+  lastDataRow: number;
 } {
   const scanned = sheet.rowCount;
   if (scanned > MAS_REVENUE_LIMITS.maxScannedRows) {
@@ -170,6 +172,7 @@ function readSheet<F extends string>(
 
   const rows: Array<SheetRow<F>> = [];
   let blankRows = 0;
+  let lastDataRow = headerRow;
   for (let r = headerRow + 1; r <= scanned; r += 1) {
     const row = sheet.getRow(r);
     const values = {} as Record<F, MasRevenueCellValue>;
@@ -192,8 +195,11 @@ function readSheet<F extends string>(
       continue;
     }
     rows.push({ sourceRow: r, values, formulaFields });
+    lastDataRow = r;
   }
-  return { headerRow, scanned, rows, blankRows };
+  // Blank rows after the last entry are formatting, not skipped receipts.
+  blankRows -= scanned - lastDataRow;
+  return { headerRow, scanned, rows, blankRows, lastDataRow };
 }
 
 function textOf(value: MasRevenueCellValue | undefined): string | null {
