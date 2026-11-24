@@ -37,14 +37,15 @@ const RECEIPT: Row = {
   DOCUMENT: 'R-1',
   DEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
 };
-const PAYMENT: Row = {
+/** A receipt written the other way round: ledger on the account, cash as the offset, credit. */
+const OFFSET_RECEIPT: Row = {
   JOURNALNAME: 'GL Journal',
   TRANSDATE: '2026-10-28',
   ACCOUNTTYPE: 'Ledger',
   ACCOUNTDISPLAYVALUE: '524528|2401|024|002',
   OFFSETACCOUNTTYPE: 'RCash',
   OFFSETACCOUNTDISPLAYVALUE: 'Port Said',
-  DEBITAMOUNT: 165,
+  CREDITAMOUNT: 165,
   ITEMSALESTAXGROUP: 'NONTAXABLE',
   DOCUMENT: 'P-1',
   OFFSETDEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
@@ -114,15 +115,15 @@ describe('MAS journal-lines template (version 2)', () => {
     );
     expect(result.receipts).toHaveLength(0);
     expect(result.issues).toHaveLength(0);
-    expect(buildMasJournalUploadGuide()).toContain('Cash in or cash out');
+    expect(buildMasJournalUploadGuide()).toContain('Cash In only');
   });
 
-  it('reads a receipt and a payment, and identifies the direction from each row', async () => {
-    const result = await receiptsOf([RECEIPT, PAYMENT]);
+  it('reads a receipt written either way round; both are cash in', async () => {
+    const result = await receiptsOf([RECEIPT, OFFSET_RECEIPT]);
     expect(result.issues).toEqual([]);
     const [receipt, payment] = result.receipts;
     expect(cashEffectOf(receipt.journalLine!)).toBe('in');
-    expect(cashEffectOf(payment.journalLine!)).toBe('out');
+    expect(cashEffectOf(payment.journalLine!)).toBe('in');
     expect(receipt.cashAccountDisplayName).toBe('Port Said');
     expect(payment.cashAccountDisplayName).toBe('Port Said');
     expect(receipt.totalMinor).toBe(182400);
@@ -130,19 +131,27 @@ describe('MAS journal-lines template (version 2)', () => {
     expect(receipt.journalLine!.itemSalesTaxGroup).toBe('Tax 14');
   });
 
-  it('flips the direction when the cash side and amount side change', async () => {
+  it('rejects a row that takes cash out, on either side, and names the column', async () => {
     const result = await receiptsOf([
-      { ...RECEIPT, DEBITAMOUNT: '', CREDITAMOUNT: 50, DOCUMENT: 'R-2' },
+      { ...RECEIPT, DEBITAMOUNT: '', CREDITAMOUNT: 50, DOCUMENT: 'O-1' },
       {
-        ...PAYMENT,
-        DEBITAMOUNT: '',
-        CREDITAMOUNT: 70,
-        DOCUMENT: 'P-2',
+        ...OFFSET_RECEIPT,
+        CREDITAMOUNT: '',
+        DEBITAMOUNT: 70,
+        DOCUMENT: 'O-2',
       },
     ]);
-    const [cashCredit, ledgerCredit] = result.receipts;
-    expect(cashEffectOf(cashCredit.journalLine!)).toBe('out');
-    expect(cashEffectOf(ledgerCredit.journalLine!)).toBe('in');
+    expect(result.receipts).toHaveLength(0);
+    expect(result.issues.map((issue) => issue.message)).toEqual([
+      expect.stringContaining(
+        'Cash In only: a credit on the petty-cash account',
+      ),
+      expect.stringContaining('Cash In only: a debit on the ledger account'),
+    ]);
+    expect(result.issues.map((issue) => issue.column)).toEqual([
+      'CREDITAMOUNT',
+      'DEBITAMOUNT',
+    ]);
   });
 
   it('rejects both sides cash, both amounts, and repeated documents', async () => {
@@ -150,7 +159,7 @@ describe('MAS journal-lines template (version 2)', () => {
       { ...RECEIPT, OFFSETACCOUNTTYPE: 'RCash', DOCUMENT: 'A' },
       { ...RECEIPT, CREDITAMOUNT: 5, DOCUMENT: 'B' },
       { ...RECEIPT, DOCUMENT: 'C' },
-      { ...PAYMENT, DOCUMENT: 'C' },
+      { ...OFFSET_RECEIPT, DOCUMENT: 'C' },
     ]);
     expect(result.receipts).toHaveLength(0);
     const messages = result.issues.map((issue) => issue.message).join(' | ');
@@ -161,7 +170,7 @@ describe('MAS journal-lines template (version 2)', () => {
 
   describe('gates', () => {
     async function resolved() {
-      const { receipts } = await receiptsOf([RECEIPT, PAYMENT]);
+      const { receipts } = await receiptsOf([RECEIPT, OFFSET_RECEIPT]);
       return resolveJournalCurrencies(receipts, [portSaid]);
     }
 
@@ -225,7 +234,7 @@ describe('MAS journal-lines template (version 2)', () => {
 
   describe('posting lines', () => {
     async function lines() {
-      const { receipts } = await receiptsOf([RECEIPT, PAYMENT]);
+      const { receipts } = await receiptsOf([RECEIPT, OFFSET_RECEIPT]);
       const resolved = resolveJournalCurrencies(receipts, [portSaid]);
       return buildMasJournalGlLines(resolved, liveOk);
     }
@@ -246,15 +255,15 @@ describe('MAS journal-lines template (version 2)', () => {
       });
     });
 
-    it('builds the payment with the ledger on the account side and cash as the offset', async () => {
+    it('builds the offset-side receipt with the ledger on the account and cash as the offset', async () => {
       const [, payment] = await lines();
       expect(payment.body).toMatchObject({
         AccountNum: '524528|2401|024|002',
         accountTypeStr: 'Ledger',
         offsetAccountDisplayValue: 'Port Said',
         OffsetAccountTypeStr: 'RCash',
-        debitAmount: 165,
-        creditAmount: 0,
+        debitAmount: 0,
+        creditAmount: 165,
         TAXITEMGROUP: 'NONTAXABLE',
         offsetDEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
       });
@@ -287,7 +296,7 @@ describe('MAS journal-lines template (version 2)', () => {
       } as unknown as MasRevenuePostingGroupLike;
     }
 
-    it('passes the receipt and the payment through the structural validator', async () => {
+    it('passes both receipt forms through the structural validator', async () => {
       const built = await lines();
       expect(
         validateMasJournalGroups([

@@ -212,6 +212,26 @@ export function normalizeMasJournalRows(
       }
     }
 
+    // This upload is Cash In only: a line that takes cash out of petty cash is refused.
+    if (
+      side !== null &&
+      accountType !== null &&
+      offsetAccountType !== null &&
+      accountType !== offsetAccountType
+    ) {
+      const cashOut =
+        accountType === 'RCash' ? side === 'credit' : side === 'debit';
+      if (cashOut) {
+        issue(
+          side === 'debit' ? 'debit' : 'credit',
+          accountType === 'RCash'
+            ? 'this upload is Cash In only: a credit on the petty-cash account takes cash out'
+            : 'this upload is Cash In only: a debit on the ledger account with petty cash as the offset takes cash out',
+          side === 'debit' ? v.debit : v.credit,
+        );
+      }
+    }
+
     const itemSalesTaxGroup = textOf(v.itemSalesTaxGroup);
     if (itemSalesTaxGroup === null) {
       issue(

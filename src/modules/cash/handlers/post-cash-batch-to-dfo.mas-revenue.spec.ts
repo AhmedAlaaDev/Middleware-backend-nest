@@ -434,7 +434,7 @@ describe('PostCashBatchToDFOHandler: MAS journal lines (template version 2)', ()
           account: cashFirst ? 'Port Said' : '524528|2401|024|002',
           offsetAccountType: cashFirst ? 'Ledger' : 'RCash',
           offsetAccount: cashFirst ? '415701|2401|024|002|005' : 'Port Said',
-          side: 'debit',
+          side: cashFirst ? 'debit' : 'credit',
           itemSalesTaxGroup: cashFirst ? 'Tax 14' : 'NONTAXABLE',
           salesTaxGroup: '',
           postingProfile: '',
@@ -492,7 +492,7 @@ describe('PostCashBatchToDFOHandler: MAS journal lines (template version 2)', ()
     return built;
   }
 
-  it('queues a receipt and a payment as they were entered, in the journal the rows name', async () => {
+  it('queues a receipt written either way round as it was entered, in the journal the rows name', async () => {
     const { handler, queueService } = buildJournalHandler(completeConfig());
 
     await handler.execute({ batchId: 'batch-1' } as never);
@@ -522,7 +522,8 @@ describe('PostCashBatchToDFOHandler: MAS journal lines (template version 2)', ()
       AccountNum: '524528|2401|024|002',
       OffsetAccountTypeStr: 'RCash',
       offsetAccountDisplayValue: 'Port Said',
-      debitAmount: 165,
+      debitAmount: 0,
+      creditAmount: 165,
       TAXITEMGROUP: 'NONTAXABLE',
     });
   });

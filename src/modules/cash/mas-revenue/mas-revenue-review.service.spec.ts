@@ -996,7 +996,7 @@ describe('MasRevenueReviewService.preview: journal-lines template (version 2)', 
     ACCOUNTDISPLAYVALUE: '524528|2401|024|002',
     OFFSETACCOUNTTYPE: 'RCash',
     OFFSETACCOUNTDISPLAYVALUE: 'Port Said',
-    DEBITAMOUNT: 165,
+    CREDITAMOUNT: 165,
     ITEMSALESTAXGROUP: 'NONTAXABLE',
     DOCUMENT: 'P-1',
     OFFSETDEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
@@ -1030,7 +1030,7 @@ describe('MasRevenueReviewService.preview: journal-lines template (version 2)', 
     return built;
   }
 
-  it('reads receipts and payments, takes the currency from the row cash account, and stores version 2', async () => {
+  it('reads receipts written either way round, takes the currency from the row cash account, and stores version 2', async () => {
     const built = withLiveReads(buildService(completeConfig()));
     const view = await built.service.preview({
       fileBuffer: await journalWorkbook([IN_ROW, OUT_ROW]),
@@ -1045,7 +1045,7 @@ describe('MasRevenueReviewService.preview: journal-lines template (version 2)', 
     expect(built.cashVerifier.verify).toHaveBeenCalledWith(['Port Said']);
     expect([...built.store.reviews.values()][0].templateVersion).toBe(2);
     const page = await built.service.getLines(view.reviewId, OWNER, 1, 10);
-    expect(page.items.map((line) => line.direction)).toEqual(['in', 'out']);
+    expect(page.items.map((line) => line.direction)).toEqual(['in', 'in']);
     expect(page.items.map((line) => line.currency)).toEqual(['EGP', 'EGP']);
   });
 

@@ -43,8 +43,8 @@ const COLUMN_MEANING: Record<MasJournalField, string> = {
 };
 
 /**
- * Two lines copied from the finance team's own journals, shown only on the Examples
- * sheet. They are not part of the upload.
+ * A receipt as finance enters it (journal 271) and the same receipt written with cash
+ * as the offset, shown only on the Examples sheet. They are not part of the upload.
  */
 const EXAMPLES: Array<Partial<Record<MasJournalField, string | number>>> = [
   {
@@ -64,14 +64,14 @@ const EXAMPLES: Array<Partial<Record<MasJournalField, string | number>>> = [
     journalName: 'GL Journal',
     transactionDate: '2026-10-28',
     accountType: 'Ledger',
-    account: '524528|2401|024|002',
+    account: '415701|2401|024|002|005',
     offsetAccountType: 'RCash',
     offsetAccount: 'Port Said',
-    debit: 165,
-    itemSalesTaxGroup: 'NONTAXABLE',
-    document: 'EXAMPLE-OUT-1',
-    text: 'Example: money paid out of petty cash (cash on the offset side, debit on the ledger)',
-    offsetDefaultDimension: '|2401|024|002|005',
+    credit: 1824,
+    itemSalesTaxGroup: 'Tax 14',
+    document: 'EXAMPLE-IN-2',
+    text: 'Example: the same receipt written the other way round (cash on the offset side, credit on the ledger)',
+    postingProfile: 'Cash',
   },
 ];
 
@@ -95,9 +95,8 @@ function styleHeader(sheet: ExcelJS.Worksheet): void {
 
 /**
  * The upload template (version 2): the "Journal Lines" sheet with the headers only,
- * and an "Examples" sheet that is never read. A row is one D365 journal line; whether it
- * is cash in or cash out is decided by which side the cash account is on and which
- * column holds the amount.
+ * and an "Examples" sheet that is never read. A row is one D365 journal line that puts
+ * cash into petty cash; a row that takes cash out is rejected by the normalizer.
  */
 export async function buildMasJournalTemplate(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -160,12 +159,14 @@ export function buildMasJournalUploadGuide(): string {
     '3. Exactly one side of the line is petty cash (RCash) and the other is a Ledger account.',
     '4. Put the amount in Debit or Credit, not both.',
     '',
-    '## Cash in or cash out',
+    '## Cash In only',
     '',
-    'The direction is read from the row, not chosen anywhere:',
+    'This upload is for money received into petty cash. A receipt can be written either way round:',
     '',
-    '- Cash is the **Account** (RCash): a **debit** puts cash in, a **credit** takes cash out.',
-    '- Cash is the **Offset account**: a **debit** on the ledger account takes cash out, a **credit** puts cash in.',
+    '- Cash is the **Account** (RCash): put the amount in **DEBITAMOUNT**.',
+    '- Cash is the **Offset account**: put the amount in **CREDITAMOUNT** of the ledger line.',
+    '',
+    'A row that would take cash out of petty cash is rejected and named in the review. Payments are not part of this upload.',
     '',
     '## Columns',
     '',

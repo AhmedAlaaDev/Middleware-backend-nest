@@ -109,7 +109,7 @@ The upload is recognised by its sheet name, **Journal Lines**. Download it from 
 
 Each row states its own: journal name, date, account type and account, offset account type and offset account, debit or credit amount, item sales-tax group and document number. Optional: text, currency check, posting profile, sales-tax group, default dimensions and financial tags of each side.
 
-**Direction is read from the row.** Cash is the account side: debit puts cash in, credit takes cash out. Cash is the offset side: debit on the ledger account takes cash out, credit puts cash in. Both receipts and payments can be in one file; the review shows the direction of each line.
+**Cash In only.** The upload is for money received into petty cash. A receipt can be written either way round: cash as the Account with the amount in DEBITAMOUNT, or cash as the Offset account with the amount in CREDITAMOUNT of the ledger line. A row that would take cash out of petty cash (a credit on the petty-cash account, or a debit on the ledger account with petty cash as the offset) is rejected in the review and the column is named. Payments are not part of this upload.
 
 **Nothing about the entry comes from company configuration.** D365 is asked, read-only, at review and again at posting:
 
