@@ -14,11 +14,9 @@ import {
   receiptCurrenciesByCashId,
   type MasRevenueCashAccountCheck,
 } from './mas-revenue-cash-account-verifier';
-import {
-  getMasRevenueSubmissionBlockers,
-  type MasRevenueVerifiedConfig,
-} from './mas-revenue-config';
+import { getMasRevenueSubmissionBlockers } from './mas-revenue-config';
 import { MasRevenueConfigProvider } from './mas-revenue-config.provider';
+import { resolveReceiptCurrencies } from './mas-revenue-currency';
 import {
   masRevenueFingerprint,
   masRevenueIdentity,
@@ -41,19 +39,12 @@ import {
   storedRawToReceipt,
   type MasRevenueStoredRaw,
 } from './mas-revenue-stored';
-import {
-  normalizeSourceText,
-  parseMasRevenueWorkbook,
-} from './mas-revenue-workbook.parser';
+import { parseMasRevenueWorkbook } from './mas-revenue-workbook.parser';
 import {
   MAS_REVENUE_COMPANY_ID,
   MAS_REVENUE_TEMPLATE_VERSION,
 } from './mas-revenue.constants';
-import {
-  MasRevenueError,
-  type MasRevenueReceipt,
-  MasRevenueRowIssue,
-} from './mas-revenue.types';
+import { MasRevenueError, MasRevenueRowIssue } from './mas-revenue.types';
 
 import { CashInMasRevenueEntryProcessor } from '@/modules/cash/processors/inbound/mas-revenue/cash-in-mas-revenue-entry.processor';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -329,30 +320,8 @@ export class MasRevenueReviewService {
     const lines = await this.store.findLines(reviewId);
     const raws = lines.map((line) => line.raw);
     const receipts = raws.map(storedRawToReceipt);
-    const { config } = this.configProvider.current();
-    const blockers = getMasRevenueSubmissionBlockers(config, receipts);
-    if (blockers.length > 0) {
-      throw new ConflictException({
-        message: 'Submission is blocked by MAS configuration.',
-        blockers,
-      });
-    }
-
-    // Read-only check of every configured cash ID against D365 (CashAccounts, then
-    // BankAccounts). Unknown or bank-only IDs and currency mismatches block submission.
-    const cashChecks = await this.cashVerifier.verify(
-      Object.values(config.cashAccountIdsByDisplayName),
-    );
-    const cashBlockers = masRevenueCashAccountBlockers(
-      cashChecks,
-      receiptCurrenciesByCashId(config.cashAccountIdsByDisplayName, receipts),
-    );
-    if (cashBlockers.length > 0) {
-      throw new ConflictException({
-        message: 'Submission is blocked by MAS cash-account checks.',
-        blockers: cashBlockers,
-      });
-    }
+    // Configuration gates and cash-account checks are not applied here. Creating the
+    // batch stores it and sends nothing to D365; the same gates stop posting (PostToDFO).
 
     // Snapshots from before identity version 2 carry no year-scoped identity. They
     // are refused, so a new submit never creates a legacy PaymentId.
@@ -427,12 +396,7 @@ export class MasRevenueReviewService {
         enriched,
         MAS_REVENUE_COMPANY_ID,
       );
-      const lineErrors = validated.flatMap((line) => line.GetErrors());
-      if (lineErrors.length > 0) {
-        throw new Error(
-          `MAS Revenue lines failed validation (${lineErrors.length}): ${lineErrors.slice(0, 3).join('; ')}`,
-        );
-      }
+      // Lines with validation errors are stored with their errors, like any other batch.
 
       const batch = await this.dataBatchService.createAsync(
         EntryProcessorTypes.CashInMasRevenue,
@@ -562,7 +526,8 @@ export class MasRevenueReviewService {
       fileName: record.fileName,
       templateVersion: record.templateVersion,
       status: record.status,
-      canSubmit: uploadValid && blockers.length === 0 && !record.batchId,
+      // The batch can be created from a valid upload. Posting is gated separately.
+      canSubmit: uploadValid && !record.batchId,
       uploadValid,
       reviewVersion: 1,
       payloadHash: record.payloadHash,
@@ -630,29 +595,6 @@ function assertTemplateVersion(version: number): void {
   }
 }
 
-/**
- * Gives each receipt the currency of its verified D365 cash account. The cash ID comes
- * from the verified configuration. A receipt whose ID, status or currency is missing
- * keeps an empty currency; the submit blockers then name that cash account.
- */
-export function resolveReceiptCurrencies(
-  receipts: MasRevenueReceipt[],
-  config: MasRevenueVerifiedConfig,
-  checks: MasRevenueCashAccountCheck[],
-): MasRevenueReceipt[] {
-  const checkById = new Map(checks.map((check) => [check.id, check]));
-  return receipts.map((receipt) => {
-    const id =
-      config.cashAccountIdsByDisplayName[
-        normalizeSourceText(receipt.cashAccountDisplayName)
-      ];
-    const check = id ? checkById.get(id) : undefined;
-    const currency =
-      check && check.status === 'RCASH' && check.currency ? check.currency : '';
-    return { ...receipt, currency };
-  });
-}
-
 /** Hash of the normalized snapshot: the receipts in order, with their currencies and template version. */
 function hashSnapshot(
   templateVersion: number,
@@ -708,7 +650,10 @@ function glLineCounts(
   for (const raw of raws) {
     const journal = journalBySourceRow.get(raw.SourceRow);
     if (!journal) continue;
-    counts.set(journal, (counts.get(journal) ?? 0) + (raw.VatMinor > 0 ? 2 : 1));
+    counts.set(
+      journal,
+      (counts.get(journal) ?? 0) + (raw.VatMinor > 0 ? 2 : 1),
+    );
   }
   return [...counts.entries()].map(([journalBatchNumber, lineCount]) => ({
     journalBatchNumber,

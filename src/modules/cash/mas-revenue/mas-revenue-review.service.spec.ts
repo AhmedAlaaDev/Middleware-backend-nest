@@ -300,14 +300,12 @@ describe('MasRevenueReviewService.preview', () => {
     expect(store.lines).toHaveLength(1);
   });
 
-  it('shows configuration blockers but still allows an upload review', async () => {
+  it('lists configuration blockers; a valid upload can still create its batch (posting is gated)', async () => {
     const { service } = buildService(emptyMasRevenueConfig());
     const view = await previewValid(service);
     expect(view.uploadValid).toBe(true);
-    expect(view.canSubmit).toBe(false);
-    expect(view.blockers.join('\n')).toMatch(
-      /GL JournalName is not configured/,
-    );
+    expect(view.canSubmit).toBe(true);
+    expect(view.blockers.join(' ')).toMatch(/GL JournalName is not configured/);
   });
 
   it('refuses a company other than mas', async () => {
@@ -343,7 +341,7 @@ describe('MasRevenueReviewService.preview', () => {
     expect(currencies).toEqual(['EGP']);
   });
 
-  it('blocks submit, and names the cash account, when its currency cannot be resolved from D365', async () => {
+  it('creates the batch with error lines, and names the cash account in the blockers, when its currency cannot be resolved from D365', async () => {
     const { service, cashVerifier, dataBatchService } =
       buildService(completeConfig());
     cashVerifier.verify.mockResolvedValueOnce([
@@ -351,15 +349,22 @@ describe('MasRevenueReviewService.preview', () => {
     ]);
     const view = await previewValid(service);
     expect(view.receiptCount).toBe(1);
-    expect(view.canSubmit).toBe(false);
+    expect(view.canSubmit).toBe(true);
     expect(view.blockers.join(' ')).toContain(
       'currency is not resolved from D365',
     );
     expect(view.blockers.join(' ')).toContain(CASH);
-    await expect(
-      service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-    ).rejects.toThrow(ConflictException);
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
+
+    const result = await service.submit(
+      view.reviewId,
+      submitBody(view.payloadHash),
+      OWNER,
+    );
+    expect(result.batchId).toBe('batch-1');
+    const validated = dataBatchService.createAsync.mock.calls[0][5] as Array<{
+      ErrorCount: number;
+    }>;
+    expect(validated[0].ErrorCount).toBeGreaterThan(0);
   });
 
   it('reports an empty template as a review with nothing to submit', async () => {
@@ -420,7 +425,7 @@ describe('MasRevenueReviewService.submit', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('blocks submit on configuration gates before any state change or batch', async () => {
+  it('creates the batch even when configuration gates are open; the gates stop posting, not creation', async () => {
     const config = {
       ...completeConfig(),
       deployedCompatibility: {
@@ -428,14 +433,16 @@ describe('MasRevenueReviewService.submit', () => {
         glReadbackVerified: false,
       },
     };
-    const { service, dataBatchService, store } = buildService(config);
+    const { service, dataBatchService } = buildService(config);
     const view = await previewValid(service);
 
-    await expect(
-      service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-    ).rejects.toThrow(/Submission is blocked by MAS configuration/);
-    expect(store.reviews.get(view.reviewId)!.status).toBe('PREVIEWED');
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
+    const result = await service.submit(
+      view.reviewId,
+      submitBody(view.payloadHash),
+      OWNER,
+    );
+    expect(result.batchId).toBe('batch-1');
+    expect(dataBatchService.createAsync).toHaveBeenCalledTimes(1);
   });
 
   it('creates one Cash In batch for the mas company with stored, exact receipt rows', async () => {
@@ -557,91 +564,31 @@ describe('MasRevenueReviewService lines', () => {
   });
 });
 
-async function cashBlockersOf(promise: Promise<unknown>): Promise<string[]> {
-  try {
-    await promise;
-  } catch (error) {
-    const body = (
-      error as { getResponse: () => { blockers?: string[] } }
-    ).getResponse();
-    return body.blockers ?? [];
-  }
-  return [];
-}
-
-describe('MasRevenueReviewService.submit: D365 cash-account checks', () => {
-  it('blocks submit when a configured cash ID is unknown in D365, with no batch and no state change', async () => {
-    const { service, dataBatchService, store, cashVerifier } =
-      buildService(completeConfig());
-    const view = await previewValid(service);
-    cashVerifier.verify.mockResolvedValueOnce([
+describe('MasRevenueReviewService.submit: D365 cash-account checks are applied at posting', () => {
+  it('creates the batch whatever the D365 cash-account check says; the checks apply at posting', async () => {
+    for (const check of [
       { id: 'PETTY-FIXTURE', status: 'UNKNOWN', currency: null, error: null },
-    ]);
-
-    await expect(
-      service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-    ).rejects.toThrow(/Submission is blocked by MAS cash-account checks/);
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
-    expect(store.reviews.get(view.reviewId)!.status).toBe('PREVIEWED');
-  });
-
-  it('blocks submit when a configured cash ID is a bank account', async () => {
-    const { service, dataBatchService, cashVerifier } =
-      buildService(completeConfig());
-    const view = await previewValid(service);
-    cashVerifier.verify.mockResolvedValueOnce([
       { id: 'PETTY-FIXTURE', status: 'BANK_ONLY', currency: null, error: null },
-    ]);
-
-    expect(
-      (
-        await cashBlockersOf(
-          service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-        )
-      ).join(' '),
-    ).toMatch(/is a bank account in D365/);
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when the cash account cannot be verified', async () => {
-    const { service, dataBatchService, cashVerifier } =
-      buildService(completeConfig());
-    const view = await previewValid(service);
-    cashVerifier.verify.mockResolvedValueOnce([
       {
         id: 'PETTY-FIXTURE',
         status: 'UNVERIFIABLE',
         currency: null,
         error: 'timeout',
       },
-    ]);
-
-    expect(
-      (
-        await cashBlockersOf(
-          service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-        )
-      ).join(' '),
-    ).toMatch(/cash-account verification failed.*not an unknown account/);
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
-  });
-
-  it('blocks a receipt whose currency differs from the D365 cash account currency', async () => {
-    const { service, dataBatchService, cashVerifier } =
-      buildService(completeConfig());
-    const view = await previewValid(service);
-    cashVerifier.verify.mockResolvedValueOnce([
       { id: 'PETTY-FIXTURE', status: 'RCASH', currency: 'USD', error: null },
-    ]);
-
-    expect(
-      (
-        await cashBlockersOf(
-          service.submit(view.reviewId, submitBody(view.payloadHash), OWNER),
-        )
-      ).join(' '),
-    ).toMatch(/cannot be posted to it/);
-    expect(dataBatchService.createAsync).not.toHaveBeenCalled();
+    ]) {
+      const { service, dataBatchService, cashVerifier } =
+        buildService(completeConfig());
+      cashVerifier.verify.mockResolvedValueOnce([check]);
+      const view = await previewValid(service);
+      const result = await service.submit(
+        view.reviewId,
+        submitBody(view.payloadHash),
+        OWNER,
+      );
+      expect(result.batchId).toBe('batch-1');
+      expect(dataBatchService.createAsync).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('creates the batch when the cash account is a verified RCash account in the receipt currency', async () => {
@@ -662,7 +609,7 @@ describe('MasRevenueReviewService.submit: D365 cash-account checks', () => {
 });
 
 describe('MasRevenueReviewService.preview: cash-account checks', () => {
-  it('runs the read-only cash check during preview; an unknown account blocks submit but keeps the upload valid', async () => {
+  it('runs the read-only cash check during preview; an unknown account is listed as a blocker and the upload stays valid', async () => {
     const { service, cashVerifier } = buildService(completeConfig());
     cashVerifier.verify.mockResolvedValueOnce([
       { id: 'PETTY-FIXTURE', status: 'UNKNOWN', currency: null, error: null },
@@ -671,7 +618,7 @@ describe('MasRevenueReviewService.preview: cash-account checks', () => {
 
     expect(cashVerifier.verify).toHaveBeenCalledWith(['PETTY-FIXTURE']);
     expect(view.uploadValid).toBe(true);
-    expect(view.canSubmit).toBe(false);
+    expect(view.canSubmit).toBe(true);
     expect(view.blockers.join(' ')).toMatch(
       /does not exist in CashAccounts for company mas/,
     );
@@ -690,7 +637,7 @@ describe('MasRevenueReviewService.preview: cash-account checks', () => {
     const view = await previewValid(service);
     const text = view.blockers.join(' ');
 
-    expect(view.canSubmit).toBe(false);
+    expect(view.canSubmit).toBe(true);
     expect(text).toMatch(/cash-account verification failed/);
     expect(text).not.toMatch(/does not exist in CashAccounts/);
   });

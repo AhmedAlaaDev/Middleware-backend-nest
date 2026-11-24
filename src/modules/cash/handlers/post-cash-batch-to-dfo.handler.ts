@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, QueryBus } from '@nestjs/cqrs';
 
+import type { MasRevenueReceipt } from '@/modules/cash/mas-revenue/mas-revenue.types';
+
 import {
   PostCashBatchToDFOCommand,
   PostCashBatchToDFOResult,
@@ -17,6 +19,7 @@ import {
 } from '@/modules/cash/mas-revenue/mas-revenue-cash-account-verifier';
 import { getMasRevenueSubmissionBlockers } from '@/modules/cash/mas-revenue/mas-revenue-config';
 import { MasRevenueConfigProvider } from '@/modules/cash/mas-revenue/mas-revenue-config.provider';
+import { resolveReceiptCurrencies } from '@/modules/cash/mas-revenue/mas-revenue-currency';
 import {
   buildMasRevenueGlHeaderBody,
   buildMasRevenueGlLines,
@@ -181,21 +184,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       throw new NotFoundException('No enhanced records found for this batch');
     }
 
-    const blockers = getMasRevenueSubmissionBlockers(
-      config,
-      stored.map((entry) => storedRawToReceipt(entry.raw)),
-    );
-    if (blockers.length > 0) {
-      throw new BadRequestException({
-        message: 'Posting is blocked by MAS configuration.',
-        blockers,
-        details: blockers.join('; '),
-      });
-    }
-
     // Every configured cash ID is checked against D365 at posting time, read-only.
     // Unknown and bank-only IDs, and currency mismatches, block the post.
-    const receipts = stored.map((entry) => storedRawToReceipt(entry.raw));
     if (!this.masRevenueCashVerifier) {
       throw new BadRequestException(
         'MAS Revenue cash-account verification is not available; posting is blocked.',
@@ -204,20 +194,31 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     const cashChecks = await this.masRevenueCashVerifier.verify(
       Object.values(config.cashAccountIdsByDisplayName),
     );
+    // Each receipt takes the currency of its verified D365 cash account, here as at
+    // review time, so a corrected configuration works on an existing batch.
+    const receipts = resolveReceiptCurrencies(
+      stored.map((entry) => storedRawToReceipt(entry.raw)),
+      config,
+      cashChecks,
+    );
+    const blockers = getMasRevenueSubmissionBlockers(config, receipts);
     const cashBlockers = masRevenueCashAccountBlockers(
       cashChecks,
       receiptCurrenciesByCashId(config.cashAccountIdsByDisplayName, receipts),
     );
-    if (cashBlockers.length > 0) {
+    if (blockers.length > 0 || cashBlockers.length > 0) {
+      // One plain error list, so the standard validation modal shows every reason.
       throw new BadRequestException({
-        message: 'Posting is blocked by MAS cash-account checks.',
-        blockers: cashBlockers,
-        details: cashBlockers.join('; '),
+        message:
+          cashBlockers.length > 0
+            ? 'Posting is blocked by MAS cash-account checks.'
+            : 'Posting is blocked by MAS configuration.',
+        errors: [...blockers, ...cashBlockers],
       });
     }
 
-    const byJournal = new Map<string, MasRevenueStoredRaw[]>();
-    for (const entry of stored) {
+    const byJournal = new Map<string, MasRevenueReceipt[]>();
+    stored.forEach((entry, index) => {
       if (!entry.journalBatchNumber) {
         throw new BadRequestException(
           `MAS Revenue receipt ${entry.raw.SourceRow} has no journal group; upload the file again.`,
@@ -225,17 +226,17 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       }
       byJournal.set(entry.journalBatchNumber, [
         ...(byJournal.get(entry.journalBatchNumber) ?? []),
-        entry.raw,
+        receipts[index],
       ]);
-    }
+    });
 
     const route = this.routingService.resolve({
       safeType: 'MAS Revenue',
       masRevenueJournalName: config.journalName,
     });
     const journals: CashJournalPostingGroup[] = [...byJournal.values()].map(
-      (raws) => {
-        const receipts = raws.map(storedRawToReceipt);
+      (journalReceipts) => {
+        const receipts = journalReceipts;
         const header = buildMasRevenueGlHeaderBody(config, receipts, batchId);
         const bodies = buildMasRevenueGlLines(config, receipts);
         return {

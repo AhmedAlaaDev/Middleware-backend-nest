@@ -165,7 +165,10 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
         line.AddError('AccountDisplayValue', 'cash account is required');
       }
       if (!/^[A-Z]{3}$/.test(textOf(fields.Currency))) {
-        line.AddError('Currency', 'currency must be a three-letter code');
+        line.AddError(
+          'Currency',
+          'currency is not resolved from the D365 cash account (the account must be in the verified cash-account configuration and be an RCash account in D365)',
+        );
       }
       if (!(Number(fields.DebitAmount) > 0)) {
         line.AddError(

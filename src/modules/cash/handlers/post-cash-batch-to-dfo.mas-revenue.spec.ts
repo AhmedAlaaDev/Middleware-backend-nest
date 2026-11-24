@@ -221,6 +221,64 @@ describe('PostCashBatchToDFOHandler: MAS Revenue GL route', () => {
     expect(groups).toHaveLength(2);
   });
 
+  it('resolves an empty stored currency from the verified D365 cash account at posting time', async () => {
+    const { handler, queueService } = buildHandler(completeConfig(), () =>
+      records([
+        {
+          id: 'r1',
+          journal: 'MASREV-202610-001',
+          raw: { ...raw('0012', 2), Currency: '' },
+        },
+      ]),
+    );
+
+    await handler.execute({ batchId: 'batch-1' } as never);
+
+    const [, , , groups] = (queueService.addDurableJob as jest.Mock).mock
+      .calls[0] as [
+      string,
+      string,
+      unknown,
+      Array<{ lines: Array<{ customLineApiBody: { currency: string } }> }>,
+    ];
+    expect(groups[0].lines[0].customLineApiBody.currency).toBe('EGP');
+  });
+
+  it('returns the blockers as a plain error list when a receipt currency cannot be resolved', async () => {
+    const { handler, queueService } = buildHandler(
+      completeConfig(),
+      () =>
+        records([
+          {
+            id: 'r1',
+            journal: 'MASREV-202610-001',
+            raw: { ...raw('0012', 2), Currency: '' },
+          },
+        ]),
+      {
+        cashChecks: [
+          {
+            id: 'PETTY-FIXTURE',
+            status: 'UNKNOWN',
+            currency: null,
+            error: null,
+          },
+        ],
+      },
+    );
+
+    await expect(
+      handler.execute({ batchId: 'batch-1' } as never),
+    ).rejects.toMatchObject({
+      response: {
+        errors: expect.arrayContaining([
+          expect.stringContaining('currency is not resolved'),
+        ]),
+      },
+    });
+    expect(queueService.addDurableJob).not.toHaveBeenCalled();
+  });
+
   it('blocks posting while the configuration is incomplete, before anything is queued', async () => {
     const { handler, queueService } = buildHandler(
       { ...completeConfig(), journalName: null },

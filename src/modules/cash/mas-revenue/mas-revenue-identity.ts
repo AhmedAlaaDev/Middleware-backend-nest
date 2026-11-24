@@ -143,14 +143,13 @@ export function masRevenueGlPaymentId(
 }
 
 /**
- * Content fingerprint of a receipt, excluding its date and row position. Two
+ * Content fingerprint of a receipt, excluding its date, row position and currency (the currency is derived from the D365 cash account and can change). Two
  * receipts with the same invoice in different years and the same fingerprint are
  * treated as one receipt that was re-dated, which needs explicit correction.
  */
 export function masRevenueFingerprint(receipt: MasRevenueReceipt): string {
   return sha256Hex(
     JSON.stringify([
-      receipt.currency,
       receipt.valueMinor,
       receipt.vatMinor,
       receipt.totalMinor,
