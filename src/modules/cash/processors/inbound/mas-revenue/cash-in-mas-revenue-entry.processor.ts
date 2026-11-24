@@ -70,20 +70,28 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
         a.SourceRow - b.SourceRow,
     );
 
-    // Chunk counter restarts per month: receipts of one month share the journal
-    // naming, and no journal holds more than MAS_REVENUE_MAX_LINES_PER_JOURNAL lines.
-    const countPerMonth = new Map<string, number>();
-    const chunkByMonth = new Map<string, number>();
+    // Journals are numbered per month. A journal holds one journal name (the header has
+    // one) and at most MAS_REVENUE_MAX_LINES_PER_JOURNAL lines, so a new journal starts
+    // when the name changes or the journal is full. Rows of the source layout have no
+    // journal name and number exactly as before.
+    const journalsPerMonth = new Map<string, number>();
+    const openJournal = new Map<string, { number: number; lines: number }>();
 
     return rows.map((row, index) => {
       const month = row.TransactionDate.slice(0, 7);
-      const seen = countPerMonth.get(month) ?? 0;
-      if (seen % MAS_REVENUE_MAX_LINES_PER_JOURNAL === 0) {
-        chunkByMonth.set(month, (chunkByMonth.get(month) ?? 0) + 1);
+      const journalLine = row.JournalLine;
+      const groupKey = `${month}|${journalLine?.journalName ?? ''}`;
+      let journal = openJournal.get(groupKey);
+      if (!journal || journal.lines >= MAS_REVENUE_MAX_LINES_PER_JOURNAL) {
+        const next = (journalsPerMonth.get(month) ?? 0) + 1;
+        journalsPerMonth.set(month, next);
+        journal = { number: next, lines: 0 };
+        openJournal.set(groupKey, journal);
       }
-      countPerMonth.set(month, seen + 1);
-      const chunk = chunkByMonth.get(month) ?? 1;
+      journal.lines += 1;
+      const chunk = journal.number;
       const lineNumber = index + 1;
+      const amount = row.TotalMinor / 100;
 
       // The base constructor copies only its own known fields; the MAS fields are assigned below.
       return Object.assign(
@@ -97,7 +105,7 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
             row.TransactionDate,
             chunk,
           ),
-          JournalName: '',
+          JournalName: journalLine?.journalName ?? '',
           Invoice: row.InvoiceNumber,
           DocumentNum: row.InvoiceNumber,
           PAYMENTID: masRevenuePaymentIdBase({
@@ -114,18 +122,21 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
                 }).key
               : null,
           IdentityVersion: row.IdentityVersion ?? 1,
-          AccountType: 'RCash',
-          AccountDisplayValue: row.CashAccountDisplayName,
-          OffsetAccountType: 'Ledger',
-          OffsetAccountDisplayValue: '',
+          AccountType: journalLine?.accountType ?? 'RCash',
+          AccountDisplayValue:
+            journalLine?.account ?? row.CashAccountDisplayName,
+          OffsetAccountType: journalLine?.offsetAccountType ?? 'Ledger',
+          OffsetAccountDisplayValue: journalLine?.offsetAccount ?? '',
           Currency: row.Currency,
           CurrencyCode: row.Currency,
           TransDate: row.TransactionDate,
           TransactionDate: row.TransactionDate,
           DocumentDate: row.TransactionDate,
           Date: row.TransactionDate,
-          DebitAmount: row.TotalMinor / 100,
-          CreditAmount: 0,
+          DebitAmount:
+            journalLine && journalLine.side === 'credit' ? 0 : amount,
+          CreditAmount:
+            journalLine && journalLine.side === 'credit' ? amount : 0,
           ValueAmount: row.ValueMinor / 100,
           VatAmount: row.VatMinor / 100,
           TotalAmount: row.TotalMinor / 100,
@@ -148,9 +159,8 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
   }
 
   /**
-   * Data checks only. Configuration gates (JournalName, account IDs, VAT
-   * treatment, dimensions, tags, rates, deployed compatibility) are checked
-   * before a batch is created and again before posting.
+   * Data checks only. What D365 must confirm (cash accounts, ledger accounts, tax
+   * groups, rates, deployed compatibility) is checked before posting, not here.
    */
   public validateAsync(
     data: EntryDynDataModel[],
@@ -167,6 +177,32 @@ export class CashInMasRevenueEntryProcessor extends EntryProcessorBase {
       // The currency is the D365 cash account's currency and is resolved at posting time.
       // An unresolved currency is a posting blocker, not a line error, so the batch can still
       // be posted once the account is found.
+      const journalLine = (
+        fields.MasRevenueRaw as MasRevenueStoredRaw | undefined
+      )?.JournalLine;
+      if (journalLine) {
+        // The amount sits on the row's side; the other column must be zero.
+        const onSide = Number(
+          journalLine.side === 'credit'
+            ? fields.CreditAmount
+            : fields.DebitAmount,
+        );
+        const other = Number(
+          journalLine.side === 'credit'
+            ? fields.DebitAmount
+            : fields.CreditAmount,
+        );
+        if (!(onSide > 0)) {
+          line.AddError('Amount', 'amount must be greater than zero');
+        }
+        if (other !== 0) {
+          line.AddError(
+            'Amount',
+            'only one of debit or credit may be used on a row',
+          );
+        }
+        continue;
+      }
       if (!(Number(fields.DebitAmount) > 0)) {
         line.AddError(
           'DebitAmount',

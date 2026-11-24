@@ -1,6 +1,6 @@
 import { MAS_REVENUE_IDENTITY_VERSION } from './mas-revenue-identity';
 
-import type { MasRevenueReceipt } from './mas-revenue.types';
+import type { MasJournalLine, MasRevenueReceipt } from './mas-revenue.types';
 
 /**
  * Raw row stored in the data batch for one accepted receipt. The batch keeps
@@ -30,6 +30,8 @@ export interface MasRevenueStoredRaw {
    * before version 2; those keep their legacy PaymentIds.
    */
   IdentityVersion?: number;
+  /** Template version 2 rows: the line exactly as the template stated it. */
+  JournalLine?: MasJournalLine;
 }
 
 export function receiptToStoredRaw(
@@ -55,6 +57,7 @@ export function receiptToStoredRaw(
     SeaLine: receipt.seaLine,
     VatCardNumber: receipt.vatCardNumber,
     IdentityVersion: MAS_REVENUE_IDENTITY_VERSION,
+    ...(receipt.journalLine ? { JournalLine: receipt.journalLine } : {}),
   };
 }
 
@@ -79,6 +82,7 @@ export function storedRawToReceipt(
     seaLine: raw.SeaLine,
     vatCardNumber: raw.VatCardNumber,
     identityVersion: raw.IdentityVersion,
+    ...(raw.JournalLine ? { journalLine: raw.JournalLine } : {}),
   };
 }
 

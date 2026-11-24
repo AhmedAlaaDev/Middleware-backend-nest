@@ -27,6 +27,33 @@ export interface MasRevenueCashAccountCheck {
   error: string | null;
 }
 
+/** Result of checking that a named D365 record exists. A failed read is reported, not assumed. */
+export interface MasLiveExistsCheck {
+  key: string;
+  exists: boolean;
+  error: string | null;
+}
+
+/** The reporting exchange rate for one date, or why it could not be established. */
+export interface MasReportingRateCheck {
+  date: string;
+  /** Value to send as the line's reporting exchange rate (already scaled by 100). */
+  reportingExchangeRate: number | null;
+  accountingCurrency: string | null;
+  reportingCurrency: string | null;
+  error: string | null;
+}
+
+function distinctNonEmpty(values: readonly string[]): string[] {
+  return [
+    ...new Set(values.map((value) => value.trim()).filter((v) => v !== '')),
+  ];
+}
+
+function readError(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 200) : 'read failed';
+}
+
 interface D365CashAccountRow {
   Cash?: string;
   Currency?: string;
@@ -113,6 +140,185 @@ export class MasRevenueCashAccountVerifier {
           error instanceof Error ? error.message.slice(0, 200) : 'read failed',
       };
     }
+  }
+
+  /**
+   * Whether each ledger main account exists in D365. Main accounts are shared across
+   * companies (they belong to a chart), so the read is by account ID only. A failed read
+   * is reported, never treated as "exists".
+   */
+  public async verifyMainAccounts(
+    ids: readonly string[],
+  ): Promise<MasLiveExistsCheck[]> {
+    const checks: MasLiveExistsCheck[] = [];
+    for (const id of distinctNonEmpty(ids)) {
+      try {
+        const rows = await this.readRows<{ MainAccountId?: string }>(
+          this.query.buildQuery('/data/MainAccounts', {
+            filter: this.query.eq('MainAccountId', id),
+            select: ['MainAccountId'],
+            top: 5,
+            crossCompany: true,
+          }),
+        );
+        checks.push({
+          key: id,
+          exists: rows.some((row) => row.MainAccountId === id),
+          error: null,
+        });
+      } catch (error) {
+        checks.push({ key: id, exists: false, error: readError(error) });
+      }
+    }
+    return checks;
+  }
+
+  /** Whether each item sales-tax group (TaxItemGroupHeadings) exists for the company. */
+  public async verifyItemTaxGroups(
+    names: readonly string[],
+    company: string = MAS_REVENUE_COMPANY_ID,
+  ): Promise<MasLiveExistsCheck[]> {
+    const checks: MasLiveExistsCheck[] = [];
+    for (const name of distinctNonEmpty(names)) {
+      try {
+        const rows = await this.readRows<{ TaxItemGroup?: string }>(
+          this.query.buildQuery('/data/TaxItemGroupHeadings', {
+            filter: this.query.and(
+              this.query.eq('dataAreaId', company),
+              this.query.eq('TaxItemGroup', name),
+            ),
+            select: ['TaxItemGroup'],
+            top: 5,
+            crossCompany: true,
+          }),
+        );
+        checks.push({
+          key: name,
+          exists: rows.some((row) => row.TaxItemGroup === name),
+          error: null,
+        });
+      } catch (error) {
+        checks.push({ key: name, exists: false, error: readError(error) });
+      }
+    }
+    return checks;
+  }
+
+  /**
+   * The reporting exchange rate D365 puts on a line for each date: 100 divided by the
+   * reporting-to-accounting rate valid on that date (for MAS, USD to EGP: 52 gives 1.923
+   * and 56.5 gives 1.7699, as on the finance journals). The currencies come from the
+   * company ledger. Rates of every rate type are read; if they disagree for a date, the
+   * date is reported as ambiguous instead of choosing a type.
+   */
+  public async readReportingRates(
+    dates: readonly string[],
+    company: string = MAS_REVENUE_COMPANY_ID,
+  ): Promise<MasReportingRateCheck[]> {
+    const distinctDates = distinctNonEmpty(dates);
+    if (distinctDates.length === 0) return [];
+    let ledger: { accounting: string; reporting: string };
+    try {
+      const rows = await this.readRows<{
+        AccountingCurrency?: string;
+        ReportingCurrency?: string;
+      }>(
+        this.query.buildQuery('/data/Ledgers', {
+          filter: this.query.eq('LegalEntityId', company.toUpperCase()),
+          select: ['AccountingCurrency', 'ReportingCurrency'],
+          top: 2,
+          crossCompany: true,
+        }),
+      );
+      const row = rows[0];
+      if (!row?.AccountingCurrency || !row?.ReportingCurrency) {
+        throw new Error(
+          'the company ledger has no accounting or reporting currency',
+        );
+      }
+      ledger = {
+        accounting: row.AccountingCurrency,
+        reporting: row.ReportingCurrency,
+      };
+    } catch (error) {
+      return distinctDates.map((date) => ({
+        date,
+        reportingExchangeRate: null,
+        accountingCurrency: null,
+        reportingCurrency: null,
+        error: readError(error),
+      }));
+    }
+
+    const checks: MasReportingRateCheck[] = [];
+    for (const date of distinctDates) {
+      const base = {
+        date,
+        accountingCurrency: ledger.accounting,
+        reportingCurrency: ledger.reporting,
+      };
+      try {
+        const rows = await this.readRows<{
+          Rate?: number;
+          ConversionFactor?: string;
+        }>(
+          this.query.buildQuery('/data/ExchangeRates', {
+            filter: [
+              this.query.eq('FromCurrency', ledger.reporting),
+              this.query.eq('ToCurrency', ledger.accounting),
+              `StartDate le ${date}T23:59:59Z`,
+              `EndDate ge ${date}T00:00:00Z`,
+            ].join(' and '),
+            select: ['Rate', 'ConversionFactor'],
+            top: 20,
+            crossCompany: true,
+          }),
+        );
+        const rates = [
+          ...new Set(
+            rows
+              .filter((row) => typeof row.Rate === 'number' && row.Rate > 0)
+              .map((row) => row.Rate as number),
+          ),
+        ];
+        if (rates.length === 0) {
+          checks.push({
+            ...base,
+            reportingExchangeRate: null,
+            error: `no ${ledger.reporting} to ${ledger.accounting} exchange rate is valid on ${date}`,
+          });
+        } else if (rates.length > 1) {
+          checks.push({
+            ...base,
+            reportingExchangeRate: null,
+            error: `the ${ledger.reporting} to ${ledger.accounting} rates valid on ${date} disagree (${rates.join(', ')}); the rate type must be chosen`,
+          });
+        } else if (
+          rows.some(
+            (row) => row.ConversionFactor && row.ConversionFactor !== 'One',
+          )
+        ) {
+          checks.push({
+            ...base,
+            reportingExchangeRate: null,
+            error: `the ${ledger.reporting} to ${ledger.accounting} rate on ${date} has a conversion factor other than One; its scale is not verified`,
+          });
+        } else {
+          checks.push({
+            ...base,
+            reportingExchangeRate: 100 / rates[0],
+            error: null,
+          });
+        }
+      } catch (error) {
+        checks.push({
+          ...base,
+          reportingExchangeRate: null,
+          error: readError(error),
+        });
+      }
+    }
+    return checks;
   }
 
   private async readRows<T>(endpoint: string): Promise<T[]> {

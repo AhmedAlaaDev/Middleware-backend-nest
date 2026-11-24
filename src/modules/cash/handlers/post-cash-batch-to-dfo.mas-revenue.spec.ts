@@ -402,3 +402,153 @@ describe('PostCashBatchToDFOHandler: MAS cash-account checks at posting', () => 
     expect(cashVerifier!.verify).toHaveBeenCalledWith(['PETTY-FIXTURE']);
   });
 });
+
+describe('PostCashBatchToDFOHandler: MAS journal lines (template version 2)', () => {
+  function journalRaw(
+    document: string,
+    sourceRow: number,
+    direction: 'in' | 'out',
+  ): MasRevenueStoredRaw {
+    const cashFirst = direction === 'in';
+    return receiptToStoredRaw(
+      {
+        sourceSheet: 'Journal Lines',
+        sourceRow,
+        invoiceNumber: document,
+        transactionDate: '2026-10-28',
+        currency: '',
+        valueMinor: 16500,
+        vatMinor: 0,
+        totalMinor: 16500,
+        cashAccountDisplayName: 'Port Said',
+        customerName: '',
+        containerType: null,
+        containerNumber: null,
+        billOfLading: null,
+        revenueType: null,
+        seaLine: null,
+        vatCardNumber: null,
+        journalLine: {
+          journalName: 'GL Journal',
+          accountType: cashFirst ? 'RCash' : 'Ledger',
+          account: cashFirst ? 'Port Said' : '524528|2401|024|002',
+          offsetAccountType: cashFirst ? 'Ledger' : 'RCash',
+          offsetAccount: cashFirst ? '415701|2401|024|002|005' : 'Port Said',
+          side: 'debit',
+          itemSalesTaxGroup: cashFirst ? 'Tax 14' : 'NONTAXABLE',
+          salesTaxGroup: '',
+          postingProfile: '',
+          defaultDimension: cashFirst ? '|2401|024|002|005' : '',
+          offsetDefaultDimension: cashFirst ? '' : '|2401|024|002|005',
+          finTag: '',
+          offsetFinTag: '',
+          text: '',
+          requestedCurrency: '',
+        },
+      },
+      sourceRow - 1,
+    );
+  }
+
+  function buildJournalHandler(
+    config: MasRevenueVerifiedConfig,
+    mainExists = true,
+  ) {
+    const built = buildHandler(config, () =>
+      records([
+        {
+          id: 'r1',
+          journal: 'MASREV-202610-001',
+          raw: journalRaw('R-1', 2, 'in'),
+        },
+        {
+          id: 'r2',
+          journal: 'MASREV-202610-001',
+          raw: journalRaw('P-1', 3, 'out'),
+        },
+      ]),
+    );
+    Object.assign(built.cashVerifier!, {
+      verifyMainAccounts: jest.fn(async (keys: string[]) =>
+        [...new Set(keys)].map((key) => ({
+          key,
+          exists: mainExists,
+          error: null,
+        })),
+      ),
+      verifyItemTaxGroups: jest.fn(async (keys: string[]) =>
+        [...new Set(keys)].map((key) => ({ key, exists: true, error: null })),
+      ),
+      readReportingRates: jest.fn(async (dates: string[]) =>
+        [...new Set(dates)].map((date) => ({
+          date,
+          reportingExchangeRate: 1.923,
+          accountingCurrency: 'EGP',
+          reportingCurrency: 'USD',
+          error: null,
+        })),
+      ),
+    });
+    return built;
+  }
+
+  it('queues a receipt and a payment as they were entered, in the journal the rows name', async () => {
+    const { handler, queueService } = buildJournalHandler(completeConfig());
+
+    await handler.execute({ batchId: 'batch-1' } as never);
+
+    const groups = (queueService.addDurableJob as jest.Mock).mock
+      .calls[0][3] as Array<{
+      route: { journalName: string };
+      header: { JournalName: string };
+      lines: Array<{ customLineApiBody: Record<string, unknown> }>;
+    }>;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].route.journalName).toBe('GL Journal');
+    expect(groups[0].header.JournalName).toBe('GL Journal');
+    const [receipt, payment] = groups[0].lines.map((l) => l.customLineApiBody);
+    expect(receipt).toMatchObject({
+      accountTypeStr: 'RCash',
+      AccountNum: 'Port Said',
+      OffsetAccountTypeStr: 'Ledger',
+      debitAmount: 165,
+      creditAmount: 0,
+      currency: 'EGP',
+      TAXITEMGROUP: 'Tax 14',
+      ReportingExchangeRate: 1.923,
+    });
+    expect(payment).toMatchObject({
+      accountTypeStr: 'Ledger',
+      AccountNum: '524528|2401|024|002',
+      OffsetAccountTypeStr: 'RCash',
+      offsetAccountDisplayValue: 'Port Said',
+      debitAmount: 165,
+      TAXITEMGROUP: 'NONTAXABLE',
+    });
+  });
+
+  it('blocks posting when D365 lacks a ledger account, with every reason listed', async () => {
+    const { handler, queueService } = buildJournalHandler(
+      completeMasRevenueConfig({
+        deployedCompatibility: {
+          lineServiceVerifiedForGl: false,
+          glReadbackVerified: false,
+        },
+      }),
+      false,
+    );
+
+    const error = await handler
+      .execute({ batchId: 'batch-1' } as never)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    const body = (error as BadRequestException).getResponse() as {
+      errors: string[];
+    };
+    const text = body.errors.join(' | ');
+    expect(text).toContain('ledger main account "415701" does not exist');
+    expect(text).toContain('line service has not been verified');
+    expect(queueService.addDurableJob).not.toHaveBeenCalled();
+  });
+});

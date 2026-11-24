@@ -60,7 +60,37 @@ export interface MasRevenueRowIssue {
  * One normalized receipt: one source row, one D365 journal line.
  * Amounts are integer minor units (cents) so no binary-float sum is used.
  */
+/** The two sides a petty-cash journal line can use. */
+export type MasJournalAccountType = 'RCash' | 'Ledger';
+
+/**
+ * One journal line as the template states it (template version 2). The row carries
+ * the accounts, tax group and journal, exactly as the finance team enters them in
+ * D365, so none of it comes from company configuration.
+ */
+export interface MasJournalLine {
+  journalName: string;
+  accountType: MasJournalAccountType;
+  account: string;
+  offsetAccountType: MasJournalAccountType;
+  offsetAccount: string;
+  /** The amount column the row uses: it is on the line's account side. */
+  side: 'debit' | 'credit';
+  itemSalesTaxGroup: string;
+  salesTaxGroup: string;
+  postingProfile: string;
+  defaultDimension: string;
+  offsetDefaultDimension: string;
+  finTag: string;
+  offsetFinTag: string;
+  text: string;
+  /** CURRENCYCODE from the file, when given. It must equal the cash account's D365 currency. */
+  requestedCurrency: string;
+}
+
 export interface MasRevenueReceipt {
+  /** Present for template version 2 rows. Legacy (version 1) receipts have none. */
+  journalLine?: MasJournalLine;
   /** Identity scheme of the stored snapshot (absent = legacy version 1). */
   identityVersion?: number;
   sourceSheet: string;

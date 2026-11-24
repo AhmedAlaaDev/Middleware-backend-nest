@@ -13,14 +13,27 @@ import {
   PostCashBatchToDFOResult,
 } from '@/modules/cash/commands';
 import {
+  collectMasJournalLiveChecks,
+  getMasJournalBlockers,
+} from '@/modules/cash/mas-revenue/mas-journal-gates';
+import {
+  buildMasJournalGlHeaderBody,
+  buildMasJournalGlLines,
+} from '@/modules/cash/mas-revenue/mas-journal-gl-body.builder';
+import { validateMasJournalGroups } from '@/modules/cash/mas-revenue/mas-journal-posting-validator';
+import {
   MasRevenueCashAccountVerifier,
   masRevenueCashAccountBlockers,
   receiptCurrenciesByCashId,
 } from '@/modules/cash/mas-revenue/mas-revenue-cash-account-verifier';
-import { getMasRevenueSubmissionBlockers } from '@/modules/cash/mas-revenue/mas-revenue-config';
+import {
+  getMasRevenueSubmissionBlockers,
+  type MasRevenueVerifiedConfig,
+} from '@/modules/cash/mas-revenue/mas-revenue-config';
 import { MasRevenueConfigProvider } from '@/modules/cash/mas-revenue/mas-revenue-config.provider';
 import {
   cashIdsToLookUp,
+  resolveJournalCurrencies,
   resolveReceiptCurrencies,
 } from '@/modules/cash/mas-revenue/mas-revenue-currency';
 import {
@@ -187,6 +200,10 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       throw new NotFoundException('No enhanced records found for this batch');
     }
 
+    if (stored.some((entry) => entry.raw.JournalLine)) {
+      return this.postMasJournalBatch(batchId, company, config, stored);
+    }
+
     // Every configured cash ID is checked against D365 at posting time, read-only.
     // Unknown and bank-only IDs, and currency mismatches, block the post.
     if (!this.masRevenueCashVerifier) {
@@ -284,6 +301,108 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       groupedJournals: journalsToQueue,
       cashDirection: 'in',
       // Routed groups carry their route metadata (payload version 2).
+      payloadVersion: 2,
+    });
+  }
+
+  /**
+   * Template version 2 batch: every row states its own journal line, in or out. The
+   * petty-cash accounts, ledger accounts, tax groups and rates are checked against D365
+   * again here, read-only, so a change since upload blocks the post. Journals are the
+   * groups the upload planned, each with the journal name its rows state.
+   */
+  private async postMasJournalBatch(
+    batchId: string,
+    company: string,
+    config: MasRevenueVerifiedConfig,
+    stored: ReadonlyArray<{
+      journalBatchNumber: string;
+      raw: MasRevenueStoredRaw;
+    }>,
+  ): Promise<PostCashBatchToDFOResult> {
+    if (!this.masRevenueCashVerifier) {
+      throw new BadRequestException(
+        'MAS Revenue cash-account verification is not available; posting is blocked.',
+      );
+    }
+    const storedReceipts = stored.map((entry) => storedRawToReceipt(entry.raw));
+    const cashIds = [
+      ...new Set(
+        storedReceipts.map((receipt) => receipt.cashAccountDisplayName),
+      ),
+    ];
+    const cashChecks = await this.masRevenueCashVerifier.verify(cashIds);
+    const receipts = resolveJournalCurrencies(storedReceipts, cashChecks);
+    const live = await collectMasJournalLiveChecks(
+      this.masRevenueCashVerifier,
+      receipts,
+    );
+    const blockers = getMasJournalBlockers({
+      config,
+      receipts,
+      cashChecks,
+      live,
+    });
+    if (blockers.length > 0) {
+      throw new BadRequestException({
+        message: 'Posting is blocked by MAS journal checks.',
+        errors: blockers,
+      });
+    }
+
+    const byJournal = new Map<string, MasRevenueReceipt[]>();
+    stored.forEach((entry, index) => {
+      if (!entry.journalBatchNumber) {
+        throw new BadRequestException(
+          `MAS journal row ${entry.raw.SourceRow} has no journal group; upload the file again.`,
+        );
+      }
+      byJournal.set(entry.journalBatchNumber, [
+        ...(byJournal.get(entry.journalBatchNumber) ?? []),
+        receipts[index],
+      ]);
+    });
+
+    const journals: CashJournalPostingGroup[] = [...byJournal.values()].map(
+      (journalReceipts) => {
+        const journalName = journalReceipts[0].journalLine?.journalName ?? '';
+        const route = this.routingService.resolve({
+          safeType: 'MAS Revenue',
+          masRevenueJournalName: journalName,
+        });
+        const header = buildMasJournalGlHeaderBody(journalName, batchId);
+        const bodies = buildMasJournalGlLines(journalReceipts, live);
+        return {
+          route,
+          header,
+          lines: bodies.map((planned, index) => ({
+            dataAreaId: company,
+            LineNumber: index + 1,
+            sourceLineNumber: planned.sourceRow,
+            // The route label of the GL line path; the money direction is the amount side.
+            cashDirection: 'in' as const,
+            customLineApiBody: planned.body,
+          })),
+        } as unknown as CashJournalPostingGroup;
+      },
+    );
+
+    const journalsToQueue = this.applyTestingMode(journals);
+    const journalErrors = validateMasJournalGroups(
+      journalsToQueue as unknown as MasRevenuePostingGroupLike[],
+    );
+    if (journalErrors.length > 0) {
+      throw new BadRequestException({
+        message: 'Validation failed for MAS journal data',
+        errors: journalErrors,
+        details: journalErrors.join('; '),
+      });
+    }
+
+    await this.prepareBatchForPosting(batchId);
+    return this.enqueuePostingJob(batchId, company, {
+      groupedJournals: journalsToQueue,
+      cashDirection: 'in',
       payloadVersion: 2,
     });
   }

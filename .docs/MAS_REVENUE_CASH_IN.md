@@ -100,3 +100,23 @@ Cash versus credit is never inferred from the customer name. A direct cash recor
 - Only the petty-cash account type (`RCash`) is posted. Bank accounts need an account-type decision and a separate verification before they are used.
 - The LedgerJournalLines field names used for readback follow the D365 entity but are not verified in this codebase. Keep `glReadbackVerified` false until they are checked against the target environment.
 - Each line sets TaxGroup `Non-Taxabl`, so D365 does not calculate tax on top of the explicit VAT line.
+
+## Journal-lines template (template version 2)
+
+Version 2 is a general petty-cash journal template. One row is one D365 journal line, entered the way the finance team enters it (journals GL-GNL-0000000000269 to 273). It replaces the fixed two-line receipt design for new uploads; the source layout (version 1) is still read.
+
+The upload is recognised by its sheet name, **Journal Lines**. Download it from `GET DataMigration/Cash/CashIn-MAS-Journal-Template` (guide: `CashIn-MAS-Journal-Guide`). The **Examples** sheet is never read.
+
+Each row states its own: journal name, date, account type and account, offset account type and offset account, debit or credit amount, item sales-tax group and document number. Optional: text, currency check, posting profile, sales-tax group, default dimensions and financial tags of each side.
+
+**Direction is read from the row.** Cash is the account side: debit puts cash in, credit takes cash out. Cash is the offset side: debit on the ledger account takes cash out, credit puts cash in. Both receipts and payments can be in one file; the review shows the direction of each line.
+
+**Nothing about the entry comes from company configuration.** D365 is asked, read-only, at review and again at posting:
+
+- the cash ID exists as a petty-cash (RCash) account; its currency is the line currency (a CURRENCYCODE in the file must agree);
+- each ledger main account and each item sales-tax group exists;
+- the reporting exchange rate for the transaction date (100 divided by the USD to EGP rate valid on that date); the accounting rate is the verified factor for the currency.
+
+What stays gated is only the environment evidence: `deployedCompatibility.lineServiceVerifiedForGl` and `glReadbackVerified`, which a sandbox test posting settles. Blockers come back as `{message, errors}` so the standard validation modal lists each reason.
+
+Identity: the document number is the line identity (unique in the file; every repeat is blocked). The PaymentId is built the same way as version 1 (`MR<year>-<hash>-REV`). Journals are numbered per month and per journal name, at most 1000 lines each, and one journal holds one journal name.

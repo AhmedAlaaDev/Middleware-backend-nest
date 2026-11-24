@@ -24,6 +24,11 @@ import {
 } from '@nestjs/swagger';
 
 import {
+  buildMasJournalTemplate,
+  buildMasJournalUploadGuide,
+} from './mas-journal-template';
+import { MAS_JOURNAL_TEMPLATE_VERSION } from './mas-journal-template.constants';
+import {
   MasRevenueReviewService,
   MasRevenueUser,
 } from './mas-revenue-review.service';
@@ -81,6 +86,37 @@ export class MasRevenueController {
       type: XLSX_CONTENT_TYPE,
       disposition: `attachment; filename="${masRevenueTemplateFileName()}"`,
       length: buffer.length,
+    });
+  }
+
+  @Get('CashIn-MAS-Journal-Template')
+  @ApiOperation({
+    summary:
+      'Download the MAS petty-cash journal-lines template (.xlsx, version 2)',
+  })
+  public async downloadJournalTemplate(
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const buffer = await buildMasJournalTemplate();
+    res.setHeader('X-Template-Version', String(MAS_JOURNAL_TEMPLATE_VERSION));
+    return new StreamableFile(buffer, {
+      type: XLSX_CONTENT_TYPE,
+      disposition: `attachment; filename="MAS-Journal-Lines-Template-v${MAS_JOURNAL_TEMPLATE_VERSION}.xlsx"`,
+      length: buffer.length,
+    });
+  }
+
+  @Get('CashIn-MAS-Journal-Guide')
+  @ApiOperation({
+    summary: 'Download the MAS journal-lines upload guide (Markdown)',
+  })
+  public downloadJournalGuide(@Res({ passthrough: true }) res: Response) {
+    const text = Buffer.from(buildMasJournalUploadGuide(), 'utf8');
+    res.setHeader('X-Template-Version', String(MAS_JOURNAL_TEMPLATE_VERSION));
+    return new StreamableFile(text, {
+      type: 'text/markdown; charset=utf-8',
+      disposition: `attachment; filename="MAS-Journal-Lines-Guide-v${MAS_JOURNAL_TEMPLATE_VERSION}.md"`,
+      length: text.length,
     });
   }
 

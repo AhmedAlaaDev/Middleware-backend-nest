@@ -64,3 +64,20 @@ export function resolveReceiptCurrencies(
     return { ...receipt, currency };
   });
 }
+
+/**
+ * Currency of template version 2 rows. The cash ID is the value in the row itself, so
+ * there is no mapping: each receipt takes the D365 currency of that RCash account.
+ */
+export function resolveJournalCurrencies(
+  receipts: MasRevenueReceipt[],
+  checks: MasRevenueCashAccountCheck[],
+): MasRevenueReceipt[] {
+  const checkById = new Map(checks.map((check) => [check.id, check]));
+  return receipts.map((receipt) => {
+    const check = checkById.get(receipt.cashAccountDisplayName.trim());
+    const currency =
+      check && check.status === 'RCASH' && check.currency ? check.currency : '';
+    return { ...receipt, currency };
+  });
+}

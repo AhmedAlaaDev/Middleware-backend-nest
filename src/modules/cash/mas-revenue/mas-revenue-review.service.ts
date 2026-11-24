@@ -9,6 +9,19 @@ import {
 } from '@nestjs/common';
 
 import {
+  collectMasJournalLiveChecks,
+  EMPTY_MAS_JOURNAL_LIVE_CHECKS,
+  getMasJournalBlockers,
+  type MasJournalLiveChecks,
+} from './mas-journal-gates';
+import { cashEffectOf } from './mas-journal-line';
+import { MAS_JOURNAL_TEMPLATE_VERSION } from './mas-journal-template.constants';
+import { normalizeMasJournalRows } from './mas-journal-template.normalizer';
+import {
+  isMasJournalWorkbook,
+  parseMasJournalWorkbook,
+} from './mas-journal-template.parser';
+import {
   MasRevenueCashAccountVerifier,
   masRevenueCashAccountBlockers,
   receiptCurrenciesByCashId,
@@ -18,6 +31,7 @@ import { getMasRevenueSubmissionBlockers } from './mas-revenue-config';
 import { MasRevenueConfigProvider } from './mas-revenue-config.provider';
 import {
   cashIdsToLookUp,
+  resolveJournalCurrencies,
   resolveReceiptCurrencies,
 } from './mas-revenue-currency';
 import {
@@ -47,7 +61,11 @@ import {
   MAS_REVENUE_COMPANY_ID,
   MAS_REVENUE_TEMPLATE_VERSION,
 } from './mas-revenue.constants';
-import { MasRevenueError, MasRevenueRowIssue } from './mas-revenue.types';
+import {
+  MasRevenueError,
+  type MasRevenueReceipt,
+  MasRevenueRowIssue,
+} from './mas-revenue.types';
 
 import { CashInMasRevenueEntryProcessor } from '@/modules/cash/processors/inbound/mas-revenue/cash-in-mas-revenue-entry.processor';
 import { EntryProcessorTypes } from '@/modules/data-batch/enums/data-batch.enum';
@@ -104,6 +122,8 @@ export interface MasRevenueLinesView {
     totalMajor: string;
     cashAccountDisplayName: string;
     customerName: string;
+    /** Whether the line puts cash in or takes it out (journal-lines template only). */
+    direction: 'in' | 'out' | null;
   }>;
 }
 
@@ -143,9 +163,18 @@ export class MasRevenueReviewService {
 
     let parsed;
     let result;
+    let journalTemplate = false;
     try {
-      parsed = await parseMasRevenueWorkbook(input.fileBuffer);
-      result = normalizeMasRevenueRows(parsed);
+      // The journal-lines template (version 2) has its own sheet. Any other workbook is
+      // read as the source layout (version 1).
+      journalTemplate = await isMasJournalWorkbook(input.fileBuffer);
+      if (journalTemplate) {
+        parsed = await parseMasJournalWorkbook(input.fileBuffer);
+        result = normalizeMasJournalRows(parsed);
+      } else {
+        parsed = await parseMasRevenueWorkbook(input.fileBuffer);
+        result = normalizeMasRevenueRows(parsed);
+      }
     } catch (error) {
       if (error instanceof MasRevenueError) {
         throw new BadRequestException(error.message);
@@ -157,21 +186,46 @@ export class MasRevenueReviewService {
     // A receipt whose account cannot be resolved keeps an empty currency and blocks
     // submit with a named blocker. It is never given a guessed currency.
     const { config } = this.configProvider.current();
-    const cashAccountChecks = await this.cashVerifier.verify(
-      Object.values(config.cashAccountIdsByDisplayName),
-    );
-    // Accounts that are not in the configuration are looked up by their sheet value.
-    const lookupIds = cashIdsToLookUp(result.receipts, config);
-    const lookupChecks =
-      lookupIds.length > 0 ? await this.cashVerifier.verify(lookupIds) : [];
-    const receipts = resolveReceiptCurrencies(result.receipts, config, [
-      ...cashAccountChecks,
-      ...lookupChecks,
-    ]);
+    let cashAccountChecks: MasRevenueCashAccountCheck[];
+    let receipts: MasRevenueReceipt[];
+    let liveChecks: MasJournalLiveChecks | null = null;
+    if (journalTemplate) {
+      // Template version 2: the row states its accounts. The cash ID is the row's own
+      // value; the ledger accounts, tax groups and rates are read live from D365.
+      const cashIds: string[] = [
+        ...new Set<string>(
+          result.receipts.map(
+            (receipt: MasRevenueReceipt) => receipt.cashAccountDisplayName,
+          ),
+        ),
+      ];
+      cashAccountChecks =
+        cashIds.length > 0 ? await this.cashVerifier.verify(cashIds) : [];
+      receipts = resolveJournalCurrencies(result.receipts, cashAccountChecks);
+      liveChecks = await collectMasJournalLiveChecks(
+        this.cashVerifier,
+        receipts,
+      );
+    } else {
+      cashAccountChecks = await this.cashVerifier.verify(
+        Object.values(config.cashAccountIdsByDisplayName),
+      );
+      // Accounts that are not in the configuration are looked up by their sheet value.
+      const lookupIds = cashIdsToLookUp(result.receipts, config);
+      const lookupChecks =
+        lookupIds.length > 0 ? await this.cashVerifier.verify(lookupIds) : [];
+      receipts = resolveReceiptCurrencies(result.receipts, config, [
+        ...cashAccountChecks,
+        ...lookupChecks,
+      ]);
+    }
+    const templateVersion = journalTemplate
+      ? MAS_JOURNAL_TEMPLATE_VERSION
+      : input.templateVersion;
     const rawRows = receipts.map((receipt, index) =>
       receiptToStoredRaw(receipt, index + 1),
     );
-    const payloadHash = hashSnapshot(input.templateVersion, rawRows);
+    const payloadHash = hashSnapshot(templateVersion, rawRows);
     const processor = this.processorFactory.getProcessorByName(
       EntryProcessorTypes.CashInMasRevenue,
     ) as CashInMasRevenueEntryProcessor;
@@ -185,7 +239,9 @@ export class MasRevenueReviewService {
     // unknown, bank-only, mismatched or unverifiable accounts before submitting.
     // Submit and posting still recheck live; this result never replaces them.
     const summary = {
+      layout: journalTemplate ? 'journal-lines' : 'source',
       cashAccountChecks,
+      liveChecks,
       sourceSheet: parsed.sourceSheet,
       headerRow: parsed.headerRow,
       scannedDataRows: parsed.scannedRowCount - parsed.headerRow,
@@ -202,7 +258,7 @@ export class MasRevenueReviewService {
       company: MAS_REVENUE_COMPANY_ID,
       createdByUserId: input.user.id,
       fileName: input.fileName,
-      templateVersion: input.templateVersion,
+      templateVersion,
       payloadHash,
       summary,
       canSubmit: uploadValid,
@@ -279,6 +335,9 @@ export class MasRevenueReviewService {
         totalMajor: minorText(line.raw.TotalMinor),
         cashAccountDisplayName: line.raw.CashAccountDisplayName,
         customerName: line.raw.CustomerName,
+        direction: line.raw.JournalLine
+          ? cashEffectOf(line.raw.JournalLine)
+          : null,
       })),
     };
   }
@@ -551,13 +610,23 @@ export class MasRevenueReviewService {
     const { config } = this.configProvider.current();
     const receipts = raws.map(storedRawToReceipt);
     const cashChecks = readCashChecks(summary);
-    const blockers = [
-      ...getMasRevenueSubmissionBlockers(config, receipts),
-      ...masRevenueCashAccountBlockers(
-        cashChecks,
-        receiptCurrenciesByCashId(config.cashAccountIdsByDisplayName, receipts),
-      ),
-    ];
+    const blockers = raws.some((raw) => raw.JournalLine)
+      ? getMasJournalBlockers({
+          config,
+          receipts,
+          cashChecks,
+          live: readLiveChecks(summary),
+        })
+      : [
+          ...getMasRevenueSubmissionBlockers(config, receipts),
+          ...masRevenueCashAccountBlockers(
+            cashChecks,
+            receiptCurrenciesByCashId(
+              config.cashAccountIdsByDisplayName,
+              receipts,
+            ),
+          ),
+        ];
     const uploadValid = record.canSubmit;
     return {
       reviewId: record.id,
@@ -627,6 +696,16 @@ function identityConflictBody(conflicts: MasRevenueIdentityConflict[]) {
   };
 }
 
+/** Live D365 checks stored with a version 2 preview; an absent entry is none. */
+function readLiveChecks(
+  summary: Record<string, unknown> | null,
+): MasJournalLiveChecks {
+  const stored = summary?.liveChecks;
+  return stored && typeof stored === 'object'
+    ? { ...EMPTY_MAS_JOURNAL_LIVE_CHECKS, ...(stored as MasJournalLiveChecks) }
+    : EMPTY_MAS_JOURNAL_LIVE_CHECKS;
+}
+
 /** Cash-account checks stored with the preview summary; an absent or malformed entry is none. */
 function readCashChecks(
   summary: Record<string, unknown> | null,
@@ -644,9 +723,12 @@ function assertCompany(companyId: string): void {
 }
 
 function assertTemplateVersion(version: number): void {
-  if (version !== MAS_REVENUE_TEMPLATE_VERSION) {
+  if (
+    version !== MAS_REVENUE_TEMPLATE_VERSION &&
+    version !== MAS_JOURNAL_TEMPLATE_VERSION
+  ) {
     throw new BadRequestException(
-      `templateVersion ${version} is not supported; this upload accepts version ${MAS_REVENUE_TEMPLATE_VERSION}`,
+      `templateVersion ${version} is not supported; this upload accepts versions ${MAS_REVENUE_TEMPLATE_VERSION} and ${MAS_JOURNAL_TEMPLATE_VERSION}`,
     );
   }
 }

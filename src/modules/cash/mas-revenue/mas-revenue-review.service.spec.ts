@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 
+import { buildMasJournalTemplate } from './mas-journal-template';
+import { MAS_JOURNAL_SHEET_NAME } from './mas-journal-template.constants';
 import {
   emptyMasRevenueConfig,
   type MasRevenueVerifiedConfig,
@@ -337,10 +339,10 @@ describe('MasRevenueReviewService.preview', () => {
         fileBuffer: await workbookWithRows([receiptRow('1')]),
         fileName: 'x.xlsx',
         companyId: 'mas',
-        templateVersion: 2,
+        templateVersion: 3,
         user: OWNER,
       }),
-    ).rejects.toThrow(/templateVersion 2 is not supported/);
+    ).rejects.toThrow(/templateVersion 3 is not supported/);
   });
 
   it('takes the receipt currency from its verified D365 cash account', async () => {
@@ -950,5 +952,114 @@ describe('MasRevenueReviewService: year-scoped receipt identity', () => {
       );
       expect(dataBatchService.createAsync).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('MasRevenueReviewService.preview: journal-lines template (version 2)', () => {
+  async function journalWorkbook(rows: Array<Record<string, string | number>>) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await buildMasJournalTemplate()) as unknown as Parameters<
+        typeof workbook.xlsx.load
+      >[0],
+    );
+    const sheet = workbook.getWorksheet(MAS_JOURNAL_SHEET_NAME)!;
+    const headers = (sheet.getRow(1).values as string[]).map((value) =>
+      String(value ?? ''),
+    );
+    rows.forEach((row, index) => {
+      headers.forEach((header, column) => {
+        if (column > 0 && row[header] !== undefined) {
+          sheet.getRow(index + 2).getCell(column).value = row[header];
+        }
+      });
+    });
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  const IN_ROW = {
+    JOURNALNAME: 'GL Journal',
+    TRANSDATE: '2026-10-28',
+    ACCOUNTTYPE: 'RCash',
+    ACCOUNTDISPLAYVALUE: 'Port Said',
+    OFFSETACCOUNTTYPE: 'Ledger',
+    OFFSETACCOUNTDISPLAYVALUE: '415701|2401|024|002|005',
+    DEBITAMOUNT: 1824,
+    ITEMSALESTAXGROUP: 'Tax 14',
+    DOCUMENT: 'R-1',
+    DEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
+  };
+  const OUT_ROW = {
+    JOURNALNAME: 'GL Journal',
+    TRANSDATE: '2026-10-28',
+    ACCOUNTTYPE: 'Ledger',
+    ACCOUNTDISPLAYVALUE: '524528|2401|024|002',
+    OFFSETACCOUNTTYPE: 'RCash',
+    OFFSETACCOUNTDISPLAYVALUE: 'Port Said',
+    DEBITAMOUNT: 165,
+    ITEMSALESTAXGROUP: 'NONTAXABLE',
+    DOCUMENT: 'P-1',
+    OFFSETDEFAULTDIMENSIONDISPLAYVALUE: '|2401|024|002|005',
+  };
+
+  function withLiveReads(
+    built: ReturnType<typeof buildService>,
+    mainExists = true,
+  ) {
+    Object.assign(built.cashVerifier, {
+      verifyMainAccounts: jest.fn(async (keys: string[]) =>
+        [...new Set(keys)].map((key) => ({
+          key,
+          exists: mainExists,
+          error: null,
+        })),
+      ),
+      verifyItemTaxGroups: jest.fn(async (keys: string[]) =>
+        [...new Set(keys)].map((key) => ({ key, exists: true, error: null })),
+      ),
+      readReportingRates: jest.fn(async (dates: string[]) =>
+        [...new Set(dates)].map((date) => ({
+          date,
+          reportingExchangeRate: 1.923,
+          accountingCurrency: 'EGP',
+          reportingCurrency: 'USD',
+          error: null,
+        })),
+      ),
+    });
+    return built;
+  }
+
+  it('reads receipts and payments, takes the currency from the row cash account, and stores version 2', async () => {
+    const built = withLiveReads(buildService(completeConfig()));
+    const view = await built.service.preview({
+      fileBuffer: await journalWorkbook([IN_ROW, OUT_ROW]),
+      fileName: 'journal.xlsx',
+      companyId: 'mas',
+      templateVersion: 1,
+      user: OWNER,
+    });
+    expect(view.uploadValid).toBe(true);
+    expect(view.receiptCount).toBe(2);
+    expect(view.blockers).toEqual([]);
+    expect(built.cashVerifier.verify).toHaveBeenCalledWith(['Port Said']);
+    expect([...built.store.reviews.values()][0].templateVersion).toBe(2);
+    const page = await built.service.getLines(view.reviewId, OWNER, 1, 10);
+    expect(page.items.map((line) => line.direction)).toEqual(['in', 'out']);
+    expect(page.items.map((line) => line.currency)).toEqual(['EGP', 'EGP']);
+  });
+
+  it('lists a ledger account that D365 does not have as a blocker', async () => {
+    const built = withLiveReads(buildService(completeConfig()), false);
+    const view = await built.service.preview({
+      fileBuffer: await journalWorkbook([IN_ROW]),
+      fileName: 'journal.xlsx',
+      companyId: 'mas',
+      templateVersion: 1,
+      user: OWNER,
+    });
+    expect(view.blockers.join(' ')).toContain(
+      'ledger main account "415701" does not exist in D365',
+    );
   });
 });

@@ -225,7 +225,7 @@ function isZeroOrEmpty(value: MasRevenueCellValue): boolean {
   return false;
 }
 
-function isFormulaCell(
+export function isFormulaCell(
   value: ExcelJS.CellValue,
 ): value is ExcelJS.CellFormulaValue | ExcelJS.CellSharedFormulaValue {
   return (
@@ -236,7 +236,7 @@ function isFormulaCell(
   );
 }
 
-function toCellValue(value: ExcelJS.CellValue): MasRevenueCellValue {
+export function toCellValue(value: ExcelJS.CellValue): MasRevenueCellValue {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value;
   if (typeof value === 'number') return value;
@@ -257,7 +257,7 @@ function toCellValue(value: ExcelJS.CellValue): MasRevenueCellValue {
 }
 
 /** Reads display text from any ExcelJS cell value shape, formulas included (cached result). */
-function cellToText(value: ExcelJS.CellValue): string | null {
+export function cellToText(value: ExcelJS.CellValue): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean')
