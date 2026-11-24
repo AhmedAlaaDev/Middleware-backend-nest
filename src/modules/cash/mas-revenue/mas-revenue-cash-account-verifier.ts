@@ -207,9 +207,12 @@ export class MasRevenueCashAccountVerifier {
   /**
    * The reporting exchange rate D365 puts on a line for each date: 100 divided by the
    * reporting-to-accounting rate valid on that date (for MAS, USD to EGP: 52 gives 1.923
-   * and 56.5 gives 1.7699, as on the finance journals). The currencies come from the
-   * company ledger. Rates of every rate type are read; if they disagree for a date, the
-   * date is reported as ambiguous instead of choosing a type.
+   * and 56.5 gives 1.7699, as on the finance journals). The currencies and the rate type
+   * come from the company ledger: its reporting-currency rate type, and when that is blank
+   * the ledger's own exchange-rate type (MAS: Average). D365 holds rates of other types for
+   * the same date (Global, Budget, Closing, Default); they are not used. A ledger with no
+   * rate type, or several rates of that type that disagree for a date, is reported instead
+   * of guessed.
    */
   public async readReportingRates(
     dates: readonly string[],
@@ -217,15 +220,22 @@ export class MasRevenueCashAccountVerifier {
   ): Promise<MasReportingRateCheck[]> {
     const distinctDates = distinctNonEmpty(dates);
     if (distinctDates.length === 0) return [];
-    let ledger: { accounting: string; reporting: string };
+    let ledger: { accounting: string; reporting: string; rateType: string };
     try {
       const rows = await this.readRows<{
         AccountingCurrency?: string;
         ReportingCurrency?: string;
+        ReportingCurrencyExchangeRateType?: string;
+        ExchangeRateType?: string;
       }>(
         this.query.buildQuery('/data/Ledgers', {
           filter: this.query.eq('LegalEntityId', company.toUpperCase()),
-          select: ['AccountingCurrency', 'ReportingCurrency'],
+          select: [
+            'AccountingCurrency',
+            'ReportingCurrency',
+            'ReportingCurrencyExchangeRateType',
+            'ExchangeRateType',
+          ],
           top: 2,
           crossCompany: true,
         }),
@@ -236,9 +246,20 @@ export class MasRevenueCashAccountVerifier {
           'the company ledger has no accounting or reporting currency',
         );
       }
+      const rateType = (
+        row.ReportingCurrencyExchangeRateType?.trim() ||
+        row.ExchangeRateType?.trim() ||
+        ''
+      ).trim();
+      if (!rateType) {
+        throw new Error(
+          'the company ledger names no exchange-rate type (reporting or default)',
+        );
+      }
       ledger = {
         accounting: row.AccountingCurrency,
         reporting: row.ReportingCurrency,
+        rateType,
       };
     } catch (error) {
       return distinctDates.map((date) => ({
@@ -266,6 +287,7 @@ export class MasRevenueCashAccountVerifier {
             filter: [
               this.query.eq('FromCurrency', ledger.reporting),
               this.query.eq('ToCurrency', ledger.accounting),
+              this.query.eq('RateTypeName', ledger.rateType),
               `StartDate le ${date}T23:59:59Z`,
               `EndDate ge ${date}T00:00:00Z`,
             ].join(' and '),
@@ -285,13 +307,13 @@ export class MasRevenueCashAccountVerifier {
           checks.push({
             ...base,
             reportingExchangeRate: null,
-            error: `no ${ledger.reporting} to ${ledger.accounting} exchange rate is valid on ${date}`,
+            error: `no ${ledger.reporting} to ${ledger.accounting} ${ledger.rateType} exchange rate is valid on ${date}`,
           });
         } else if (rates.length > 1) {
           checks.push({
             ...base,
             reportingExchangeRate: null,
-            error: `the ${ledger.reporting} to ${ledger.accounting} rates valid on ${date} disagree (${rates.join(', ')}); the rate type must be chosen`,
+            error: `the ${ledger.reporting} to ${ledger.accounting} ${ledger.rateType} rates valid on ${date} disagree (${rates.join(', ')}); not guessed`,
           });
         } else if (
           rows.some(

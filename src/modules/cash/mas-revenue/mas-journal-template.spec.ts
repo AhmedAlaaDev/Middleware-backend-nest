@@ -324,3 +324,55 @@ describe('MAS journal-lines template (version 2)', () => {
     });
   });
 });
+
+describe('MAS journal: a copy of finance journal GL-GNL-0000000000271', () => {
+  it('reads, builds and validates the line exactly as finance entered it (no cash dimension)', async () => {
+    const row271: Row = {
+      JOURNALNAME: 'GL Journal',
+      TRANSDATE: '2026-10-28',
+      ACCOUNTTYPE: 'RCash',
+      ACCOUNTDISPLAYVALUE: 'Port Said',
+      OFFSETACCOUNTTYPE: 'Ledger',
+      OFFSETACCOUNTDISPLAYVALUE: '415701|2401|024|002|005',
+      DEBITAMOUNT: 1824,
+      ITEMSALESTAXGROUP: 'Tax 14',
+      POSTINGPROFILE: 'Cash',
+      DOCUMENT: 'TEST271-1',
+    };
+    const { receipts, issues } = await receiptsOf([row271]);
+    expect(issues).toEqual([]);
+    const [line] = buildMasJournalGlLines(
+      resolveJournalCurrencies(receipts, [portSaid]),
+      liveOk,
+    );
+    expect(line.body).toMatchObject({
+      AccountNum: 'Port Said',
+      accountTypeStr: 'RCash',
+      offsetAccountDisplayValue: '415701|2401|024|002|005',
+      debitAmount: 1824,
+      DEFAULTDIMENSIONDISPLAYVALUE: '',
+      PostingProfile: 'Cash',
+      TAXITEMGROUP: 'Tax 14',
+      ExchangeRate: 100,
+      ReportingExchangeRate: 1.923,
+    });
+    const errors = validateMasJournalGroups([
+      {
+        header: {
+          dataAreaId: 'mas',
+          JournalName: 'GL Journal',
+          Description: 'MAS journal t',
+        },
+        lines: [
+          {
+            dataAreaId: 'mas',
+            LineNumber: 1,
+            cashDirection: 'in',
+            customLineApiBody: { ...line.body },
+          },
+        ],
+      } as unknown as MasRevenuePostingGroupLike,
+    ]);
+    expect(errors).toEqual([]);
+  });
+});

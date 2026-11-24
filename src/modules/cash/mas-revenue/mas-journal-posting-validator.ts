@@ -91,16 +91,9 @@ export function validateMasJournalGroups(
         );
       }
 
-      // A cash ID carries no dimensions, so the cash side needs its default dimension.
-      // The ledger side needs one only when its composite does not carry dimensions.
-      const cashDimension = cashOnAccount
-        ? text(body.DEFAULTDIMENSIONDISPLAYVALUE)
-        : text(body.offsetDEFAULTDIMENSIONDISPLAYVALUE);
-      if ((cashOnAccount || cashOnOffset) && !cashDimension) {
-        errors.push(
-          `${where}: cash default dimension is required (a cash ID does not carry dimensions)`,
-        );
-      }
+      // The cash side's default dimension is optional: finance enters receipts without
+      // one (journal GL-GNL-0000000000271). The ledger side needs dimensions, either in
+      // its composite or as its default dimension.
       const ledgerAccount = cashOnAccount ? offsetAccount : account;
       const ledgerDimension = cashOnAccount
         ? text(body.offsetDEFAULTDIMENSIONDISPLAYVALUE)

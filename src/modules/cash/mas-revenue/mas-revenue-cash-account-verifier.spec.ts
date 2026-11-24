@@ -164,3 +164,90 @@ describe('receiptCurrenciesByCashId', () => {
     expect(map.has('other name')).toBe(false);
   });
 });
+
+describe('MasRevenueCashAccountVerifier.readReportingRates', () => {
+  type Rate = { RateTypeName: string; Rate: number; ConversionFactor: string };
+  // The USD to EGP rates the MAS sandbox holds for 2026-10-28, one per rate type.
+  const OCTOBER_RATES: Rate[] = [
+    { RateTypeName: 'Global', Rate: 26, ConversionFactor: 'One' },
+    { RateTypeName: 'Budget', Rate: 47, ConversionFactor: 'One' },
+    { RateTypeName: 'Closing', Rate: 47.65, ConversionFactor: 'One' },
+    { RateTypeName: 'Default', Rate: 52, ConversionFactor: 'One' },
+    { RateTypeName: 'Average', Rate: 52, ConversionFactor: 'One' },
+  ];
+
+  function readerFor(
+    ledger: Record<string, string>,
+    rates: Rate[] = OCTOBER_RATES,
+  ) {
+    const endpoints: string[] = [];
+    const client = {
+      get: jest.fn(async (endpoint: string) => {
+        endpoints.push(endpoint);
+        const decoded = decodeURIComponent(endpoint);
+        if (decoded.includes('/data/Ledgers')) return { value: [ledger] };
+        if (decoded.includes('/data/ExchangeRates')) {
+          const type = /RateTypeName eq '([^']+)'/.exec(decoded)?.[1];
+          return {
+            value: rates.filter((rate) => !type || rate.RateTypeName === type),
+          };
+        }
+        return { value: [] };
+      }),
+    };
+    const verifier = new MasRevenueCashAccountVerifier(
+      client as never,
+      new ODataQueryBuilderService(),
+    );
+    return { verifier, endpoints };
+  }
+
+  const MAS_LEDGER = {
+    AccountingCurrency: 'EGP',
+    ReportingCurrency: 'USD',
+    ReportingCurrencyExchangeRateType: '',
+    ExchangeRateType: 'Average',
+  };
+
+  it('uses the ledger exchange-rate type when the reporting type is blank, so five rate types do not disagree', async () => {
+    const { verifier, endpoints } = readerFor(MAS_LEDGER);
+    const [check] = await verifier.readReportingRates(['2026-10-28']);
+    expect(check.error).toBeNull();
+    expect(check.reportingExchangeRate).toBeCloseTo(100 / 52, 10);
+    const rateQuery = decodeURIComponent(
+      endpoints.find((e) => e.includes('ExchangeRates')) ?? '',
+    );
+    expect(rateQuery).toContain("RateTypeName eq 'Average'");
+  });
+
+  it('prefers the ledger reporting-currency rate type when it is set', async () => {
+    const { verifier } = readerFor(
+      { ...MAS_LEDGER, ReportingCurrencyExchangeRateType: 'Closing' },
+      OCTOBER_RATES,
+    );
+    const [check] = await verifier.readReportingRates(['2026-10-28']);
+    expect(check.reportingExchangeRate).toBeCloseTo(100 / 47.65, 10);
+  });
+
+  it('reports a ledger with no rate type instead of choosing one', async () => {
+    const { verifier } = readerFor({ ...MAS_LEDGER, ExchangeRateType: '' });
+    const [check] = await verifier.readReportingRates(['2026-10-28']);
+    expect(check.reportingExchangeRate).toBeNull();
+    expect(check.error).toContain('names no exchange-rate type');
+  });
+
+  it('reports no rate of the ledger type, and disagreeing rates of that one type', async () => {
+    const none = readerFor(MAS_LEDGER, [
+      { RateTypeName: 'Default', Rate: 52, ConversionFactor: 'One' },
+    ]);
+    const [missing] = await none.verifier.readReportingRates(['2026-10-28']);
+    expect(missing.error).toContain('no USD to EGP Average exchange rate');
+
+    const twice = readerFor(MAS_LEDGER, [
+      { RateTypeName: 'Average', Rate: 52, ConversionFactor: 'One' },
+      { RateTypeName: 'Average', Rate: 53, ConversionFactor: 'One' },
+    ]);
+    const [clash] = await twice.verifier.readReportingRates(['2026-10-28']);
+    expect(clash.error).toContain('Average rates valid on 2026-10-28 disagree');
+  });
+});
