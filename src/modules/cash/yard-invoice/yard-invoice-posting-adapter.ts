@@ -55,6 +55,7 @@ export class YardPostingAdapterError extends Error {}
 export function buildYardCashInSourceRows(
   inputs: YardPostingAdapterInput[],
   receiptPrefix = 'Yard receipt ',
+  creditNotePrefix = 'Yard credit note ',
 ): {
   rows: EntryRawDataModel[];
   mapping: YardPostingSourceMapping[];
@@ -83,18 +84,25 @@ export function buildYardCashInSourceRows(
         `invoice ${group.invoiceNumber}: D365 customer, dimension or tag is missing`,
       );
     }
-    if (group.roundedTotal <= 0n) {
+    if (
+      group.isCreditNote ? group.roundedTotal >= 0n : group.roundedTotal <= 0n
+    ) {
       throw new YardPostingAdapterError(
-        `invoice ${group.invoiceNumber}: consolidated amount must be positive`,
+        `invoice ${group.invoiceNumber}: consolidated amount must be ${group.isCreditNote ? 'negative for a credit note' : 'positive'}`,
       );
     }
+    const amount = Number(
+      microToString(
+        group.isCreditNote ? -group.roundedTotal : group.roundedTotal,
+      ),
+    );
 
     const lineNumber = index + 1;
     const row = {
       UniqueId: lineNumber,
       LINENUMBER: lineNumber,
       TRANSDATE: group.paymentDate,
-      DESCRIPTION: `${receiptPrefix}${group.invoiceNumber}`,
+      DESCRIPTION: `${group.isCreditNote ? creditNotePrefix : receiptPrefix}${group.invoiceNumber}`,
       ACCOUNTTYPE: 'Cust',
       ACCOUNTDISPLAYVALUE: metadata.customerAccount,
       DEFAULTDIMENSIONDISPLAYVALUE: metadata.defaultDimensionDisplayValue,
@@ -104,8 +112,8 @@ export function buildYardCashInSourceRows(
       OFFSETFINTAGDISPLAYVALUE: metadata.financialTagDisplayValue,
       CURRENCYCODE: metadata.currencyCode,
       EXCHANGERATE: 0,
-      CREDITAMOUNT: Number(microToString(group.roundedTotal)),
-      DEBITAMOUNT: 0,
+      CREDITAMOUNT: group.isCreditNote ? 0 : amount,
+      DEBITAMOUNT: group.isCreditNote ? amount : 0,
       INVOICE: group.invoiceNumber,
       PAYMENTID: group.paymentSerials[0] ?? '',
       PAYMENTREFERENCE: group.paymentReference,

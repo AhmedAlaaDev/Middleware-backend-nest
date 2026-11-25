@@ -1,3 +1,4 @@
+import { isYardCreditNotesEnabled } from './yard-invoice-flow';
 import { createHash, randomUUID } from 'crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -149,7 +150,9 @@ export class YardInvoicePreviewService {
     const parsed = await parseYardWorkbook(input.fileBuffer, {
       maxTemplateRows: input.maxTemplateRows,
     });
-    const aggregation = aggregateYardInvoiceRecords(parsed.records);
+    const aggregation = aggregateYardInvoiceRecords(parsed.records, {
+      allowCreditNotes: isYardCreditNotesEnabled(),
+    });
 
     const eligible = aggregation.groups.filter(
       (group) => group.errors.length === 0,

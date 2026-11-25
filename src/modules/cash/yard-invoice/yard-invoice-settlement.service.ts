@@ -1,4 +1,4 @@
-import { RECEIPT_PREFIXES } from './yard-invoice-flow';
+import { CREDIT_NOTE_PREFIXES, RECEIPT_PREFIXES } from './yard-invoice-flow';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { D365FOClientService } from '@/modules/d365fo/services/d365fo-client.service';
@@ -73,13 +73,24 @@ export interface YardSettlementReport {
 /** Yard receipt invoice number from the journal line text. */
 export function yardInvoiceOf(line: YardJournalLine): string {
   const text = line.TransactionText ?? '';
-  const prefix = RECEIPT_PREFIXES.find((p) => text.startsWith(p)) ?? '';
+  const prefix =
+    [...RECEIPT_PREFIXES, ...CREDIT_NOTE_PREFIXES].find((p) =>
+      text.startsWith(p),
+    ) ?? '';
   return text.slice(prefix.length).trim();
 }
 
 export function isYardReceiptLine(line: YardJournalLine): boolean {
   const text = line.TransactionText ?? '';
-  return RECEIPT_PREFIXES.some((p) => text.startsWith(p));
+  return [...RECEIPT_PREFIXES, ...CREDIT_NOTE_PREFIXES].some((p) =>
+    text.startsWith(p),
+  );
+}
+
+/** A Yard credit note line: a customer debit settled to the credit note. */
+export function isYardCreditNoteLine(line: YardJournalLine): boolean {
+  const text = line.TransactionText ?? '';
+  return CREDIT_NOTE_PREFIXES.some((p) => text.startsWith(p));
 }
 
 /**
@@ -95,7 +106,10 @@ export function planYardSettlements(
   const problems: string[] = [];
   for (const line of lines) {
     const invoice = yardInvoiceOf(line);
-    const candidates = (openByInvoice.get(invoice) ?? []).filter(isOpenInvoice);
+    const creditNote = isYardCreditNoteLine(line);
+    const candidates = (openByInvoice.get(invoice) ?? []).filter(
+      creditNote ? isOpenCreditNote : isOpenInvoice,
+    );
     const amount = Math.abs(
       Number(line.CreditAmount ?? 0) - Number(line.DebitAmount ?? 0),
     );
@@ -110,8 +124,10 @@ export function planYardSettlements(
       continue;
     }
     const invoiceRow = candidates[0];
-    const openAmount =
-      Number(invoiceRow.AmountCur) - Number(invoiceRow.SettleAmountCur ?? 0);
+    const openAmount = creditNote
+      ? Math.abs(Number(invoiceRow.AmountCur)) -
+        Math.abs(Number(invoiceRow.SettleAmountCur ?? 0))
+      : Number(invoiceRow.AmountCur) - Number(invoiceRow.SettleAmountCur ?? 0);
     const issues: string[] = [];
     if (invoiceRow.AccountNum !== line.AccountDisplayValue) {
       issues.push(
@@ -138,12 +154,20 @@ export function planYardSettlements(
     plan.push({
       journalLineNumber: Number(line.LineNumber),
       invoiceNumber: invoice,
-      amount,
+      // A credit note is marked with a negative settlement amount.
+      amount: creditNote ? -amount : amount,
       dueDate: invoiceRow.DueDate,
     });
   }
   // All or nothing: a single unmatched receipt means no settlement plan at all.
   return problems.length > 0 ? { plan: [], problems } : { plan, problems };
+}
+
+function isOpenCreditNote(row: YardOpenInvoice): boolean {
+  if (!(Number(row.AmountCur) < 0) || !String(row.Voucher ?? '').trim()) {
+    return false;
+  }
+  return !row.Closed || String(row.Closed).startsWith('1900');
 }
 
 function isOpenInvoice(row: YardOpenInvoice): boolean {

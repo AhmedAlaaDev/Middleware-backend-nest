@@ -136,9 +136,13 @@ function validateGroup(
       const tolerance = parseDecimalToMicro(
         String(YARD_INVOICE_BALANCE_TOLERANCE_MAJOR),
       );
-      if (group.roundedTotal > metadata.openBalance + tolerance) {
+      // A credit note total is negative; its eligible balance is the open credit.
+      const total = group.isCreditNote
+        ? -group.roundedTotal
+        : group.roundedTotal;
+      if (total > metadata.openBalance + tolerance) {
         errors.push(
-          `total ${microToString(group.roundedTotal)} exceeds the eligible balance ${expectedOpenBalanceText} (tolerance ${microToString(tolerance)})`,
+          `total ${microToString(total)} exceeds the eligible balance ${expectedOpenBalanceText} (tolerance ${microToString(tolerance)})`,
         );
       }
     }

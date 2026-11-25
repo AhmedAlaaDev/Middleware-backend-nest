@@ -39,7 +39,7 @@ export function yardBatchRowFromStoredRecord(data: Record<string, unknown>): {
     text('Invoice') ||
     text('MarkedInvoice') ||
     text('Description')
-      .replace(/^(Yard|ShipLink) receipt /, '')
+      .replace(/^(Yard|ShipLink) (receipt|credit note) /, '')
       .trim();
   const lineNumber = Number(data.LineNumber);
   return {
@@ -53,7 +53,7 @@ export function yardBatchRowFromStoredRecord(data: Record<string, unknown>): {
       paymentType: text('VoucherType'),
       paymentDate: text('TransactionDate') || text('TransDate'),
       currencyCode: text('CurrencyCode'),
-      amount: Number(data.CreditAmount ?? 0),
+      amount: Number(data.CreditAmount ?? 0) || Number(data.DebitAmount ?? 0),
     },
   };
 }

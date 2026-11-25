@@ -1,3 +1,4 @@
+import { isCreditNoteInvoice } from './yard-invoice-record';
 import { Injectable, Logger } from '@nestjs/common';
 
 import {
@@ -219,9 +220,11 @@ export class YardInvoiceEnrichmentService {
         );
         const invoiceSide = rows.filter((r) => {
           const amount = safeMicro(r.AmountCur);
+          // A credit note's own transaction is the negative one.
+          const creditNote = isCreditNoteInvoice(String(r.Invoice ?? ''));
           return (
             amount !== null &&
-            amount > 0n &&
+            (creditNote ? amount < 0n : amount > 0n) &&
             String(r.Voucher ?? '').trim() !== ''
           );
         });
@@ -406,7 +409,8 @@ export class YardInvoiceEnrichmentService {
           (row) =>
             RECEIVABLE_POSTING_TYPES.has(
               String(row.PostingType ?? '').trim(),
-            ) && !isYes(row.IsCredit),
+            ) &&
+            isYes(row.IsCredit) === isCreditNoteInvoice(state.invoiceNumber),
         );
       if (receivable.length === 0) {
         state.result = fail(
@@ -505,7 +509,10 @@ export class YardInvoiceEnrichmentService {
         ).trim(),
         financialTagDisplayValue: tagValues.get(state.tagId) as string,
         voucher: state.voucher as string,
-        openBalance: computeOpenBalance(state.trans as CustTransRow),
+        openBalance: computeOpenBalance(
+          state.trans as CustTransRow,
+          isCreditNoteInvoice(state.invoiceNumber),
+        ),
       };
       state.result = { status: 'FOUND', metadata };
     }
@@ -719,10 +726,15 @@ function safeMicro(value: unknown): Micro | null {
 }
 
 /** AmountCur less settled amount, as the existing settlement service does. */
-function computeOpenBalance(row: CustTransRow): Micro | null {
+function computeOpenBalance(
+  row: CustTransRow,
+  creditNote = false,
+): Micro | null {
   const amount = safeMicro(row.AmountCur);
   if (amount === null) return null;
   const settled = safeMicro(row.SettleAmountCur) ?? 0n;
   const absSettled = settled < 0n ? -settled : settled;
+  // A credit note is negative; its open balance is the open credit as a size.
+  if (creditNote) return (amount < 0n ? -amount : amount) - absSettled;
   return amount - absSettled;
 }

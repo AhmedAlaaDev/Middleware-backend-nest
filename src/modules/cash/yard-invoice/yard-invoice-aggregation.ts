@@ -102,6 +102,7 @@ function refOf(record: YardPaymentRecord): string {
  */
 export function aggregateYardInvoiceRecords(
   records: YardPaymentRecord[],
+  options: { allowCreditNotes?: boolean } = {},
 ): YardInvoiceAggregationResult {
   const issues: YardInvoiceAggregationIssue[] = [];
 
@@ -182,10 +183,12 @@ export function aggregateYardInvoiceRecords(
     }
 
     const isCreditNote = rows.some((r) => r.isCreditNote);
-    if (isCreditNote) {
+    if (isCreditNote && !options.allowCreditNotes) {
       errors.push(
         'credit note (-CN): not supported by the Yard cash receipt flow; the file cannot be submitted until these rows are removed or handled outside this flow',
       );
+    } else if (isCreditNote && rows.some((r) => r.amount >= 0n)) {
+      errors.push('credit note (-CN): every row must be a negative amount');
     }
     if (!isCreditNote && rows.some((r) => r.amount <= 0n)) {
       errors.push('contains a zero or negative amount');

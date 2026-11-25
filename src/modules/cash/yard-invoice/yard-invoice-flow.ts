@@ -20,6 +20,8 @@ export interface InvoiceReviewFlowConfig {
   voucherLogicalName: string;
   /** Largest eight-column template accepted for this flow, in data rows. */
   maxTemplateRows: number;
+  /** Prefix of a credit note line text: "<prefix><credit note number>". */
+  creditNotePrefix: string;
   /** Prefix of the receipt text: "<prefix><invoice>" in DESCRIPTION and TransactionText. */
   receiptPrefix: string;
 }
@@ -36,6 +38,7 @@ export const INVOICE_REVIEW_FLOWS: Record<
     voucherLogicalName: 'last.ledger.voucher.cash.in.yard',
     maxTemplateRows: YARD_INVOICE_LIMITS.maxDataRows,
     receiptPrefix: 'Yard receipt ',
+    creditNotePrefix: 'Yard credit note ',
   },
   SHIPLINK: {
     flow: 'SHIPLINK',
@@ -45,6 +48,7 @@ export const INVOICE_REVIEW_FLOWS: Record<
     voucherLogicalName: 'last.ledger.voucher.cash.in.shiplink',
     maxTemplateRows: SHIPLINK_TEMPLATE_MAX_DATA_ROWS,
     receiptPrefix: 'ShipLink receipt ',
+    creditNotePrefix: 'ShipLink credit note ',
   },
 };
 
@@ -70,6 +74,26 @@ export const RECEIPT_PREFIXES = [
   INVOICE_REVIEW_FLOWS.YARD.receiptPrefix,
   INVOICE_REVIEW_FLOWS.SHIPLINK.receiptPrefix,
 ];
+
+/** Credit note line prefixes across both flows. */
+export const CREDIT_NOTE_PREFIXES = [
+  INVOICE_REVIEW_FLOWS.YARD.creditNotePrefix,
+  INVOICE_REVIEW_FLOWS.SHIPLINK.creditNotePrefix,
+];
+
+/**
+ * Yard credit notes (-CN rows with negative amounts) are posted as customer
+ * debit lines against the safe and settled to the credit note, instead of
+ * blocking the file. Off unless YARD_CREDIT_NOTES_ENABLED is true, 1 or yes.
+ */
+export function isYardCreditNotesEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const value = String(env.YARD_CREDIT_NOTES_ENABLED ?? '')
+    .trim()
+    .toLowerCase();
+  return value === 'true' || value === '1' || value === 'yes';
+}
 
 export function isShiplinkInvoiceUploadEnabled(
   env: NodeJS.ProcessEnv = process.env,

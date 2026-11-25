@@ -368,6 +368,7 @@ export class YardInvoiceSubmitService {
       const { rows } = buildYardCashInSourceRows(
         this.preview.toPostingInputs(review),
         config.receiptPrefix,
+        config.creditNotePrefix,
       );
       // The batch is created at review time; submit reuses it.
       batchId =
@@ -517,10 +518,19 @@ export class YardInvoiceSubmitService {
               },
             ],
             config.receiptPrefix,
+            config.creditNotePrefix,
           ).rows[0],
         );
       } else {
-        rows.push(blockedReviewRow(group, index, check, config.receiptPrefix));
+        rows.push(
+          blockedReviewRow(
+            group,
+            index,
+            check,
+            config.receiptPrefix,
+            config.creditNotePrefix,
+          ),
+        );
       }
     });
 
@@ -631,14 +641,20 @@ function blockedReviewRow(
   index: number,
   check: YardInvoiceGroupValidation,
   receiptPrefix: string,
+  creditNotePrefix = 'Yard credit note ',
 ): EntryRawDataModel {
   const metadata = check.metadata;
   const offset = check.offsetAccount;
+  const amount = Number(
+    microToString(
+      group.isCreditNote ? -group.roundedTotal : group.roundedTotal,
+    ),
+  );
   return {
     UniqueId: index + 1,
     LINENUMBER: index + 1,
     TRANSDATE: group.paymentDate,
-    DESCRIPTION: `${receiptPrefix}${group.invoiceNumber}`,
+    DESCRIPTION: `${group.isCreditNote ? creditNotePrefix : receiptPrefix}${group.invoiceNumber}`,
     ACCOUNTTYPE: 'Cust',
     ACCOUNTDISPLAYVALUE: metadata?.customerAccount ?? '',
     DEFAULTDIMENSIONDISPLAYVALUE: metadata?.defaultDimensionDisplayValue ?? '',
@@ -648,8 +664,8 @@ function blockedReviewRow(
     OFFSETFINTAGDISPLAYVALUE: metadata?.financialTagDisplayValue ?? '',
     CURRENCYCODE: group.currencyCode,
     EXCHANGERATE: 0,
-    CREDITAMOUNT: Number(microToString(group.roundedTotal)),
-    DEBITAMOUNT: 0,
+    CREDITAMOUNT: group.isCreditNote ? 0 : amount,
+    DEBITAMOUNT: group.isCreditNote ? amount : 0,
     INVOICE: group.invoiceNumber,
     PAYMENTID: group.paymentSerials[0] ?? '',
     PAYMENTREFERENCE: group.paymentReference,
