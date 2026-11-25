@@ -31,6 +31,7 @@ const FINANCE_BACKED_CASH_IN_TYPES = new Set<EntryProcessorTypes>([
   EntryProcessorTypes.CashInTrucking,
   EntryProcessorTypes.CashInShiplink,
   EntryProcessorTypes.CashInYard,
+  EntryProcessorTypes.CashInCreditNoteSettlement,
 ]);
 
 @CommandHandler(DownloadBatchEnhancedRecordCommand)

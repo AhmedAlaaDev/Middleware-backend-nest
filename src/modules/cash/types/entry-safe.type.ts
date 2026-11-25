@@ -7,4 +7,5 @@ export type EntrySafeType =
   | 'Direct'
   | 'Other'
   | 'Vendor Payment'
-  | 'MAS Revenue';
+  | 'MAS Revenue'
+  | 'Credit Note Settlement';

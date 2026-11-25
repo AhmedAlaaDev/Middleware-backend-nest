@@ -41,4 +41,5 @@ export enum EntryProcessorTypes {
   CashInShiplink = 31,
   CashInYard = 32,
   CashInMasRevenue = 33,
+  CashInCreditNoteSettlement = 34,
 }

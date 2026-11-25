@@ -1,4 +1,9 @@
 import {
+  CREDIT_NOTE_SETTLEMENT_LIMITS,
+  isCreditNoteSettlementEnabled,
+} from '@/modules/cash/credit-note-settlement/credit-note-settlement.constants';
+import { CreditNoteSettlementService } from '@/modules/cash/credit-note-settlement/credit-note-settlement.service';
+import {
   BadRequestException,
   Body,
   Controller,
@@ -109,6 +114,7 @@ export class CashController {
     private readonly queues: QueueService,
     private readonly vendorPaymentSettlements: VendorPaymentSettlementImportService,
     private readonly yardInvoiceSubmit: YardInvoiceSubmitService,
+    private readonly creditNoteSettlement: CreditNoteSettlementService,
   ) {}
 
   /**
@@ -204,6 +210,44 @@ export class CashController {
     return this.commandBus.execute(
       new ProcessCashInShiplinkCommand(file.buffer, companyId),
     );
+  }
+
+  /**
+   * Credit note settlement: each row of the template pairs an open credit note
+   * with the open invoice it reverses. The pairs are checked against D365 and
+   * stored as a standard batch; nothing is posted here.
+   * Gated by CREDIT_NOTE_SETTLEMENT_ENABLED.
+   */
+  @Post('CashIn-CreditNote-Settlement-Document')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Upload the credit note settlement template (.xlsx) + company',
+    type: CashInYardDocDto,
+  })
+  @ApiOperation({
+    summary:
+      'Check credit note and invoice pairs against D365 and create the settlement batch (posts nothing)',
+  })
+  @UseInterceptors(
+    FileInterceptor('dataFile', {
+      limits: {
+        fileSize: CREDIT_NOTE_SETTLEMENT_LIMITS.maxFileBytes,
+        files: 1,
+      },
+    }),
+  )
+  public async cashInCreditNoteSettlementDocument(
+    @ExcelFile() file: MulterFile,
+    @Body() { companyId }: CashInYardDocDto,
+  ) {
+    if (!isCreditNoteSettlementEnabled()) {
+      throw new NotFoundException();
+    }
+    return this.creditNoteSettlement.upload({
+      fileBuffer: file.buffer,
+      fileName: file.originalname,
+      companyId: companyId || 'm-p',
+    });
   }
 
   /**

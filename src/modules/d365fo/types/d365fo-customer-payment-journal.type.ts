@@ -37,6 +37,8 @@ export interface D365FOCustomerPaymentJournalLineRequest {
    * of a separate 223304 line. The settlement step marks the invoice for the
    * gross amount and enables the calculation on the resolved D365 line.
    */
+  /** Credit note settlement pair line, posted with no offset. Not sent to X++. */
+  creditNoteSettlement?: boolean;
   nativeWithholding?: {
     withholdingGroup: string;
     grossAmount: number;
