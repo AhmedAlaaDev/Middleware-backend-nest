@@ -1,3 +1,5 @@
+import { CreditNoteSettlementD365Reader } from '@/modules/cash/credit-note-settlement/credit-note-settlement.review';
+import { CreditNoteSettlementService } from '@/modules/cash/credit-note-settlement/credit-note-settlement.service';
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -75,6 +77,8 @@ const CommandHandlers = [
     YardInvoicePreviewService,
     { provide: YardInvoiceJobStore, useClass: MongoYardInvoiceJobStore },
     YardInvoiceSubmitService,
+    CreditNoteSettlementD365Reader,
+    CreditNoteSettlementService,
     ...CommandHandlers,
   ],
 })

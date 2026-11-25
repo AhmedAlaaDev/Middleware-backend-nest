@@ -1,4 +1,9 @@
 import { invoiceReviewFlowOfBatch } from '@/modules/cash/yard-invoice/yard-invoice-flow';
+import { CREDIT_NOTE_SETTLEMENT_SAFE_TYPE } from '@/modules/cash/credit-note-settlement/credit-note-settlement.constants';
+import {
+  CreditNoteSettlementService,
+  storedSettlementPairs,
+} from '@/modules/cash/credit-note-settlement/credit-note-settlement.service';
 import {
   BadRequestException,
   Injectable,
@@ -65,6 +70,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     private readonly queueService: QueueService,
     private readonly routingService: CashJournalRoutingService = new CashJournalRoutingService(),
     private readonly yardRecheck?: YardInvoicePostingRecheck,
+    private readonly creditNoteSettlement?: CreditNoteSettlementService,
   ) {}
 
   public async execute(
@@ -77,6 +83,13 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     const batch = await this.validateBatch(batchId);
     if (invoiceReviewFlowOfBatch(batch) && this.yardRecheck) {
       await this.ensureYardBatchMatchesD365(batchId, batch.company);
+    }
+    if (
+      batch.entryProcessorType ===
+        EntryProcessorTypes.CashInCreditNoteSettlement &&
+      this.creditNoteSettlement
+    ) {
+      await this.ensureCreditNotePairsStillOpen(batchId, batch.company);
     }
     const cashDirection = this.getCashDirection(batch.entryProcessorType);
     this.ensureCashEntryProcessor(batch.entryProcessorType);
@@ -115,6 +128,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       case EntryProcessorTypes.CashInTrucking:
       case EntryProcessorTypes.CashInShiplink:
       case EntryProcessorTypes.CashInYard:
+      case EntryProcessorTypes.CashInCreditNoteSettlement:
         return 'in';
       case EntryProcessorTypes.CashOutFreight:
       case EntryProcessorTypes.CashOutTrucking:
@@ -185,6 +199,38 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     }
   }
 
+  /**
+   * Credit note settlement batches are checked against live D365 before they
+   * post: each credit note and invoice must still be open for the stored amount.
+   */
+  private async ensureCreditNotePairsStillOpen(
+    batchId: string,
+    company: string,
+  ): Promise<void> {
+    const lines: CashEntryDynDataModel[] = [];
+    const cursor =
+      await this.dataBatchService.getEnhancedRecordsStream(batchId);
+    for await (const record of this.cursorToAsyncIterable<CashEntryDynDataModel>(
+      cursor,
+    )) {
+      lines.push(record.data as unknown as CashEntryDynDataModel);
+    }
+    const problems = await this.creditNoteSettlement!.recheck(
+      company,
+      storedSettlementPairs(lines),
+    );
+    if (problems.length > 0) {
+      throw new BadRequestException({
+        message: 'D365 changed since this batch was uploaded',
+        errors: problems.map((p) => ({
+          lineNumber: p.sourceRow,
+          missingFields: [p.problem],
+        })),
+        details: `${problems.length} credit note pair(s) no longer settle in D365; upload the template again before posting.`,
+      });
+    }
+  }
+
   private async validateBatch(batchId: string) {
     const batch = await this.dataBatchService.getByIdAsync(batchId);
     if (!batch) {
@@ -220,6 +266,7 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       EntryProcessorTypes.CashOutTrucking,
       EntryProcessorTypes.CashInShiplink,
       EntryProcessorTypes.CashInYard,
+      EntryProcessorTypes.CashInCreditNoteSettlement,
     ];
     if (!allowed.includes(entryProcessorType)) {
       throw new BadRequestException(
@@ -733,6 +780,9 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
         ...(Number(line.SourceLineNumber) > 0
           ? { sourceLineNumber: Number(line.SourceLineNumber) }
           : {}),
+        ...(cashDirection === 'in' && this.isCreditNoteSettlementLine(line)
+          ? { creditNoteSettlement: true }
+          : {}),
         // Not part of the X++ contract: consumed by the settlement step that
         // enables native withholding on the resolved D365 line.
         ...(line.NativeWithholding
@@ -795,11 +845,23 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     cashDirection: 'in' | 'out',
     route: CashJournalRoute | undefined,
   ): boolean {
+    const noOffset =
+      !this.toOptionalTrimmedString(line.OffsetAccountType) &&
+      !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue);
+    // Credit note settlement pairs are Cash-In lines with no offset by design.
+    if (cashDirection === 'in' && this.isCreditNoteSettlementLine(line)) {
+      return noOffset;
+    }
     return (
       cashDirection === 'out' &&
       route?.safeType !== 'Vendor Payment' &&
-      !this.toOptionalTrimmedString(line.OffsetAccountType) &&
-      !this.toOptionalTrimmedString(line.OffsetAccountDisplayValue)
+      noOffset
+    );
+  }
+
+  private isCreditNoteSettlementLine(line: CashEntryDynDataModel): boolean {
+    return (
+      String(line.SafeType ?? '').trim() === CREDIT_NOTE_SETTLEMENT_SAFE_TYPE
     );
   }
 
@@ -1033,8 +1095,8 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       !body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim() &&
       !body.offsetAccountDisplayValue?.trim() &&
       !body.OffsetAccountTypeStr?.trim() &&
-      line.cashDirection === 'out' &&
-      route?.safeType !== 'Vendor Payment';
+      ((line.cashDirection === 'out' && route?.safeType !== 'Vendor Payment') ||
+        line.creditNoteSettlement === true);
     if (!isOffsetlessLine) {
       if (!body.offsetDEFAULTDIMENSIONDISPLAYVALUE?.trim()) {
         missingFields.push(
