@@ -108,6 +108,12 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
   PostCashBatchToDFOResult
 > {
   private readonly logger = new Logger(PostCashBatchToDFOHandler.name);
+  /**
+   * Largest Cash In journal posted as one job group. A group is stored as one
+   * MongoDB document, and MongoDB refuses a document over 16 MB, so a larger journal
+   * is split. Project rule: at most 1,000 lines per batch.
+   */
+  private static readonly CASH_IN_MAX_LINES_PER_JOURNAL = 1000;
   private readonly testingModeEnabled = process.env.NODE_ENV === 'development';
   private readonly testingModeMaxLines = 10;
 
@@ -169,10 +175,20 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
 
     await this.prepareBatchForPosting(batchId);
 
-    return await this.enqueuePostingJob(batchId, batch.company, {
-      groupedJournals: journalsToQueue,
-      cashDirection,
-    });
+    try {
+      return await this.enqueuePostingJob(batchId, batch.company, {
+        groupedJournals: journalsToQueue,
+        cashDirection,
+      });
+    } catch (error) {
+      // Queuing failed, so nothing was posted to D365. Return the batch to pending so
+      // the next Post is not refused with "Batch status is 2".
+      await this.dataBatchService.updateStatusAsync(
+        batchId,
+        DataBatchStatus.PendingPosting,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -701,16 +717,18 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
       if (lines.length === 0) continue;
 
       if (cashDirection === 'in') {
-        const header = this.mapHeaderFromLines(lines, company);
-        const mappedLines = this.mapLines(
-          lines,
-          company,
-          'in',
-          undefined,
-          directCashInUpload,
-          postingCurrencies,
-        );
-        result.push({ header, lines: mappedLines });
+        for (const chunk of this.splitCashInLines(lines)) {
+          const header = this.mapHeaderFromLines(chunk, company);
+          const mappedLines = this.mapLines(
+            chunk,
+            company,
+            'in',
+            undefined,
+            directCashInUpload,
+            postingCurrencies,
+          );
+          result.push({ header, lines: mappedLines });
+        }
         continue;
       }
 
@@ -769,6 +787,29 @@ export class PostCashBatchToDFOHandler implements ICommandHandler<
     } as
       | D365FOCustomerPaymentJournalHeaderRequest
       | D365FOVendorInvoiceJournalHeaderRequest;
+  }
+
+  /**
+   * Splits one Cash In journal into journals of at most the line limit. Each Cash In
+   * line carries its own offset account, so it balances alone and no voucher is
+   * split. Credit note settlement pairs share one voucher (offset-less), so a batch
+   * that contains them is never split.
+   */
+  private splitCashInLines(
+    lines: IDataEnhancedRecord<CashEntryDynDataModel>[],
+  ): IDataEnhancedRecord<CashEntryDynDataModel>[][] {
+    const limit = PostCashBatchToDFOHandler.CASH_IN_MAX_LINES_PER_JOURNAL;
+    const sharesVoucher = lines.some(
+      (line) =>
+        String(line.data.SafeType ?? '').trim() ===
+        CREDIT_NOTE_SETTLEMENT_SAFE_TYPE,
+    );
+    if (sharesVoucher || lines.length <= limit) return [lines];
+    const chunks: IDataEnhancedRecord<CashEntryDynDataModel>[][] = [];
+    for (let start = 0; start < lines.length; start += limit) {
+      chunks.push(lines.slice(start, start + limit));
+    }
+    return chunks;
   }
 
   private mapLines(
